@@ -44,6 +44,8 @@ pub fn main() !void {
         try runFileSize(allocator, project_dir, cfg);
     } else if (std.mem.eql(u8, command, "boundaries")) {
         try runBoundaries(allocator, project_dir, cfg);
+    } else if (std.mem.eql(u8, command, "spec-init")) {
+        try runSpecInit(allocator, project_dir);
     } else {
         printUsage();
         std.process.exit(1);
@@ -52,7 +54,7 @@ pub fn main() !void {
 
 fn printUsage() void {
     print("Usage: guardian-check <command> [project-dir]\n", .{});
-    print("Commands: spec, file-size, boundaries\n", .{});
+    print("Commands: spec, file-size, boundaries, spec-init\n", .{});
 }
 
 // ── Spec Coverage ──────────────────────────────────────────────────────
@@ -122,6 +124,122 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
         print("  Each spec behavior must have exactly one // spec: tag (1:1 mapping).\n", .{});
     }
     std.process.exit(1);
+}
+
+// ── Spec Init ──────────────────────────────────────────────────────────
+
+const ModuleInfo = struct {
+    name: []const u8,
+    pub_fns: []const []const u8,
+};
+
+fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
+    const spec_path = try std.fmt.allocPrint(allocator, "{s}/SPEC.md", .{project_dir});
+
+    // Don't overwrite existing SPEC.md
+    if (std.fs.cwd().access(spec_path, .{})) |_| {
+        fail("SPEC.md already exists — refusing to overwrite", .{});
+        print("  Delete it first if you want to regenerate.\n", .{});
+        std.process.exit(1);
+    } else |_| {}
+
+    // Scan src/ for pub fn declarations
+    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
+    var modules: std.ArrayListUnmanaged(ModuleInfo) = .empty;
+    collectModules(allocator, src_path, "", &modules) catch {};
+
+    if (modules.items.len == 0) {
+        fail("no pub fn declarations found in src/", .{});
+        std.process.exit(1);
+    }
+
+    // Generate SPEC.md
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    buf.appendSlice(allocator, "# Project Specification\n\n") catch {};
+    buf.appendSlice(allocator, "## Overview\n\nDescribe the project here.\n\n") catch {};
+
+    for (modules.items) |mod| {
+        if (mod.pub_fns.len == 0) continue;
+        const section = try std.fmt.allocPrint(allocator, "## {s}\n", .{mod.name});
+        buf.appendSlice(allocator, section) catch {};
+        for (mod.pub_fns) |fn_name| {
+            const behavior = try std.fmt.allocPrint(allocator, "- {s} works correctly\n", .{fn_name});
+            buf.appendSlice(allocator, behavior) catch {};
+        }
+        buf.appendSlice(allocator, "\n") catch {};
+    }
+
+    // Write file
+    const file = std.fs.cwd().createFile(spec_path, .{}) catch {
+        fail("failed to write {s}", .{spec_path});
+        std.process.exit(1);
+    };
+    defer file.close();
+    file.writeAll(buf.toOwnedSlice(allocator) catch "") catch {
+        fail("failed to write {s}", .{spec_path});
+        std.process.exit(1);
+    };
+
+    ok("generated {s} with {d} modules", .{ spec_path, modules.items.len });
+    print("  Edit the generated behaviors, then add // spec: tags to your tests.\n", .{});
+}
+
+fn collectModules(
+    allocator: std.mem.Allocator,
+    dir_path: []const u8,
+    prefix: []const u8,
+    modules: *std.ArrayListUnmanaged(ModuleInfo),
+) !void {
+    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
+    defer dir.close();
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        const rel = if (prefix.len > 0)
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name })
+        else
+            try std.fmt.allocPrint(allocator, "{s}", .{entry.name});
+
+        switch (entry.kind) {
+            .directory => {
+                const sub_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
+                try collectModules(allocator, sub_path, rel, modules);
+            },
+            .file => {
+                if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+                const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
+                const fns = extractPubFns(allocator, content);
+                if (fns.len > 0) {
+                    // Module name: strip .zig, replace / with .
+                    const stem = if (std.mem.endsWith(u8, rel, ".zig")) rel[0 .. rel.len - 4] else rel;
+                    modules.append(allocator, .{
+                        .name = stem,
+                        .pub_fns = fns,
+                    }) catch {};
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) []const []const u8 {
+    var fns: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        if (std.mem.startsWith(u8, trimmed, "pub fn ")) {
+            const after = trimmed[7..]; // skip "pub fn "
+            // Extract function name (up to '(')
+            if (std.mem.indexOfScalar(u8, after, '(')) |paren| {
+                const name = after[0..paren];
+                // Skip main, test helpers, etc.
+                if (std.mem.eql(u8, name, "main")) continue;
+                if (std.mem.eql(u8, name, "build")) continue;
+                fns.append(allocator, name) catch {};
+            }
+        }
+    }
+    return fns.toOwnedSlice(allocator) catch &.{};
 }
 
 // ── File Size ──────────────────────────────────────────────────────────

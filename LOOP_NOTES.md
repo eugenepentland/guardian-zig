@@ -6,11 +6,11 @@ Guardian is pure build.zig steps. Runs on every `zig build` (invisible, hard-blo
 Test fixture at `test-project/` exercises all checks with intentional failures.
 
 ## Priority Ideas
-- Add color output (detect TTY, use ANSI codes for pass/fail)
 - Add a `--quiet` flag that only prints failures
 - Consider spec lifecycle: `spec-suggest` subcommand to analyze code and suggest SPEC.md entries
-- Add build.zig integration test: a test that invokes `zig build` on test-project and verifies the exit code and output
-- Consider checking build.zig itself for file size (currently only .zig files in src/ and test/)
+- Add build.zig integration test: a test that invokes `zig build` on test-project and verifies exit code/output
+- Consider a `spec init` subcommand to generate starter SPEC.md from existing pub fn signatures
+- Explore making the file-size exclude patterns support glob syntax (currently substring match)
 
 ## Completed
 - Refactored to pure build.zig steps — 19 files → 4 files
@@ -20,11 +20,12 @@ Test fixture at `test-project/` exercises all checks with intentional failures.
 - Unit tests for analyze(): full coverage, unverified, duplicates, unlinked
 - Added boundary rules for guardian-zig itself + boundary violation in test-project
 - Normalized import paths in boundary violations
-- Config edge case tests: comments/blanks, malformed values, multiple boundaries, empty arrays (18 tests)
-- File size now checks both src/ and test/ directories. Gracefully skips missing dirs. Fixed hardcoded `src/` prefix in violation messages.
+- Config edge case tests (18 tests total)
+- File size now checks both src/ and test/
+- Color output: green `guardian:` prefix on pass, red on fail. TTY-detected via `File.stderr().isTty()` — no ANSI codes when piped.
 
 ## Observations
-- All 3 projects verified: self (pass), test-project (expected spec + boundary failures), EDA (expected spec/fmt/size failures)
-- EDA file size violations correctly show `src/` prefix from the walk, not hardcoded
-- test-project has no test/ dir — file size check gracefully skips it
+- Color output is invisible in build system output (piped, not TTY) but will show in direct terminal runs
+- All 3 projects verified: self (pass), test-project (expected failures), EDA (expected failures)
 - 18 unit tests all pass
+- No ANSI escape code leakage in piped/captured output — clean grep-able messages
