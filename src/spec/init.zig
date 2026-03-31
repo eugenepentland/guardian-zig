@@ -67,13 +67,17 @@ pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const Module
 
     for (modules) |mod| {
         if (mod.pub_fns.len == 0) continue;
-        const section = std.fmt.allocPrint(allocator, "## {s}\n", .{mod.name}) catch continue;
+        const section = std.fmt.allocPrint(allocator, "## {s}\n\n", .{mod.name}) catch continue;
         buf.appendSlice(allocator, section) catch {};
-        for (mod.pub_fns) |fn_name| {
-            const behavior = std.fmt.allocPrint(allocator, "- {s} works correctly\n", .{fn_name}) catch continue;
-            buf.appendSlice(allocator, behavior) catch {};
+        // List functions as hints, user replaces with real behavior descriptions
+        buf.appendSlice(allocator, "Public functions: ") catch {};
+        for (mod.pub_fns, 0..) |fn_name, i| {
+            if (i > 0) buf.appendSlice(allocator, ", ") catch {};
+            buf.appendSlice(allocator, fn_name) catch {};
         }
-        buf.appendSlice(allocator, "\n") catch {};
+        buf.appendSlice(allocator, "\n\n") catch {};
+        // Placeholder behavior for user to fill in
+        buf.appendSlice(allocator, "- TODO: describe behaviors\n\n") catch {};
     }
 
     return buf.toOwnedSlice(allocator) catch "";

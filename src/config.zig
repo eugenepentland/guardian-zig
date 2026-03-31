@@ -8,11 +8,7 @@ pub const BoundaryRule = struct {
 
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
-    min_spec_coverage: u32 = 100,
-    min_test_coverage: u32 = 80,
-    min_mutation_score: u32 = 90,
     max_file_lines: u32 = 500,
-    mutation_exclude: []const []const u8 = &.{},
     file_size_exclude: []const []const u8 = &.{},
     boundary_rules: []const BoundaryRule = &.{},
 };
@@ -74,17 +70,8 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
                     if (parseString(val_raw)) |v| {
                         cfg.spec_file = v;
                     }
-                } else if (std.mem.eql(u8, key, "min_spec_coverage")) {
-                    cfg.min_spec_coverage = std.fmt.parseInt(u32, val_raw, 10) catch cfg.min_spec_coverage;
-                } else if (std.mem.eql(u8, key, "min_test_coverage")) {
-                    cfg.min_test_coverage = std.fmt.parseInt(u32, val_raw, 10) catch cfg.min_test_coverage;
-                } else if (std.mem.eql(u8, key, "min_mutation_score")) {
-                    cfg.min_mutation_score = std.fmt.parseInt(u32, val_raw, 10) catch cfg.min_mutation_score;
                 } else if (std.mem.eql(u8, key, "max_file_lines")) {
                     cfg.max_file_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.max_file_lines;
-                } else if (std.mem.eql(u8, key, "mutation_exclude")) {
-                    var list = parseStringArray(allocator, val_raw);
-                    cfg.mutation_exclude = list.toOwnedSlice(allocator) catch &.{};
                 } else if (std.mem.eql(u8, key, "file_size_exclude")) {
                     var list = parseStringArray(allocator, val_raw);
                     cfg.file_size_exclude = list.toOwnedSlice(allocator) catch &.{};
@@ -134,7 +121,6 @@ test "parse default config" {
     defer arena.deinit();
     const cfg = parse(arena.allocator(), "");
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
-    try std.testing.expectEqual(@as(u32, 100), cfg.min_spec_coverage);
     try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
 }
 
@@ -145,9 +131,7 @@ test "parse config with values" {
     defer arena.deinit();
     const content =
         \\spec_file = "SPEC.md"
-        \\min_spec_coverage = 80
         \\max_file_lines = 300
-        \\mutation_exclude = ["src/config.zig"]
         \\
         \\[[boundary]]
         \\module = "src/stages/*"
@@ -155,10 +139,7 @@ test "parse config with values" {
     ;
     const cfg = parse(arena.allocator(), content);
 
-    try std.testing.expectEqual(@as(u32, 80), cfg.min_spec_coverage);
     try std.testing.expectEqual(@as(u32, 300), cfg.max_file_lines);
-    try std.testing.expectEqual(@as(usize, 1), cfg.mutation_exclude.len);
-    try std.testing.expectEqualStrings("src/config.zig", cfg.mutation_exclude[0]);
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules.len);
     try std.testing.expectEqualStrings("src/stages/*", cfg.boundary_rules[0].module_pattern);
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules[0].forbidden_imports.len);
@@ -186,13 +167,11 @@ test "parse malformed values fall back to defaults" {
     const content =
         \\max_file_lines = not_a_number
         \\spec_file = unquoted
-        \\min_spec_coverage = -5
     ;
     const cfg = parse(arena.allocator(), content);
     // All should fall back to defaults
     try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
-    try std.testing.expectEqual(@as(u32, 100), cfg.min_spec_coverage);
 }
 
 test "parse multiple boundary rules" {

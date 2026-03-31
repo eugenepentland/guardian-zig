@@ -79,7 +79,6 @@ Patterns use `*` as a wildcard. Without `*`, substring matching is used.
 
 ```bash
 zig build spec-init      # Generate starter SPEC.md from pub fn signatures
-zig build spec-suggest   # Find pub fns not yet covered in SPEC.md
 ```
 
 ## Principles

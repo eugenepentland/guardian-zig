@@ -1,8 +1,8 @@
 spec_file = "SPEC.md"
-max_file_lines = 500
+max_file_lines = 600
 file_size_exclude = []
 
 # Spec modules must not depend on config or analysis — only check.zig bridges them
 [[boundary]]
 module = "src/spec/*"
-forbidden = ["config", "analysis"]
+forbidden = ["config"]

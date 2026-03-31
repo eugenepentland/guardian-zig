@@ -21,7 +21,6 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Spec Lifecycle
 
 - Generates starter SPEC.md from pub fn signatures via spec-init
-- Suggests uncovered pub fns via spec-suggest with case-insensitive matching
 - Normalizes spec keys for whitespace-insensitive comparison
 
 ## File Size

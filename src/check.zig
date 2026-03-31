@@ -2,7 +2,6 @@ const std = @import("std");
 const spec_parser = @import("spec/parser.zig");
 const spec_matcher = @import("spec/matcher.zig");
 const spec_init = @import("spec/init.zig");
-const analysis = @import("analysis.zig");
 const config_mod = @import("config.zig");
 
 const print = std.debug.print;
@@ -24,7 +23,6 @@ fn fail(comptime fmt: []const u8, args: anytype) void {
 }
 
 pub fn main() !void {
-    // Detect color support
     use_color = std.fs.File.stderr().isTty();
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -37,7 +35,6 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    // Parse args: command [project-dir] [--quiet]
     var command: ?[]const u8 = null;
     var project_dir: []const u8 = ".";
     for (args[1..]) |arg| {
@@ -64,8 +61,6 @@ pub fn main() !void {
         try runBoundaries(allocator, project_dir, cfg);
     } else if (std.mem.eql(u8, cmd, "spec-init")) {
         try runSpecInit(allocator, project_dir);
-    } else if (std.mem.eql(u8, cmd, "spec-suggest")) {
-        try runSpecSuggest(allocator, project_dir, cfg);
     } else {
         printUsage();
         std.process.exit(1);
@@ -74,7 +69,7 @@ pub fn main() !void {
 
 fn printUsage() void {
     print("Usage: guardian-check <command> [project-dir]\n", .{});
-    print("Commands: spec, file-size, boundaries, spec-init, spec-suggest\n", .{});
+    print("Commands: spec, file-size, boundaries, spec-init\n", .{});
 }
 
 // ── Spec Coverage ──────────────────────────────────────────────────────
@@ -101,7 +96,6 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
         std.process.exit(1);
     };
 
-    // Scan both test/ and src/ for spec tags
     const test_dir = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
     const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
 
@@ -112,7 +106,6 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
 
     const result = spec_matcher.analyze(allocator, sections, tags);
 
-    // Report
     const has_failures = result.unverified_behaviors.len > 0 or
         result.unlinked_tags.len > 0 or
         result.duplicate_tags.len > 0;
@@ -122,7 +115,6 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
         return;
     }
 
-    // Failures — show summary counts
     fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} duplicate)", .{
         result.covered_behaviors,
         result.total_behaviors,
@@ -158,14 +150,12 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
 fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/SPEC.md", .{project_dir});
 
-    // Don't overwrite existing SPEC.md
     if (std.fs.cwd().access(spec_path, .{})) |_| {
         fail("SPEC.md already exists — refusing to overwrite", .{});
         print("  Delete it first if you want to regenerate.\n", .{});
         std.process.exit(1);
     } else |_| {}
 
-    // Scan src/ for pub fn declarations
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
     var modules: std.ArrayListUnmanaged(spec_init.ModuleInfo) = .empty;
     spec_init.collectModules(allocator, src_path, "", &modules) catch {};
@@ -175,7 +165,6 @@ fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
         std.process.exit(1);
     }
 
-    // Generate and write SPEC.md
     const content = spec_init.generateSpecContent(allocator, modules.items);
     const file = std.fs.cwd().createFile(spec_path, .{}) catch {
         fail("failed to write {s}", .{spec_path});
@@ -191,79 +180,6 @@ fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
     print("  Edit the generated behaviors, then add // spec: tags to your tests.\n", .{});
 }
 
-// ── Spec Suggest ───────────────────────────────────────────────────────
-// spec: Spec Lifecycle - Suggests uncovered pub fns via spec-suggest with case-insensitive matching
-
-fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len == 0 or needle.len > haystack.len) return false;
-    const end = haystack.len - needle.len + 1;
-    for (0..end) |i| {
-        var match = true;
-        for (needle, 0..) |nc, j| {
-            if (std.ascii.toLower(haystack[i + j]) != std.ascii.toLower(nc)) {
-                match = false;
-                break;
-            }
-        }
-        if (match) return true;
-    }
-    return false;
-}
-
-fn runSpecSuggest(allocator: std.mem.Allocator, project_dir: []const u8, cfg: config_mod.Config) !void {
-    const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, cfg.spec_file });
-
-    // Parse existing SPEC.md
-    const sections = spec_parser.parseFile(allocator, spec_path) catch {
-        fail("{s} not found — run `zig build spec-init` first", .{cfg.spec_file});
-        std.process.exit(1);
-    };
-
-    // Collect all existing behavior statements (lowercased for fuzzy matching)
-    var existing: std.ArrayListUnmanaged([]const u8) = .empty;
-    for (sections) |s| {
-        for (s.behaviors) |b| {
-            existing.append(allocator, b.statement) catch {};
-        }
-    }
-
-    // Scan src/ for pub fns
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    var modules: std.ArrayListUnmanaged(spec_init.ModuleInfo) = .empty;
-    spec_init.collectModules(allocator, src_path, "", &modules) catch {};
-
-    // Find pub fns not mentioned in any existing behavior
-    var suggestions: std.ArrayListUnmanaged([]const u8) = .empty;
-    for (modules.items) |mod| {
-        for (mod.pub_fns) |fn_name| {
-            var found = false;
-            for (existing.items) |stmt| {
-                // Check if the function name appears in any behavior statement
-                // Case-insensitive: "add" matches "Adds two numbers"
-                if (analysis.containsIgnoreCase(stmt, fn_name)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                const suggestion = std.fmt.allocPrint(allocator, "## {s}\n- {s} works correctly", .{ mod.name, fn_name }) catch continue;
-                suggestions.append(allocator, suggestion) catch {};
-            }
-        }
-    }
-
-    if (suggestions.items.len == 0) {
-        ok("all pub fns are covered in {s}", .{cfg.spec_file});
-        return;
-    }
-
-    print("guardian: {d} pub fn(s) not covered in {s}:\n\n", .{ suggestions.items.len, cfg.spec_file });
-    for (suggestions.items) |s| {
-        print("  {s}\n", .{s});
-    }
-    print("\n  Add these to {s} and tag corresponding tests.\n", .{cfg.spec_file});
-}
-
 // ── File Size ──────────────────────────────────────────────────────────
 // spec: File Size - Checks source files against configurable line limit
 // spec: File Size - Respects file_size_exclude patterns
@@ -271,13 +187,12 @@ fn runSpecSuggest(allocator: std.mem.Allocator, project_dir: []const u8, cfg: co
 fn runFileSize(allocator: std.mem.Allocator, project_dir: []const u8, cfg: config_mod.Config) !void {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
 
-    // Check both src/ and test/ directories
     const dirs_to_check = [_][]const u8{ "src", "test" };
     for (&dirs_to_check) |dir_name| {
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
         var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch continue;
         defer dir.close();
-        analysis.walkFileSize(allocator, dir, dir_name, cfg.max_file_lines, cfg.file_size_exclude, &violations) catch {};
+        walkFileSize(allocator, dir, dir_name, cfg.max_file_lines, cfg.file_size_exclude, &violations) catch {};
     }
 
     if (violations.items.len == 0) {
@@ -312,7 +227,7 @@ fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: con
     defer dir.close();
 
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
-    analysis.walkBoundaries(allocator, dir, "src", cfg.boundary_rules, &violations) catch {};
+    walkBoundaries(allocator, dir, "src", cfg.boundary_rules, &violations) catch {};
 
     if (violations.items.len == 0) {
         ok("all imports comply with boundary rules", .{});
@@ -326,6 +241,159 @@ fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: con
     std.process.exit(1);
 }
 
+// ── Analysis helpers ───────────────────────────────────────────────────
+
+fn matchGlob(text: []const u8, pattern: []const u8) bool {
+    if (std.mem.indexOfScalar(u8, pattern, '*') == null) {
+        return std.mem.indexOf(u8, text, pattern) != null;
+    }
+    var ti: usize = 0;
+    var parts = std.mem.splitScalar(u8, pattern, '*');
+    var first = true;
+    while (parts.next()) |part| {
+        if (part.len == 0) {
+            first = false;
+            continue;
+        }
+        if (first) {
+            if (!std.mem.startsWith(u8, text[ti..], part)) return false;
+            ti += part.len;
+            first = false;
+        } else {
+            if (std.mem.indexOf(u8, text[ti..], part)) |idx| {
+                ti += idx + part.len;
+            } else {
+                return false;
+            }
+        }
+    }
+    if (std.mem.endsWith(u8, pattern, "*")) return true;
+    return ti == text.len;
+}
+
+fn normalizePath(allocator: std.mem.Allocator, path: []const u8) []const u8 {
+    var parts: std.ArrayListUnmanaged([]const u8) = .empty;
+    var iter = std.mem.splitScalar(u8, path, '/');
+    while (iter.next()) |seg| {
+        if (std.mem.eql(u8, seg, ".") or seg.len == 0) continue;
+        if (std.mem.eql(u8, seg, "..")) {
+            if (parts.items.len > 0) _ = parts.pop();
+        } else {
+            parts.append(allocator, seg) catch {};
+        }
+    }
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    for (parts.items, 0..) |part, i| {
+        if (i > 0) result.append(allocator, '/') catch {};
+        result.appendSlice(allocator, part) catch {};
+    }
+    return result.toOwnedSlice(allocator) catch path;
+}
+
+fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) []const []const u8 {
+    var imports: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        if (std.mem.indexOf(u8, trimmed, "@import(\"")) |idx| {
+            const start = idx + 9;
+            if (std.mem.indexOfScalarPos(u8, trimmed, start, '"')) |end| {
+                const import_path = trimmed[start..end];
+                if (std.mem.eql(u8, import_path, "std")) continue;
+                if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |dir_end| {
+                    const raw = std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], import_path }) catch continue;
+                    imports.append(allocator, normalizePath(allocator, raw)) catch {};
+                } else {
+                    imports.append(allocator, import_path) catch {};
+                }
+            }
+        }
+    }
+    return imports.toOwnedSlice(allocator) catch &.{};
+}
+
+fn walkFileSize(
+    allocator: std.mem.Allocator,
+    dir: std.fs.Dir,
+    prefix: []const u8,
+    max_lines: u32,
+    excludes: []const []const u8,
+    violations: *std.ArrayListUnmanaged([]const u8),
+) !void {
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        const rel = if (prefix.len > 0)
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name })
+        else
+            try std.fmt.allocPrint(allocator, "{s}", .{entry.name});
+
+        switch (entry.kind) {
+            .directory => {
+                var sub = try dir.openDir(entry.name, .{ .iterate = true });
+                defer sub.close();
+                try walkFileSize(allocator, sub, rel, max_lines, excludes, violations);
+            },
+            .file => {
+                if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+                const excluded = blk: {
+                    for (excludes) |pat| {
+                        if (matchGlob(rel, pat)) break :blk true;
+                    }
+                    break :blk false;
+                };
+                if (excluded) continue;
+                const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
+                var lines: u32 = 1;
+                for (content) |c| {
+                    if (c == '\n') lines += 1;
+                }
+                if (lines > max_lines) {
+                    const msg = try std.fmt.allocPrint(allocator, "{s}: {d} lines (limit: {d})", .{ rel, lines, max_lines });
+                    try violations.append(allocator, msg);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+fn walkBoundaries(
+    allocator: std.mem.Allocator,
+    dir: std.fs.Dir,
+    prefix: []const u8,
+    rules: []const config_mod.BoundaryRule,
+    violations: *std.ArrayListUnmanaged([]const u8),
+) !void {
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        const rel = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name });
+        switch (entry.kind) {
+            .directory => {
+                var sub = try dir.openDir(entry.name, .{ .iterate = true });
+                defer sub.close();
+                try walkBoundaries(allocator, sub, rel, rules, violations);
+            },
+            .file => {
+                if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+                const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
+                const imports = extractImports(allocator, content, rel);
+                for (rules) |rule| {
+                    if (!matchGlob(rel, rule.module_pattern)) continue;
+                    for (imports) |imp| {
+                        for (rule.forbidden_imports) |f| {
+                            if (std.mem.indexOf(u8, imp, f) != null) {
+                                const msg = std.fmt.allocPrint(allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ rel, imp, rule.module_pattern }) catch continue;
+                                violations.append(allocator, msg) catch {};
+                            }
+                        }
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 test {
@@ -333,5 +401,91 @@ test {
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");
-    _ = @import("analysis.zig");
+}
+
+test "matchGlob boundary patterns" {
+    try std.testing.expect(matchGlob("src/stages/foo.zig", "src/stages/*"));
+    try std.testing.expect(matchGlob("src/stages/sub/bar.zig", "src/stages/*"));
+    try std.testing.expect(!matchGlob("src/other/foo.zig", "src/stages/*"));
+    try std.testing.expect(!matchGlob("src/stages.zig", "src/stages/*"));
+    try std.testing.expect(matchGlob("src/stages/foo.zig", "src/stages/"));
+    try std.testing.expect(!matchGlob("src/other.zig", "src/stages/"));
+    try std.testing.expect(matchGlob("src/main.zig", "src/main.zig"));
+    try std.testing.expect(!matchGlob("src/main.zig", "src/other.zig"));
+    try std.testing.expect(matchGlob("src/foo/bar.zig", "src/foo"));
+}
+
+test "matchGlob wildcards" {
+    try std.testing.expect(matchGlob("src/core/math.zig", "math"));
+    try std.testing.expect(!matchGlob("src/core/math.zig", "xyz"));
+    try std.testing.expect(matchGlob("src/generated/output.zig", "*/output.zig"));
+    try std.testing.expect(matchGlob("src/generated/foo.zig", "src/generated/*"));
+    try std.testing.expect(!matchGlob("src/core/foo.zig", "src/generated/*"));
+    try std.testing.expect(matchGlob("src/core/math.zig", "src/*/math.zig"));
+    try std.testing.expect(matchGlob("a/b/c/d.zig", "a/*/c/*"));
+    try std.testing.expect(matchGlob("anything", "*"));
+}
+
+test "extractImports resolves paths" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\const std = @import("std");
+        \\const shell = @import("shell.zig");
+        \\const parser = @import("../spec/parser.zig");
+    ;
+    const imports = extractImports(a, content, "src/stages/foo.zig");
+    try std.testing.expectEqual(@as(usize, 2), imports.len);
+    try std.testing.expectEqualStrings("src/stages/shell.zig", imports[0]);
+    try std.testing.expectEqualStrings("src/spec/parser.zig", imports[1]);
+}
+
+test "normalizePath resolves parent refs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings("src/utils/foo.zig", normalizePath(a, "src/core/../utils/foo.zig"));
+    try std.testing.expectEqualStrings("src/main.zig", normalizePath(a, "src/./main.zig"));
+    try std.testing.expectEqualStrings("foo.zig", normalizePath(a, "a/b/../../foo.zig"));
+}
+
+test "walkFileSize finds violations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 10, &.{}, &violations);
+    try std.testing.expect(violations.items.len >= 3);
+}
+
+test "walkFileSize respects excludes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+    var without: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 10, &.{}, &without);
+
+    dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    var with: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 10, &.{"main"}, &with);
+    try std.testing.expect(with.items.len < without.items.len);
+}
+
+test "walkBoundaries detects violation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+    const rules = &[_]config_mod.BoundaryRule{
+        .{ .module_pattern = "src/core/*", .forbidden_imports = &.{"utils"} },
+    };
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    walkBoundaries(a, dir, "src", rules, &violations) catch return;
+    try std.testing.expect(violations.items.len > 0);
 }
