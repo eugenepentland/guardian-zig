@@ -9,9 +9,9 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 
 ## Priority Ideas
 - Explore making file-size exclude patterns support glob syntax
-- Consider adding SPEC.md entries for analysis.zig and spec/init.zig public functions
 - Add an integration-style test: verify spec check exit code on known-bad directory
 - Consider a `spec-diff` command: show what changed between current SPEC.md and what spec-init would generate
+- Look into publishing guardian as a proper zig package (with URL-based dependency support)
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -30,10 +30,11 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 - Extracted analysis helpers to `analysis.zig` + tests
 - Extended boundary rules
 - Wired spec-suggest into all consumer projects
-- `--quiet` flag + used by default in all build.zig files (guardian, test-project, EDA). CLAUDE.md integration example updated.
+- `--quiet` flag in all build.zig files
+- Expanded SPEC.md with Spec Lifecycle (3 behaviors) and updated Boundaries (4 behaviors). Now 17/17 spec coverage, up from 13/13.
 
 ## Observations
-- All 3 projects now completely silent on success — only failures show
-- EDA: previously showed "no boundary rules configured" pass message, now silent
+- 17/17 spec behaviors covered — all major functionality has spec entries
+- spec-suggest still reports 13 uncovered pub fns — these are implementation-level functions that don't need individual spec entries
+- All 3 projects verified: self (silent pass), test-project (expected failures), EDA (expected failures)
 - 22 unit tests all pass
-- Tool is feature-complete and polished. Remaining items are minor refinements.

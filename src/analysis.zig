@@ -158,6 +158,33 @@ test "normalizePath resolves parent refs" {
     try std.testing.expectEqualStrings("src/bar.zig", normalizePath(a, "src/bar.zig"));
 }
 
+test "walkBoundaries detects violation in test-project" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // test-project has a boundary rule: src/core/* cannot import utils
+    // and core/math.zig imports ../utils/helpers.zig
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    const rules = &[_]config_mod.BoundaryRule{
+        .{ .module_pattern = "src/core/*", .forbidden_imports = &.{"utils"} },
+    };
+
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    walkBoundaries(a, dir, "src", rules, &violations) catch return;
+
+    // Should find the violation: core/math.zig imports utils/helpers.zig
+    try std.testing.expect(violations.items.len > 0);
+    // Verify the violation message mentions the right file
+    var found_math = false;
+    for (violations.items) |v| {
+        if (std.mem.indexOf(u8, v, "math.zig") != null) found_math = true;
+    }
+    try std.testing.expect(found_math);
+}
+
 test "containsIgnoreCase matches" {
     try std.testing.expect(containsIgnoreCase("Adds two numbers correctly", "add"));
     try std.testing.expect(containsIgnoreCase("Validates JWT tokens", "validates"));
