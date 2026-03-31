@@ -2,8 +2,7 @@
 
 ## Overview
 
-A verification gate tool for AI-generated Zig code. Runs a multi-stage pipeline
-and auto-commits on success or writes GUARDIAN_FEEDBACK.md on failure.
+Build-step quality gates for Zig projects. Integrates into build.zig as a package dependency — no external tool needed.
 
 ## Configuration
 
@@ -17,9 +16,13 @@ and auto-commits on success or writes GUARDIAN_FEEDBACK.md on failure.
 - Scans test and source files for // spec: tags
 - Reports unverified behaviors and unlinked tags
 
-## Pipeline
+## File Size
 
-- Runs stages sequentially and stops at first failure
-- Reports pass/fail status for each stage
-- Auto-commits with receipt on success
-- Writes GUARDIAN_FEEDBACK.md on failure
+- Checks source files against configurable line limit
+- Respects file_size_exclude patterns
+
+## Boundaries
+
+- Extracts @import paths from source files
+- Checks against boundary rules defined in guardian.toml
+- Reports forbidden import violations
