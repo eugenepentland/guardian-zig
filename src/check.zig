@@ -112,16 +112,16 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
 // spec: File Size - Respects file_size_exclude patterns
 
 fn runFileSize(allocator: std.mem.Allocator, project_dir: []const u8, cfg: config_mod.Config) !void {
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-
-    var dir = std.fs.cwd().openDir(src_path, .{ .iterate = true }) catch {
-        print("guardian: no src/ directory, skipping file size check\n", .{});
-        return;
-    };
-    defer dir.close();
-
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
-    walkFileSize(allocator, dir, "", cfg.max_file_lines, cfg.file_size_exclude, &violations) catch {};
+
+    // Check both src/ and test/ directories
+    const dirs_to_check = [_][]const u8{ "src", "test" };
+    for (&dirs_to_check) |dir_name| {
+        const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
+        var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch continue;
+        defer dir.close();
+        walkFileSize(allocator, dir, dir_name, cfg.max_file_lines, cfg.file_size_exclude, &violations) catch {};
+    }
 
     if (violations.items.len == 0) {
         print("guardian: all files within {d} line limit\n", .{cfg.max_file_lines});
@@ -167,7 +167,7 @@ fn walkFileSize(
                     if (c == '\n') lines += 1;
                 }
                 if (lines > max_lines) {
-                    const msg = try std.fmt.allocPrint(allocator, "src/{s}: {d} lines (limit: {d})", .{ rel, lines, max_lines });
+                    const msg = try std.fmt.allocPrint(allocator, "{s}: {d} lines (limit: {d})", .{ rel, lines, max_lines });
                     try violations.append(allocator, msg);
                 }
             },
