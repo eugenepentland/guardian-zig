@@ -5,7 +5,24 @@ const config_mod = @import("config.zig");
 
 const print = std.debug.print;
 
+// ANSI color codes — only used when stderr is a TTY
+var use_color: bool = false;
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const RESET = "\x1b[0m";
+
+fn ok(comptime fmt: []const u8, args: anytype) void {
+    if (use_color) print(GREEN ++ "guardian: " ++ RESET ++ fmt ++ "\n", args) else print("guardian: " ++ fmt ++ "\n", args);
+}
+
+fn fail(comptime fmt: []const u8, args: anytype) void {
+    if (use_color) print(RED ++ "guardian: " ++ RESET ++ fmt ++ "\n", args) else print("guardian: " ++ fmt ++ "\n", args);
+}
+
 pub fn main() !void {
+    // Detect color support
+    use_color = std.fs.File.stderr().isTty();
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -45,7 +62,7 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
 
     // spec: Spec Coverage - Fails with clear error when SPEC.md is missing
     const sections = spec_parser.parseFile(allocator, spec_path) catch {
-        print("guardian: ERROR — {s} not found\n", .{cfg.spec_file});
+        fail("ERROR — {s} not found", .{cfg.spec_file});
         print("\n", .{});
         print("  Guardian requires a SPEC.md file with your project's specification.\n", .{});
         print("  Create {s} with this structure:\n", .{cfg.spec_file});
@@ -79,12 +96,12 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
         result.duplicate_tags.len > 0;
 
     if (!has_failures) {
-        print("guardian: spec coverage {d}/{d} behaviors covered\n", .{ result.covered_behaviors, result.total_behaviors });
+        ok("spec coverage {d}/{d} behaviors covered", .{ result.covered_behaviors, result.total_behaviors });
         return;
     }
 
     // Failures
-    print("guardian: spec coverage FAILED\n", .{});
+    fail("spec coverage FAILED", .{});
     for (result.unverified_behaviors) |b| {
         print("  unverified: {s} - {s}\n", .{ b.section, b.statement });
     }
@@ -124,11 +141,11 @@ fn runFileSize(allocator: std.mem.Allocator, project_dir: []const u8, cfg: confi
     }
 
     if (violations.items.len == 0) {
-        print("guardian: all files within {d} line limit\n", .{cfg.max_file_lines});
+        ok("all files within {d} line limit", .{cfg.max_file_lines});
         return;
     }
 
-    print("guardian: file size FAILED\n", .{});
+    fail("file size FAILED", .{});
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
@@ -183,13 +200,13 @@ fn walkFileSize(
 
 fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: config_mod.Config) !void {
     if (cfg.boundary_rules.len == 0) {
-        print("guardian: no boundary rules configured\n", .{});
+        ok("no boundary rules configured", .{});
         return;
     }
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
     var dir = std.fs.cwd().openDir(src_path, .{ .iterate = true }) catch {
-        print("guardian: no src/ directory, skipping boundary check\n", .{});
+        ok("no src/ directory, skipping boundary check", .{});
         return;
     };
     defer dir.close();
@@ -198,11 +215,11 @@ fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: con
     walkBoundaries(allocator, dir, "src", cfg.boundary_rules, &violations) catch {};
 
     if (violations.items.len == 0) {
-        print("guardian: all imports comply with boundary rules\n", .{});
+        ok("all imports comply with boundary rules", .{});
         return;
     }
 
-    print("guardian: boundary check FAILED\n", .{});
+    fail("boundary check FAILED", .{});
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
