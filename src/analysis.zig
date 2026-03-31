@@ -95,9 +95,13 @@ pub fn walkFileSize(
             },
             .file => {
                 if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
-                for (excludes) |pat| {
-                    if (std.mem.indexOf(u8, rel, pat) != null) continue;
-                }
+                const excluded = blk: {
+                    for (excludes) |pat| {
+                        if (std.mem.indexOf(u8, rel, pat) != null) break :blk true;
+                    }
+                    break :blk false;
+                };
+                if (excluded) continue;
                 const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
                 var lines: u32 = 1;
                 for (content) |c| {
@@ -224,6 +228,34 @@ test "walkFileSize on test-project with low limit finds violations" {
     try walkFileSize(a, dir, "src", 10, &.{}, &violations);
     // main.zig (34 lines), math.zig (15), strings.zig (11) should all exceed limit 10
     try std.testing.expect(violations.items.len >= 3);
+}
+
+test "walkFileSize respects exclude patterns" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    // With limit 10, without excludes we get 3+ violations
+    // Exclude "main" should skip main.zig, reducing violations
+    var without_exclude: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 10, &.{}, &without_exclude);
+    const count_without = without_exclude.items.len;
+
+    dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+
+    var with_exclude: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 10, &.{"main"}, &with_exclude);
+    const count_with = with_exclude.items.len;
+
+    // Excluding "main" should result in fewer violations
+    try std.testing.expect(count_with < count_without);
+    // And main.zig should not appear in violations
+    for (with_exclude.items) |v| {
+        try std.testing.expect(std.mem.indexOf(u8, v, "main.zig") == null);
+    }
 }
 
 test "walkBoundaries detects violation in test-project" {
