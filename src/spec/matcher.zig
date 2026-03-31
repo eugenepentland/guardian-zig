@@ -139,3 +139,83 @@ pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []c
         .duplicate_tags = duplicates.toOwnedSlice(allocator) catch &.{},
     };
 }
+
+test "analyze full coverage" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sections = &[_]parser.Section{
+        .{ .name = "Math", .behaviors = &.{
+            .{ .section = "Math", .statement = "adds numbers", .key = "math - adds numbers" },
+        } },
+    };
+    const tags = &[_]SpecTag{
+        .{ .file = "test.zig", .tag = "Math - adds numbers", .key = "math - adds numbers" },
+    };
+    const result = analyze(a, sections, tags);
+
+    try std.testing.expectEqual(@as(usize, 1), result.total_behaviors);
+    try std.testing.expectEqual(@as(usize, 1), result.covered_behaviors);
+    try std.testing.expectEqual(@as(usize, 0), result.unverified_behaviors.len);
+    try std.testing.expectEqual(@as(usize, 0), result.unlinked_tags.len);
+    try std.testing.expectEqual(@as(usize, 0), result.duplicate_tags.len);
+}
+
+test "analyze unverified behavior" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sections = &[_]parser.Section{
+        .{ .name = "Math", .behaviors = &.{
+            .{ .section = "Math", .statement = "adds", .key = "math - adds" },
+            .{ .section = "Math", .statement = "multiplies", .key = "math - multiplies" },
+        } },
+    };
+    const tags = &[_]SpecTag{
+        .{ .file = "test.zig", .tag = "Math - adds", .key = "math - adds" },
+    };
+    const result = analyze(a, sections, tags);
+
+    try std.testing.expectEqual(@as(usize, 2), result.total_behaviors);
+    try std.testing.expectEqual(@as(usize, 1), result.covered_behaviors);
+    try std.testing.expectEqual(@as(usize, 1), result.unverified_behaviors.len);
+    try std.testing.expectEqualStrings("multiplies", result.unverified_behaviors[0].statement);
+}
+
+test "analyze duplicate tags" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sections = &[_]parser.Section{
+        .{ .name = "Math", .behaviors = &.{
+            .{ .section = "Math", .statement = "adds", .key = "math - adds" },
+        } },
+    };
+    const tags = &[_]SpecTag{
+        .{ .file = "a.zig", .tag = "Math - adds", .key = "math - adds" },
+        .{ .file = "b.zig", .tag = "Math - adds", .key = "math - adds" },
+    };
+    const result = analyze(a, sections, tags);
+
+    try std.testing.expectEqual(@as(usize, 1), result.duplicate_tags.len);
+    try std.testing.expectEqualStrings("math - adds", result.duplicate_tags[0].key);
+    try std.testing.expectEqual(@as(usize, 2), result.duplicate_tags[0].files.len);
+}
+
+test "analyze unlinked tag" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sections = &[_]parser.Section{};
+    const tags = &[_]SpecTag{
+        .{ .file = "test.zig", .tag = "Nonexistent - behavior", .key = "nonexistent - behavior" },
+    };
+    const result = analyze(a, sections, tags);
+
+    try std.testing.expectEqual(@as(usize, 0), result.total_behaviors);
+    try std.testing.expectEqual(@as(usize, 1), result.unlinked_tags.len);
+}
