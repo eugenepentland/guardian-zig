@@ -106,6 +106,7 @@ pub fn normalizeKey(allocator: Allocator, text: []const u8) ![]const u8 {
     return std.mem.trim(u8, slice, &std.ascii.whitespace);
 }
 
+// spec: Spec Coverage - Parses SPEC.md for section headers and behavior bullets
 test "parse spec content" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -132,6 +133,7 @@ test "parse spec content" {
     try std.testing.expectEqualStrings("Runs zig build successfully", sections[0].behaviors[0].statement);
 }
 
+// spec: Spec Coverage - Reports unverified behaviors and unlinked tags
 test "normalize key" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

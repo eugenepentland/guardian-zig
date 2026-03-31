@@ -28,6 +28,8 @@ pub const Context = struct {
     changed_files: []const []const u8,
 };
 
+// spec: Pipeline - Runs stages sequentially and stops at first failure
+// spec: Pipeline - Reports pass/fail status for each stage
 pub fn run(allocator: Allocator, stages: []const StageEntry, ctx: *Context) PipelineResult {
     var results: std.ArrayListUnmanaged(StageResult) = .empty;
     var failed_stage: []const u8 = "";

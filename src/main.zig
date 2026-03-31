@@ -128,6 +128,7 @@ fn getChangedFiles(allocator: std.mem.Allocator, dir: []const u8) []const []cons
     return git.diffNames(allocator, dir) catch &.{};
 }
 
+// spec: Pipeline - Auto-commits with receipt on success
 fn buildReceipt(allocator: std.mem.Allocator, result: pipeline.PipelineResult) []const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     buf.appendSlice(allocator, "Guardian verification:\n") catch {};

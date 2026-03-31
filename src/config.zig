@@ -128,6 +128,7 @@ fn parseStringArray(allocator: Allocator, val: []const u8) std.ArrayListUnmanage
     return list;
 }
 
+// spec: Configuration - Falls back to defaults when no config file exists
 test "parse default config" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -137,6 +138,8 @@ test "parse default config" {
     try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
 }
 
+// spec: Configuration - Loads guardian.toml from target directory
+// spec: Configuration - Supports boundary rules via [[boundary]] sections
 test "parse config with values" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

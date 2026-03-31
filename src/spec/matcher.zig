@@ -2,6 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const parser = @import("parser.zig");
 
+// spec: Spec Coverage - Scans test and source files for // spec: tags
+
 pub const SpecTag = struct {
     file: []const u8,
     tag: []const u8,

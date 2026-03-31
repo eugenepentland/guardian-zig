@@ -1,5 +1,5 @@
 0
-5940 96218676 1774928604955960910 08ba03cbd9baa2d7674cc528b36aabc5 0 src/main.zig
+5997 96218674 1774928878345011056 a09f18d5336696d25a458e184ed53ebd 0 src/main.zig
 22187 105141127 1755651176000000000 408a2a1c3d712caf2107e3e3dfb7022b 1 ubsan_rt.zig
 11083 105122185 1755651171000000000 3c8016eb348fede9a19b94ec4869d8a6 1 compiler_rt.zig
 7957 105141054 1755651176000000000 0ebbb46b337b65e85e7d177cfc93d2ca 1 std/std.zig
@@ -833,12 +833,12 @@
 419 105140953 1755651176000000000 ed7dfc04a5d0c4f0853edb5414ce981e 1 std/os/linux/bpf/btf_ext.zig
 24293 105140954 1755651176000000000 0c7d3ee9ea8e698a843ee6039fd161c4 1 std/os/linux/bpf/helpers.zig
 3221 105140701 1755651176000000000 fda67b74062c7f535bb0a6d0f1fe74fb 1 std/crypto/codecs/asn1/der/ArrayListReverse.zig
-5940 96218676 1774928604955960910 08ba03cbd9baa2d7674cc528b36aabc5 0 /home/epentland/ai/canopy/guardian-zig/src/main.zig
-6719 96218732 1774928570231837789 6099ced50570d1b21ceaf1616a5c0928 0 /home/epentland/ai/canopy/guardian-zig/src/config.zig
-1435 96218674 1774928340623106117 7659ced988e3098c43f8a10c263bcc8b 0 /home/epentland/ai/canopy/guardian-zig/src/pipeline.zig
+5997 96218674 1774928878345011056 a09f18d5336696d25a458e184ed53ebd 0 /home/epentland/ai/canopy/guardian-zig/src/main.zig
+6936 96218732 1774928837304845742 055fe68597fcf282fdd3bb376655d592 0 /home/epentland/ai/canopy/guardian-zig/src/config.zig
+1567 96218685 1774928804872716773 9c56b06636175ac1a3a501d95c4ad38b 0 /home/epentland/ai/canopy/guardian-zig/src/pipeline.zig
 1129 96218744 1774928631672057470 917e599bedd0ea57687e7636606c2b15 0 /home/epentland/ai/canopy/guardian-zig/src/stage.zig
 1930 96218677 1774928354979146930 c463036be7f83405d46cc84b5be60b51 0 /home/epentland/ai/canopy/guardian-zig/src/git.zig
-2056 96218738 1774928597095932798 cd3b8f96ab854b9527fc71716315930a 0 /home/epentland/ai/canopy/guardian-zig/src/feedback.zig
+2115 96218676 1774928811276742117 8be91c9415d1b0359be4f92106825e36 0 /home/epentland/ai/canopy/guardian-zig/src/feedback.zig
 2783 96218678 1774927932298368674 0914b506c4d0d191688114ad855069c7 0 /home/epentland/ai/canopy/guardian-zig/src/stages/change.zig
 3109 96218672 1774928638344081825 247044a476a3dd2a56dc6a0c2214e6b4 0 /home/epentland/ai/canopy/guardian-zig/src/stages/spec_coverage.zig
 841 96218686 1774928645008106240 cf37c5cae6915aaa2297a124c47dcc13 0 /home/epentland/ai/canopy/guardian-zig/src/stages/compilation.zig
@@ -849,5 +849,5 @@
 828 96218680 1774928651712130894 9370e9eaa6d55f9f941baa494412a9af 0 /home/epentland/ai/canopy/guardian-zig/src/stages/tests.zig
 10508 96218687 1774928477039522094 84fd372572217d261691c4e37f7c3baf 0 /home/epentland/ai/canopy/guardian-zig/src/stages/mutation.zig
 672 96218689 1774928302287000952 20b0d57a4020ec93bc60d7b22da61642 0 /home/epentland/ai/canopy/guardian-zig/src/shell.zig
-5238 96218731 1774928557023791699 fe7c62cf4c624095fc04b443766f194f 0 /home/epentland/ai/canopy/guardian-zig/src/spec/parser.zig
-3520 96218685 1774928426243360183 907518215a1956a4f0d6f6089b3b5327 0 /home/epentland/ai/canopy/guardian-zig/src/spec/matcher.zig
+5391 96218731 1774928850832899981 ba60d1b829625001b7a32317c1fa2080 0 /home/epentland/ai/canopy/guardian-zig/src/spec/parser.zig
+3592 96218887 1774928865440958832 7ed86df0a22dec979834943eacda0690 0 /home/epentland/ai/canopy/guardian-zig/src/spec/matcher.zig

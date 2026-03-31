@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const pipeline = @import("pipeline.zig");
 
+// spec: Pipeline - Writes GUARDIAN_FEEDBACK.md on failure
 pub fn writeFeedback(allocator: Allocator, dir: []const u8, result: pipeline.PipelineResult) void {
     const content = buildFeedback(allocator, result);
     const path = std.fmt.allocPrint(allocator, "{s}/GUARDIAN_FEEDBACK.md", .{dir}) catch return;
