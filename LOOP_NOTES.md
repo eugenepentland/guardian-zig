@@ -6,10 +6,10 @@ Guardian is pure build.zig steps. Runs on every `zig build` (invisible, hard-blo
 Test fixture at `test-project/` exercises all checks with intentional failures.
 
 ## Priority Ideas
-- Add `spec-suggest` — scan for new pub fns not yet in existing SPEC.md and suggest additions
 - Add a `--quiet` flag that only prints failures
 - Explore making file-size exclude patterns support glob syntax
-- Consider adding a `spec-check` subcommand that can run standalone (not just as build step) for CI pipelines
+- Wire spec-suggest into EDA and test-project build.zig as `zig build spec-suggest`
+- Consider adding a unit test for containsIgnoreCase
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -23,11 +23,13 @@ Test fixture at `test-project/` exercises all checks with intentional failures.
 - File size checks both src/ and test/
 - Color output (TTY-detected)
 - `spec-init` subcommand + wired into build.zig
-- Extracted spec-init logic to `spec/init.zig` + extractPubFns tests (21 tests total)
-- Updated CLAUDE.md: added onboarding section, spec-init docs, checks summary table, updated project structure. AI agents now have clear instructions for the full workflow.
+- Extracted spec-init logic to `spec/init.zig` + extractPubFns tests (21 tests)
+- Updated CLAUDE.md with full onboarding docs
+- `spec-suggest` subcommand: scans for pub fns not mentioned in existing SPEC.md behaviors, case-insensitive matching. Wired into `zig build spec-suggest`. Advisory (not a hard check). Tested: guardian self (8 internal fns uncovered), test-project (4 fns not in natural-language spec).
 
 ## Observations
-- CLAUDE.md now has a clear 6-step onboarding guide that any AI agent can follow
+- Spec lifecycle is now complete: `spec-init` creates, `spec-suggest` maintains, `spec` check enforces
+- Case-insensitive matching works well: "add" matches "Adds two numbers" — but conjugation mismatches remain (e.g., "multiply" vs "Multiplies"). This is acceptable for an advisory tool.
 - All 3 projects verified: self (pass), test-project (expected failures), EDA (expected failures)
 - 21 unit tests all pass
-- The priority list is getting thin — most core features are in. Remaining ideas are refinements.
+- The priority list is mostly refinements now — core feature set is solid

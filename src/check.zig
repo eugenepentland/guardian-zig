@@ -2,6 +2,7 @@ const std = @import("std");
 const spec_parser = @import("spec/parser.zig");
 const spec_matcher = @import("spec/matcher.zig");
 const spec_init = @import("spec/init.zig");
+const analysis = @import("analysis.zig");
 const config_mod = @import("config.zig");
 
 const print = std.debug.print;
@@ -215,7 +216,7 @@ fn runSpecSuggest(allocator: std.mem.Allocator, project_dir: []const u8, cfg: co
             for (existing.items) |stmt| {
                 // Check if the function name appears in any behavior statement
                 // Case-insensitive: "add" matches "Adds two numbers"
-                if (containsIgnoreCase(stmt, fn_name)) {
+                if (analysis.containsIgnoreCase(stmt, fn_name)) {
                     found = true;
                     break;
                 }
@@ -327,7 +328,7 @@ fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: con
     defer dir.close();
 
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
-    walkBoundaries(allocator, dir, "src", cfg.boundary_rules, &violations) catch {};
+    analysis.walkBoundaries(allocator, dir, "src", cfg.boundary_rules, &violations) catch {};
 
     if (violations.items.len == 0) {
         ok("all imports comply with boundary rules", .{});
@@ -341,101 +342,6 @@ fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: con
     std.process.exit(1);
 }
 
-fn walkBoundaries(
-    allocator: std.mem.Allocator,
-    dir: std.fs.Dir,
-    prefix: []const u8,
-    rules: []const config_mod.BoundaryRule,
-    violations: *std.ArrayListUnmanaged([]const u8),
-) !void {
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        const rel = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name });
-        switch (entry.kind) {
-            .directory => {
-                var sub = try dir.openDir(entry.name, .{ .iterate = true });
-                defer sub.close();
-                try walkBoundaries(allocator, sub, rel, rules, violations);
-            },
-            .file => {
-                if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
-                const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
-                const imports = extractImports(allocator, content, rel);
-                for (rules) |rule| {
-                    if (!matchesPattern(rel, rule.module_pattern)) continue;
-                    for (imports) |imp| {
-                        for (rule.forbidden_imports) |f| {
-                            if (std.mem.indexOf(u8, imp, f) != null) {
-                                const msg = std.fmt.allocPrint(allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ rel, imp, rule.module_pattern }) catch continue;
-                                violations.append(allocator, msg) catch {};
-                            }
-                        }
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-}
-
-fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) []const []const u8 {
-    var imports: std.ArrayListUnmanaged([]const u8) = .empty;
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-        if (std.mem.indexOf(u8, trimmed, "@import(\"")) |idx| {
-            const start = idx + 9;
-            if (std.mem.indexOfScalarPos(u8, trimmed, start, '"')) |end| {
-                const import_path = trimmed[start..end];
-                if (std.mem.eql(u8, import_path, "std")) continue;
-                // Resolve relative to importing file's directory
-                if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |dir_end| {
-                    const raw = std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], import_path }) catch continue;
-                    const resolved = normalizePath(allocator, raw);
-                    imports.append(allocator, resolved) catch {};
-                } else {
-                    imports.append(allocator, import_path) catch {};
-                }
-            }
-        }
-    }
-    return imports.toOwnedSlice(allocator) catch &.{};
-}
-
-/// Resolve `../` and `./` segments in a path: "src/core/../utils/foo.zig" → "src/utils/foo.zig"
-fn normalizePath(allocator: std.mem.Allocator, path: []const u8) []const u8 {
-    var parts: std.ArrayListUnmanaged([]const u8) = .empty;
-    var iter = std.mem.splitScalar(u8, path, '/');
-    while (iter.next()) |seg| {
-        if (std.mem.eql(u8, seg, ".") or seg.len == 0) continue;
-        if (std.mem.eql(u8, seg, "..")) {
-            if (parts.items.len > 0) _ = parts.pop();
-        } else {
-            parts.append(allocator, seg) catch {};
-        }
-    }
-    // Join with /
-    var result: std.ArrayListUnmanaged(u8) = .empty;
-    for (parts.items, 0..) |part, i| {
-        if (i > 0) result.append(allocator, '/') catch {};
-        result.appendSlice(allocator, part) catch {};
-    }
-    return result.toOwnedSlice(allocator) catch path;
-}
-
-fn matchesPattern(path: []const u8, pattern: []const u8) bool {
-    if (std.mem.endsWith(u8, pattern, "/*")) {
-        const prefix = pattern[0 .. pattern.len - 1]; // keep the trailing /
-        return std.mem.startsWith(u8, path, prefix);
-    }
-    if (std.mem.endsWith(u8, pattern, "/")) {
-        return std.mem.startsWith(u8, path, pattern);
-    }
-    if (std.mem.eql(u8, path, pattern)) return true;
-    if (std.mem.startsWith(u8, path, pattern) and path.len > pattern.len and path[pattern.len] == '/') return true;
-    return false;
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────
 
 test {
@@ -443,55 +349,5 @@ test {
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");
-}
-
-test "matchesPattern glob" {
-    // "src/stages/*" matches files under src/stages/
-    try std.testing.expect(matchesPattern("src/stages/foo.zig", "src/stages/*"));
-    try std.testing.expect(matchesPattern("src/stages/sub/bar.zig", "src/stages/*"));
-    try std.testing.expect(!matchesPattern("src/other/foo.zig", "src/stages/*"));
-    try std.testing.expect(!matchesPattern("src/stages.zig", "src/stages/*"));
-}
-
-test "matchesPattern prefix" {
-    // "src/stages/" matches anything under that directory
-    try std.testing.expect(matchesPattern("src/stages/foo.zig", "src/stages/"));
-    try std.testing.expect(!matchesPattern("src/other.zig", "src/stages/"));
-}
-
-test "matchesPattern exact" {
-    try std.testing.expect(matchesPattern("src/main.zig", "src/main.zig"));
-    try std.testing.expect(!matchesPattern("src/main.zig", "src/other.zig"));
-    // With implicit / boundary
-    try std.testing.expect(matchesPattern("src/foo/bar.zig", "src/foo"));
-    try std.testing.expect(!matchesPattern("src/foobar.zig", "src/foo"));
-}
-
-test "extractImports resolves paths" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const content =
-        \\const std = @import("std");
-        \\const shell = @import("shell.zig");
-        \\const parser = @import("../spec/parser.zig");
-    ;
-
-    const imports = extractImports(allocator, content, "src/stages/foo.zig");
-    // std is skipped
-    try std.testing.expectEqual(@as(usize, 2), imports.len);
-    try std.testing.expectEqualStrings("src/stages/shell.zig", imports[0]);
-    try std.testing.expectEqualStrings("src/spec/parser.zig", imports[1]);
-}
-
-test "normalizePath resolves parent refs" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    try std.testing.expectEqualStrings("src/utils/foo.zig", normalizePath(a, "src/core/../utils/foo.zig"));
-    try std.testing.expectEqualStrings("src/main.zig", normalizePath(a, "src/./main.zig"));
-    try std.testing.expectEqualStrings("foo.zig", normalizePath(a, "a/b/../../foo.zig"));
-    try std.testing.expectEqualStrings("src/bar.zig", normalizePath(a, "src/bar.zig"));
+    _ = @import("analysis.zig");
 }
