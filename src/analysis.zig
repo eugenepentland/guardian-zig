@@ -56,6 +56,42 @@ pub fn matchesPattern(path: []const u8, pattern: []const u8) bool {
     return false;
 }
 
+/// Simple glob matching: `*` matches any sequence of characters.
+/// No `*` in pattern falls back to substring match (backward compatible).
+pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
+    // If pattern has no wildcard, fall back to substring match
+    if (std.mem.indexOfScalar(u8, pattern, '*') == null) {
+        return std.mem.indexOf(u8, text, pattern) != null;
+    }
+    // Split pattern by * and match segments in order
+    var ti: usize = 0;
+    var parts = std.mem.splitScalar(u8, pattern, '*');
+    var first = true;
+    while (parts.next()) |part| {
+        if (part.len == 0) {
+            first = false;
+            continue;
+        }
+        if (first) {
+            // First segment must match at start
+            if (!std.mem.startsWith(u8, text[ti..], part)) return false;
+            ti += part.len;
+            first = false;
+        } else {
+            // Find segment anywhere after current position
+            if (std.mem.indexOf(u8, text[ti..], part)) |idx| {
+                ti += idx + part.len;
+            } else {
+                return false;
+            }
+        }
+    }
+    // If pattern ends with *, any trailing text is fine
+    // If not, text must be consumed
+    if (std.mem.endsWith(u8, pattern, "*")) return true;
+    return ti == text.len;
+}
+
 pub fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0 or needle.len > haystack.len) return false;
     const end = haystack.len - needle.len + 1;
@@ -97,7 +133,7 @@ pub fn walkFileSize(
                 if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
                 const excluded = blk: {
                     for (excludes) |pat| {
-                        if (std.mem.indexOf(u8, rel, pat) != null) break :blk true;
+                        if (matchGlob(rel, pat)) break :blk true;
                     }
                     break :blk false;
                 };
@@ -294,4 +330,28 @@ test "containsIgnoreCase matches" {
     try std.testing.expect(!containsIgnoreCase("short", "longer_needle"));
     try std.testing.expect(!containsIgnoreCase("abc", "xyz"));
     try std.testing.expect(!containsIgnoreCase("anything", ""));
+}
+
+test "matchGlob basic patterns" {
+    // Substring fallback (no wildcard)
+    try std.testing.expect(matchGlob("src/core/math.zig", "math"));
+    try std.testing.expect(!matchGlob("src/core/math.zig", "xyz"));
+
+    // Leading wildcard
+    try std.testing.expect(matchGlob("src/generated/output.zig", "*/output.zig"));
+    try std.testing.expect(matchGlob("anything/output.zig", "*/output.zig"));
+
+    // Trailing wildcard
+    try std.testing.expect(matchGlob("src/generated/foo.zig", "src/generated/*"));
+    try std.testing.expect(!matchGlob("src/core/foo.zig", "src/generated/*"));
+
+    // Middle wildcard
+    try std.testing.expect(matchGlob("src/core/math.zig", "src/*/math.zig"));
+    try std.testing.expect(!matchGlob("src/core/strings.zig", "src/*/math.zig"));
+
+    // Multiple wildcards
+    try std.testing.expect(matchGlob("a/b/c/d.zig", "a/*/c/*"));
+
+    // Exact with wildcard (whole thing)
+    try std.testing.expect(matchGlob("anything", "*"));
 }

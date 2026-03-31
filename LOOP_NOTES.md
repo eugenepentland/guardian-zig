@@ -8,9 +8,9 @@ Test fixture at `test-project/` exercises all checks with intentional failures.
 Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 
 ## Priority Ideas
-- Explore making file-size exclude patterns support glob syntax (currently substring match)
+- Look into publishing guardian as a proper zig package (URL-based dependency via GitHub)
+- Explore making file-size exclude patterns support glob syntax
 - Consider a `spec-diff` command
-- Look into publishing guardian as a proper zig package (URL-based dependency)
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -28,11 +28,12 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 - Updated CLAUDE.md, extended boundary rules, wired spec-suggest everywhere
 - `--quiet` flag in all build.zig files
 - Expanded SPEC.md to 17/17 behaviors
-- Integration tests: walkBoundaries + walkFileSize on test-project
-- **Fixed file-size exclude bug**: `continue` inside `for (excludes)` was continuing the excludes loop, not the outer file iterator. Files matching exclude patterns were NOT actually being skipped. Fixed with labeled block. Added integration test that verifies exclude actually works. 26 tests total.
+- Integration tests: walkBoundaries + walkFileSize + exclude on test-project
+- Fixed file-size exclude bug (continue targeting wrong loop)
+- Improved error messages with summary counts: `spec coverage FAILED (3/5 covered, 2 unverified, 0 unlinked, 0 duplicate)`, `file size FAILED (6 file(s) over 500 line limit)`, `boundary check FAILED (1 violation(s))`. 26 tests total.
 
 ## Observations
-- The exclude bug was a real logic error that existed since the feature was added — `continue` in a nested for doesn't do what you'd expect. Test-driven iteration found it.
+- Error messages now give instant context — you know the scale of the problem without reading details
+- All 3 projects verified: self (silent pass), test-project (improved error output), EDA (improved error output)
 - 26 tests, 17/17 spec coverage
-- All 3 projects verified: self (silent pass), test-project (expected failures), EDA (expected failures)
-- Priority list is thin — mostly publishing/polish
+- Tool is very mature now. Core features, tests, docs, polish all done. Main remaining work is publishing.
