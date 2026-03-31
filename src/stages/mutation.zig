@@ -155,6 +155,8 @@ fn generateMutations(allocator: Allocator, file: []const u8, mutations: *std.Arr
         if (std.mem.startsWith(u8, trimmed, "const std")) continue;
         if (std.mem.startsWith(u8, trimmed, "pub const") and std.mem.indexOf(u8, trimmed, "@import") != null) continue;
         if (std.mem.startsWith(u8, trimmed, "test ")) continue;
+        // Skip error-handling boilerplate — catch/orelse on fire-and-forget lines
+        if (shouldSkipErrorHandling(trimmed)) continue;
 
         for (&mutators) |m| {
             if (std.mem.indexOf(u8, line, m.original) != null) {
@@ -171,6 +173,40 @@ fn generateMutations(allocator: Allocator, file: []const u8, mutations: *std.Arr
             }
         }
     }
+}
+
+fn shouldSkipErrorHandling(trimmed: []const u8) bool {
+    // Skip lines that are pure error-handling boilerplate:
+    // - "} catch {}" / "catch {}" / "catch continue" / "catch return"
+    // - "orelse return" / "orelse continue" / "orelse &.{}"
+    // - lines ending with "catch {};" or "catch {},"
+    // These generate noise mutations (catch→unreachable) that aren't meaningful.
+    const skip_suffixes = [_][]const u8{
+        "catch {}",
+        "catch {};",
+        "catch {},",
+        "catch continue;",
+        "catch continue,",
+        "catch return;",
+        "catch return,",
+        "catch return",
+        "orelse return;",
+        "orelse return,",
+        "orelse return",
+        "orelse continue;",
+        "orelse continue,",
+        "orelse &.{};",
+        "orelse &.{},",
+        "orelse &.{}",
+        "catch |_| {};",
+        "catch |_| {},",
+    };
+    for (&skip_suffixes) |suffix| {
+        if (std.mem.endsWith(u8, trimmed, suffix)) return true;
+    }
+    // Skip lines that are just "} catch {" (multiline catch block opener)
+    if (std.mem.eql(u8, trimmed, "} catch {")) return true;
+    return false;
 }
 
 fn appearsOutsideString(line: []const u8, pattern: []const u8) bool {
