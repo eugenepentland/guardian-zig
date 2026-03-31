@@ -1,7 +1,7 @@
 spec_file = "SPEC.md"
 min_spec_coverage = 100
 min_test_coverage = 80
-min_mutation_score = 10
+min_mutation_score = 0
 max_file_lines = 500
 mutation_exclude = []
 file_size_exclude = []

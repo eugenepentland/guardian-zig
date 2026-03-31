@@ -16,6 +16,7 @@ const boundaries = @import("stages/boundaries.zig");
 const tests = @import("stages/tests.zig");
 const mutation = @import("stages/mutation.zig");
 
+// All stages for standalone mode
 const all_stages = [_]pipeline.StageEntry{
     .{ .name = "Change Classification", .run_fn = change.run },
     .{ .name = "Spec Coverage", .run_fn = spec_coverage.run },
@@ -28,6 +29,16 @@ const all_stages = [_]pipeline.StageEntry{
     .{ .name = "Mutation Testing", .run_fn = mutation.run },
 };
 
+// Stages when build.zig handles compile/test/fmt (--build-verified mode)
+const analysis_stages = [_]pipeline.StageEntry{
+    .{ .name = "Change Classification", .run_fn = change.run },
+    .{ .name = "Spec Coverage", .run_fn = spec_coverage.run },
+    .{ .name = "File Size", .run_fn = file_size.run },
+    .{ .name = "Dead Code", .run_fn = dead_code.run },
+    .{ .name = "Boundaries", .run_fn = boundaries.run },
+    .{ .name = "Mutation Testing", .run_fn = mutation.run },
+};
+
 const print = std.debug.print;
 
 pub fn main() !void {
@@ -37,18 +48,25 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2 or !std.mem.eql(u8, args[1], "check")) {
-        print("Usage: guardian check --intent \"...\" [target-dir]\n", .{});
+        print("Usage: guardian check --intent \"...\" [--build-verified] [target-dir]\n", .{});
+        print("\nOptions:\n", .{});
+        print("  --intent <msg>     Required. Description of changes.\n", .{});
+        print("  --build-verified   Skip compile/test/fmt stages (handled by build.zig).\n", .{});
+        print("  [target-dir]       Project directory (default: current dir).\n", .{});
         std.process.exit(1);
     }
 
     // Parse check args
     var intent: ?[]const u8 = null;
     var target_dir: []const u8 = ".";
+    var build_verified = false;
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--intent") and i + 1 < args.len) {
             i += 1;
             intent = args[i];
+        } else if (std.mem.eql(u8, args[i], "--build-verified")) {
+            build_verified = true;
         } else if (!std.mem.startsWith(u8, args[i], "--")) {
             target_dir = args[i];
         }
@@ -56,12 +74,16 @@ pub fn main() !void {
 
     if (intent == null) {
         print("Error: --intent is required\n", .{});
-        print("Usage: guardian check --intent \"description of changes\" [target-dir]\n", .{});
+        print("Usage: guardian check --intent \"description\" [--build-verified] [target-dir]\n", .{});
         std.process.exit(1);
     }
 
     print("Guardian: checking {s}\n", .{target_dir});
-    print("Intent: {s}\n\n", .{intent.?});
+    print("Intent: {s}\n", .{intent.?});
+    if (build_verified) {
+        print("Mode: build-verified (compile/test/fmt handled by build.zig)\n", .{});
+    }
+    print("\n", .{});
 
     // Load config
     const cfg = config.load(allocator, target_dir);
@@ -77,7 +99,17 @@ pub fn main() !void {
         .changed_files = changed_files,
     };
 
-    const result = pipeline.run(allocator, &all_stages, &ctx);
+    // Choose stages based on mode
+    const stages: []const pipeline.StageEntry = if (build_verified) &analysis_stages else &all_stages;
+
+    // In build-verified mode, report the pre-verified stages
+    if (build_verified) {
+        print("  \xe2\x9c\x93 Compilation \xe2\x80\x94 verified by build.zig\n", .{});
+        print("  \xe2\x9c\x93 Format \xe2\x80\x94 verified by build.zig\n", .{});
+        print("  \xe2\x9c\x93 Tests \xe2\x80\x94 verified by build.zig\n", .{});
+    }
+
+    const result = pipeline.run(allocator, stages, &ctx);
 
     // Report results
     for (result.stages) |s| {
@@ -97,7 +129,7 @@ pub fn main() !void {
             print("\n\xe2\x9c\x93 All stages passed\n", .{});
 
             // Auto-commit
-            const receipt = buildReceipt(allocator, result);
+            const receipt = buildReceipt(allocator, result, build_verified);
             const message = std.fmt.allocPrint(allocator, "{s}\n\n{s}", .{ intent.?, receipt }) catch intent.?;
 
             git.addAll(allocator, target_dir) catch {
@@ -129,9 +161,14 @@ fn getChangedFiles(allocator: std.mem.Allocator, dir: []const u8) []const []cons
 }
 
 // spec: Pipeline - Auto-commits with receipt on success
-fn buildReceipt(allocator: std.mem.Allocator, result: pipeline.PipelineResult) []const u8 {
+fn buildReceipt(allocator: std.mem.Allocator, result: pipeline.PipelineResult, build_verified: bool) []const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     buf.appendSlice(allocator, "Guardian verification:\n") catch {};
+    if (build_verified) {
+        buf.appendSlice(allocator, "  \xe2\x9c\x93 Compilation (build.zig)\n") catch {};
+        buf.appendSlice(allocator, "  \xe2\x9c\x93 Format (build.zig)\n") catch {};
+        buf.appendSlice(allocator, "  \xe2\x9c\x93 Tests (build.zig)\n") catch {};
+    }
     for (result.stages) |s| {
         const line = switch (s) {
             .passed => |p| std.fmt.allocPrint(allocator, "  \xe2\x9c\x93 {s}\n", .{p.name}) catch continue,
