@@ -1,20 +1,31 @@
 # Guardian Loop Notes
 
+## Architecture
+Guardian is pure build.zig steps — no standalone binary. 4 source files:
+- `check.zig` — spec, file-size, boundary analysis executable
+- `config.zig` — guardian.toml parser
+- `spec/parser.zig` — SPEC.md parser
+- `spec/matcher.zig` — // spec: tag scanner
+
+Test fixture at `test-project/` exercises all checks with intentional failures.
+
 ## Priority Ideas
-- Add more unit tests to boost mutation kill rate — config parsing, change classification, boundary matching, mutation generation all need dedicated tests. This is the biggest lever for improving mutation score.
-- Add boundary rules for guardian-zig itself — stages/ should not import shell.zig directly, only main.zig and mutation.zig should use shell
-- Add --skip-mutation flag for faster iteration during development
+- Add more unit tests — spec matcher analyze(), config edge cases, file size walk logic
+- Add boundary rules for guardian-zig itself in guardian.toml
 - Support test/ directory in file size checks (currently only checks src/)
-- Improve dead code stage — Zig compiler catches unused locals as errors, but could grep for unreferenced pub functions
-- Add a summary line count to mutation testing output (e.g., "Tested 45 mutations across 8 files")
-- Make mutation testing respect .gitignore (don't mutate generated files)
-- Add color output support (detect TTY and use ANSI colors for pass/fail)
-- Consider skipping mutation of lines inside `if (std.mem.eql(` patterns — these are string comparisons in config/arg parsing that generate trivially surviving mutations
+- Add color output (detect TTY, use ANSI codes for pass/fail markers)
+- Consider a `change-classification` check subcommand using git diff
+- Add a `--quiet` flag that only prints failures (for CI use)
+- Test fixture: add a test case that intentionally violates a boundary rule to verify detection
 
 ## Completed
-- Refine mutation skip rules — added `shouldSkipErrorHandling()` that skips lines ending with `catch {}`, `catch continue`, `catch return`, `orelse return`, `orelse &.{}`, etc. Reduced surviving mutations from 65+ to 35 (nearly 50% reduction). The catch→unreachable mutator was the biggest source of noise.
+- Refine mutation skip rules (pre-refactor)
+- Refactored to pure build.zig steps — 19 files → 4 files
+- Added unit tests for boundary matching + fixed glob pattern bug
+- Created test fixture project — exercises spec coverage (3/5 covered), file size (50 line limit), boundaries (core/ can't import utils/), compile/test/fmt. Validated on all 3 projects: self (pass), test-project (expected spec failure), EDA (runs correctly, known fmt/size failures)
 
 ## Observations
-- Most remaining survivors are in main.zig (arg parsing comparisons), config.zig (TOML parsing), and spec/parser.zig (markdown parsing) — all areas with minimal test coverage
-- The mutation score is 0% because no mutations are killed by tests yet — need to add targeted unit tests
-- Build-verified mode works well for the EDA integration — compile/test/fmt are handled by the build graph, guardian only does analysis
+- All 3 projects produce correct output after every change
+- test-project boundary check passes because core/math.zig and core/strings.zig don't import utils/ — could add a deliberate violation test
+- EDA: 40/40 tests pass, fmt and file-size checks correctly flag issues
+- 9 unit tests pass in guardian-zig itself

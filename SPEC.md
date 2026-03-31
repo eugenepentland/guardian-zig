@@ -2,7 +2,7 @@
 
 ## Overview
 
-Build-step quality gates for Zig projects. Integrates into build.zig as a package dependency — no external tool needed.
+Build-step quality gates for Zig projects. Runs on every `zig build` — invisible, opinionated, hard-blocking.
 
 ## Configuration
 
@@ -15,6 +15,8 @@ Build-step quality gates for Zig projects. Integrates into build.zig as a packag
 - Parses SPEC.md for section headers and behavior bullets
 - Scans test and source files for // spec: tags
 - Reports unverified behaviors and unlinked tags
+- Enforces 1:1 mapping between spec behaviors and test tags
+- Fails with clear error when SPEC.md is missing
 
 ## File Size
 

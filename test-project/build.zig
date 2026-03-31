@@ -27,22 +27,22 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
-    // Guardian
+    // Guardian — runs on every build
     const guardian_dep = b.dependency("guardian", .{
         .target = target,
         .optimize = optimize,
     });
     const check_exe = guardian_dep.artifact("guardian-check");
 
-    const guardian_step = b.step("guardian", "Run guardian verification pipeline");
-    guardian_step.dependOn(b.getInstallStep());
-    guardian_step.dependOn(&run_tests.step);
-    guardian_step.dependOn(&b.addFmt(.{ .paths = &.{"src"}, .check = true }).step);
+    const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
+    b.getInstallStep().dependOn(&fmt_check.step);
+    test_step.dependOn(&fmt_check.step);
 
     for ([_][]const u8{ "spec", "file-size", "boundaries" }) |cmd| {
         const run = b.addRunArtifact(check_exe);
         run.addArgs(&.{ cmd, "." });
         run.setCwd(b.path("."));
-        guardian_step.dependOn(&run.step);
+        b.getInstallStep().dependOn(&run.step);
+        test_step.dependOn(&run.step);
     }
 }

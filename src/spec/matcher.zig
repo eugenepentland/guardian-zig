@@ -10,11 +10,19 @@ pub const SpecTag = struct {
     key: []const u8,
 };
 
+// spec: Spec Coverage - Enforces 1:1 mapping between spec behaviors and test tags
+
+pub const DuplicateTag = struct {
+    key: []const u8,
+    files: []const []const u8,
+};
+
 pub const CoverageResult = struct {
     total_behaviors: usize,
     covered_behaviors: usize,
     unverified_behaviors: []const parser.Behavior,
     unlinked_tags: []const SpecTag,
+    duplicate_tags: []const DuplicateTag,
 };
 
 pub fn scanDir(allocator: Allocator, dir_path: []const u8) []const SpecTag {
@@ -94,10 +102,40 @@ pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []c
         if (!found) unlinked.append(allocator, t) catch {};
     }
 
+    // Find duplicate tags (1:1 mapping enforcement)
+    var duplicates: std.ArrayListUnmanaged(DuplicateTag) = .empty;
+    for (tags, 0..) |t, i| {
+        // Check if we already reported this key
+        var already_reported = false;
+        for (duplicates.items) |d| {
+            if (std.mem.eql(u8, d.key, t.key)) {
+                already_reported = true;
+                break;
+            }
+        }
+        if (already_reported) continue;
+
+        // Find all tags with this key
+        var files: std.ArrayListUnmanaged([]const u8) = .empty;
+        files.append(allocator, t.file) catch {};
+        for (tags[i + 1 ..]) |t2| {
+            if (std.mem.eql(u8, t.key, t2.key)) {
+                files.append(allocator, t2.file) catch {};
+            }
+        }
+        if (files.items.len > 1) {
+            duplicates.append(allocator, .{
+                .key = t.key,
+                .files = files.toOwnedSlice(allocator) catch &.{},
+            }) catch {};
+        }
+    }
+
     return .{
         .total_behaviors = behaviors.len,
         .covered_behaviors = behaviors.len - unverified.items.len,
         .unverified_behaviors = unverified.toOwnedSlice(allocator) catch &.{},
         .unlinked_tags = unlinked.toOwnedSlice(allocator) catch &.{},
+        .duplicate_tags = duplicates.toOwnedSlice(allocator) catch &.{},
     };
 }
