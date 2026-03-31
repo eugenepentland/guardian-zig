@@ -10,19 +10,17 @@ Test fixture at `test-project/` exercises all checks with intentional failures.
 - Support test/ directory in file size checks (currently only checks src/)
 - Add color output (detect TTY, use ANSI codes for pass/fail)
 - Add a `--quiet` flag that only prints failures
-- Normalize boundary import paths (resolve `../` segments) for cleaner violation messages
 
 ## Completed
 - Refactored to pure build.zig steps — 19 files → 4 files
 - Unit tests for boundary matching (matchesPattern, extractImports) + fixed glob bug
 - Created test fixture project
 - Redesign: invisible build integration, hard errors, 1:1 spec mapping
-- Unit tests for analyze(): full coverage, unverified, duplicates, unlinked (13 tests total)
-- Added boundary rules for guardian-zig itself: `src/spec/*` cannot import `config`
-- Added deliberate boundary violation to test-project: core/math.zig imports utils/helpers.zig — correctly detected and reported
+- Unit tests for analyze(): full coverage, unverified, duplicates, unlinked
+- Added boundary rules for guardian-zig itself + boundary violation in test-project
+- Normalized import paths in boundary violations: `src/core/../utils/foo.zig` → `src/utils/foo.zig`. Added normalizePath() + 4 test cases. 14 tests total.
 
 ## Observations
-- Boundary detection works end-to-end: test-project now has 2 intentional failures (spec coverage + boundary violation)
-- Guardian self-check: 13/13 specs, all boundaries pass, file sizes OK
-- EDA: correctly reports missing SPEC.md (hard error), fmt failures, file size violations
-- The boundary violation message shows unresolved `../` paths (`src/core/../utils/helpers.zig`) — could normalize for readability
+- Boundary violation message now clean: `src/core/math.zig: forbidden import 'src/utils/helpers.zig' (rule: src/core/*)`
+- All 3 projects verified: self (pass), test-project (expected spec + boundary failures), EDA (expected spec/fmt/size failures)
+- 14 unit tests all pass

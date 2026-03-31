@@ -164,3 +164,63 @@ test "parse config with values" {
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules[0].forbidden_imports.len);
     try std.testing.expectEqualStrings("shell", cfg.boundary_rules[0].forbidden_imports[0]);
 }
+
+test "parse ignores comments and blank lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\# This is a comment
+        \\
+        \\max_file_lines = 200
+        \\# Another comment
+        \\spec_file = "MY_SPEC.md"
+    ;
+    const cfg = parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(u32, 200), cfg.max_file_lines);
+    try std.testing.expectEqualStrings("MY_SPEC.md", cfg.spec_file);
+}
+
+test "parse malformed values fall back to defaults" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\max_file_lines = not_a_number
+        \\spec_file = unquoted
+        \\min_spec_coverage = -5
+    ;
+    const cfg = parse(arena.allocator(), content);
+    // All should fall back to defaults
+    try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
+    try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
+    try std.testing.expectEqual(@as(u32, 100), cfg.min_spec_coverage);
+}
+
+test "parse multiple boundary rules" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[[boundary]]
+        \\module = "src/a/*"
+        \\forbidden = ["x", "y"]
+        \\
+        \\[[boundary]]
+        \\module = "src/b/*"
+        \\forbidden = ["z"]
+    ;
+    const cfg = parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(usize, 2), cfg.boundary_rules.len);
+    try std.testing.expectEqualStrings("src/a/*", cfg.boundary_rules[0].module_pattern);
+    try std.testing.expectEqual(@as(usize, 2), cfg.boundary_rules[0].forbidden_imports.len);
+    try std.testing.expectEqualStrings("src/b/*", cfg.boundary_rules[1].module_pattern);
+    try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules[1].forbidden_imports.len);
+}
+
+test "parse empty array" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\file_size_exclude = []
+    ;
+    const cfg = parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(usize, 0), cfg.file_size_exclude.len);
+}
