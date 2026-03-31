@@ -245,7 +245,8 @@ fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: 
 
 fn matchesPattern(path: []const u8, pattern: []const u8) bool {
     if (std.mem.endsWith(u8, pattern, "/*")) {
-        return std.mem.startsWith(u8, path, pattern[0 .. pattern.len - 2]);
+        const prefix = pattern[0 .. pattern.len - 1]; // keep the trailing /
+        return std.mem.startsWith(u8, path, prefix);
     }
     if (std.mem.endsWith(u8, pattern, "/")) {
         return std.mem.startsWith(u8, path, pattern);
@@ -255,9 +256,50 @@ fn matchesPattern(path: []const u8, pattern: []const u8) bool {
     return false;
 }
 
-// Import modules for test compilation
+// ── Tests ──────────────────────────────────────────────────────────────
+
 test {
     _ = @import("config.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
+}
+
+test "matchesPattern glob" {
+    // "src/stages/*" matches files under src/stages/
+    try std.testing.expect(matchesPattern("src/stages/foo.zig", "src/stages/*"));
+    try std.testing.expect(matchesPattern("src/stages/sub/bar.zig", "src/stages/*"));
+    try std.testing.expect(!matchesPattern("src/other/foo.zig", "src/stages/*"));
+    try std.testing.expect(!matchesPattern("src/stages.zig", "src/stages/*"));
+}
+
+test "matchesPattern prefix" {
+    // "src/stages/" matches anything under that directory
+    try std.testing.expect(matchesPattern("src/stages/foo.zig", "src/stages/"));
+    try std.testing.expect(!matchesPattern("src/other.zig", "src/stages/"));
+}
+
+test "matchesPattern exact" {
+    try std.testing.expect(matchesPattern("src/main.zig", "src/main.zig"));
+    try std.testing.expect(!matchesPattern("src/main.zig", "src/other.zig"));
+    // With implicit / boundary
+    try std.testing.expect(matchesPattern("src/foo/bar.zig", "src/foo"));
+    try std.testing.expect(!matchesPattern("src/foobar.zig", "src/foo"));
+}
+
+test "extractImports resolves paths" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const content =
+        \\const std = @import("std");
+        \\const shell = @import("shell.zig");
+        \\const parser = @import("../spec/parser.zig");
+    ;
+
+    const imports = extractImports(allocator, content, "src/stages/foo.zig");
+    // std is skipped
+    try std.testing.expectEqual(@as(usize, 2), imports.len);
+    try std.testing.expectEqualStrings("src/stages/shell.zig", imports[0]);
+    try std.testing.expectEqualStrings("src/stages/../spec/parser.zig", imports[1]);
 }
