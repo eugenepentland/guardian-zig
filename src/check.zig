@@ -258,7 +258,8 @@ fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: 
                 if (std.mem.eql(u8, import_path, "std")) continue;
                 // Resolve relative to importing file's directory
                 if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |dir_end| {
-                    const resolved = std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], import_path }) catch continue;
+                    const raw = std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], import_path }) catch continue;
+                    const resolved = normalizePath(allocator, raw);
                     imports.append(allocator, resolved) catch {};
                 } else {
                     imports.append(allocator, import_path) catch {};
@@ -267,6 +268,27 @@ fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: 
         }
     }
     return imports.toOwnedSlice(allocator) catch &.{};
+}
+
+/// Resolve `../` and `./` segments in a path: "src/core/../utils/foo.zig" → "src/utils/foo.zig"
+fn normalizePath(allocator: std.mem.Allocator, path: []const u8) []const u8 {
+    var parts: std.ArrayListUnmanaged([]const u8) = .empty;
+    var iter = std.mem.splitScalar(u8, path, '/');
+    while (iter.next()) |seg| {
+        if (std.mem.eql(u8, seg, ".") or seg.len == 0) continue;
+        if (std.mem.eql(u8, seg, "..")) {
+            if (parts.items.len > 0) _ = parts.pop();
+        } else {
+            parts.append(allocator, seg) catch {};
+        }
+    }
+    // Join with /
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    for (parts.items, 0..) |part, i| {
+        if (i > 0) result.append(allocator, '/') catch {};
+        result.appendSlice(allocator, part) catch {};
+    }
+    return result.toOwnedSlice(allocator) catch path;
 }
 
 fn matchesPattern(path: []const u8, pattern: []const u8) bool {
@@ -327,5 +349,16 @@ test "extractImports resolves paths" {
     // std is skipped
     try std.testing.expectEqual(@as(usize, 2), imports.len);
     try std.testing.expectEqualStrings("src/stages/shell.zig", imports[0]);
-    try std.testing.expectEqualStrings("src/stages/../spec/parser.zig", imports[1]);
+    try std.testing.expectEqualStrings("src/spec/parser.zig", imports[1]);
+}
+
+test "normalizePath resolves parent refs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    try std.testing.expectEqualStrings("src/utils/foo.zig", normalizePath(a, "src/core/../utils/foo.zig"));
+    try std.testing.expectEqualStrings("src/main.zig", normalizePath(a, "src/./main.zig"));
+    try std.testing.expectEqualStrings("foo.zig", normalizePath(a, "a/b/../../foo.zig"));
+    try std.testing.expectEqualStrings("src/bar.zig", normalizePath(a, "src/bar.zig"));
 }
