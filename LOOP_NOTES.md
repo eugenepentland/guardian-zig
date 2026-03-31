@@ -10,9 +10,8 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis` — enforced o
 ## Priority Ideas
 - Add a `--quiet` flag that only prints failures
 - Explore making file-size exclude patterns support glob syntax
-- Wire spec-suggest into test-project and EDA build.zig
-- Consider adding SPEC.md entries for analysis.zig and spec/init.zig public functions (currently 8 uncovered per spec-suggest)
-- Add an integration-style test: verify spec check exit code on a directory with known missing coverage
+- Consider adding SPEC.md entries for analysis.zig and spec/init.zig public functions
+- Add an integration-style test: verify spec check exit code on known-bad directory
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -29,11 +28,12 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis` — enforced o
 - Extracted spec-init logic to `spec/init.zig`
 - Updated CLAUDE.md with full onboarding docs
 - Extracted analysis helpers to `analysis.zig` + tests
-- Extended boundary rules: spec/* cannot import config OR analysis. Validates architectural layering.
+- Extended boundary rules: spec/* cannot import config or analysis
+- Wired `spec-suggest` into test-project and EDA build.zig as `zig build spec-suggest`. All consumer projects now have full spec lifecycle: init, suggest, check.
 
 ## Observations
-- Boundary rules now protect the spec/ layer from depending on higher-level modules
-- Architecture: check.zig (top) → analysis.zig + config.zig (middle) → spec/* (bottom). Boundaries enforce this.
+- All consumer projects now have `zig build spec-init` and `zig build spec-suggest`
+- EDA's spec-suggest correctly errors when no SPEC.md exists (directs user to run spec-init first)
 - All 3 projects verified: self (pass), test-project (expected failures), EDA (expected failures)
 - 22 unit tests all pass
-- Priority list is mostly polish — core feature set is comprehensive
+- The tool is feature-complete for the core use case. Remaining items are polish.

@@ -7,13 +7,15 @@ const config_mod = @import("config.zig");
 
 const print = std.debug.print;
 
-// ANSI color codes — only used when stderr is a TTY
+// Output control
 var use_color: bool = false;
+var quiet: bool = false;
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
 
 fn ok(comptime fmt: []const u8, args: anytype) void {
+    if (quiet) return;
     if (use_color) print(GREEN ++ "guardian: " ++ RESET ++ fmt ++ "\n", args) else print("guardian: " ++ fmt ++ "\n", args);
 }
 
@@ -35,20 +37,34 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    const command = args[1];
-    // Remaining args are the project dir (default ".")
-    const project_dir = if (args.len >= 3) args[2] else ".";
+    // Parse args: command [project-dir] [--quiet]
+    var command: ?[]const u8 = null;
+    var project_dir: []const u8 = ".";
+    for (args[1..]) |arg| {
+        if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
+            quiet = true;
+        } else if (command == null) {
+            command = arg;
+        } else {
+            project_dir = arg;
+        }
+    }
+    if (command == null) {
+        printUsage();
+        std.process.exit(1);
+    }
     const cfg = config_mod.load(allocator, project_dir);
 
-    if (std.mem.eql(u8, command, "spec")) {
+    const cmd = command.?;
+    if (std.mem.eql(u8, cmd, "spec")) {
         try runSpecCoverage(allocator, project_dir, cfg);
-    } else if (std.mem.eql(u8, command, "file-size")) {
+    } else if (std.mem.eql(u8, cmd, "file-size")) {
         try runFileSize(allocator, project_dir, cfg);
-    } else if (std.mem.eql(u8, command, "boundaries")) {
+    } else if (std.mem.eql(u8, cmd, "boundaries")) {
         try runBoundaries(allocator, project_dir, cfg);
-    } else if (std.mem.eql(u8, command, "spec-init")) {
+    } else if (std.mem.eql(u8, cmd, "spec-init")) {
         try runSpecInit(allocator, project_dir);
-    } else if (std.mem.eql(u8, command, "spec-suggest")) {
+    } else if (std.mem.eql(u8, cmd, "spec-suggest")) {
         try runSpecSuggest(allocator, project_dir, cfg);
     } else {
         printUsage();

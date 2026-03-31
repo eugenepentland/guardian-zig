@@ -34,17 +34,17 @@ pub fn build(b: *std.Build) void {
 
     // Spec coverage
     const spec_run = b.addRunArtifact(check_exe);
-    spec_run.addArgs(&.{ "spec", "." });
+    spec_run.addArgs(&.{ "spec", ".", "--quiet" });
     b.getInstallStep().dependOn(&spec_run.step);
 
     // File size
     const size_run = b.addRunArtifact(check_exe);
-    size_run.addArgs(&.{ "file-size", "." });
+    size_run.addArgs(&.{ "file-size", ".", "--quiet" });
     b.getInstallStep().dependOn(&size_run.step);
 
     // Boundaries
     const boundary_run = b.addRunArtifact(check_exe);
-    boundary_run.addArgs(&.{ "boundaries", "." });
+    boundary_run.addArgs(&.{ "boundaries", ".", "--quiet" });
     b.getInstallStep().dependOn(&boundary_run.step);
 
     // Test step also gates on guardian checks
