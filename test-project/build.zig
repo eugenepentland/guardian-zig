@@ -52,4 +52,11 @@ pub fn build(b: *std.Build) void {
     spec_init_run.setCwd(b.path("."));
     const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
     spec_init_step.dependOn(&spec_init_run.step);
+
+    // spec-suggest: find pub fns not covered in SPEC.md
+    const spec_suggest_run = b.addRunArtifact(check_exe);
+    spec_suggest_run.addArgs(&.{ "spec-suggest", "." });
+    spec_suggest_run.setCwd(b.path("."));
+    const spec_suggest_step = b.step("spec-suggest", "Suggest SPEC.md additions for uncovered pub fns");
+    spec_suggest_step.dependOn(&spec_suggest_run.step);
 }
