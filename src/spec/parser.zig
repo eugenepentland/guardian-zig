@@ -86,6 +86,7 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ![]const Section 
     return sections.toOwnedSlice(allocator);
 }
 
+// spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison
 pub fn normalizeKey(allocator: Allocator, text: []const u8) ![]const u8 {
     // Lowercase and collapse whitespace
     var result: std.ArrayListUnmanaged(u8) = .empty;

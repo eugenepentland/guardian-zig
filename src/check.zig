@@ -147,6 +147,7 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
 }
 
 // ── Spec Init ──────────────────────────────────────────────────────────
+// spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
 
 fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/SPEC.md", .{project_dir});
@@ -185,6 +186,7 @@ fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
 }
 
 // ── Spec Suggest ───────────────────────────────────────────────────────
+// spec: Spec Lifecycle - Suggests uncovered pub fns via spec-suggest with case-insensitive matching
 
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0 or needle.len > haystack.len) return false;
@@ -326,7 +328,8 @@ fn walkFileSize(
 }
 
 // ── Boundaries ─────────────────────────────────────────────────────────
-// spec: Boundaries - Extracts @import paths from source files
+// spec: Boundaries - Extracts @import paths from source files and normalizes relative paths
+// spec: Boundaries - Matches file paths against glob and prefix boundary patterns
 // spec: Boundaries - Checks against boundary rules defined in guardian.toml
 // spec: Boundaries - Reports forbidden import violations
 

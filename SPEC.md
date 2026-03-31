@@ -18,6 +18,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Enforces 1:1 mapping between spec behaviors and test tags
 - Fails with clear error when SPEC.md is missing
 
+## Spec Lifecycle
+
+- Generates starter SPEC.md from pub fn signatures via spec-init
+- Suggests uncovered pub fns via spec-suggest with case-insensitive matching
+- Normalizes spec keys for whitespace-insensitive comparison
+
 ## File Size
 
 - Checks source files against configurable line limit
@@ -25,6 +31,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Boundaries
 
-- Extracts @import paths from source files
+- Extracts @import paths from source files and normalizes relative paths
+- Matches file paths against glob and prefix boundary patterns
 - Checks against boundary rules defined in guardian.toml
 - Reports forbidden import violations
