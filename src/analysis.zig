@@ -72,6 +72,47 @@ pub fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return false;
 }
 
+pub fn walkFileSize(
+    allocator: std.mem.Allocator,
+    dir: std.fs.Dir,
+    prefix: []const u8,
+    max_lines: u32,
+    excludes: []const []const u8,
+    violations: *std.ArrayListUnmanaged([]const u8),
+) !void {
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        const rel = if (prefix.len > 0)
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name })
+        else
+            try std.fmt.allocPrint(allocator, "{s}", .{entry.name});
+
+        switch (entry.kind) {
+            .directory => {
+                var sub = try dir.openDir(entry.name, .{ .iterate = true });
+                defer sub.close();
+                try walkFileSize(allocator, sub, rel, max_lines, excludes, violations);
+            },
+            .file => {
+                if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+                for (excludes) |pat| {
+                    if (std.mem.indexOf(u8, rel, pat) != null) continue;
+                }
+                const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
+                var lines: u32 = 1;
+                for (content) |c| {
+                    if (c == '\n') lines += 1;
+                }
+                if (lines > max_lines) {
+                    const msg = try std.fmt.allocPrint(allocator, "{s}: {d} lines (limit: {d})", .{ rel, lines, max_lines });
+                    try violations.append(allocator, msg);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 pub fn walkBoundaries(
     allocator: std.mem.Allocator,
     dir: std.fs.Dir,
@@ -156,6 +197,33 @@ test "normalizePath resolves parent refs" {
     try std.testing.expectEqualStrings("src/main.zig", normalizePath(a, "src/./main.zig"));
     try std.testing.expectEqualStrings("foo.zig", normalizePath(a, "a/b/../../foo.zig"));
     try std.testing.expectEqualStrings("src/bar.zig", normalizePath(a, "src/bar.zig"));
+}
+
+test "walkFileSize on test-project with high limit finds no violations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 50, &.{}, &violations);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+test "walkFileSize on test-project with low limit finds violations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var dir = std.fs.cwd().openDir("test-project/src", .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    try walkFileSize(a, dir, "src", 10, &.{}, &violations);
+    // main.zig (34 lines), math.zig (15), strings.zig (11) should all exceed limit 10
+    try std.testing.expect(violations.items.len >= 3);
 }
 
 test "walkBoundaries detects violation in test-project" {

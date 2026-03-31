@@ -9,9 +9,9 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 
 ## Priority Ideas
 - Explore making file-size exclude patterns support glob syntax
-- Add an integration-style test: verify spec check exit code on known-bad directory
 - Consider a `spec-diff` command: show what changed between current SPEC.md and what spec-init would generate
 - Look into publishing guardian as a proper zig package (with URL-based dependency support)
+- Consider adding a walkFileSize integration test using test-project (similar to boundary test)
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -31,10 +31,11 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 - Extended boundary rules
 - Wired spec-suggest into all consumer projects
 - `--quiet` flag in all build.zig files
-- Expanded SPEC.md with Spec Lifecycle (3 behaviors) and updated Boundaries (4 behaviors). Now 17/17 spec coverage, up from 13/13.
+- Expanded SPEC.md to 17/17 behaviors
+- Integration test: walkBoundaries on test-project's actual directory, verifies it detects core/math.zig importing utils. First test that exercises real file I/O against the test fixture. 23 tests total.
 
 ## Observations
-- 17/17 spec behaviors covered — all major functionality has spec entries
-- spec-suggest still reports 13 uncovered pub fns — these are implementation-level functions that don't need individual spec entries
+- The integration test walks real directories — not just testing string logic but actual file scanning
+- test-project serves double duty: exercises guardian checks as a build step AND provides test data for unit/integration tests
 - All 3 projects verified: self (silent pass), test-project (expected failures), EDA (expected failures)
-- 22 unit tests all pass
+- 23 unit tests all pass

@@ -271,7 +271,7 @@ fn runFileSize(allocator: std.mem.Allocator, project_dir: []const u8, cfg: confi
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
         var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch continue;
         defer dir.close();
-        walkFileSize(allocator, dir, dir_name, cfg.max_file_lines, cfg.file_size_exclude, &violations) catch {};
+        analysis.walkFileSize(allocator, dir, dir_name, cfg.max_file_lines, cfg.file_size_exclude, &violations) catch {};
     }
 
     if (violations.items.len == 0) {
@@ -284,47 +284,6 @@ fn runFileSize(allocator: std.mem.Allocator, project_dir: []const u8, cfg: confi
         print("  {s}\n", .{v});
     }
     std.process.exit(1);
-}
-
-fn walkFileSize(
-    allocator: std.mem.Allocator,
-    dir: std.fs.Dir,
-    prefix: []const u8,
-    max_lines: u32,
-    excludes: []const []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
-) !void {
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        const rel = if (prefix.len > 0)
-            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name })
-        else
-            try std.fmt.allocPrint(allocator, "{s}", .{entry.name});
-
-        switch (entry.kind) {
-            .directory => {
-                var sub = try dir.openDir(entry.name, .{ .iterate = true });
-                defer sub.close();
-                try walkFileSize(allocator, sub, rel, max_lines, excludes, violations);
-            },
-            .file => {
-                if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
-                for (excludes) |pat| {
-                    if (std.mem.indexOf(u8, rel, pat) != null) continue;
-                }
-                const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
-                var lines: u32 = 1;
-                for (content) |c| {
-                    if (c == '\n') lines += 1;
-                }
-                if (lines > max_lines) {
-                    const msg = try std.fmt.allocPrint(allocator, "{s}: {d} lines (limit: {d})", .{ rel, lines, max_lines });
-                    try violations.append(allocator, msg);
-                }
-            },
-            else => {},
-        }
-    }
 }
 
 // ── Boundaries ─────────────────────────────────────────────────────────
