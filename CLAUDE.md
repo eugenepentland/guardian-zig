@@ -2,7 +2,7 @@
 
 ## Overview
 
-A verification gate tool for AI-generated Zig code. Runs a 9-stage pipeline and auto-commits on success or writes GUARDIAN_FEEDBACK.md on failure.
+A verification gate tool for AI-generated Zig code. Integrates into any Zig project's `build.zig` as a package dependency. Runs a multi-stage pipeline and auto-commits on success or writes GUARDIAN_FEEDBACK.md on failure.
 
 ## Build & Run
 
@@ -13,12 +13,54 @@ zig build
 # Run tests
 zig build test
 
-# Check a project
+# Standalone check
 zig build run -- check --intent "description" [target-dir]
-
-# Self-check
-zig build run -- check --intent "description" .
 ```
+
+## Integration (Recommended)
+
+Add guardian as a dependency in your project's `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .guardian = .{
+        .path = "../guardian-zig",  // or git URL
+    },
+},
+```
+
+Add the guardian step to your `build.zig`:
+
+```zig
+// Guardian verification step
+const guardian_dep = b.dependency("guardian", .{
+    .target = target,
+    .optimize = optimize,
+});
+
+const intent = b.option([]const u8, "intent", "Guardian intent message");
+
+const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
+
+const guardian_run = b.addRunArtifact(guardian_dep.artifact("guardian"));
+guardian_run.addArgs(&.{ "check", "--intent", intent orelse "(no intent)", "--build-verified" });
+guardian_run.setCwd(b.path("."));
+
+// Guardian runs after compile + test + fmt pass
+guardian_run.step.dependOn(b.getInstallStep());
+guardian_run.step.dependOn(&run_tests.step);
+guardian_run.step.dependOn(&fmt_check.step);
+
+const guardian_step = b.step("guardian", "Run guardian verification pipeline");
+guardian_step.dependOn(&guardian_run.step);
+```
+
+Then run:
+```bash
+zig build guardian -Dintent="description of changes"
+```
+
+The build graph ensures compilation, tests, and formatting pass before guardian runs its analysis stages (spec coverage, file size, boundaries, change classification, mutation testing) and auto-commits.
 
 ## Project Structure
 
@@ -35,39 +77,18 @@ src/
     parser.zig          # SPEC.md parser
     matcher.zig         # // spec: tag scanner
   stages/
-    change.zig          # Stage 1: Change classification
-    spec_coverage.zig   # Stage 2: Spec coverage
-    compilation.zig     # Stage 3: zig build
-    format.zig          # Stage 4: zig fmt --check
-    file_size.zig       # Stage 5: Line count limits
-    dead_code.zig       # Stage 6: Unused code detection
-    boundaries.zig      # Stage 7: @import boundary enforcement
-    tests.zig           # Stage 8: zig build test
-    mutation.zig        # Stage 9: Mutation testing
+    change.zig          # Change classification
+    spec_coverage.zig   # Spec coverage
+    compilation.zig     # zig build (standalone mode only)
+    format.zig          # zig fmt --check (standalone mode only)
+    file_size.zig       # Line count limits
+    dead_code.zig       # Unused code detection
+    boundaries.zig      # @import boundary enforcement
+    tests.zig           # zig build test (standalone mode only)
+    mutation.zig        # Mutation testing
 ```
 
-## Config (guardian.toml)
+## Modes
 
-```toml
-spec_file = "SPEC.md"
-min_spec_coverage = 100
-min_test_coverage = 80
-min_mutation_score = 90
-max_file_lines = 500
-mutation_exclude = []
-file_size_exclude = []
-
-[[boundary]]
-module = "src/stages/*"
-forbidden = ["shell"]
-```
-
-## Workflow
-
-Instead of running `zig build`, `zig build test`, etc. directly, use:
-
-```bash
-guardian-zig check --intent "description of changes" [target-dir]
-```
-
-This validates spec coverage, compilation, formatting, file sizes, dead code, boundaries, tests, and mutation testing in sequence. On success it auto-commits.
+- **Standalone**: `guardian check --intent "..."` — runs all 9 stages including compile/test/fmt
+- **Build-verified**: `guardian check --intent "..." --build-verified` — skips compile/test/fmt (handled by build.zig dependencies)
