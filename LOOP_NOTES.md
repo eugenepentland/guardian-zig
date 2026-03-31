@@ -10,7 +10,7 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 ## Priority Ideas
 - Look into publishing guardian as a proper zig package (URL-based dependency via GitHub)
 - Consider a `spec-diff` command
-- Use matchGlob for boundary module patterns too (currently uses matchesPattern with different syntax)
+- Update CLAUDE.md config docs to show glob syntax examples for file_size_exclude
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -28,13 +28,14 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 - Updated CLAUDE.md, extended boundary rules, wired spec-suggest everywhere
 - `--quiet` flag in all build.zig files
 - Expanded SPEC.md to 17/17 behaviors
-- Integration tests: walkBoundaries + walkFileSize + exclude on test-project
+- Integration tests on test-project (boundaries, file size, exclude)
 - Fixed file-size exclude bug
 - Improved error messages with summary counts
-- **Glob syntax for file-size exclude**: `*` matches any sequence of chars. Patterns without `*` fall back to substring match (backward compatible). Examples: `"src/generated/*"`, `"*/output.zig"`, `"src/*/test_*.zig"`. Added matchGlob + 10 test cases. 27 tests total.
+- Glob syntax for file-size exclude patterns
+- **Unified pattern matching**: removed `matchesPattern`, boundary rules now use `matchGlob` — same `*` wildcard syntax as file-size excludes. One pattern language for all config. Removed 12 lines of dead code. 26 tests total (merged 3 matchesPattern tests into 1 matchGlob test).
 
 ## Observations
-- matchGlob is simple (~30 lines) but handles all practical cases: leading/trailing/middle wildcards, multiple wildcards, substring fallback
-- Backward compatible: existing configs with plain substring patterns still work
+- Config now uses one consistent pattern syntax everywhere: `*` = wildcard, no `*` = substring match
+- Removed matchesPattern entirely — matchGlob handles all boundary cases correctly
 - All 3 projects verified: self (silent pass), test-project (expected failures), EDA (expected failures)
-- 27 tests, 17/17 spec coverage
+- 26 tests, 17/17 spec coverage

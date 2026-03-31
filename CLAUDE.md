@@ -75,11 +75,21 @@ Optional. Defaults are sensible:
 ```toml
 spec_file = "SPEC.md"        # default
 max_file_lines = 500          # default
+file_size_exclude = ["generated/*", "*/vendor_*.zig"]
 
 [[boundary]]
 module = "src/core/*"
 forbidden = ["utils"]
 ```
+
+### Pattern syntax
+
+All patterns use `*` as a wildcard matching any characters:
+- `src/generated/*` — matches files under src/generated/
+- `*/vendor_*.zig` — matches vendor files in any directory
+- `utils` — plain substring match (no `*` = backward compatible)
+
+This syntax is used in both `file_size_exclude` and `[[boundary]]` module patterns.
 
 ## Spec-Driven Workflow
 
