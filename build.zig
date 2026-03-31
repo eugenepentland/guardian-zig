@@ -52,4 +52,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&spec_run.step);
     test_step.dependOn(&size_run.step);
     test_step.dependOn(&boundary_run.step);
+
+    // spec-init: generate starter SPEC.md
+    const spec_init_run = b.addRunArtifact(check_exe);
+    spec_init_run.addArgs(&.{ "spec-init", "." });
+    const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
+    spec_init_step.dependOn(&spec_init_run.step);
 }
