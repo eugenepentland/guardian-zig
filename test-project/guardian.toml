@@ -1,0 +1,7 @@
+spec_file = "SPEC.md"
+max_file_lines = 50
+file_size_exclude = ["generated"]
+
+[[boundary]]
+module = "src/core/*"
+forbidden = ["utils"]
