@@ -56,7 +56,7 @@ b.getInstallStep().dependOn(&fmt_check.step);
 // Guardian checks gate every build
 for ([_][]const u8{ "spec", "file-size", "boundaries" }) |cmd| {
     const run = b.addRunArtifact(check_exe);
-    run.addArgs(&.{ cmd, "." });
+    run.addArgs(&.{ cmd, ".", "--quiet" });
     run.setCwd(b.path("."));
     b.getInstallStep().dependOn(&run.step);
 }

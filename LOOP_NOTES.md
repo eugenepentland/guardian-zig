@@ -5,13 +5,14 @@ Guardian is pure build.zig steps. Runs on every `zig build` (invisible, hard-blo
 6 source files: `check.zig`, `config.zig`, `analysis.zig`, `spec/parser.zig`, `spec/matcher.zig`, `spec/init.zig`.
 Test fixture at `test-project/` exercises all checks with intentional failures.
 
-Boundary rules: `src/spec/*` cannot import `config` or `analysis` — enforced on every build.
+Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 
 ## Priority Ideas
-- Add a `--quiet` flag that only prints failures
 - Explore making file-size exclude patterns support glob syntax
 - Consider adding SPEC.md entries for analysis.zig and spec/init.zig public functions
 - Add an integration-style test: verify spec check exit code on known-bad directory
+- Update test-project and EDA build.zig to also use --quiet
+- Update CLAUDE.md to document --quiet flag
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -29,11 +30,11 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis` — enforced o
 - Updated CLAUDE.md with full onboarding docs
 - Extracted analysis helpers to `analysis.zig` + tests
 - Extended boundary rules: spec/* cannot import config or analysis
-- Wired `spec-suggest` into test-project and EDA build.zig as `zig build spec-suggest`. All consumer projects now have full spec lifecycle: init, suggest, check.
+- Wired spec-suggest into all consumer projects
+- Added `--quiet` / `-q` flag: suppresses pass messages, only prints failures. Used by default in guardian-zig's own build.zig so successful builds are completely silent.
 
 ## Observations
-- All consumer projects now have `zig build spec-init` and `zig build spec-suggest`
-- EDA's spec-suggest correctly errors when no SPEC.md exists (directs user to run spec-init first)
-- All 3 projects verified: self (pass), test-project (expected failures), EDA (expected failures)
+- `zig build` is now truly invisible when everything passes — zero output
+- Failures still print clearly with full details even in quiet mode
+- All 3 projects verified: self (silent pass), test-project (expected failures shown), EDA (expected failures shown)
 - 22 unit tests all pass
-- The tool is feature-complete for the core use case. Remaining items are polish.
