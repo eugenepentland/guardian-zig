@@ -47,6 +47,8 @@ pub fn main() !void {
         try runBoundaries(allocator, project_dir, cfg);
     } else if (std.mem.eql(u8, command, "spec-init")) {
         try runSpecInit(allocator, project_dir);
+    } else if (std.mem.eql(u8, command, "spec-suggest")) {
+        try runSpecSuggest(allocator, project_dir, cfg);
     } else {
         printUsage();
         std.process.exit(1);
@@ -55,7 +57,7 @@ pub fn main() !void {
 
 fn printUsage() void {
     print("Usage: guardian-check <command> [project-dir]\n", .{});
-    print("Commands: spec, file-size, boundaries, spec-init\n", .{});
+    print("Commands: spec, file-size, boundaries, spec-init, spec-suggest\n", .{});
 }
 
 // ── Spec Coverage ──────────────────────────────────────────────────────
@@ -163,6 +165,78 @@ fn runSpecInit(allocator: std.mem.Allocator, project_dir: []const u8) !void {
 
     ok("generated {s} with {d} modules", .{ spec_path, modules.items.len });
     print("  Edit the generated behaviors, then add // spec: tags to your tests.\n", .{});
+}
+
+// ── Spec Suggest ───────────────────────────────────────────────────────
+
+fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0 or needle.len > haystack.len) return false;
+    const end = haystack.len - needle.len + 1;
+    for (0..end) |i| {
+        var match = true;
+        for (needle, 0..) |nc, j| {
+            if (std.ascii.toLower(haystack[i + j]) != std.ascii.toLower(nc)) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+fn runSpecSuggest(allocator: std.mem.Allocator, project_dir: []const u8, cfg: config_mod.Config) !void {
+    const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, cfg.spec_file });
+
+    // Parse existing SPEC.md
+    const sections = spec_parser.parseFile(allocator, spec_path) catch {
+        fail("{s} not found — run `zig build spec-init` first", .{cfg.spec_file});
+        std.process.exit(1);
+    };
+
+    // Collect all existing behavior statements (lowercased for fuzzy matching)
+    var existing: std.ArrayListUnmanaged([]const u8) = .empty;
+    for (sections) |s| {
+        for (s.behaviors) |b| {
+            existing.append(allocator, b.statement) catch {};
+        }
+    }
+
+    // Scan src/ for pub fns
+    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
+    var modules: std.ArrayListUnmanaged(spec_init.ModuleInfo) = .empty;
+    spec_init.collectModules(allocator, src_path, "", &modules) catch {};
+
+    // Find pub fns not mentioned in any existing behavior
+    var suggestions: std.ArrayListUnmanaged([]const u8) = .empty;
+    for (modules.items) |mod| {
+        for (mod.pub_fns) |fn_name| {
+            var found = false;
+            for (existing.items) |stmt| {
+                // Check if the function name appears in any behavior statement
+                // Case-insensitive: "add" matches "Adds two numbers"
+                if (containsIgnoreCase(stmt, fn_name)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                const suggestion = std.fmt.allocPrint(allocator, "## {s}\n- {s} works correctly", .{ mod.name, fn_name }) catch continue;
+                suggestions.append(allocator, suggestion) catch {};
+            }
+        }
+    }
+
+    if (suggestions.items.len == 0) {
+        ok("all pub fns are covered in {s}", .{cfg.spec_file});
+        return;
+    }
+
+    print("guardian: {d} pub fn(s) not covered in {s}:\n\n", .{ suggestions.items.len, cfg.spec_file });
+    for (suggestions.items) |s| {
+        print("  {s}\n", .{s});
+    }
+    print("\n  Add these to {s} and tag corresponding tests.\n", .{cfg.spec_file});
 }
 
 // ── File Size ──────────────────────────────────────────────────────────
