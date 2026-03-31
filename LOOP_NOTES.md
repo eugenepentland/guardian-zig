@@ -9,8 +9,8 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 
 ## Priority Ideas
 - Look into publishing guardian as a proper zig package (URL-based dependency via GitHub)
-- Explore making file-size exclude patterns support glob syntax
 - Consider a `spec-diff` command
+- Use matchGlob for boundary module patterns too (currently uses matchesPattern with different syntax)
 
 ## Completed
 - Refactored to pure build.zig steps
@@ -29,11 +29,12 @@ Boundary rules: `src/spec/*` cannot import `config` or `analysis`.
 - `--quiet` flag in all build.zig files
 - Expanded SPEC.md to 17/17 behaviors
 - Integration tests: walkBoundaries + walkFileSize + exclude on test-project
-- Fixed file-size exclude bug (continue targeting wrong loop)
-- Improved error messages with summary counts: `spec coverage FAILED (3/5 covered, 2 unverified, 0 unlinked, 0 duplicate)`, `file size FAILED (6 file(s) over 500 line limit)`, `boundary check FAILED (1 violation(s))`. 26 tests total.
+- Fixed file-size exclude bug
+- Improved error messages with summary counts
+- **Glob syntax for file-size exclude**: `*` matches any sequence of chars. Patterns without `*` fall back to substring match (backward compatible). Examples: `"src/generated/*"`, `"*/output.zig"`, `"src/*/test_*.zig"`. Added matchGlob + 10 test cases. 27 tests total.
 
 ## Observations
-- Error messages now give instant context — you know the scale of the problem without reading details
-- All 3 projects verified: self (silent pass), test-project (improved error output), EDA (improved error output)
-- 26 tests, 17/17 spec coverage
-- Tool is very mature now. Core features, tests, docs, polish all done. Main remaining work is publishing.
+- matchGlob is simple (~30 lines) but handles all practical cases: leading/trailing/middle wildcards, multiple wildcards, substring fallback
+- Backward compatible: existing configs with plain substring patterns still work
+- All 3 projects verified: self (silent pass), test-project (expected failures), EDA (expected failures)
+- 27 tests, 17/17 spec coverage

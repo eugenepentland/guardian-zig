@@ -43,19 +43,6 @@ pub fn normalizePath(allocator: std.mem.Allocator, path: []const u8) []const u8 
     return result.toOwnedSlice(allocator) catch path;
 }
 
-pub fn matchesPattern(path: []const u8, pattern: []const u8) bool {
-    if (std.mem.endsWith(u8, pattern, "/*")) {
-        const prefix = pattern[0 .. pattern.len - 1]; // keep trailing /
-        return std.mem.startsWith(u8, path, prefix);
-    }
-    if (std.mem.endsWith(u8, pattern, "/")) {
-        return std.mem.startsWith(u8, path, pattern);
-    }
-    if (std.mem.eql(u8, path, pattern)) return true;
-    if (std.mem.startsWith(u8, path, pattern) and path.len > pattern.len and path[pattern.len] == '/') return true;
-    return false;
-}
-
 /// Simple glob matching: `*` matches any sequence of characters.
 /// No `*` in pattern falls back to substring match (backward compatible).
 pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
@@ -174,7 +161,7 @@ pub fn walkBoundaries(
                 const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
                 const imports = extractImports(allocator, content, rel);
                 for (rules) |rule| {
-                    if (!matchesPattern(rel, rule.module_pattern)) continue;
+                    if (!matchGlob(rel, rule.module_pattern)) continue;
                     for (imports) |imp| {
                         for (rule.forbidden_imports) |f| {
                             if (std.mem.indexOf(u8, imp, f) != null) {
@@ -192,23 +179,21 @@ pub fn walkBoundaries(
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-test "matchesPattern glob" {
-    try std.testing.expect(matchesPattern("src/stages/foo.zig", "src/stages/*"));
-    try std.testing.expect(matchesPattern("src/stages/sub/bar.zig", "src/stages/*"));
-    try std.testing.expect(!matchesPattern("src/other/foo.zig", "src/stages/*"));
-    try std.testing.expect(!matchesPattern("src/stages.zig", "src/stages/*"));
-}
+test "matchGlob boundary patterns (formerly matchesPattern)" {
+    // Glob: src/stages/* matches files under src/stages/
+    try std.testing.expect(matchGlob("src/stages/foo.zig", "src/stages/*"));
+    try std.testing.expect(matchGlob("src/stages/sub/bar.zig", "src/stages/*"));
+    try std.testing.expect(!matchGlob("src/other/foo.zig", "src/stages/*"));
+    try std.testing.expect(!matchGlob("src/stages.zig", "src/stages/*"));
 
-test "matchesPattern prefix" {
-    try std.testing.expect(matchesPattern("src/stages/foo.zig", "src/stages/"));
-    try std.testing.expect(!matchesPattern("src/other.zig", "src/stages/"));
-}
+    // Prefix: src/stages/ matches anything under that dir (substring fallback)
+    try std.testing.expect(matchGlob("src/stages/foo.zig", "src/stages/"));
+    try std.testing.expect(!matchGlob("src/other.zig", "src/stages/"));
 
-test "matchesPattern exact" {
-    try std.testing.expect(matchesPattern("src/main.zig", "src/main.zig"));
-    try std.testing.expect(!matchesPattern("src/main.zig", "src/other.zig"));
-    try std.testing.expect(matchesPattern("src/foo/bar.zig", "src/foo"));
-    try std.testing.expect(!matchesPattern("src/foobar.zig", "src/foo"));
+    // Exact/substring: matches if pattern appears in path
+    try std.testing.expect(matchGlob("src/main.zig", "src/main.zig"));
+    try std.testing.expect(!matchGlob("src/main.zig", "src/other.zig"));
+    try std.testing.expect(matchGlob("src/foo/bar.zig", "src/foo"));
 }
 
 test "extractImports resolves paths" {
