@@ -122,8 +122,14 @@ fn runSpecCoverage(allocator: std.mem.Allocator, project_dir: []const u8, cfg: c
         return;
     }
 
-    // Failures
-    fail("spec coverage FAILED", .{});
+    // Failures — show summary counts
+    fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} duplicate)", .{
+        result.covered_behaviors,
+        result.total_behaviors,
+        result.unverified_behaviors.len,
+        result.unlinked_tags.len,
+        result.duplicate_tags.len,
+    });
     for (result.unverified_behaviors) |b| {
         print("  unverified: {s} - {s}\n", .{ b.section, b.statement });
     }
@@ -279,7 +285,7 @@ fn runFileSize(allocator: std.mem.Allocator, project_dir: []const u8, cfg: confi
         return;
     }
 
-    fail("file size FAILED", .{});
+    fail("file size FAILED ({d} file(s) over {d} line limit)", .{ violations.items.len, cfg.max_file_lines });
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
@@ -313,7 +319,7 @@ fn runBoundaries(allocator: std.mem.Allocator, project_dir: []const u8, cfg: con
         return;
     }
 
-    fail("boundary check FAILED", .{});
+    fail("boundary check FAILED ({d} violation(s))", .{violations.items.len});
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
