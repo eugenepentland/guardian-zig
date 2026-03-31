@@ -1,7 +1,8 @@
 spec_file = "SPEC.md"
-min_spec_coverage = 100
-min_test_coverage = 80
-min_mutation_score = 0
 max_file_lines = 500
-mutation_exclude = []
 file_size_exclude = []
+
+# Spec modules must not depend on config directly — only check.zig bridges them
+[[boundary]]
+module = "src/spec/*"
+forbidden = ["config"]

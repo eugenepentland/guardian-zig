@@ -1,31 +1,33 @@
 # Guardian Loop Notes
 
 ## Architecture
-Guardian is pure build.zig steps — no standalone binary. 4 source files:
-- `check.zig` — spec, file-size, boundary analysis executable
-- `config.zig` — guardian.toml parser
-- `spec/parser.zig` — SPEC.md parser
-- `spec/matcher.zig` — // spec: tag scanner
+Guardian is pure build.zig steps. Runs on every `zig build` (invisible, hard-blocking).
+4 source files: `check.zig`, `config.zig`, `spec/parser.zig`, `spec/matcher.zig`.
+Test fixture at `test-project/` exercises all checks.
 
-Test fixture at `test-project/` exercises all checks with intentional failures.
+## Recent Changes (redesign)
+- Guardian now runs on every `zig build`, not a separate step
+- Missing SPEC.md is a hard error with clear instructions
+- 1:1 strict spec-test mapping — duplicate tags detected
+- 13/13 spec behaviors covered on self
 
 ## Priority Ideas
-- Add more unit tests — spec matcher analyze(), config edge cases, file size walk logic
-- Add boundary rules for guardian-zig itself in guardian.toml
+- Add boundary rules for guardian-zig itself in guardian.toml to exercise that check on self
 - Support test/ directory in file size checks (currently only checks src/)
-- Add color output (detect TTY, use ANSI codes for pass/fail markers)
-- Consider a `change-classification` check subcommand using git diff
-- Add a `--quiet` flag that only prints failures (for CI use)
-- Test fixture: add a test case that intentionally violates a boundary rule to verify detection
+- Add color output (detect TTY, use ANSI codes for pass/fail)
+- Add a `--quiet` flag that only prints failures
+- Test fixture: add a file that deliberately violates a boundary rule to verify detection works
+- Config edge case tests: malformed TOML, missing values, multi-line arrays
 
 ## Completed
-- Refine mutation skip rules (pre-refactor)
 - Refactored to pure build.zig steps — 19 files → 4 files
-- Added unit tests for boundary matching + fixed glob pattern bug
-- Created test fixture project — exercises spec coverage (3/5 covered), file size (50 line limit), boundaries (core/ can't import utils/), compile/test/fmt. Validated on all 3 projects: self (pass), test-project (expected spec failure), EDA (runs correctly, known fmt/size failures)
+- Unit tests for boundary matching (matchesPattern, extractImports) + fixed glob bug
+- Created test fixture project
+- Redesign: invisible build integration, hard errors, 1:1 spec mapping
+- Unit tests for analyze(): full coverage, unverified behaviors, duplicate tags, unlinked tags (4 new tests, 13 total)
 
 ## Observations
-- All 3 projects produce correct output after every change
-- test-project boundary check passes because core/math.zig and core/strings.zig don't import utils/ — could add a deliberate violation test
-- EDA: 40/40 tests pass, fmt and file-size checks correctly flag issues
-- 9 unit tests pass in guardian-zig itself
+- 13 unit tests all pass
+- All 3 projects produce correct output: self (pass), test-project (expected spec failure), EDA (expected fmt/size/spec failures)
+- Duplicate tag detection works correctly in tests
+- The analyze() tests caught no bugs this round — the implementation was already correct
