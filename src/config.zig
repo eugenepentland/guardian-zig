@@ -1,21 +1,25 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+/// One [[boundary]] entry — a module glob and the import substrings forbidden inside it.
 pub const BoundaryRule = struct {
     module_pattern: []const u8,
     forbidden_imports: []const []const u8,
 };
 
+/// Per-check config for the spec-quality lint.
 pub const SpecQualityCfg = struct {
     enabled: bool = true,
     forbidden_phrases: []const []const u8 = &.{},
 };
 
+/// Per-check config for the function-size cap.
 pub const FunctionSizeCfg = struct {
     enabled: bool = true,
     max_params: u32 = 5,
 };
 
+/// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
     max_file_lines: u32 = 500,
@@ -25,6 +29,7 @@ pub const Config = struct {
     function_size: FunctionSizeCfg = .{},
 };
 
+/// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
 pub fn load(allocator: Allocator, dir: []const u8) Config {
     const path = std.fmt.allocPrint(allocator, "{s}/guardian.toml", .{dir}) catch return .{};
     const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch return .{};
@@ -38,6 +43,8 @@ const Section = enum {
     unknown,
 };
 
+/// Parses guardian.toml content. Unknown sections and malformed values are
+/// silently ignored; defaults are preserved for any field not set.
 pub fn parse(allocator: Allocator, content: []const u8) Config {
     var cfg = Config{};
     var boundaries: std.ArrayListUnmanaged(BoundaryRule) = .empty;

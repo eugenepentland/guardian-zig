@@ -3,6 +3,7 @@ const config_mod = @import("config.zig");
 const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 
+/// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -59,6 +60,7 @@ test {
     _ = @import("reporter.zig");
     _ = @import("ast/parser.zig");
     _ = @import("snapshot.zig");
+    _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("checks/spec.zig");
     _ = @import("checks/spec_init.zig");
@@ -68,4 +70,6 @@ test {
     _ = @import("checks/spec_quality.zig");
     _ = @import("checks/naming.zig");
     _ = @import("checks/function_size.zig");
+    _ = @import("checks/doc_comments.zig");
+    _ = @import("checks/imports.zig");
 }

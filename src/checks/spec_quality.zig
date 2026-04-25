@@ -1,7 +1,7 @@
 const std = @import("std");
 const spec_parser = @import("../spec/parser.zig");
 const reporter = @import("../reporter.zig");
-const registry = @import("../cli/registry.zig");
+const registry = @import("../cli/types.zig");
 
 const print = std.debug.print;
 const ok = reporter.ok;
@@ -22,6 +22,7 @@ const default_forbidden_phrases: []const []const u8 = &.{
 
 const min_behavior_chars: usize = 20;
 
+/// Entry point for the spec-quality check.
 pub fn run(ctx: *registry.RunCtx) !void {
     const allocator = ctx.allocator;
     const cfg = ctx.cfg;

@@ -5,6 +5,7 @@ const walk = @import("../walk.zig");
 
 // spec: Spec Coverage - Scans test and source files for // spec: tags
 
+/// One `// spec:` tag found in source.
 pub const SpecTag = struct {
     file: []const u8,
     tag: []const u8,
@@ -13,11 +14,13 @@ pub const SpecTag = struct {
 
 // spec: Spec Coverage - Enforces 1:1 mapping between spec behaviors and test tags
 
+/// A spec key found on more than one tag — a 1:1 mapping violation.
 pub const DuplicateTag = struct {
     key: []const u8,
     files: []const []const u8,
 };
 
+/// Coverage analysis result reported by `analyze`.
 pub const CoverageResult = struct {
     total_behaviors: usize,
     covered_behaviors: usize,
@@ -36,6 +39,7 @@ fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
     extractTags(ctx.allocator, entry.rel_path, entry.content, ctx.tags);
 }
 
+/// Recursively scans a directory for `// spec:` tags and returns the list.
 pub fn scanDir(allocator: Allocator, dir_path: []const u8) []const SpecTag {
     var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags };
@@ -59,6 +63,8 @@ fn extractTags(allocator: Allocator, path: []const u8, content: []const u8, tags
     }
 }
 
+/// Cross-references behaviors and tags; returns covered count plus
+/// unverified behaviors, unlinked tags, and duplicate tags.
 pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag) CoverageResult {
     var all_behaviors: std.ArrayListUnmanaged(parser.Behavior) = .empty;
     for (sections) |s| {

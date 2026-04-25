@@ -1,23 +1,28 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+/// One bullet under a SPEC.md section: the section name, the bullet text,
+/// and the normalized lookup key.
 pub const Behavior = struct {
     section: []const u8,
     statement: []const u8,
     key: []const u8,
 };
 
+/// One ## section in SPEC.md and its behaviors.
 pub const Section = struct {
     name: []const u8,
     behaviors: []const Behavior,
 };
 
+/// Reads `path` and parses it as SPEC.md.
 pub fn parseFile(allocator: Allocator, path: []const u8) ![]const Section {
     const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch
         return error.CouldNotReadSpec;
     return parseContent(allocator, content);
 }
 
+/// Parses SPEC.md text into sections + behaviors. Skips Overview/Planned.
 pub fn parseContent(allocator: Allocator, content: []const u8) ![]const Section {
     var sections: std.ArrayListUnmanaged(Section) = .empty;
     var current_section: ?[]const u8 = null;
@@ -87,6 +92,7 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ![]const Section 
 }
 
 // spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison
+/// Lowercases and collapses whitespace for whitespace-insensitive comparison.
 pub fn normalizeKey(allocator: Allocator, text: []const u8) ![]const u8 {
     // Lowercase and collapse whitespace
     var result: std.ArrayListUnmanaged(u8) = .empty;

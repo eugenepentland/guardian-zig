@@ -2,15 +2,19 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
 
+/// One @import("...") call extracted from source. Path is the literal argument.
 pub const Import = struct {
     path: []const u8,
 };
 
+/// A top-level public function discovered by pubFns().
 pub const PubFn = struct {
     name: []const u8,
     return_kind: ReturnKind,
+    has_doc_comment: bool,
 };
 
+/// A top-level function (pub or private) discovered by allFns().
 pub const FnInfo = struct {
     name: []const u8,
     is_pub: bool,
@@ -18,12 +22,14 @@ pub const FnInfo = struct {
     return_kind: ReturnKind,
 };
 
+/// Coarse classification of a function's return type.
 pub const ReturnKind = enum {
     err_union, // !T
     type_kw, // returns the literal `type`
     other,
 };
 
+/// Coarse classification of a `pub const` initializer.
 pub const PubConstKind = enum {
     struct_,
     enum_,
@@ -33,9 +39,11 @@ pub const PubConstKind = enum {
     value,
 };
 
+/// A top-level public constant declaration.
 pub const PubConst = struct {
     name: []const u8,
     kind: PubConstKind,
+    has_doc_comment: bool,
 };
 
 /// Tokenizer-based @import extraction. Skips strings/comments correctly.
@@ -76,10 +84,12 @@ pub fn pubFns(arena: Allocator, source: []const u8) ![]const PubFn {
         const name = tree.tokenSlice(name_tok);
 
         const return_kind = classifyReturn(&tree, proto);
+        const has_doc = hasPrecedingDocComment(&tree, decl);
 
         result.append(arena, .{
             .name = name,
             .return_kind = return_kind,
+            .has_doc_comment = has_doc,
         }) catch {};
     }
     return result.toOwnedSlice(arena) catch &.{};
@@ -131,9 +141,16 @@ pub fn pubConsts(arena: Allocator, source: []const u8) ![]const PubConst {
             else => .value,
         };
 
-        result.append(arena, .{ .name = name, .kind = kind }) catch {};
+        const has_doc = hasPrecedingDocComment(&tree, decl);
+        result.append(arena, .{ .name = name, .kind = kind, .has_doc_comment = has_doc }) catch {};
     }
     return result.toOwnedSlice(arena) catch &.{};
+}
+
+fn hasPrecedingDocComment(tree: *const Ast, decl: Ast.Node.Index) bool {
+    const first_tok = tree.firstToken(decl);
+    if (first_tok == 0) return false;
+    return tree.tokens.items(.tag)[first_tok - 1] == .doc_comment;
 }
 
 fn classifyReturn(tree: *const Ast, proto: Ast.full.FnProto) ReturnKind {

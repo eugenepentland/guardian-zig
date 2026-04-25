@@ -5,6 +5,7 @@ pub const GREEN = "\x1b[32m";
 pub const RED = "\x1b[31m";
 pub const RESET = "\x1b[0m";
 
+/// A single check failure with optional location and fix hint.
 pub const Violation = struct {
     file: ?[]const u8 = null,
     line: ?u32 = null,
@@ -12,6 +13,7 @@ pub const Violation = struct {
     fix_hint: ?[]const u8 = null,
 };
 
+/// Output controller — owns color and quiet state.
 pub const Reporter = struct {
     use_color: bool = false,
     quiet: bool = false,
@@ -50,6 +52,7 @@ pub const Reporter = struct {
 
 pub var default: Reporter = .{};
 
+/// Initializes the module-level default Reporter (TTY-detected color).
 pub fn init(quiet: bool) void {
     default = .{
         .use_color = std.fs.File.stderr().isTty(),
@@ -57,18 +60,22 @@ pub fn init(quiet: bool) void {
     };
 }
 
+/// Print a green-prefixed success line (suppressed when quiet).
 pub fn ok(comptime fmt: []const u8, args: anytype) void {
     default.ok(fmt, args);
 }
 
+/// Print a red-prefixed failure line (always printed, even when quiet).
 pub fn fail(comptime fmt: []const u8, args: anytype) void {
     default.fail(fmt, args);
 }
 
+/// Print a follow-on detail line beneath an ok/fail message.
 pub fn detail(comptime fmt: []const u8, args: anytype) void {
     default.detail(fmt, args);
 }
 
+/// Format and print a Violation record.
 pub fn emit(v: Violation) void {
     default.emit(v);
 }

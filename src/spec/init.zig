@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const ast = @import("../ast/parser.zig");
 
+/// A module's basename and its list of public function names.
 pub const ModuleInfo = struct {
     name: []const u8,
     pub_fns: []const []const u8,
@@ -26,6 +27,7 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
     }) catch {};
 }
 
+/// Walks `dir_path`, populating `modules` with every .zig file's pub fns.
 pub fn collectModules(
     allocator: std.mem.Allocator,
     dir_path: []const u8,
@@ -36,6 +38,7 @@ pub fn collectModules(
     try walk.walkZigFiles(allocator, dir_path, prefix, .{}, .{ .ctx = &ctx, .visit = collectVisit });
 }
 
+/// Returns the names of every `pub fn` in `content`, excluding main/build.
 pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) []const []const u8 {
     const pubs = ast.pubFns(allocator, content) catch return &.{};
     var fns: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -47,6 +50,7 @@ pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) []const 
     return fns.toOwnedSlice(allocator) catch &.{};
 }
 
+/// Renders a starter SPEC.md from a list of modules with placeholder behaviors.
 pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) []const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     buf.appendSlice(allocator, "# Project Specification\n\n") catch {};

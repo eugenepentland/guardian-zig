@@ -1,0 +1,104 @@
+const std = @import("std");
+const walk = @import("../walk.zig");
+const reporter = @import("../reporter.zig");
+const registry = @import("../cli/types.zig");
+const ast = @import("../ast/parser.zig");
+
+const print = std.debug.print;
+const ok = reporter.ok;
+const fail = reporter.fail;
+
+// spec: Doc Comments - Requires /// on every pub fn
+// spec: Doc Comments - Requires /// on every pub struct/enum/union/opaque
+
+const ScanCtx = struct {
+    allocator: std.mem.Allocator,
+    violations: *std.ArrayListUnmanaged([]const u8),
+};
+
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+    const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
+    const a = ctx.allocator;
+
+    const fns = ast.pubFns(a, entry.content) catch return;
+    for (fns) |f| {
+        if (f.has_doc_comment) continue;
+        const msg = std.fmt.allocPrint(
+            a,
+            "{s}: pub fn {s} has no /// doc comment",
+            .{ entry.rel_path, f.name },
+        ) catch continue;
+        ctx.violations.append(a, msg) catch {};
+    }
+
+    const consts = ast.pubConsts(a, entry.content) catch return;
+    for (consts) |c| {
+        switch (c.kind) {
+            .struct_, .enum_, .union_, .opaque_ => {
+                if (c.has_doc_comment) continue;
+                const msg = std.fmt.allocPrint(
+                    a,
+                    "{s}: pub const {s} ({s}) has no /// doc comment",
+                    .{ entry.rel_path, c.name, @tagName(c.kind) },
+                ) catch continue;
+                ctx.violations.append(a, msg) catch {};
+            },
+            else => {},
+        }
+    }
+}
+
+/// Entry point for the doc-comments check.
+pub fn run(ctx_param: *registry.RunCtx) !void {
+    const allocator = ctx_param.allocator;
+    const project_dir = ctx_param.project_dir;
+
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
+
+    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
+    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+
+    if (violations.items.len == 0) {
+        ok("all public declarations have doc comments", .{});
+        return;
+    }
+
+    fail("doc comments FAILED ({d} undocumented pub declaration(s))", .{violations.items.len});
+    for (violations.items) |v| {
+        print("  {s}\n", .{v});
+    }
+    print("  fix: add a /// doc comment line above each public declaration.\n", .{});
+    std.process.exit(1);
+}
+
+test "visit flags missing doc comment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content =
+        \\/// Documented.
+        \\pub fn doc_fn() void {}
+        \\
+        \\pub fn nodoc_fn() void {}
+    ;
+    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "visit flags missing doc comment on pub struct" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content =
+        \\pub const X = struct { x: i32 };
+        \\pub const Y = 42;
+    ;
+    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    // X has no /// → flag. Y is a value, exempt.
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}

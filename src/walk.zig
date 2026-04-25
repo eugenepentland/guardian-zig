@@ -1,24 +1,30 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+/// One file yielded by the walker: its display path and full content.
 pub const FileEntry = struct {
     rel_path: []const u8,
     content: []const u8,
 };
 
+/// Options controlling which files the walker yields.
 pub const WalkOpts = struct {
     excludes: []const []const u8 = &.{},
     max_file_bytes: usize = 10 * 1024 * 1024,
     extension: []const u8 = ".zig",
 };
 
+/// Function signature of a walker visitor callback.
 pub const VisitFn = *const fn (ctx: *anyopaque, entry: FileEntry) void;
 
+/// Bundle of (context pointer, callback) supplied to walkZigFiles.
 pub const Visitor = struct {
     ctx: *anyopaque,
     visit: VisitFn,
 };
 
+/// Recursively walks `fs_root`, invoking `visitor` for every matching file.
+/// `display_root` is prepended to each file's relative path in the entry.
 pub fn walkZigFiles(
     allocator: Allocator,
     fs_root: []const u8,
@@ -68,6 +74,8 @@ fn walkRecursive(
     }
 }
 
+/// Returns true if `text` matches `pattern`. `*` is a wildcard matching any
+/// substring; a pattern containing no `*` is treated as a substring match.
 pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
     if (std.mem.indexOfScalar(u8, pattern, '*') == null) {
         return std.mem.indexOf(u8, text, pattern) != null;
@@ -96,6 +104,7 @@ pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
     return ti == text.len;
 }
 
+/// Resolves `..` and `.` segments in a forward-slash path.
 pub fn normalizePath(allocator: Allocator, path: []const u8) []const u8 {
     var parts: std.ArrayListUnmanaged([]const u8) = .empty;
     var iter = std.mem.splitScalar(u8, path, '/');

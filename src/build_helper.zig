@@ -11,8 +11,11 @@ pub const all_check_names: []const []const u8 = &.{
     "spec-quality",
     "naming",
     "function-size",
+    "doc-comments",
+    "imports",
 };
 
+/// Tunables for addAllChecks.
 pub const Options = struct {
     quiet: bool = true,
     /// Optional working directory for each check invocation. Null means

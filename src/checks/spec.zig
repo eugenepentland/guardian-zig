@@ -2,12 +2,13 @@ const std = @import("std");
 const spec_parser = @import("../spec/parser.zig");
 const spec_matcher = @import("../spec/matcher.zig");
 const reporter = @import("../reporter.zig");
-const registry = @import("../cli/registry.zig");
+const registry = @import("../cli/types.zig");
 
 const print = std.debug.print;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
+/// Entry point for the spec coverage check.
 pub fn run(ctx: *registry.RunCtx) !void {
     const allocator = ctx.allocator;
     const cfg = ctx.cfg;

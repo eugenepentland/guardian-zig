@@ -3,11 +3,13 @@ const Allocator = std.mem.Allocator;
 
 pub const MAGIC_PREFIX = "# guardian-snapshot v";
 
+/// A read snapshot file, parsed into version + sorted lines.
 pub const Snapshot = struct {
     version: u32,
     lines: []const []const u8,
 };
 
+/// Set difference between an old snapshot and a new sorted-lines slice.
 pub const Diff = struct {
     added: []const []const u8,
     removed: []const []const u8,

@@ -1,7 +1,7 @@
 const std = @import("std");
 const spec_init = @import("../spec/init.zig");
 const reporter = @import("../reporter.zig");
-const registry = @import("../cli/registry.zig");
+const registry = @import("../cli/types.zig");
 
 const print = std.debug.print;
 const ok = reporter.ok;
@@ -9,6 +9,7 @@ const fail = reporter.fail;
 
 // spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
 
+/// Entry point for the spec-init generator.
 pub fn run(ctx: *registry.RunCtx) !void {
     const allocator = ctx.allocator;
     const project_dir = ctx.project_dir;

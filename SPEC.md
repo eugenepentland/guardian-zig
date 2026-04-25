@@ -53,3 +53,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Function Size
 
 - Caps parameter count per function
+
+## Doc Comments
+
+- Requires /// on every pub fn
+- Requires /// on every pub struct/enum/union/opaque
+
+## Imports
+
+- Detects cycles in the @import graph

@@ -1,7 +1,7 @@
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
-const registry = @import("../cli/registry.zig");
+const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
 
 const print = std.debug.print;
@@ -31,6 +31,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
     }
 }
 
+/// Entry point for the function-size check.
 pub fn run(ctx_param: *registry.RunCtx) !void {
     const allocator = ctx_param.allocator;
     const cfg = ctx_param.cfg;
