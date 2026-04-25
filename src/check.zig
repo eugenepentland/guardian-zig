@@ -75,4 +75,6 @@ test {
     _ = @import("checks/pub_api_surface.zig");
     _ = @import("checks/panic_budget.zig");
     _ = @import("checks/spec_drift.zig");
+    _ = @import("checks/catch_discipline.zig");
+    _ = @import("checks/error_discipline.zig");
 }

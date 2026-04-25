@@ -1,4 +1,5 @@
 # guardian-snapshot v1
+src/ast/parser.zig::AstError value
 src/ast/parser.zig::FnInfo struct_
 src/ast/parser.zig::Import struct_
 src/ast/parser.zig::PubConst struct_
@@ -14,7 +15,9 @@ src/build_helper.zig::addAllChecks fn
 src/build_helper.zig::all_check_names value
 src/check.zig::main fn
 src/checks/boundaries.zig::run fn
+src/checks/catch_discipline.zig::run fn
 src/checks/doc_comments.zig::run fn
+src/checks/error_discipline.zig::run fn
 src/checks/file_size.zig::run fn
 src/checks/function_size.zig::run fn
 src/checks/imports.zig::run fn
@@ -35,6 +38,7 @@ src/cli/registry.zig::printHelp fn
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_
+src/cli/types.zig::RunError value
 src/config.zig::BoundaryRule struct_
 src/config.zig::Config struct_
 src/config.zig::FunctionSizeCfg struct_
@@ -56,9 +60,11 @@ src/snapshot.zig::Diff struct_
 src/snapshot.zig::MAGIC_PREFIX value
 src/snapshot.zig::ReadError value
 src/snapshot.zig::Snapshot struct_
+src/snapshot.zig::WriteError value
 src/snapshot.zig::diff fn
 src/snapshot.zig::read fn
 src/snapshot.zig::write fn
+src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
 src/spec/init.zig::collectModules fn
 src/spec/init.zig::extractPubFns fn
@@ -69,6 +75,7 @@ src/spec/matcher.zig::SpecTag struct_
 src/spec/matcher.zig::analyze fn
 src/spec/matcher.zig::scanDir fn
 src/spec/parser.zig::Behavior struct_
+src/spec/parser.zig::ParseError value
 src/spec/parser.zig::Section struct_
 src/spec/parser.zig::normalizeKey fn
 src/spec/parser.zig::parseContent fn
@@ -76,6 +83,7 @@ src/spec/parser.zig::parseFile fn
 src/walk.zig::FileEntry struct_
 src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_
+src/walk.zig::WalkError value
 src/walk.zig::WalkOpts struct_
 src/walk.zig::matchGlob fn
 src/walk.zig::normalizePath fn

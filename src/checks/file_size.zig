@@ -29,7 +29,7 @@ fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
 }
 
 /// Entry point for the file-size check.
-pub fn run(ctx_param: *registry.RunCtx) !void {
+pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const cfg = ctx_param.cfg;
     const project_dir = ctx_param.project_dir;

@@ -9,7 +9,7 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 /// Entry point for the spec coverage check.
-pub fn run(ctx: *registry.RunCtx) !void {
+pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cfg = ctx.cfg;
     const project_dir = ctx.project_dir;

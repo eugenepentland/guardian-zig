@@ -50,7 +50,7 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
 }
 
 /// Entry point for the spec-drift check.
-pub fn run(ctx_param: *registry.RunCtx) !void {
+pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 

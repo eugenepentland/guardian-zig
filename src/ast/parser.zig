@@ -27,8 +27,10 @@ pub const FnInfo = struct {
 
 /// Coarse classification of a function's return type.
 pub const ReturnKind = enum {
-    err_union, // !T
+    err_union_inferred, // `!T` with no explicit error set
+    err_union_explicit, // `error{...}!T` or `MyErr!T`
     type_kw, // returns the literal `type`
+    anyerror_union, // `anyerror!T`
     other,
 };
 
@@ -73,8 +75,11 @@ pub fn imports(arena: Allocator, source: []const u8) []const Import {
     return result.toOwnedSlice(arena) catch &.{};
 }
 
+/// Errors that AST primitives may propagate.
+pub const AstError = std.mem.Allocator.Error;
+
 /// AST-based public function discovery.
-pub fn pubFns(arena: Allocator, source: []const u8) ![]const PubFn {
+pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
     var result: std.ArrayListUnmanaged(PubFn) = .empty;
@@ -128,7 +133,7 @@ fn collapseWhitespace(arena: Allocator, text: []const u8) ![]const u8 {
 }
 
 /// All top-level functions (pub and private), with parameter counts.
-pub fn allFns(arena: Allocator, source: []const u8) ![]const FnInfo {
+pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
     var result: std.ArrayListUnmanaged(FnInfo) = .empty;
@@ -154,7 +159,7 @@ pub fn allFns(arena: Allocator, source: []const u8) ![]const FnInfo {
 }
 
 /// Top-level pub const declarations classified by initializer kind.
-pub fn pubConsts(arena: Allocator, source: []const u8) ![]const PubConst {
+pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
     var result: std.ArrayListUnmanaged(PubConst) = .empty;
@@ -188,12 +193,17 @@ fn hasPrecedingDocComment(tree: *const Ast, decl: Ast.Node.Index) bool {
 fn classifyReturn(tree: *const Ast, proto: Ast.full.FnProto) ReturnKind {
     const ret_node = proto.ast.return_type.unwrap() orelse return .other;
     const tag = tree.nodeTag(ret_node);
-    if (tag == .error_union) return .err_union;
+    if (tag == .error_union) {
+        // Look at the left-hand-side identifier of the error_union for `anyerror`.
+        const first_tok = tree.firstToken(ret_node);
+        const text = tree.tokenSlice(first_tok);
+        if (std.mem.eql(u8, text, "anyerror")) return .anyerror_union;
+        return .err_union_explicit;
+    }
     const first_tok = tree.firstToken(ret_node);
-    // Inferred error set syntax `!T` puts a `.bang` token immediately before the return type.
     if (first_tok > 0) {
         const prev_tag = tree.tokens.items(.tag)[first_tok - 1];
-        if (prev_tag == .bang) return .err_union;
+        if (prev_tag == .bang) return .err_union_inferred;
     }
     const text = tree.tokenSlice(first_tok);
     if (std.mem.eql(u8, text, "type")) return .type_kw;
@@ -267,7 +277,7 @@ test "pubFns finds public functions only" {
     try std.testing.expectEqual(@as(usize, 2), fns.len);
     try std.testing.expectEqualStrings("foo", fns[0].name);
     try std.testing.expectEqualStrings("bar", fns[1].name);
-    try std.testing.expectEqual(ReturnKind.err_union, fns[1].return_kind);
+    try std.testing.expectEqual(ReturnKind.err_union_inferred, fns[1].return_kind);
     try std.testing.expectEqualStrings("fn foo() void", fns[0].proto_span);
     try std.testing.expectEqualStrings("fn bar(x: i32) !void", fns[1].proto_span);
 }

@@ -15,15 +15,18 @@ pub const Section = struct {
     behaviors: []const Behavior,
 };
 
+/// Errors propagated by parser fns.
+pub const ParseError = std.mem.Allocator.Error || error{CouldNotReadSpec};
+
 /// Reads `path` and parses it as SPEC.md.
-pub fn parseFile(allocator: Allocator, path: []const u8) ![]const Section {
+pub fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section {
     const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch
         return error.CouldNotReadSpec;
     return parseContent(allocator, content);
 }
 
 /// Parses SPEC.md text into sections + behaviors. Skips Overview/Planned.
-pub fn parseContent(allocator: Allocator, content: []const u8) ![]const Section {
+pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section {
     var sections: std.ArrayListUnmanaged(Section) = .empty;
     var current_section: ?[]const u8 = null;
     var current_behaviors: std.ArrayListUnmanaged(Behavior) = .empty;
@@ -93,7 +96,7 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ![]const Section 
 
 // spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison
 /// Lowercases and collapses whitespace for whitespace-insensitive comparison.
-pub fn normalizeKey(allocator: Allocator, text: []const u8) ![]const u8 {
+pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8 {
     // Lowercase and collapse whitespace
     var result: std.ArrayListUnmanaged(u8) = .empty;
     var prev_space = false;

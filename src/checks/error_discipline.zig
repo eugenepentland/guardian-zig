@@ -8,8 +8,8 @@ const print = std.debug.print;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Doc Comments - Requires /// on every pub fn
-// spec: Doc Comments - Requires /// on every pub struct/enum/union/opaque
+// spec: Error Discipline - Rejects inferred error sets on pub fn
+// spec: Error Discipline - Rejects anyerror on pub fn
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
@@ -22,24 +22,22 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
 
     const fns = ast.pubFns(a, entry.content) catch return;
     for (fns) |f| {
-        if (f.has_doc_comment) continue;
-        const msg = std.fmt.allocPrint(
-            a,
-            "{s}: pub fn {s} has no /// doc comment",
-            .{ entry.rel_path, f.name },
-        ) catch continue;
-        ctx.violations.append(a, msg) catch {};
-    }
-
-    const consts = ast.pubConsts(a, entry.content) catch return;
-    for (consts) |c| {
-        switch (c.kind) {
-            .struct_, .enum_, .union_, .opaque_ => {
-                if (c.has_doc_comment) continue;
+        // `main` is conventionally exempt; its inferred error set is idiomatic.
+        if (std.mem.eql(u8, f.name, "main")) continue;
+        switch (f.return_kind) {
+            .err_union_inferred => {
                 const msg = std.fmt.allocPrint(
                     a,
-                    "{s}: pub const {s} ({s}) has no /// doc comment",
-                    .{ entry.rel_path, c.name, @tagName(c.kind) },
+                    "{s}: pub fn {s} uses inferred error set `!T` (use `MyErr!T`)",
+                    .{ entry.rel_path, f.name },
+                ) catch continue;
+                ctx.violations.append(a, msg) catch {};
+            },
+            .anyerror_union => {
+                const msg = std.fmt.allocPrint(
+                    a,
+                    "{s}: pub fn {s} uses anyerror (declare a specific error set)",
+                    .{ entry.rel_path, f.name },
                 ) catch continue;
                 ctx.violations.append(a, msg) catch {};
             },
@@ -48,7 +46,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
     }
 }
 
-/// Entry point for the doc-comments check.
+/// Entry point for the error-discipline check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
@@ -60,45 +58,51 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
 
     if (violations.items.len == 0) {
-        ok("all public declarations have doc comments", .{});
+        ok("error discipline OK", .{});
         return;
     }
 
-    fail("doc comments FAILED ({d} undocumented pub declaration(s))", .{violations.items.len});
-    for (violations.items) |v| {
-        print("  {s}\n", .{v});
-    }
-    print("  fix: add a /// doc comment line above each public declaration.\n", .{});
+    fail("error discipline FAILED ({d} violation(s))", .{violations.items.len});
+    for (violations.items) |v| print("  {s}\n", .{v});
+    print("  fix: declare an explicit error set, e.g.\n", .{});
+    print("    pub const MyError = error{{ Foo, Bar }};\n", .{});
+    print("    pub fn run(...) MyError!void {{ ... }}\n", .{});
     std.process.exit(1);
 }
 
-test "visit flags missing doc comment" {
+test "visit catches inferred error set on pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
-        \\/// Documented.
-        \\pub fn doc_fn() void {}
-        \\
-        \\pub fn nodoc_fn() void {}
+        \\pub fn bad() !void {}
+        \\pub const MyErr = error{ X };
+        \\pub fn good() MyErr!void {}
     ;
     visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
-test "visit flags missing doc comment on pub struct" {
+test "visit allows main with inferred error set" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
-    const content =
-        \\pub const X = struct { x: i32 };
-        \\pub const Y = 42;
-    ;
+    const content = "pub fn main() !void {}\n";
+    visit(@ptrCast(&ctx), .{ .rel_path = "src/main.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+test "visit catches anyerror on pub fn" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content = "pub fn dynamic() anyerror!void {}\n";
     visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
-    // X has no /// → flag. Y is a value, exempt.
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }

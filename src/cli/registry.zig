@@ -14,6 +14,8 @@ const check_imports = @import("../checks/imports.zig");
 const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
 const check_spec_drift = @import("../checks/spec_drift.zig");
+const check_catch_discipline = @import("../checks/catch_discipline.zig");
+const check_error_discipline = @import("../checks/error_discipline.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -33,6 +35,8 @@ pub const all: []const Command = &.{
     .{ .name = "pub-api-surface", .summary = "Snapshot every pub fn/type; diff fails build", .run = check_pub_api_surface.run },
     .{ .name = "panic-budget", .summary = "Cap @panic / unreachable / TODO / FIXME counts via snapshot", .run = check_panic_budget.run },
     .{ .name = "spec-drift", .summary = "Snapshot pub fn prototypes; diff fails on signature change", .run = check_spec_drift.run },
+    .{ .name = "catch-discipline", .summary = "Reject catch unreachable in production code", .run = check_catch_discipline.run },
+    .{ .name = "error-discipline", .summary = "Require explicit error sets on pub fn", .run = check_error_discipline.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.

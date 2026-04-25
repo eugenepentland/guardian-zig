@@ -16,6 +16,8 @@ pub const all_check_names: []const []const u8 = &.{
     "pub-api-surface",
     "panic-budget",
     "spec-drift",
+    "catch-discipline",
+    "error-discipline",
 };
 
 /// Tunables for addAllChecks.

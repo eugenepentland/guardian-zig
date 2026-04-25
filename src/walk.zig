@@ -23,6 +23,9 @@ pub const Visitor = struct {
     visit: VisitFn,
 };
 
+/// Errors propagated by walkZigFiles.
+pub const WalkError = std.mem.Allocator.Error || std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error || std.fs.File.OpenError;
+
 /// Recursively walks `fs_root`, invoking `visitor` for every matching file.
 /// `display_root` is prepended to each file's relative path in the entry.
 pub fn walkZigFiles(
@@ -31,7 +34,7 @@ pub fn walkZigFiles(
     display_root: []const u8,
     opts: WalkOpts,
     visitor: Visitor,
-) !void {
+) WalkError!void {
     var dir = std.fs.cwd().openDir(fs_root, .{ .iterate = true }) catch return;
     defer dir.close();
     try walkRecursive(allocator, dir, display_root, opts, visitor);

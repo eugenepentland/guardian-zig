@@ -10,7 +10,7 @@ const fail = reporter.fail;
 // spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
 
 /// Entry point for the spec-init generator.
-pub fn run(ctx: *registry.RunCtx) !void {
+pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const project_dir = ctx.project_dir;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/SPEC.md", .{project_dir});

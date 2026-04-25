@@ -52,8 +52,11 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
     };
 }
 
+/// Errors that `write` may propagate.
+pub const WriteError = std.fs.File.OpenError || std.fs.File.WriteError || std.mem.Allocator.Error || error{WriteFailed};
+
 /// Writes a snapshot file. Lines are sorted in place for deterministic output.
-pub fn write(path: []const u8, version: u32, lines: [][]const u8) !void {
+pub fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void {
     std.mem.sort([]const u8, lines, {}, lessThan);
 
     if (std.fs.path.dirname(path)) |dir| {
@@ -73,7 +76,7 @@ pub fn write(path: []const u8, version: u32, lines: [][]const u8) !void {
 }
 
 /// Compute added/removed sets between sorted snapshot lines and a new sorted slice.
-pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) !Diff {
+pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff {
     var added: std.ArrayListUnmanaged([]const u8) = .empty;
     var removed: std.ArrayListUnmanaged([]const u8) = .empty;
 

@@ -23,7 +23,7 @@ const default_forbidden_phrases: []const []const u8 = &.{
 const min_behavior_chars: usize = 20;
 
 /// Entry point for the spec-quality check.
-pub fn run(ctx: *registry.RunCtx) !void {
+pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cfg = ctx.cfg;
     const project_dir = ctx.project_dir;

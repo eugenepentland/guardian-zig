@@ -27,13 +27,16 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
     }) catch {};
 }
 
+/// Errors propagated by collectModules.
+pub const InitError = walk.WalkError;
+
 /// Walks `dir_path`, populating `modules` with every .zig file's pub fns.
 pub fn collectModules(
     allocator: std.mem.Allocator,
     dir_path: []const u8,
     prefix: []const u8,
     modules: *std.ArrayListUnmanaged(ModuleInfo),
-) !void {
+) InitError!void {
     var ctx: CollectCtx = .{ .allocator = allocator, .modules = modules };
     try walk.walkZigFiles(allocator, dir_path, prefix, .{}, .{ .ctx = &ctx, .visit = collectVisit });
 }

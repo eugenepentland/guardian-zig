@@ -77,3 +77,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Snapshots pub fn prototypes
 - Diff fails when an existing pub fn signature changes
+
+## Catch Discipline
+
+- Rejects catch unreachable in production code
+
+## Error Discipline
+
+- Rejects inferred error sets on pub fn
+- Rejects anyerror on pub fn
