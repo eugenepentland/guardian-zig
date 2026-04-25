@@ -19,6 +19,7 @@ const check_error_discipline = @import("../checks/error_discipline.zig");
 const check_cognitive_complexity = @import("../checks/cognitive_complexity.zig");
 const check_anytype_budget = @import("../checks/anytype_budget.zig");
 const check_dead_pub = @import("../checks/dead_pub.zig");
+const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -43,6 +44,7 @@ pub const all: []const Command = &.{
     .{ .name = "cognitive-complexity", .summary = "Cap per-function cognitive complexity score", .run = check_cognitive_complexity.run },
     .{ .name = "anytype-budget", .summary = "Cap anytype parameter count per file", .run = check_anytype_budget.run },
     .{ .name = "dead-pub", .summary = "Flag unused public declarations", .run = check_dead_pub.run },
+    .{ .name = "allocator-hygiene", .summary = "Reject hardcoded global allocators outside main/test", .run = check_allocator_hygiene.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.

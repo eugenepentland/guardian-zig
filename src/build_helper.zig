@@ -21,6 +21,7 @@ pub const all_check_names: []const []const u8 = &.{
     "cognitive-complexity",
     "anytype-budget",
     "dead-pub",
+    "allocator-hygiene",
 };
 
 /// Tunables for addAllChecks.

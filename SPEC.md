@@ -99,3 +99,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Dead Pub
 
 - Flags public declarations referenced only by themselves
+
+## Allocator Hygiene
+
+- Rejects hardcoded global allocators outside test blocks and pub fn main

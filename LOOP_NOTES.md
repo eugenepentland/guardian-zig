@@ -21,22 +21,22 @@ Boundary rules: `src/spec/*` cannot import `config`.
 
 ## Status: SHIPPED
 
-All 14 of the 16 originally-proposed checks landed plus the original 4 (spec, file-size, boundaries, spec-init).
-2 deferred with explicit reasoning:
+All 16 originally-proposed checks landed plus the original 4 (spec, file-size, boundaries, spec-init).
 - `spec-init++` — landed as a focused upgrade: one bullet per pub fn, drop the redundant comma-list summary.
-- `allocator-hygiene` — formally deferred (see RESEARCH-BRIEF §10). Needs arena-aware ownership analysis the audit
-  flagged as undecidable with a token-pattern approach.
+- `allocator-hygiene` — landed as the hardcoded-global form (token-pattern scanner with permissive scopes for
+  `test {…}` and `pub fn main`). Catches AI-agents bypassing the allocator-flow contract. The arena/ownership
+  half remains a future feature — see RESEARCH-BRIEF §10 for the design constraints.
 
 ## Final Stats
-- 30 source files, ~4000 lines of Zig
-- 17 hard-block checks + 1 generator (`spec-init`)
-- 70 tests, 38 spec-tags / 39 SPEC.md behaviors (1:1 covered)
-- 44 commits
+- 31 source files, ~4300 lines of Zig
+- 18 hard-block checks + 1 generator (`spec-init`)
+- 78 tests, 39 spec-tags / 40 SPEC.md behaviors (1:1 covered)
+- 46 commits
 
 ## Hard-block check inventory
 spec · spec-quality · spec-drift · file-size · function-size · boundaries · usingnamespace-ban · naming · doc-comments ·
 imports (cycle detection) · pub-api-surface · panic-budget · catch-discipline · error-discipline ·
-cognitive-complexity · anytype-budget · dead-pub.
+cognitive-complexity · anytype-budget · dead-pub · allocator-hygiene.
 
 Three checks are snapshot-based (pub-api-surface, panic-budget, spec-drift) — diff-against-baseline; commit the
 snapshot or the build fails.

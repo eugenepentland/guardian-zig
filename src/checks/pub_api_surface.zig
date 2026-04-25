@@ -45,9 +45,9 @@ fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8) ![][]cons
     return lines.toOwnedSlice(allocator);
 }
 
-fn updateRequested() bool {
-    const v = std.process.getEnvVarOwned(std.heap.page_allocator, UPDATE_ENV) catch return false;
-    defer std.heap.page_allocator.free(v);
+fn updateRequested(allocator: std.mem.Allocator) bool {
+    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
+    defer allocator.free(v);
     return v.len > 0 and !std.mem.eql(u8, v, "0");
 }
 
@@ -59,7 +59,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const snap_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, SNAPSHOT_PATH });
     const lines = try collectLines(allocator, project_dir);
 
-    if (updateRequested()) {
+    if (updateRequested(allocator)) {
         try snapshot.write(snap_path, SNAPSHOT_VERSION, lines);
         ok("pub-api snapshot updated ({d} entries)", .{lines.len});
         return;

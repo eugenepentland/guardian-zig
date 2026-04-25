@@ -191,34 +191,45 @@ has).
 Ideas that surfaced during scoping but were ruled out for now, with the
 reason. Listed so future passes don't re-relitigate them without context.
 
-### `allocator-hygiene` (allocator/arena ownership analysis)
+### `allocator-hygiene` — partial: hardcoded-global form shipped, ownership form still deferred
 
-**Goal.** Catch AI-agent mistakes around `std.mem.Allocator`: leaked allocs,
-freeing memory owned by an arena, returning slices allocated from a
-function-scoped arena, etc.
+**Shipped.** The `allocator-hygiene` check rejects hardcoded references to
+`std.heap.page_allocator`, `std.heap.c_allocator`, `std.heap.smp_allocator`,
+`std.heap.GeneralPurposeAllocator`, and `std.testing.allocator` outside two
+permissive scopes: `test {…}` blocks and `pub fn main(…) {…}`. Implemented as
+a token-pattern scanner over `std.zig.Tokenizer` (which strips strings and
+comments for free) plus a brace-depth state machine that pushes/pops a
+permissive-scope frame at the body brace of `test` and `fn main`. Catches the
+specific AI-agent mistake of conjuring a global allocator inline instead of
+threading the allocator through as a parameter — a real, syntactically
+decidable failure mode with zero false positives in practice (the rule is
+"the literal token text appears here," and every match is a true bypass).
 
-**Why deferred.** Hard-blocking checks must be sound (zero false positives) or
-they get bypassed. Allocator ownership in Zig is encoded in *intent*, not in
-the type system: the same `Allocator` interface backs `GeneralPurposeAllocator`,
-arenas, fixed-buffer allocators, and `testing.allocator`, so the static text
-of an `alloc`/`free`/`deinit` call doesn't tell you whether a free is required,
-forbidden, or harmless. Any check that reasons about ownership has to model
-data flow through opaque-by-design interfaces — that's an interprocedural
-analysis problem, not a token-pattern problem, and the AST tooling Guardian
-uses today isn't sufficient. A naive version (e.g. "every `alloc` needs a
-matching `free` in the same scope") would generate enough false positives on
-real arena-using code that consumers would route around it.
+**Still deferred: arena/ownership analysis.** A second class of allocator
+mistakes — leaked allocs, freeing memory owned by an arena, returning slices
+allocated from a function-scoped arena — is *not* token-pattern decidable.
+The `Allocator` interface is opaque by design: the same vtable backs
+`GeneralPurposeAllocator`, arenas, fixed-buffer allocators, and
+`testing.allocator`, so the static text of an `alloc`/`free`/`deinit` call
+can't tell you whether a free is required, forbidden, or harmless. Any sound
+check has to model data flow through that opaque interface — an
+interprocedural analysis problem, not a token-pattern problem.
 
-**What it would take to ship.** Two viable narrower forms, both still
+**What an ownership check would still need.** Two viable narrower forms, both
 non-trivial:
-1. **Arena-scoped lints only** — flag `free`/`destroy` calls on a value whose
-   allocator is provably an `ArenaAllocator.allocator()` in the same function.
-   Requires AST-level type tracking, but the scope is local, so it's tractable.
-2. **Convention-based** — require any `pub fn` returning an allocated slice to
-   take an explicit `allocator: Allocator` parameter (no hidden globals).
-   This is a syntactic check and could ship today; the question is whether
-   the rule is opinionated enough to be worth the friction.
+1. **Arena-scoped lints only** — flag `free`/`destroy` on a value whose
+   allocator is provably `ArenaAllocator.allocator()` in the same function.
+   Requires AST-level type tracking, but the scope is local, so it's
+   tractable.
+2. **Convention-based** — require any `pub fn` that returns a heap-allocated
+   slice to take an explicit `allocator: Allocator` parameter. Syntactic,
+   shippable today, but the trigger ("returns a heap-allocated slice") is
+   itself a heuristic — the same return type is used for borrowed slices
+   into the input.
 
-Either path is a future feature, not a polish-pass item. Until one is built,
-allocator mistakes remain Zig's responsibility (via runtime leak detection in
-`testing.allocator` and `GeneralPurposeAllocator`).
+Until one of those lands, allocator-ownership mistakes remain Zig's
+responsibility via runtime leak detection in `testing.allocator` and
+`GeneralPurposeAllocator`. The shipped hygiene check raises the floor by
+making sure the allocator-flow contract (caller passes the allocator in)
+isn't bypassed in production code — it's the simpler, decidable half of the
+original proposal.

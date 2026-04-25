@@ -122,9 +122,9 @@ fn readBudget(arena: std.mem.Allocator, path: []const u8) !Counts {
     return c;
 }
 
-fn updateRequested() bool {
-    const v = std.process.getEnvVarOwned(std.heap.page_allocator, UPDATE_ENV) catch return false;
-    defer std.heap.page_allocator.free(v);
+fn updateRequested(allocator: std.mem.Allocator) bool {
+    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
+    defer allocator.free(v);
     return v.len > 0 and !std.mem.eql(u8, v, "0");
 }
 
@@ -140,7 +140,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     const snap_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, SNAPSHOT_PATH });
 
-    if (updateRequested()) {
+    if (updateRequested(allocator)) {
         try writeBudget(snap_path, totals);
         ok("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", .{
             totals.panics, totals.unreachables, totals.todos, totals.fixmes,

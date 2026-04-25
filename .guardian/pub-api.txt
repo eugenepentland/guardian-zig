@@ -14,6 +14,7 @@ src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks fn
 src/build_helper.zig::all_check_names value
 src/check.zig::main fn
+src/checks/allocator_hygiene.zig::run fn
 src/checks/anytype_budget.zig::run fn
 src/checks/boundaries.zig::run fn
 src/checks/catch_discipline.zig::run fn

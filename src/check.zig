@@ -80,4 +80,5 @@ test {
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/anytype_budget.zig");
     _ = @import("checks/dead_pub.zig");
+    _ = @import("checks/allocator_hygiene.zig");
 }
