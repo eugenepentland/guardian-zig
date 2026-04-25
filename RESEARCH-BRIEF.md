@@ -183,3 +183,42 @@ The researcher should weigh each idea against the principles in §6 and the
 non-goals in §7, and explain how a proposed feature would integrate as a
 hard-blocking build step (since that is the only delivery mechanism Guardian
 has).
+
+---
+
+## 10. Deferred ideas
+
+Ideas that surfaced during scoping but were ruled out for now, with the
+reason. Listed so future passes don't re-relitigate them without context.
+
+### `allocator-hygiene` (allocator/arena ownership analysis)
+
+**Goal.** Catch AI-agent mistakes around `std.mem.Allocator`: leaked allocs,
+freeing memory owned by an arena, returning slices allocated from a
+function-scoped arena, etc.
+
+**Why deferred.** Hard-blocking checks must be sound (zero false positives) or
+they get bypassed. Allocator ownership in Zig is encoded in *intent*, not in
+the type system: the same `Allocator` interface backs `GeneralPurposeAllocator`,
+arenas, fixed-buffer allocators, and `testing.allocator`, so the static text
+of an `alloc`/`free`/`deinit` call doesn't tell you whether a free is required,
+forbidden, or harmless. Any check that reasons about ownership has to model
+data flow through opaque-by-design interfaces — that's an interprocedural
+analysis problem, not a token-pattern problem, and the AST tooling Guardian
+uses today isn't sufficient. A naive version (e.g. "every `alloc` needs a
+matching `free` in the same scope") would generate enough false positives on
+real arena-using code that consumers would route around it.
+
+**What it would take to ship.** Two viable narrower forms, both still
+non-trivial:
+1. **Arena-scoped lints only** — flag `free`/`destroy` calls on a value whose
+   allocator is provably an `ArenaAllocator.allocator()` in the same function.
+   Requires AST-level type tracking, but the scope is local, so it's tractable.
+2. **Convention-based** — require any `pub fn` returning an allocated slice to
+   take an explicit `allocator: Allocator` parameter (no hidden globals).
+   This is a syntactic check and could ship today; the question is whether
+   the rule is opinionated enough to be worth the friction.
+
+Either path is a future feature, not a polish-pass item. Until one is built,
+allocator mistakes remain Zig's responsibility (via runtime leak detection in
+`testing.allocator` and `GeneralPurposeAllocator`).

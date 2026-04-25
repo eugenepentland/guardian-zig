@@ -41,6 +41,9 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         std.process.exit(1);
     };
 
-    ok("generated {s} with {d} modules", .{ spec_path, modules.items.len });
-    print("  Edit the generated behaviors, then add // spec: tags to your tests.\n", .{});
+    var total_fns: usize = 0;
+    for (modules.items) |m| total_fns += m.pub_fns.len;
+    ok("generated {s} with {d} modules, {d} behavior placeholders", .{ spec_path, modules.items.len, total_fns });
+    print("  Each pub fn got its own bullet — refine the wording, then add a matching\n", .{});
+    print("  // spec: <Section> - <Behavior> tag to a test for each one.\n", .{});
 }

@@ -53,7 +53,9 @@ pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.
     return fns.toOwnedSlice(allocator);
 }
 
-/// Renders a starter SPEC.md from a list of modules with placeholder behaviors.
+/// Renders a starter SPEC.md from a list of modules with one bullet per pub fn.
+/// Each bullet is long enough to clear spec-quality's minimum-length gate so the
+/// generated file is hard-block-clean once the user adds matching // spec: tags.
 pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) std.mem.Allocator.Error![]const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     try buf.appendSlice(allocator, "# Project Specification\n\n");
@@ -63,13 +65,15 @@ pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const Module
         if (mod.pub_fns.len == 0) continue;
         const section = try std.fmt.allocPrint(allocator, "## {s}\n\n", .{mod.name});
         try buf.appendSlice(allocator, section);
-        try buf.appendSlice(allocator, "Public functions: ");
-        for (mod.pub_fns, 0..) |fn_name, i| {
-            if (i > 0) try buf.appendSlice(allocator, ", ");
-            try buf.appendSlice(allocator, fn_name);
+        for (mod.pub_fns) |fn_name| {
+            const bullet = try std.fmt.allocPrint(
+                allocator,
+                "- {s}: describe its observable behavior\n",
+                .{fn_name},
+            );
+            try buf.appendSlice(allocator, bullet);
         }
-        try buf.appendSlice(allocator, "\n\n");
-        try buf.appendSlice(allocator, "- TODO: describe behaviors\n\n");
+        try buf.appendSlice(allocator, "\n");
     }
 
     return buf.toOwnedSlice(allocator);
@@ -130,4 +134,46 @@ test "extractPubFns ignores non-function pub declarations" {
     const fns = try extractPubFns(a, content);
     try std.testing.expectEqual(@as(usize, 1), fns.len);
     try std.testing.expectEqualStrings("actual", fns[0]);
+}
+
+test "generateSpecContent emits one bullet per pub fn" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const modules = [_]ModuleInfo{
+        .{ .name = "auth", .pub_fns = &.{ "validateToken", "refreshToken" } },
+        .{ .name = "api", .pub_fns = &.{"send"} },
+    };
+
+    const out = try generateSpecContent(a, &modules);
+
+    try std.testing.expect(std.mem.indexOf(u8, out, "## auth") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "- validateToken: describe its observable behavior") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "- refreshToken: describe its observable behavior") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "## api") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "- send: describe its observable behavior") != null);
+    // The old comma-list summary is gone.
+    try std.testing.expect(std.mem.indexOf(u8, out, "Public functions:") == null);
+}
+
+test "generateSpecContent output round-trips through SPEC.md parser" {
+    const spec_parser = @import("parser.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const modules = [_]ModuleInfo{
+        .{ .name = "auth", .pub_fns = &.{ "validateToken", "refreshToken" } },
+    };
+    const out = try generateSpecContent(a, &modules);
+
+    const sections = try spec_parser.parseContent(a, out);
+    try std.testing.expectEqual(@as(usize, 1), sections.len);
+    try std.testing.expectEqualStrings("auth", sections[0].name);
+    try std.testing.expectEqual(@as(usize, 2), sections[0].behaviors.len);
+    try std.testing.expectEqualStrings(
+        "validateToken: describe its observable behavior",
+        sections[0].behaviors[0].statement,
+    );
 }
