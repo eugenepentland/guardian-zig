@@ -63,6 +63,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Detects cycles in the @import graph
 
+## Snapshot Lifecycle
+
+- Creates snapshot file on first run with no prior snapshot
+- Reports drift when current state differs from prior snapshot
+- Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
+
 ## Pub Api Surface
 
 - Snapshots every public declaration
@@ -103,3 +109,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Allocator Hygiene
 
 - Rejects hardcoded global allocators outside test blocks and pub fn main
+
+## Duplicate Const
+
+- Rejects file-scope const string-literal declarations with the same name and value defined in two or more files

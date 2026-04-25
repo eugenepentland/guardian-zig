@@ -20,6 +20,7 @@ const check_cognitive_complexity = @import("../checks/cognitive_complexity.zig")
 const check_anytype_budget = @import("../checks/anytype_budget.zig");
 const check_dead_pub = @import("../checks/dead_pub.zig");
 const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
+const check_dup_const = @import("../checks/dup_const.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -45,6 +46,7 @@ pub const all: []const Command = &.{
     .{ .name = "anytype-budget", .summary = "Cap anytype parameter count per file", .run = check_anytype_budget.run },
     .{ .name = "dead-pub", .summary = "Flag unused public declarations", .run = check_dead_pub.run },
     .{ .name = "allocator-hygiene", .summary = "Reject hardcoded global allocators outside main/test", .run = check_allocator_hygiene.run },
+    .{ .name = "dup-const", .summary = "Reject duplicate file-scope string-literal consts across files", .run = check_dup_const.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.

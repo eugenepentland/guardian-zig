@@ -12,6 +12,7 @@ src/checks/catch_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) regis
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/dup_const.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -36,6 +37,9 @@ src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
 src/snapshot.zig::diff | fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
+src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, snap_path: []const u8, version: u32, new_lines: [][]const u8, force_update: bool, ) LifecycleError!Outcome
+src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
+src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayListUnmanaged(ModuleInfo), ) InitError!void
 src/spec/init.zig::extractPubFns | fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error![]const []const u8
 src/spec/init.zig::generateSpecContent | fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) std.mem.Allocator.Error![]const u8

@@ -1,27 +1,19 @@
 const std = @import("std");
+const registry = @import("cli/registry.zig");
 
-/// Hard-block checks that should run on every build.
-/// Keep this in sync with src/cli/registry.zig — these names must match.
-/// `spec-init` is intentionally excluded: it's a generator, not a gate.
-pub const all_check_names: []const []const u8 = &.{
-    "spec",
-    "file-size",
-    "boundaries",
-    "usingnamespace-ban",
-    "spec-quality",
-    "naming",
-    "function-size",
-    "doc-comments",
-    "imports",
-    "pub-api-surface",
-    "panic-budget",
-    "spec-drift",
-    "catch-discipline",
-    "error-discipline",
-    "cognitive-complexity",
-    "anytype-budget",
-    "dead-pub",
-    "allocator-hygiene",
+const SKIP_NAME = "spec-init"; // generator, not a gate
+
+/// Hard-block checks that should run on every build. Derived from
+/// `cli/registry.zig::all` at comptime — adding a new check there wires it
+/// here automatically.
+pub const all_check_names: []const []const u8 = blk: {
+    @setEvalBranchQuota(20000);
+    var names: []const []const u8 = &.{};
+    for (registry.all) |cmd| {
+        if (std.mem.eql(u8, cmd.name, SKIP_NAME)) continue;
+        names = names ++ [_][]const u8{cmd.name};
+    }
+    break :blk names;
 };
 
 /// Tunables for addAllChecks.

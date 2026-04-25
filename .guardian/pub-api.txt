@@ -21,6 +21,7 @@ src/checks/catch_discipline.zig::run fn
 src/checks/cognitive_complexity.zig::run fn
 src/checks/dead_pub.zig::run fn
 src/checks/doc_comments.zig::run fn
+src/checks/dup_const.zig::run fn
 src/checks/error_discipline.zig::run fn
 src/checks/file_size.zig::run fn
 src/checks/function_size.zig::run fn
@@ -70,6 +71,12 @@ src/snapshot.zig::WriteError value
 src/snapshot.zig::diff fn
 src/snapshot.zig::read fn
 src/snapshot.zig::write fn
+src/snapshot_helper.zig::LifecycleError value
+src/snapshot_helper.zig::Outcome value
+src/snapshot_helper.zig::UPDATE_ENV value
+src/snapshot_helper.zig::lifecycle fn
+src/snapshot_helper.zig::shouldUpdate fn
+src/snapshot_helper.zig::snapshotPath fn
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
 src/spec/init.zig::collectModules fn

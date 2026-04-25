@@ -2,6 +2,8 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const snapshot = @import("../snapshot.zig");
+const snapshot_helper = @import("../snapshot_helper.zig");
 
 const print = std.debug.print;
 const ok = reporter.ok;
@@ -10,9 +12,8 @@ const fail = reporter.fail;
 // spec: Panic Budget - Tracks panic and unreachable token counts against a snapshot
 // spec: Panic Budget - Tracks TODO and FIXME comment counts against a snapshot
 
-const SNAPSHOT_PATH = ".guardian/panic-budget.txt";
-const SNAPSHOT_MAGIC = "# guardian-panic-budget v1";
-const UPDATE_ENV = "GUARDIAN_UPDATE_SNAPSHOT";
+const SNAPSHOT_LEAF = "panic-budget.txt";
+const SNAPSHOT_VERSION: u32 = 1;
 
 const Counts = struct {
     panics: u32 = 0,
@@ -87,30 +88,18 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     ctx.totals.add(c);
 }
 
-fn writeBudget(path: []const u8, c: Counts) !void {
-    if (std.fs.path.dirname(path)) |dir| std.fs.cwd().makePath(dir) catch |e| std.log.warn("panic-budget makePath {s}: {s}", .{ dir, @errorName(e) });
-    const file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
-    var buf: [256]u8 = undefined;
-    var fw = file.writer(&buf);
-    var w = &fw.interface;
-    try w.print("{s}\npanics {d}\nunreachables {d}\ntodos {d}\nfixmes {d}\n", .{
-        SNAPSHOT_MAGIC, c.panics, c.unreachables, c.todos, c.fixmes,
-    });
-    try w.flush();
+fn countsToLines(allocator: std.mem.Allocator, c: Counts) ![][]const u8 {
+    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    try lines.append(allocator, try std.fmt.allocPrint(allocator, "panics {d}", .{c.panics}));
+    try lines.append(allocator, try std.fmt.allocPrint(allocator, "unreachables {d}", .{c.unreachables}));
+    try lines.append(allocator, try std.fmt.allocPrint(allocator, "todos {d}", .{c.todos}));
+    try lines.append(allocator, try std.fmt.allocPrint(allocator, "fixmes {d}", .{c.fixmes}));
+    return lines.toOwnedSlice(allocator);
 }
 
-fn readBudget(arena: std.mem.Allocator, path: []const u8) !Counts {
-    const content = std.fs.cwd().readFileAlloc(arena, path, 64 * 1024) catch |e| switch (e) {
-        error.FileNotFound => return error.Missing,
-        else => return error.BadFormat,
-    };
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    const header = lines.next() orelse return error.BadFormat;
-    if (!std.mem.eql(u8, header, SNAPSHOT_MAGIC)) return error.BadFormat;
+fn linesToCounts(lines: []const []const u8) Counts {
     var c: Counts = .{};
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
+    for (lines) |line| {
         const sp = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
         const key = line[0..sp];
         const val = std.fmt.parseInt(u32, line[sp + 1 ..], 10) catch continue;
@@ -120,12 +109,6 @@ fn readBudget(arena: std.mem.Allocator, path: []const u8) !Counts {
         if (std.mem.eql(u8, key, "fixmes")) c.fixmes = val;
     }
     return c;
-}
-
-fn updateRequested(allocator: std.mem.Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
-    defer allocator.free(v);
-    return v.len > 0 and !std.mem.eql(u8, v, "0");
 }
 
 /// Entry point for the panic-budget check.
@@ -138,26 +121,33 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
     try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &scan_ctx, .visit = visit });
 
-    const snap_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, SNAPSHOT_PATH });
+    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
+    const new_lines = try countsToLines(allocator, totals);
 
-    if (updateRequested(allocator)) {
-        try writeBudget(snap_path, totals);
+    if (snapshot_helper.shouldUpdate(allocator)) {
+        try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
         ok("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", .{
             totals.panics, totals.unreachables, totals.todos, totals.fixmes,
         });
         return;
     }
 
-    const budget = readBudget(allocator, snap_path) catch |e| switch (e) {
+    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| switch (e) {
         error.Missing => {
-            try writeBudget(snap_path, totals);
+            try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
             ok("panic budget created (panics={d}, unreachables={d}, todos={d}, fixmes={d})", .{
                 totals.panics, totals.unreachables, totals.todos, totals.fixmes,
             });
             return;
         },
+        error.VersionMismatch => {
+            fail("panic budget version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.UPDATE_ENV});
+            return error.CheckFailed;
+        },
         else => return e,
     };
+
+    const budget = linesToCounts(old.lines);
 
     var failures: std.ArrayListUnmanaged([]const u8) = .empty;
     if (totals.panics > budget.panics) {
@@ -185,8 +175,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("panic budget FAILED", .{});
     for (failures.items) |line| print("  {s}\n", .{line});
-    print("  fix: reduce, OR re-run with {s}=1 and commit {s}\n", .{ UPDATE_ENV, SNAPSHOT_PATH });
-    std.process.exit(1);
+    print("  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+    return error.CheckFailed;
 }
 
 test "countTokens counts panics and unreachables" {
@@ -211,8 +201,19 @@ test "countCommentMarkers finds TODO/FIXME in comments" {
         \\const s = "// TODO not in comment";
     ;
     const r = countCommentMarkers(content);
-    // The string literal contains "//" followed by " TODO" — expected to count
-    // as a small false-positive (snapshot baselines absorb it).
     try std.testing.expect(r.todos >= 1);
     try std.testing.expect(r.fixmes >= 1);
+}
+
+test "linesToCounts round-trips countsToLines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const original: Counts = .{ .panics = 5, .unreachables = 3, .todos = 7, .fixmes = 1 };
+    const lines = try countsToLines(a, original);
+    const parsed = linesToCounts(lines);
+    try std.testing.expectEqual(original.panics, parsed.panics);
+    try std.testing.expectEqual(original.unreachables, parsed.unreachables);
+    try std.testing.expectEqual(original.todos, parsed.todos);
+    try std.testing.expectEqual(original.fixmes, parsed.fixmes);
 }

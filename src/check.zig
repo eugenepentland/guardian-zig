@@ -5,6 +5,9 @@ const registry = @import("cli/registry.zig");
 
 /// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
+    // page_allocator is intentional here; pub fn main is the documented
+    // exemption point in the "Allocator Hygiene" spec — every other call
+    // site threads the allocator from this arena.
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -46,7 +49,12 @@ pub fn main() !void {
         .cfg = &cfg,
         .quiet = quiet_mode,
     };
-    try cmd.run(&ctx);
+    cmd.run(&ctx) catch |e| switch (e) {
+        // CheckFailed means the check already printed its own diagnostic.
+        // Exit non-zero without surfacing a Zig stack trace.
+        error.CheckFailed => std.process.exit(1),
+        else => return e,
+    };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -60,6 +68,7 @@ test {
     _ = @import("reporter.zig");
     _ = @import("ast/parser.zig");
     _ = @import("snapshot.zig");
+    _ = @import("snapshot_helper.zig");
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("checks/spec.zig");
@@ -81,4 +90,5 @@ test {
     _ = @import("checks/anytype_budget.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/allocator_hygiene.zig");
+    _ = @import("checks/dup_const.zig");
 }

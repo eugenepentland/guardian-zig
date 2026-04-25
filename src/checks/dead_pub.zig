@@ -9,6 +9,12 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 // spec: Dead Pub - Flags public declarations referenced only by themselves
+//
+// Known limitation: counts are keyed by name only. Two pub decls in
+// different files sharing a name share a counter — if either is referenced,
+// both look alive. A proper fix requires AST-resolved references (parse
+// `parser.foo` as a reference to `parser`'s file). For now, the under-flagging
+// is documented and locked in by `findDead known limitation` test below.
 
 const Decl = struct {
     file: []const u8,
@@ -43,16 +49,40 @@ const RefCtx = struct {
 
 fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *RefCtx = @ptrCast(@alignCast(raw_ctx));
-    const a = ctx.allocator;
-    const z = try a.dupeZ(u8, entry.content);
+    try tallyIdentifiers(ctx.allocator, entry.content, ctx.counts);
+}
+
+/// Increments `counts[name]` for every identifier token in `content` that is
+/// already a key in `counts`. Identifiers we don't track are ignored.
+fn tallyIdentifiers(
+    allocator: std.mem.Allocator,
+    content: []const u8,
+    counts: *std.StringHashMap(u32),
+) !void {
+    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
         if (t.tag != .identifier) continue;
         const name = z[t.loc.start..t.loc.end];
-        if (ctx.counts.getPtr(name)) |p| p.* += 1;
+        if (counts.getPtr(name)) |p| p.* += 1;
     }
+}
+
+/// Returns decls whose identifier-token count is at most 1 (only the
+/// declaration itself, no callers / tests / signatures).
+fn findDead(
+    allocator: std.mem.Allocator,
+    decls: []const Decl,
+    counts: *std.StringHashMap(u32),
+) ![]const Decl {
+    var dead: std.ArrayListUnmanaged(Decl) = .empty;
+    for (decls) |d| {
+        const c = counts.get(d.name) orelse 0;
+        if (c <= 1) try dead.append(allocator, d);
+    }
+    return dead.toOwnedSlice(allocator);
 }
 
 /// Entry point for the dead-pub check.
@@ -86,37 +116,95 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});
     if (std.fs.cwd().readFileAlloc(allocator, build_path, 1024 * 1024)) |content| {
-        try refVisit(@ptrCast(&ref_ctx), .{ .rel_path = "build.zig", .content = content });
+        try tallyIdentifiers(allocator, content, &counts);
     } else |_| {}
 
-    // A decl is dead if its identifier token appears at most once
-    // (only the declaration itself, no callers / tests / signatures).
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
-    for (decls.items) |d| {
-        const c = counts.get(d.name) orelse 0;
-        if (c <= 1) {
-            const msg = std.fmt.allocPrint(
-                allocator,
-                "{s}::{s}: unused public declaration",
-                .{ d.file, d.name },
-            ) catch continue;
-            try violations.append(allocator, msg);
-        }
-    }
+    const dead = try findDead(allocator, decls.items, &counts);
 
-    if (violations.items.len == 0) {
+    if (dead.len == 0) {
         ok("no unused public declarations ({d} pub decls scanned)", .{decls.items.len});
         return;
     }
 
-    fail("dead-pub FAILED ({d} unused public declaration(s))", .{violations.items.len});
-    for (violations.items) |v| print("  {s}\n", .{v});
+    fail("dead-pub FAILED ({d} unused public declaration(s))", .{dead.len});
+    for (dead) |d| print("  {s}::{s}: unused public declaration\n", .{ d.file, d.name });
     print("  fix: remove, demote to private (drop `pub`), or reference from a test.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
-test "exempt names are not flagged" {
+// ── Tests ──────────────────────────────────────────────────────────────
+
+const testing = std.testing;
+
+test "findDead flags decl with no callers" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var counts = std.StringHashMap(u32).init(a);
+    try counts.put("orphan", 1); // 1 = the decl itself, no caller
+
+    const decls = [_]Decl{.{ .file = "src/a.zig", .name = "orphan" }};
+    const dead = try findDead(a, &decls, &counts);
+    try testing.expectEqual(@as(usize, 1), dead.len);
+    try testing.expectEqualStrings("orphan", dead[0].name);
+}
+
+test "findDead does not flag decl with at least one caller" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var counts = std.StringHashMap(u32).init(a);
+    try counts.put("alive", 2); // decl + 1 caller
+
+    const decls = [_]Decl{.{ .file = "src/a.zig", .name = "alive" }};
+    const dead = try findDead(a, &decls, &counts);
+    try testing.expectEqual(@as(usize, 0), dead.len);
+}
+
+test "tallyIdentifiers counts identifiers and skips strings/comments" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var counts = std.StringHashMap(u32).init(a);
+    try counts.put("foo", 0);
+
+    const content =
+        \\fn caller() void {
+        \\    foo();
+        \\    foo();
+        \\}
+        \\const s = "foo in string"; // foo in comment
+    ;
+    try tallyIdentifiers(a, content, &counts);
+    try testing.expectEqual(@as(u32, 2), counts.get("foo").?);
+}
+
+test "findDead known limitation: same-named decls in different files share a counter" {
+    // Documents the under-flagging behavior. If dead-pub is ever upgraded
+    // to AST-resolved references (key on (file, name) + import resolution),
+    // this test will need to be split or updated to expect the dead one.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var counts = std.StringHashMap(u32).init(a);
+    try counts.put("shared", 3); // 2 decls (one in each file) + 1 caller
+
+    const decls = [_]Decl{
+        .{ .file = "src/a.zig", .name = "shared" },
+        .{ .file = "src/b.zig", .name = "shared" },
+    };
+    const dead = try findDead(a, &decls, &counts);
+    // Both share the counter; with count=3 (>1) neither is flagged, even
+    // though only one is genuinely referenced.
+    try testing.expectEqual(@as(usize, 0), dead.len);
+}
+
+test "exempt names are not collected" {
     // Smoke test — full integration is exercised by Guardian's self-build.
     const exempt = [_][]const u8{ "main", "build", "run" };
-    for (exempt) |n| try std.testing.expect(n.len > 0);
+    for (exempt) |n| try testing.expect(n.len > 0);
 }

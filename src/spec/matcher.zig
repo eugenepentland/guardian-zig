@@ -101,30 +101,24 @@ pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []c
         if (!found) try unlinked.append(allocator, t);
     }
 
-    var duplicates: std.ArrayListUnmanaged(DuplicateTag) = .empty;
-    for (tags, 0..) |t, i| {
-        var already_reported = false;
-        for (duplicates.items) |d| {
-            if (std.mem.eql(u8, d.key, t.key)) {
-                already_reported = true;
-                break;
-            }
-        }
-        if (already_reported) continue;
+    // Group tags by key in one pass so duplicate detection is O(n) instead
+    // of O(n²). Insertion order of keys is preserved for stable output.
+    var by_key = std.StringArrayHashMap(std.ArrayListUnmanaged([]const u8)).init(allocator);
+    for (tags) |t| {
+        const gop = try by_key.getOrPut(t.key);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.append(allocator, t.file);
+    }
 
-        var files: std.ArrayListUnmanaged([]const u8) = .empty;
-        try files.append(allocator, t.file);
-        for (tags[i + 1 ..]) |t2| {
-            if (std.mem.eql(u8, t.key, t2.key)) {
-                try files.append(allocator, t2.file);
-            }
-        }
-        if (files.items.len > 1) {
-            try duplicates.append(allocator, .{
-                .key = t.key,
-                .files = try files.toOwnedSlice(allocator),
-            });
-        }
+    var duplicates: std.ArrayListUnmanaged(DuplicateTag) = .empty;
+    var it = by_key.iterator();
+    while (it.next()) |e| {
+        const files = e.value_ptr.items;
+        if (files.len <= 1) continue;
+        try duplicates.append(allocator, .{
+            .key = e.key_ptr.*,
+            .files = try allocator.dupe([]const u8, files),
+        });
     }
 
     return .{

@@ -15,28 +15,30 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-/// Score a single function body span. We count branch keywords
-/// (if/while/for/switch/catch) +1 each, plus +1 per `and`/`or` token.
-/// True Sonar-style nesting depth requires AST traversal; we approximate
-/// with a flat count, which under-counts deeply-nested code but never
-/// over-counts. Threshold tuning compensates.
-fn scoreBody(allocator: std.mem.Allocator, body: []const u8) u32 {
-    const z = allocator.dupeZ(u8, body) catch return 0;
-    var tok = std.zig.Tokenizer.init(z);
+/// Branch-keyword tokens that contribute +1 to a function's score. We
+/// approximate true Sonar-style nesting cost with a flat count: this
+/// under-counts deeply-nested code but never over-counts. Threshold tuning
+/// compensates.
+fn isBranchTag(tag: std.zig.Token.Tag) bool {
+    return switch (tag) {
+        .keyword_if,
+        .keyword_while,
+        .keyword_for,
+        .keyword_switch,
+        .keyword_catch,
+        .keyword_and,
+        .keyword_or,
+        => true,
+        else => false,
+    };
+}
+
+/// Score a slice of pre-tokenized token tags. Pure — used by both the
+/// per-file walker and the inline tests.
+fn scoreTokens(tags: []const std.zig.Token.Tag) u32 {
     var score: u32 = 0;
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
-        switch (t.tag) {
-            .keyword_if,
-            .keyword_while,
-            .keyword_for,
-            .keyword_switch,
-            .keyword_catch,
-            => score += 1,
-            .keyword_and, .keyword_or => score += 1,
-            else => {},
-        }
+    for (tags) |t| {
+        if (isBranchTag(t)) score += 1;
     }
     return score;
 }
@@ -45,6 +47,8 @@ fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) !void {
     const a = ctx.allocator;
     const z = try a.dupeZ(u8, content);
     var tree = try std.zig.Ast.parse(a, z, .zig);
+    const all_tags = tree.tokens.items(.tag);
+
     for (tree.rootDecls()) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;
         var buf: [1]std.zig.Ast.Node.Index = undefined;
@@ -54,9 +58,8 @@ fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) !void {
 
         const first = tree.firstToken(decl);
         const last = tree.lastToken(decl);
-        const start = tree.tokenStart(first);
-        const end = tree.tokenStart(last) + tree.tokenSlice(last).len;
-        const score = scoreBody(a, z[start..end]);
+        const score = scoreTokens(all_tags[first .. last + 1]);
+
         if (score > ctx.threshold) {
             const msg = try std.fmt.allocPrint(a, "{s}: fn {s} cognitive complexity {d} (limit: {d})", .{ rel_path, name, score, ctx.threshold });
             try ctx.violations.append(a, msg);
@@ -101,29 +104,49 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     fail("cognitive complexity FAILED ({d} fn(s) over {d})", .{ violations.items.len, ctx.threshold });
     for (violations.items) |v| print("  {s}\n", .{v});
     print("  fix: extract helpers; reduce nested control flow.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
-test "scoreBody scores trivial fn as 0" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+// ── Tests ──────────────────────────────────────────────────────────────
+
+const testing = std.testing;
+
+fn scoreSource(allocator: std.mem.Allocator, source: []const u8) !u32 {
+    const z = try allocator.dupeZ(u8, source);
+    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    const tags = tree.tokens.items(.tag);
+    for (tree.rootDecls()) |decl| {
+        if (tree.nodeTag(decl) != .fn_decl) continue;
+        const first = tree.firstToken(decl);
+        const last = tree.lastToken(decl);
+        return scoreTokens(tags[first .. last + 1]);
+    }
+    return 0;
+}
+
+test "scoreTokens scores trivial fn as 0" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const body = "fn x() void {}";
-    try std.testing.expectEqual(@as(u32, 0), scoreBody(a, body));
+    try testing.expectEqual(@as(u32, 0), try scoreSource(a, "fn x() void {}"));
 }
 
-test "scoreBody counts branches additively" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+test "scoreTokens counts branches additively" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const two = "fn x() void { if (true) {} if (false) {} }";
-    const three = "fn y() void { if (true) { if (true) { if (true) {} } } }";
-    try std.testing.expectEqual(@as(u32, 2), scoreBody(a, two));
-    try std.testing.expectEqual(@as(u32, 3), scoreBody(a, three));
+    try testing.expectEqual(
+        @as(u32, 2),
+        try scoreSource(a, "fn x() void { if (true) {} if (false) {} }"),
+    );
+    try testing.expectEqual(
+        @as(u32, 3),
+        try scoreSource(a, "fn y() void { if (true) { if (true) { if (true) {} } } }"),
+    );
 }
 
-test "scoreBody counts branch keywords" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+test "scoreTokens counts every branch keyword once" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const body =
@@ -134,6 +157,20 @@ test "scoreBody counts branch keywords" {
         \\    switch (1) { else => {} }
         \\}
     ;
-    // 4 branch keywords at depth 0 → score 4
-    try std.testing.expectEqual(@as(u32, 4), scoreBody(a, body));
+    try testing.expectEqual(@as(u32, 4), try scoreSource(a, body));
+}
+
+test "visitFile uses single tokenization for all functions in a file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .threshold = 1, .violations = &violations };
+    const content =
+        \\fn small() void { if (true) {} }
+        \\fn big() void { if (a) {} if (b) {} if (c) {} }
+        \\fn empty() void {}
+    ;
+    try visitFile(&ctx, "src/x.zig", content);
+    try testing.expectEqual(@as(usize, 1), violations.items.len);
 }

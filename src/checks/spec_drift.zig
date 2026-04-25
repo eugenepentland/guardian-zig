@@ -3,7 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
-const snapshot = @import("../snapshot.zig");
+const snapshot_helper = @import("../snapshot_helper.zig");
 
 const print = std.debug.print;
 const ok = reporter.ok;
@@ -12,9 +12,8 @@ const fail = reporter.fail;
 // spec: Spec Drift - Snapshots pub fn prototypes
 // spec: Spec Drift - Diff fails when an existing pub fn signature changes
 
-const SNAPSHOT_PATH = ".guardian/spec-drift.txt";
+const SNAPSHOT_LEAF = "spec-drift.txt";
 const SNAPSHOT_VERSION: u32 = 1;
-const UPDATE_ENV = "GUARDIAN_UPDATE_SNAPSHOT";
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
@@ -39,55 +38,36 @@ fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8) ![][]cons
     return lines.toOwnedSlice(allocator);
 }
 
-fn updateRequested(allocator: std.mem.Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
-    defer allocator.free(v);
-    return v.len > 0 and !std.mem.eql(u8, v, "0");
-}
-
-fn lessThan(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.order(u8, a, b) == .lt;
-}
-
 /// Entry point for the spec-drift check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
-    const snap_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, SNAPSHOT_PATH });
+    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
     const lines = try collectLines(allocator, project_dir);
 
-    if (updateRequested(allocator)) {
-        try snapshot.write(snap_path, SNAPSHOT_VERSION, lines);
-        ok("spec-drift snapshot updated ({d} prototypes)", .{lines.len});
-        return;
-    }
+    const force = snapshot_helper.shouldUpdate(allocator);
+    const outcome = try snapshot_helper.lifecycle(allocator, snap_path, SNAPSHOT_VERSION, lines, force);
+    return reportOutcome(outcome);
+}
 
-    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| switch (e) {
-        error.Missing => {
-            try snapshot.write(snap_path, SNAPSHOT_VERSION, lines);
-            ok("spec-drift snapshot created ({d} prototypes)", .{lines.len});
-            return;
+fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
+    switch (outcome) {
+        .created => |n| ok("spec-drift snapshot created ({d} prototypes)", .{n}),
+        .updated => |n| ok("spec-drift snapshot updated ({d} prototypes)", .{n}),
+        .unchanged => |n| ok("spec-drift unchanged ({d} prototypes)", .{n}),
+        .version_mismatch => {
+            fail("spec-drift snapshot version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.UPDATE_ENV});
+            return error.CheckFailed;
         },
-        error.VersionMismatch => {
-            fail("spec-drift snapshot version mismatch — re-run with {s}=1 to migrate", .{UPDATE_ENV});
-            std.process.exit(1);
+        .drift => |d| {
+            fail("spec-drift FAILED — pub fn signature changed", .{});
+            for (d.removed) |line| print("  - {s}\n", .{line});
+            for (d.added) |line| print("  + {s}\n", .{line});
+            print("  fix: update SPEC.md if intentional, then re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+            return error.CheckFailed;
         },
-        else => return e,
-    };
-
-    std.mem.sort([]const u8, lines, {}, lessThan);
-    const diff = try snapshot.diff(allocator, old, lines);
-    if (diff.isEmpty()) {
-        ok("spec-drift unchanged ({d} prototypes)", .{lines.len});
-        return;
     }
-
-    fail("spec-drift FAILED — pub fn signature changed", .{});
-    for (diff.removed) |line| print("  - {s}\n", .{line});
-    for (diff.added) |line| print("  + {s}\n", .{line});
-    print("  fix: update SPEC.md if intentional, then re-run with {s}=1 and commit {s}\n", .{ UPDATE_ENV, SNAPSHOT_PATH });
-    std.process.exit(1);
 }
 
 test "visit emits one line per pub fn with prototype" {
