@@ -1,6 +1,12 @@
 const std = @import("std");
 const guardian_helper = @import("src/build_helper.zig");
 
+// Re-exported so dependents can `const guardian = @import("guardian");`
+// in their own build.zig and call guardian.addAllChecks(...).
+pub const addAllChecks = guardian_helper.addAllChecks;
+pub const all_check_names = guardian_helper.all_check_names;
+pub const Options = guardian_helper.Options;
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});

@@ -13,17 +13,14 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 2. Wire it into `build.zig`:
 ```zig
+const guardian = @import("guardian");
 const guardian_dep = b.dependency("guardian", .{ .target = target, .optimize = optimize });
 const check_exe = guardian_dep.artifact("guardian-check");
 
 b.getInstallStep().dependOn(&b.addFmt(.{ .paths = &.{"src"}, .check = true }).step);
 
-for ([_][]const u8{ "spec", "file-size", "boundaries" }) |cmd| {
-    const run = b.addRunArtifact(check_exe);
-    run.addArgs(&.{ cmd, ".", "--quiet" });
-    run.setCwd(b.path("."));
-    b.getInstallStep().dependOn(&run.step);
-}
+// One call wires up every hard-block check:
+guardian.addAllChecks(b, check_exe, b.getInstallStep(), .{});
 ```
 
 3. Generate your SPEC.md:
@@ -38,12 +35,46 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
+17 hard-block checks ship today, all gating Guardian's own self-build.
+
+### Spec workflow
 | Check | Blocks on |
-|-------|-----------|
-| **Format** | Unformatted .zig files |
-| **Spec coverage** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
-| **File size** | Any .zig file exceeding max_file_lines (default 500) |
-| **Boundaries** | Forbidden @import paths per module rules |
+|---|---|
+| **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
+| **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
+| **spec-drift** | A `pub fn` signature changed without updating its snapshot |
+
+### Structural
+| Check | Blocks on |
+|---|---|
+| **file-size** | Any .zig file exceeding `max_file_lines` (default 500) |
+| **function-size** | Any function with more than `max_params` parameters (default 5) |
+| **imports** | Cycles in the `@import` graph |
+| **boundaries** | Forbidden `@import` paths per module rules |
+
+### Public API
+| Check | Blocks on |
+|---|---|
+| **pub-api-surface** | Unintended additions/removals to the public API (snapshot diff) |
+| **dead-pub** | A `pub fn` / `pub const` referenced nowhere in the project |
+
+### Code style
+| Check | Blocks on |
+|---|---|
+| **naming** | PascalCase fns that don't return `type`; lowercase types |
+| **doc-comments** | `pub fn` or `pub struct/enum/union` without a `///` doc comment |
+| **cognitive-complexity** | Per-function complexity score (default 15) |
+| **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
+| **usingnamespace-ban** | Any `usingnamespace` in `src/` |
+
+### Error handling
+| Check | Blocks on |
+|---|---|
+| **error-discipline** | Inferred `!T` or `anyerror!T` on `pub fn` (require explicit error sets) |
+| **catch-discipline** | `catch unreachable` and `catch {}` (silent error swallow) |
+| **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts (snapshot) |
+
+Plus `zig fmt --check` and the `spec-init` generator.
 
 ## Spec-Driven Workflow
 
@@ -60,9 +91,21 @@ test "jwt validation" { ... }
 
 Guardian enforces **1:1 mapping**: every spec behavior needs exactly one test tag.
 
+## Snapshot-based checks
+
+`pub-api-surface`, `panic-budget`, and `spec-drift` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
+
+```bash
+GUARDIAN_UPDATE_SNAPSHOT=1 zig build
+git add .guardian/
+```
+
+The snapshot files are plain text, sorted, designed to diff cleanly in code review.
+
 ## Config (guardian.toml)
 
-Optional — sensible defaults work out of the box:
+Optional — sensible defaults work out of the box. Each check has its own section:
+
 ```toml
 spec_file = "SPEC.md"
 max_file_lines = 500
@@ -71,14 +114,27 @@ file_size_exclude = ["generated/*"]
 [[boundary]]
 module = "src/core/*"
 forbidden = ["utils"]
+
+[function_size]
+max_params = 5
+
+[complexity]
+max_score = 15
+
+[anytype_budget]
+max_per_file = 2
+
+[spec_quality]
+forbidden_phrases = ["properly", "as needed"]
 ```
 
-Patterns use `*` as a wildcard. Without `*`, substring matching is used.
+Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
 ## Tools
 
 ```bash
-zig build spec-init      # Generate starter SPEC.md from pub fn signatures
+zig build spec-init                  # Generate starter SPEC.md
+GUARDIAN_UPDATE_SNAPSHOT=1 zig build # Refresh snapshot baselines
 ```
 
 ## Principles
@@ -88,4 +144,4 @@ zig build spec-init      # Generate starter SPEC.md from pub fn signatures
 3. **Zero-config** — sensible defaults
 4. **Opinionated** — SPEC.md + `// spec:` tags are THE workflow
 5. **Invisible** — runs on every `zig build`
-6. **Self-hosting** — guardian verifies itself (17/17 spec behaviors, 26 tests)
+6. **Self-hosting** — Guardian verifies itself
