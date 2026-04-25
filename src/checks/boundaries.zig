@@ -1,0 +1,112 @@
+const std = @import("std");
+const walk = @import("../walk.zig");
+const config_mod = @import("../config.zig");
+const reporter = @import("../reporter.zig");
+const registry = @import("../cli/registry.zig");
+const ast = @import("../ast/parser.zig");
+
+const print = std.debug.print;
+const ok = reporter.ok;
+const fail = reporter.fail;
+
+// spec: Boundaries - Extracts @import paths from source files and normalizes relative paths
+// spec: Boundaries - Matches file paths against glob and prefix boundary patterns
+// spec: Boundaries - Checks against boundary rules defined in guardian.toml
+// spec: Boundaries - Reports forbidden import violations
+
+const BoundaryCtx = struct {
+    allocator: std.mem.Allocator,
+    rules: []const config_mod.BoundaryRule,
+    violations: *std.ArrayListUnmanaged([]const u8),
+};
+
+fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+    const ctx: *BoundaryCtx = @ptrCast(@alignCast(raw_ctx));
+    const imports = extractImports(ctx.allocator, entry.content, entry.rel_path);
+    for (ctx.rules) |rule| {
+        if (!walk.matchGlob(entry.rel_path, rule.module_pattern)) continue;
+        for (imports) |imp| {
+            for (rule.forbidden_imports) |f| {
+                if (std.mem.indexOf(u8, imp, f) != null) {
+                    const msg = std.fmt.allocPrint(ctx.allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ entry.rel_path, imp, rule.module_pattern }) catch continue;
+                    ctx.violations.append(ctx.allocator, msg) catch {};
+                }
+            }
+        }
+    }
+}
+
+pub fn run(ctx_param: *registry.RunCtx) !void {
+    const allocator = ctx_param.allocator;
+    const cfg = ctx_param.cfg;
+    const project_dir = ctx_param.project_dir;
+
+    if (cfg.boundary_rules.len == 0) {
+        ok("no boundary rules configured", .{});
+        return;
+    }
+
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: BoundaryCtx = .{
+        .allocator = allocator,
+        .rules = cfg.boundary_rules,
+        .violations = &violations,
+    };
+
+    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
+    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit }) catch {};
+
+    if (violations.items.len == 0) {
+        ok("all imports comply with boundary rules", .{});
+        return;
+    }
+
+    fail("boundary check FAILED ({d} violation(s))", .{violations.items.len});
+    for (violations.items) |v| {
+        print("  {s}\n", .{v});
+    }
+    std.process.exit(1);
+}
+
+fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) []const []const u8 {
+    const raw_imports = ast.imports(allocator, content);
+    var resolved: std.ArrayListUnmanaged([]const u8) = .empty;
+    for (raw_imports) |imp| {
+        if (std.mem.eql(u8, imp.path, "std")) continue;
+        if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |dir_end| {
+            const joined = std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], imp.path }) catch continue;
+            resolved.append(allocator, walk.normalizePath(allocator, joined)) catch {};
+        } else {
+            resolved.append(allocator, imp.path) catch {};
+        }
+    }
+    return resolved.toOwnedSlice(allocator) catch &.{};
+}
+
+test "extractImports resolves paths" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\const std = @import("std");
+        \\const shell = @import("shell.zig");
+        \\const parser = @import("../spec/parser.zig");
+    ;
+    const imports = extractImports(a, content, "src/stages/foo.zig");
+    try std.testing.expectEqual(@as(usize, 2), imports.len);
+    try std.testing.expectEqualStrings("src/stages/shell.zig", imports[0]);
+    try std.testing.expectEqualStrings("src/spec/parser.zig", imports[1]);
+}
+
+test "boundaryVisit detects violation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rules = &[_]config_mod.BoundaryRule{
+        .{ .module_pattern = "src/core/*", .forbidden_imports = &.{"utils"} },
+    };
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: BoundaryCtx = .{ .allocator = a, .rules = rules, .violations = &violations };
+    walk.walkZigFiles(a, "test-project/src", "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit }) catch return;
+    try std.testing.expect(violations.items.len > 0);
+}

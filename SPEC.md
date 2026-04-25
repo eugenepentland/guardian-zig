@@ -34,3 +34,22 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Matches file paths against glob and prefix boundary patterns
 - Checks against boundary rules defined in guardian.toml
 - Reports forbidden import violations
+
+## Usingnamespace Ban
+
+- Hard-fails any usingnamespace keyword outside test files
+
+## Spec Quality
+
+- Flags vague behavior phrases in SPEC.md
+- Rejects behaviors shorter than the minimum length
+
+## Naming
+
+- PascalCase pub fn must return type
+- camelCase pub fn must not return type
+- pub const struct/enum/union with fields must be PascalCase
+
+## Function Size
+
+- Caps parameter count per function

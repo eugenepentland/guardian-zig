@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const parser = @import("parser.zig");
+const walk = @import("../walk.zig");
 
 // spec: Spec Coverage - Scans test and source files for // spec: tags
 
@@ -25,30 +26,21 @@ pub const CoverageResult = struct {
     duplicate_tags: []const DuplicateTag,
 };
 
-pub fn scanDir(allocator: Allocator, dir_path: []const u8) []const SpecTag {
-    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
-    scanDirRecursive(allocator, dir_path, &tags) catch {};
-    return tags.toOwnedSlice(allocator) catch &.{};
+const ScanCtx = struct {
+    allocator: Allocator,
+    tags: *std.ArrayListUnmanaged(SpecTag),
+};
+
+fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+    const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
+    extractTags(ctx.allocator, entry.rel_path, entry.content, ctx.tags);
 }
 
-fn scanDirRecursive(allocator: Allocator, dir_path: []const u8, tags: *std.ArrayListUnmanaged(SpecTag)) !void {
-    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
-    defer dir.close();
-
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
-        switch (entry.kind) {
-            .directory => try scanDirRecursive(allocator, full_path, tags),
-            .file => {
-                if (std.mem.endsWith(u8, entry.name, ".zig")) {
-                    const content = dir.readFileAlloc(allocator, entry.name, 10 * 1024 * 1024) catch continue;
-                    extractTags(allocator, full_path, content, tags);
-                }
-            },
-            else => {},
-        }
-    }
+pub fn scanDir(allocator: Allocator, dir_path: []const u8) []const SpecTag {
+    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
+    var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags };
+    walk.walkZigFiles(allocator, dir_path, dir_path, .{}, .{ .ctx = &ctx, .visit = scanVisit }) catch {};
+    return tags.toOwnedSlice(allocator) catch &.{};
 }
 
 fn extractTags(allocator: Allocator, path: []const u8, content: []const u8, tags: *std.ArrayListUnmanaged(SpecTag)) void {

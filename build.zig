@@ -1,4 +1,5 @@
 const std = @import("std");
+const guardian_helper = @import("src/build_helper.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -27,36 +28,18 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
-    // Guardian checks run on every build and test (self-hosting)
     // Format check
     const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
     b.getInstallStep().dependOn(&fmt_check.step);
-
-    // Spec coverage
-    const spec_run = b.addRunArtifact(check_exe);
-    spec_run.addArgs(&.{ "spec", ".", "--quiet" });
-    b.getInstallStep().dependOn(&spec_run.step);
-
-    // File size
-    const size_run = b.addRunArtifact(check_exe);
-    size_run.addArgs(&.{ "file-size", ".", "--quiet" });
-    b.getInstallStep().dependOn(&size_run.step);
-
-    // Boundaries
-    const boundary_run = b.addRunArtifact(check_exe);
-    boundary_run.addArgs(&.{ "boundaries", ".", "--quiet" });
-    b.getInstallStep().dependOn(&boundary_run.step);
-
-    // Test step also gates on guardian checks
     test_step.dependOn(&fmt_check.step);
-    test_step.dependOn(&spec_run.step);
-    test_step.dependOn(&size_run.step);
-    test_step.dependOn(&boundary_run.step);
 
-    // spec-init: generate starter SPEC.md
+    // Self-hosting: run all hard-block checks on Guardian's own source.
+    guardian_helper.addAllChecks(b, check_exe, b.getInstallStep(), .{});
+    guardian_helper.addAllChecks(b, check_exe, test_step, .{});
+
+    // spec-init: generate starter SPEC.md (separate step, not a gate)
     const spec_init_run = b.addRunArtifact(check_exe);
     spec_init_run.addArgs(&.{ "spec-init", "." });
     const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
     spec_init_step.dependOn(&spec_init_run.step);
-
 }
