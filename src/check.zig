@@ -77,4 +77,7 @@ test {
     _ = @import("checks/spec_drift.zig");
     _ = @import("checks/catch_discipline.zig");
     _ = @import("checks/error_discipline.zig");
+    _ = @import("checks/cognitive_complexity.zig");
+    _ = @import("checks/anytype_budget.zig");
+    _ = @import("checks/dead_pub.zig");
 }

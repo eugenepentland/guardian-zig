@@ -19,6 +19,18 @@ pub const FunctionSizeCfg = struct {
     max_params: u32 = 5,
 };
 
+/// Per-check config for cognitive-complexity scoring.
+pub const ComplexityCfg = struct {
+    enabled: bool = true,
+    max_score: u32 = 15,
+};
+
+/// Per-check config for the anytype-budget cap.
+pub const AnytypeBudgetCfg = struct {
+    enabled: bool = true,
+    max_per_file: u32 = 2,
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -27,6 +39,8 @@ pub const Config = struct {
     boundary_rules: []const BoundaryRule = &.{},
     spec_quality: SpecQualityCfg = .{},
     function_size: FunctionSizeCfg = .{},
+    complexity: ComplexityCfg = .{},
+    anytype_budget: AnytypeBudgetCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -40,6 +54,8 @@ const Section = enum {
     top,
     spec_quality,
     function_size,
+    complexity,
+    anytype_budget,
     unknown,
 };
 
@@ -99,6 +115,10 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
                 section = .spec_quality;
             } else if (std.mem.eql(u8, name, "function_size")) {
                 section = .function_size;
+            } else if (std.mem.eql(u8, name, "complexity")) {
+                section = .complexity;
+            } else if (std.mem.eql(u8, name, "anytype_budget")) {
+                section = .anytype_budget;
             } else {
                 section = .unknown;
             }
@@ -143,6 +163,20 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
                         cfg.function_size.enabled = parseBool(val_raw) orelse cfg.function_size.enabled;
                     } else if (std.mem.eql(u8, key, "max_params")) {
                         cfg.function_size.max_params = std.fmt.parseInt(u32, val_raw, 10) catch cfg.function_size.max_params;
+                    }
+                },
+                .complexity => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.complexity.enabled = parseBool(val_raw) orelse cfg.complexity.enabled;
+                    } else if (std.mem.eql(u8, key, "max_score")) {
+                        cfg.complexity.max_score = std.fmt.parseInt(u32, val_raw, 10) catch cfg.complexity.max_score;
+                    }
+                },
+                .anytype_budget => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.anytype_budget.enabled = parseBool(val_raw) orelse cfg.anytype_budget.enabled;
+                    } else if (std.mem.eql(u8, key, "max_per_file")) {
+                        cfg.anytype_budget.max_per_file = std.fmt.parseInt(u32, val_raw, 10) catch cfg.anytype_budget.max_per_file;
                     }
                 },
                 .unknown => {},

@@ -86,3 +86,15 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects inferred error sets on pub fn
 - Rejects anyerror on pub fn
+
+## Cognitive Complexity
+
+- Caps per-function cognitive complexity score
+
+## Anytype Budget
+
+- Caps anytype parameter count per file
+
+## Dead Pub
+
+- Flags public declarations referenced only by themselves

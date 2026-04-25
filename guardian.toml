@@ -6,3 +6,14 @@ file_size_exclude = []
 [[boundary]]
 module = "src/spec/*"
 forbidden = ["config"]
+
+# Cognitive-complexity is intentionally lenient for Guardian's own source —
+# the parse/analyze/parseContent functions are state machines whose
+# refactor is queued separately. New consumers should use the default 15.
+[complexity]
+max_score = 50
+
+# Reporter has 6 anytype params (the format-string `args: anytype`
+# pattern in ok/fail/detail). New consumers should keep the default 2.
+[anytype_budget]
+max_per_file = 6

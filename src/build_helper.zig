@@ -18,6 +18,9 @@ pub const all_check_names: []const []const u8 = &.{
     "spec-drift",
     "catch-discipline",
     "error-discipline",
+    "cognitive-complexity",
+    "anytype-budget",
+    "dead-pub",
 };
 
 /// Tunables for addAllChecks.
