@@ -47,7 +47,7 @@ pub const Config = struct {
 pub fn load(allocator: Allocator, dir: []const u8) Config {
     const path = std.fmt.allocPrint(allocator, "{s}/guardian.toml", .{dir}) catch return .{};
     const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch return .{};
-    return parse(allocator, content);
+    return parse(allocator, content) catch return .{};
 }
 
 const Section = enum {
@@ -60,8 +60,9 @@ const Section = enum {
 };
 
 /// Parses guardian.toml content. Unknown sections and malformed values are
-/// silently ignored; defaults are preserved for any field not set.
-pub fn parse(allocator: Allocator, content: []const u8) Config {
+/// silently ignored; defaults are preserved for any field not set. Errors
+/// only on allocator failure; `load` swallows those into defaults.
+pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!Config {
     var cfg = Config{};
     var boundaries: std.ArrayListUnmanaged(BoundaryRule) = .empty;
 
@@ -80,10 +81,10 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
             // Flush previous boundary
             if (in_boundary) {
                 if (cur_module) |m| {
-                    boundaries.append(allocator, .{
+                    try boundaries.append(allocator, .{
                         .module_pattern = m,
-                        .forbidden_imports = cur_forbidden.toOwnedSlice(allocator) catch &.{},
-                    }) catch {};
+                        .forbidden_imports = try cur_forbidden.toOwnedSlice(allocator),
+                    });
                 }
             }
             const table_name = line[2 .. line.len - 2];
@@ -103,10 +104,10 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
             // Flush previous boundary if leaving one
             if (in_boundary) {
                 if (cur_module) |m| {
-                    boundaries.append(allocator, .{
+                    try boundaries.append(allocator, .{
                         .module_pattern = m,
-                        .forbidden_imports = cur_forbidden.toOwnedSlice(allocator) catch &.{},
-                    }) catch {};
+                        .forbidden_imports = try cur_forbidden.toOwnedSlice(allocator),
+                    });
                 }
                 in_boundary = false;
             }
@@ -134,7 +135,7 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
                 if (std.mem.eql(u8, key, "module")) {
                     cur_module = parseString(val_raw);
                 } else if (std.mem.eql(u8, key, "forbidden")) {
-                    cur_forbidden = parseStringArray(allocator, val_raw);
+                    cur_forbidden = try parseStringArray(allocator, val_raw);
                 }
                 continue;
             }
@@ -146,16 +147,16 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
                     } else if (std.mem.eql(u8, key, "max_file_lines")) {
                         cfg.max_file_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.max_file_lines;
                     } else if (std.mem.eql(u8, key, "file_size_exclude")) {
-                        var list = parseStringArray(allocator, val_raw);
-                        cfg.file_size_exclude = list.toOwnedSlice(allocator) catch &.{};
+                        var list = try parseStringArray(allocator, val_raw);
+                        cfg.file_size_exclude = try list.toOwnedSlice(allocator);
                     }
                 },
                 .spec_quality => {
                     if (std.mem.eql(u8, key, "enabled")) {
                         cfg.spec_quality.enabled = parseBool(val_raw) orelse cfg.spec_quality.enabled;
                     } else if (std.mem.eql(u8, key, "forbidden_phrases")) {
-                        var list = parseStringArray(allocator, val_raw);
-                        cfg.spec_quality.forbidden_phrases = list.toOwnedSlice(allocator) catch &.{};
+                        var list = try parseStringArray(allocator, val_raw);
+                        cfg.spec_quality.forbidden_phrases = try list.toOwnedSlice(allocator);
                     }
                 },
                 .function_size => {
@@ -187,14 +188,14 @@ pub fn parse(allocator: Allocator, content: []const u8) Config {
     // Flush last boundary
     if (in_boundary) {
         if (cur_module) |m| {
-            boundaries.append(allocator, .{
+            try boundaries.append(allocator, .{
                 .module_pattern = m,
-                .forbidden_imports = cur_forbidden.toOwnedSlice(allocator) catch &.{},
-            }) catch {};
+                .forbidden_imports = try cur_forbidden.toOwnedSlice(allocator),
+            });
         }
     }
 
-    cfg.boundary_rules = boundaries.toOwnedSlice(allocator) catch &.{};
+    cfg.boundary_rules = try boundaries.toOwnedSlice(allocator);
     return cfg;
 }
 
@@ -211,7 +212,7 @@ fn parseString(val: []const u8) ?[]const u8 {
     return null;
 }
 
-fn parseStringArray(allocator: Allocator, val: []const u8) std.ArrayListUnmanaged([]const u8) {
+fn parseStringArray(allocator: Allocator, val: []const u8) std.mem.Allocator.Error!std.ArrayListUnmanaged([]const u8) {
     var list: std.ArrayListUnmanaged([]const u8) = .empty;
     if (val.len < 2 or val[0] != '[' or val[val.len - 1] != ']') return list;
     const inner = val[1 .. val.len - 1];
@@ -219,7 +220,7 @@ fn parseStringArray(allocator: Allocator, val: []const u8) std.ArrayListUnmanage
     while (iter.next()) |item| {
         const trimmed = std.mem.trim(u8, item, &std.ascii.whitespace);
         if (parseString(trimmed)) |s| {
-            list.append(allocator, s) catch {};
+            try list.append(allocator, s);
         }
     }
     return list;
@@ -229,7 +230,7 @@ fn parseStringArray(allocator: Allocator, val: []const u8) std.ArrayListUnmanage
 test "parse default config" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg = parse(arena.allocator(), "");
+    const cfg = try parse(arena.allocator(), "");
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
     try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
 }
@@ -247,7 +248,7 @@ test "parse config with values" {
         \\module = "src/stages/*"
         \\forbidden = ["shell"]
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
 
     try std.testing.expectEqual(@as(u32, 300), cfg.max_file_lines);
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules.len);
@@ -266,7 +267,7 @@ test "parse ignores comments and blank lines" {
         \\# Another comment
         \\spec_file = "MY_SPEC.md"
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(u32, 200), cfg.max_file_lines);
     try std.testing.expectEqualStrings("MY_SPEC.md", cfg.spec_file);
 }
@@ -278,7 +279,7 @@ test "parse malformed values fall back to defaults" {
         \\max_file_lines = not_a_number
         \\spec_file = unquoted
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     // All should fall back to defaults
     try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
@@ -296,7 +297,7 @@ test "parse multiple boundary rules" {
         \\module = "src/b/*"
         \\forbidden = ["z"]
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(usize, 2), cfg.boundary_rules.len);
     try std.testing.expectEqualStrings("src/a/*", cfg.boundary_rules[0].module_pattern);
     try std.testing.expectEqual(@as(usize, 2), cfg.boundary_rules[0].forbidden_imports.len);
@@ -310,7 +311,7 @@ test "parse empty array" {
     const content =
         \\file_size_exclude = []
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(usize, 0), cfg.file_size_exclude.len);
 }
 
@@ -322,7 +323,7 @@ test "parse named section" {
         \\enabled = false
         \\forbidden_phrases = ["properly", "handle"]
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(false, cfg.spec_quality.enabled);
     try std.testing.expectEqual(@as(usize, 2), cfg.spec_quality.forbidden_phrases.len);
     try std.testing.expectEqualStrings("properly", cfg.spec_quality.forbidden_phrases[0]);
@@ -339,7 +340,7 @@ test "parse unknown section silently ignored" {
         \\
         \\max_file_lines = 100
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     // top-level keys before/after the unknown section still apply
     try std.testing.expectEqualStrings("S.md", cfg.spec_file);
     // max_file_lines comes after [future_check] so section state must reset back to .top
@@ -358,7 +359,7 @@ test "parse named section then boundary" {
         \\module = "src/x/*"
         \\forbidden = ["y"]
     ;
-    const cfg = parse(arena.allocator(), content);
+    const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(true, cfg.spec_quality.enabled);
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules.len);
     try std.testing.expectEqualStrings("src/x/*", cfg.boundary_rules[0].module_pattern);

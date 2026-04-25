@@ -60,7 +60,7 @@ pub fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!voi
     std.mem.sort([]const u8, lines, {}, lessThan);
 
     if (std.fs.path.dirname(path)) |dir| {
-        std.fs.cwd().makePath(dir) catch {};
+        std.fs.cwd().makePath(dir) catch |e| std.log.warn("snapshot makePath {s}: {s}", .{ dir, @errorName(e) });
     }
     const file = try std.fs.cwd().createFile(path, .{});
     defer file.close();
@@ -120,7 +120,7 @@ test "write then read round-trips" {
     const tmp_path = "zig-cache/test-snapshot.txt";
     var lines = [_][]const u8{ "zebra", "apple", "mango" };
     try write(tmp_path, 1, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch {};
+    defer std.fs.cwd().deleteFile(tmp_path) catch |e| std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     const snap = try read(a, tmp_path, 1);
     try std.testing.expectEqual(@as(u32, 1), snap.version);
@@ -146,7 +146,7 @@ test "read returns VersionMismatch on wrong version" {
     const tmp_path = "zig-cache/test-snapshot-ver.txt";
     var lines = [_][]const u8{"x"};
     try write(tmp_path, 1, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch {};
+    defer std.fs.cwd().deleteFile(tmp_path) catch |e| std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     try std.testing.expectError(error.VersionMismatch, read(a, tmp_path, 2));
 }

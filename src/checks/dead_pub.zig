@@ -20,20 +20,19 @@ const CollectCtx = struct {
     decls: *std.ArrayListUnmanaged(Decl),
 };
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const fns = ast.pubFns(a, entry.content) catch return;
+    const fns = try ast.pubFns(a, entry.content);
     for (fns) |f| {
-        // Conventionally exempt: main, build, run (registry-dispatched).
         if (std.mem.eql(u8, f.name, "main")) continue;
         if (std.mem.eql(u8, f.name, "build")) continue;
         if (std.mem.eql(u8, f.name, "run")) continue;
-        ctx.decls.append(a, .{ .file = entry.rel_path, .name = f.name }) catch {};
+        try ctx.decls.append(a, .{ .file = entry.rel_path, .name = f.name });
     }
-    const consts = ast.pubConsts(a, entry.content) catch return;
+    const consts = try ast.pubConsts(a, entry.content);
     for (consts) |c| {
-        ctx.decls.append(a, .{ .file = entry.rel_path, .name = c.name }) catch {};
+        try ctx.decls.append(a, .{ .file = entry.rel_path, .name = c.name });
     }
 }
 
@@ -42,10 +41,10 @@ const RefCtx = struct {
     counts: *std.StringHashMap(u32),
 };
 
-fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *RefCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const z = a.dupeZ(u8, entry.content) catch return;
+    const z = try a.dupeZ(u8, entry.content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
@@ -65,7 +64,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var decls: std.ArrayListUnmanaged(Decl) = .empty;
     var collect_ctx: CollectCtx = .{ .allocator = allocator, .decls = &decls };
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &collect_ctx, .visit = collectVisit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &collect_ctx, .visit = collectVisit });
 
     if (decls.items.len == 0) {
         ok("no public declarations to check", .{});
@@ -81,13 +80,13 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const dirs = [_][]const u8{ "src", "test" };
     for (&dirs) |dir| {
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
-        walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ref_ctx, .visit = refVisit }) catch {};
+        try walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
     }
     // build.zig is a Zig file at the project root — include its references
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});
     if (std.fs.cwd().readFileAlloc(allocator, build_path, 1024 * 1024)) |content| {
-        refVisit(@ptrCast(&ref_ctx), .{ .rel_path = "build.zig", .content = content });
+        try refVisit(@ptrCast(&ref_ctx), .{ .rel_path = "build.zig", .content = content });
     } else |_| {}
 
     // A decl is dead if its identifier token appears at most once

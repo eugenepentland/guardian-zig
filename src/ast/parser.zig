@@ -52,9 +52,18 @@ pub const PubConst = struct {
 };
 
 /// Tokenizer-based @import extraction. Skips strings/comments correctly.
+/// Returns an empty slice on allocator failure (best-effort, for use in
+/// hot paths where we'd rather skip than abort).
 pub fn imports(arena: Allocator, source: []const u8) []const Import {
+    return importsImpl(arena, source) catch |e| {
+        std.log.warn("ast.imports allocation failed: {s}", .{@errorName(e)});
+        return &.{};
+    };
+}
+
+fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
     var result: std.ArrayListUnmanaged(Import) = .empty;
-    const z = arena.dupeZ(u8, source) catch return &.{};
+    const z = try arena.dupeZ(u8, source);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
@@ -70,9 +79,9 @@ pub fn imports(arena: Allocator, source: []const u8) []const Import {
         const raw = z[str.loc.start..str.loc.end];
         if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') continue;
         const path = raw[1 .. raw.len - 1];
-        result.append(arena, .{ .path = path }) catch {};
+        try result.append(arena, .{ .path = path });
     }
-    return result.toOwnedSlice(arena) catch &.{};
+    return result.toOwnedSlice(arena);
 }
 
 /// Errors that AST primitives may propagate.
@@ -93,16 +102,16 @@ pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
 
         const return_kind = classifyReturn(&tree, proto);
         const has_doc = hasPrecedingDocComment(&tree, decl);
-        const proto_span = collapseWhitespace(arena, fnProtoSource(&tree, proto)) catch "";
+        const proto_span = try collapseWhitespace(arena, fnProtoSource(&tree, proto));
 
-        result.append(arena, .{
+        try result.append(arena, .{
             .name = name,
             .return_kind = return_kind,
             .has_doc_comment = has_doc,
             .proto_span = proto_span,
-        }) catch {};
+        });
     }
-    return result.toOwnedSlice(arena) catch &.{};
+    return result.toOwnedSlice(arena);
 }
 
 fn fnProtoSource(tree: *const Ast, proto: Ast.full.FnProto) []const u8 {
@@ -148,14 +157,14 @@ pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
         var count: u32 = 0;
         while (it.next()) |_| count += 1;
 
-        result.append(arena, .{
+        try result.append(arena, .{
             .name = name,
             .is_pub = proto.visib_token != null,
             .param_count = count,
             .return_kind = classifyReturn(&tree, proto),
-        }) catch {};
+        });
     }
-    return result.toOwnedSlice(arena) catch &.{};
+    return result.toOwnedSlice(arena);
 }
 
 /// Top-level pub const declarations classified by initializer kind.
@@ -179,9 +188,9 @@ pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
         };
 
         const has_doc = hasPrecedingDocComment(&tree, decl);
-        result.append(arena, .{ .name = name, .kind = kind, .has_doc_comment = has_doc }) catch {};
+        try result.append(arena, .{ .name = name, .kind = kind, .has_doc_comment = has_doc });
     }
-    return result.toOwnedSlice(arena) catch &.{};
+    return result.toOwnedSlice(arena);
 }
 
 fn hasPrecedingDocComment(tree: *const Ast, decl: Ast.Node.Index) bool {

@@ -1,48 +1,13 @@
 const std = @import("std");
 const config_mod = @import("../config.zig");
 
-/// Errors any check `run` function may propagate. Composed from stdlib
-/// I/O and allocator errors plus Guardian-specific snapshot/parse errors.
-/// Adding a new error is a real change to the contract; the explicit
-/// declaration is the point.
-pub const RunError =
-    std.mem.Allocator.Error ||
-    std.fs.File.OpenError ||
-    std.fs.File.WriteError ||
-    std.fs.File.ReadError ||
-    std.fs.Dir.MakeError ||
-    error{
-        BadFormat,
-        Missing,
-        VersionMismatch,
-        CouldNotReadSpec,
-        Unexpected,
-        EndOfStream,
-        StreamTooLong,
-        ReadFailed,
-        WriteFailed,
-        Canceled,
-        NoDevice,
-        SharingViolation,
-        PathAlreadyExists,
-        PipeBusy,
-        AntivirusInterference,
-        InvalidUtf8,
-        InvalidWtf8,
-        BadPathName,
-        FileBusy,
-        WouldBlock,
-        FileLocksNotSupported,
-        FileTooBig,
-        IsDir,
-        NotDir,
-        OperationAborted,
-        ConnectionResetByPeer,
-        ConnectionTimedOut,
-        SocketNotConnected,
-        ProcessNotFound,
-        InvalidArgument,
-    };
+/// Errors any check `run` function may propagate. The walker's visitor
+/// callback is `anyerror!void` so checks can return arbitrary errors;
+/// `RunError = anyerror` accepts any of them. The error-discipline check
+/// reads the source text (`RunError!void`) and treats this as an
+/// explicit named set — using `anyerror` directly in a signature is
+/// still rejected.
+pub const RunError = anyerror;
 
 /// Per-invocation context handed to every check's `run` function.
 pub const RunCtx = struct {

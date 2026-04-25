@@ -22,7 +22,7 @@ const CollectCtx = struct {
     nodes: *std.ArrayListUnmanaged(Node),
 };
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
@@ -32,18 +32,17 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
         if (std.mem.eql(u8, imp.path, "std")) continue;
         if (std.mem.eql(u8, imp.path, "builtin")) continue;
         if (std.mem.eql(u8, imp.path, "root")) continue;
-        // Resolve import path relative to the importer's directory.
-        const resolved = if (std.mem.lastIndexOfScalar(u8, entry.rel_path, '/')) |slash|
-            walk.normalizePath(a, std.fmt.allocPrint(a, "{s}/{s}", .{ entry.rel_path[0..slash], imp.path }) catch continue)
-        else
-            imp.path;
-        edges.append(a, resolved) catch continue;
+        const resolved = if (std.mem.lastIndexOfScalar(u8, entry.rel_path, '/')) |slash| blk: {
+            const joined = try std.fmt.allocPrint(a, "{s}/{s}", .{ entry.rel_path[0..slash], imp.path });
+            break :blk try walk.normalizePath(a, joined);
+        } else imp.path;
+        try edges.append(a, resolved);
     }
 
-    ctx.nodes.append(a, .{
+    try ctx.nodes.append(a, .{
         .path = entry.rel_path,
-        .edges = edges.toOwnedSlice(a) catch &.{},
-    }) catch return;
+        .edges = try edges.toOwnedSlice(a),
+    });
 }
 
 const Color = enum { white, gray, black };
@@ -113,7 +112,7 @@ fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8 {
     }
     const indices = finder.cycle orelse return null;
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
-    for (indices) |idx| out.append(allocator, nodes[idx].path) catch {};
+    for (indices) |idx| out.append(allocator, nodes[idx].path) catch return null;
     return out.toOwnedSlice(allocator) catch null;
 }
 
@@ -126,7 +125,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var collect_ctx: CollectCtx = .{ .allocator = allocator, .nodes = &nodes };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &collect_ctx, .visit = collectVisit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &collect_ctx, .visit = collectVisit });
 
     if (nodes.items.len == 0) {
         ok("no source files to scan", .{});

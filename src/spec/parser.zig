@@ -41,30 +41,27 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
             // Skip "Overview" and "Planned" sections
             if (std.ascii.eqlIgnoreCase(name, "overview") or std.ascii.eqlIgnoreCase(name, "planned")) continue;
 
-            // Flush previous section
             if (current_section) |sec| {
-                sections.append(allocator, .{
+                try sections.append(allocator, .{
                     .name = sec,
-                    .behaviors = current_behaviors.toOwnedSlice(allocator) catch &.{},
-                }) catch {};
+                    .behaviors = try current_behaviors.toOwnedSlice(allocator),
+                });
             }
             current_section = name;
             current_behaviors = .empty;
         } else if (std.mem.startsWith(u8, line, "### ")) {
             const sub = std.mem.trim(u8, line[4..], &std.ascii.whitespace);
-            // Flush current section if it has behaviors
             if (current_section) |sec| {
                 if (current_behaviors.items.len > 0) {
-                    sections.append(allocator, .{
+                    try sections.append(allocator, .{
                         .name = sec,
-                        .behaviors = current_behaviors.toOwnedSlice(allocator) catch &.{},
-                    }) catch {};
+                        .behaviors = try current_behaviors.toOwnedSlice(allocator),
+                    });
                 }
             }
-            // Compound name
             if (current_section) |sec| {
                 const base = if (std.mem.indexOf(u8, sec, " - ")) |idx| sec[0..idx] else sec;
-                current_section = std.fmt.allocPrint(allocator, "{s} - {s}", .{ base, sub }) catch sub;
+                current_section = try std.fmt.allocPrint(allocator, "{s} - {s}", .{ base, sub });
             } else {
                 current_section = sub;
             }
@@ -72,23 +69,22 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
         } else if (std.mem.startsWith(u8, line, "- ")) {
             if (current_section) |sec| {
                 const statement = std.mem.trim(u8, line[2..], &std.ascii.whitespace);
-                const raw_key = std.fmt.allocPrint(allocator, "{s} - {s}", .{ sec, statement }) catch continue;
-                const key = normalizeKey(allocator, raw_key) catch continue;
-                current_behaviors.append(allocator, .{
+                const raw_key = try std.fmt.allocPrint(allocator, "{s} - {s}", .{ sec, statement });
+                const key = try normalizeKey(allocator, raw_key);
+                try current_behaviors.append(allocator, .{
                     .section = sec,
                     .statement = statement,
                     .key = key,
-                }) catch {};
+                });
             }
         }
     }
 
-    // Flush last section
     if (current_section) |sec| {
-        sections.append(allocator, .{
+        try sections.append(allocator, .{
             .name = sec,
-            .behaviors = current_behaviors.toOwnedSlice(allocator) catch &.{},
-        }) catch {};
+            .behaviors = try current_behaviors.toOwnedSlice(allocator),
+        });
     }
 
     return sections.toOwnedSlice(allocator);

@@ -81,6 +81,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Catch Discipline
 
 - Rejects catch unreachable in production code
+- Rejects catch with empty block (silent error swallow)
 
 ## Error Discipline
 

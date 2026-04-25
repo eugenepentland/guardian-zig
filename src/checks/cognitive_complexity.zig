@@ -41,10 +41,10 @@ fn scoreBody(allocator: std.mem.Allocator, body: []const u8) u32 {
     return score;
 }
 
-fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) void {
+fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) !void {
     const a = ctx.allocator;
-    const z = a.dupeZ(u8, content) catch return;
-    var tree = std.zig.Ast.parse(a, z, .zig) catch return;
+    const z = try a.dupeZ(u8, content);
+    var tree = try std.zig.Ast.parse(a, z, .zig);
     for (tree.rootDecls()) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;
         var buf: [1]std.zig.Ast.Node.Index = undefined;
@@ -58,19 +58,15 @@ fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) void {
         const end = tree.tokenStart(last) + tree.tokenSlice(last).len;
         const score = scoreBody(a, z[start..end]);
         if (score > ctx.threshold) {
-            const msg = std.fmt.allocPrint(
-                a,
-                "{s}: fn {s} cognitive complexity {d} (limit: {d})",
-                .{ rel_path, name, score, ctx.threshold },
-            ) catch continue;
-            ctx.violations.append(a, msg) catch {};
+            const msg = try std.fmt.allocPrint(a, "{s}: fn {s} cognitive complexity {d} (limit: {d})", .{ rel_path, name, score, ctx.threshold });
+            try ctx.violations.append(a, msg);
         }
     }
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    visitFile(ctx, entry.rel_path, entry.content);
+    try visitFile(ctx, entry.rel_path, entry.content);
 }
 
 /// Entry point for the cognitive-complexity check.
@@ -94,7 +90,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const dirs = [_][]const u8{ "src", "test" };
     for (&dirs) |dir| {
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
-        walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+        try walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ctx, .visit = visit });
     }
 
     if (violations.items.len == 0) {

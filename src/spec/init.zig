@@ -13,18 +13,18 @@ const CollectCtx = struct {
     modules: *std.ArrayListUnmanaged(ModuleInfo),
 };
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
-    const fns = extractPubFns(ctx.allocator, entry.content);
+    const fns = try extractPubFns(ctx.allocator, entry.content);
     if (fns.len == 0) return;
     const stem = if (std.mem.endsWith(u8, entry.rel_path, ".zig"))
         entry.rel_path[0 .. entry.rel_path.len - 4]
     else
         entry.rel_path;
-    ctx.modules.append(ctx.allocator, .{
+    try ctx.modules.append(ctx.allocator, .{
         .name = stem,
         .pub_fns = fns,
-    }) catch {};
+    });
 }
 
 /// Errors propagated by collectModules.
@@ -42,39 +42,37 @@ pub fn collectModules(
 }
 
 /// Returns the names of every `pub fn` in `content`, excluding main/build.
-pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) []const []const u8 {
-    const pubs = ast.pubFns(allocator, content) catch return &.{};
+pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error![]const []const u8 {
+    const pubs = try ast.pubFns(allocator, content);
     var fns: std.ArrayListUnmanaged([]const u8) = .empty;
     for (pubs) |p| {
         if (std.mem.eql(u8, p.name, "main")) continue;
         if (std.mem.eql(u8, p.name, "build")) continue;
-        fns.append(allocator, p.name) catch {};
+        try fns.append(allocator, p.name);
     }
-    return fns.toOwnedSlice(allocator) catch &.{};
+    return fns.toOwnedSlice(allocator);
 }
 
 /// Renders a starter SPEC.md from a list of modules with placeholder behaviors.
-pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) []const u8 {
+pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) std.mem.Allocator.Error![]const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
-    buf.appendSlice(allocator, "# Project Specification\n\n") catch {};
-    buf.appendSlice(allocator, "## Overview\n\nDescribe the project here.\n\n") catch {};
+    try buf.appendSlice(allocator, "# Project Specification\n\n");
+    try buf.appendSlice(allocator, "## Overview\n\nDescribe the project here.\n\n");
 
     for (modules) |mod| {
         if (mod.pub_fns.len == 0) continue;
-        const section = std.fmt.allocPrint(allocator, "## {s}\n\n", .{mod.name}) catch continue;
-        buf.appendSlice(allocator, section) catch {};
-        // List functions as hints, user replaces with real behavior descriptions
-        buf.appendSlice(allocator, "Public functions: ") catch {};
+        const section = try std.fmt.allocPrint(allocator, "## {s}\n\n", .{mod.name});
+        try buf.appendSlice(allocator, section);
+        try buf.appendSlice(allocator, "Public functions: ");
         for (mod.pub_fns, 0..) |fn_name, i| {
-            if (i > 0) buf.appendSlice(allocator, ", ") catch {};
-            buf.appendSlice(allocator, fn_name) catch {};
+            if (i > 0) try buf.appendSlice(allocator, ", ");
+            try buf.appendSlice(allocator, fn_name);
         }
-        buf.appendSlice(allocator, "\n\n") catch {};
-        // Placeholder behavior for user to fill in
-        buf.appendSlice(allocator, "- TODO: describe behaviors\n\n") catch {};
+        try buf.appendSlice(allocator, "\n\n");
+        try buf.appendSlice(allocator, "- TODO: describe behaviors\n\n");
     }
 
-    return buf.toOwnedSlice(allocator) catch "";
+    return buf.toOwnedSlice(allocator);
 }
 
 test "extractPubFns finds public functions" {
@@ -96,7 +94,7 @@ test "extractPubFns finds public functions" {
         \\}
     ;
 
-    const fns = extractPubFns(a, content);
+    const fns = try extractPubFns(a, content);
     try std.testing.expectEqual(@as(usize, 2), fns.len);
     try std.testing.expectEqualStrings("add", fns[0]);
     try std.testing.expectEqualStrings("multiply", fns[1]);
@@ -113,7 +111,7 @@ test "extractPubFns skips main and build" {
         \\pub fn realFunction() void {}
     ;
 
-    const fns = extractPubFns(a, content);
+    const fns = try extractPubFns(a, content);
     try std.testing.expectEqual(@as(usize, 1), fns.len);
     try std.testing.expectEqualStrings("realFunction", fns[0]);
 }
@@ -129,7 +127,7 @@ test "extractPubFns ignores non-function pub declarations" {
         \\pub fn actual() void {}
     ;
 
-    const fns = extractPubFns(a, content);
+    const fns = try extractPubFns(a, content);
     try std.testing.expectEqual(@as(usize, 1), fns.len);
     try std.testing.expectEqualStrings("actual", fns[0]);
 }

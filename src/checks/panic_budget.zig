@@ -78,7 +78,7 @@ fn containsWord(text: []const u8, word: []const u8) bool {
     return false;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     var c = countTokens(ctx.allocator, entry.content);
     const cm = countCommentMarkers(entry.content);
@@ -88,7 +88,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
 }
 
 fn writeBudget(path: []const u8, c: Counts) !void {
-    if (std.fs.path.dirname(path)) |dir| std.fs.cwd().makePath(dir) catch {};
+    if (std.fs.path.dirname(path)) |dir| std.fs.cwd().makePath(dir) catch |e| std.log.warn("panic-budget makePath {s}: {s}", .{ dir, @errorName(e) });
     const file = try std.fs.cwd().createFile(path, .{});
     defer file.close();
     var buf: [256]u8 = undefined;
@@ -136,7 +136,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var totals: Counts = .{};
     var scan_ctx: ScanCtx = .{ .allocator = allocator, .totals = &totals };
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &scan_ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &scan_ctx, .visit = visit });
 
     const snap_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, SNAPSHOT_PATH });
 

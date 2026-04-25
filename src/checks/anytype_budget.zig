@@ -29,17 +29,13 @@ fn countAnytype(allocator: std.mem.Allocator, content: []const u8) u32 {
     return count;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
     const count = countAnytype(a, entry.content);
     if (count > ctx.max_per_file) {
-        const msg = std.fmt.allocPrint(
-            a,
-            "{s}: {d} `anytype` parameters (limit: {d})",
-            .{ entry.rel_path, count, ctx.max_per_file },
-        ) catch return;
-        ctx.violations.append(a, msg) catch {};
+        const msg = try std.fmt.allocPrint(a, "{s}: {d} `anytype` parameters (limit: {d})", .{ entry.rel_path, count, ctx.max_per_file });
+        try ctx.violations.append(a, msg);
     }
 }
 
@@ -62,7 +58,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("anytype budget within limit (max {d} per file)", .{ctx.max_per_file});

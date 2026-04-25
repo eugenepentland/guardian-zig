@@ -20,16 +20,16 @@ const BoundaryCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *BoundaryCtx = @ptrCast(@alignCast(raw_ctx));
-    const imports = extractImports(ctx.allocator, entry.content, entry.rel_path);
+    const imports = try extractImports(ctx.allocator, entry.content, entry.rel_path);
     for (ctx.rules) |rule| {
         if (!walk.matchGlob(entry.rel_path, rule.module_pattern)) continue;
         for (imports) |imp| {
             for (rule.forbidden_imports) |f| {
                 if (std.mem.indexOf(u8, imp, f) != null) {
-                    const msg = std.fmt.allocPrint(ctx.allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ entry.rel_path, imp, rule.module_pattern }) catch continue;
-                    ctx.violations.append(ctx.allocator, msg) catch {};
+                    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ entry.rel_path, imp, rule.module_pattern });
+                    try ctx.violations.append(ctx.allocator, msg);
                 }
             }
         }
@@ -55,7 +55,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit });
 
     if (violations.items.len == 0) {
         ok("all imports comply with boundary rules", .{});
@@ -69,19 +69,19 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     std.process.exit(1);
 }
 
-fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) []const []const u8 {
+fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) ![]const []const u8 {
     const raw_imports = ast.imports(allocator, content);
     var resolved: std.ArrayListUnmanaged([]const u8) = .empty;
     for (raw_imports) |imp| {
         if (std.mem.eql(u8, imp.path, "std")) continue;
         if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |dir_end| {
-            const joined = std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], imp.path }) catch continue;
-            resolved.append(allocator, walk.normalizePath(allocator, joined)) catch {};
+            const joined = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ file_path[0..dir_end], imp.path });
+            try resolved.append(allocator, try walk.normalizePath(allocator, joined));
         } else {
-            resolved.append(allocator, imp.path) catch {};
+            try resolved.append(allocator, imp.path);
         }
     }
-    return resolved.toOwnedSlice(allocator) catch &.{};
+    return resolved.toOwnedSlice(allocator);
 }
 
 test "extractImports resolves paths" {
@@ -93,7 +93,7 @@ test "extractImports resolves paths" {
         \\const shell = @import("shell.zig");
         \\const parser = @import("../spec/parser.zig");
     ;
-    const imports = extractImports(a, content, "src/stages/foo.zig");
+    const imports = try extractImports(a, content, "src/stages/foo.zig");
     try std.testing.expectEqual(@as(usize, 2), imports.len);
     try std.testing.expectEqualStrings("src/stages/shell.zig", imports[0]);
     try std.testing.expectEqualStrings("src/spec/parser.zig", imports[1]);
@@ -108,6 +108,6 @@ test "boundaryVisit detects violation" {
     };
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: BoundaryCtx = .{ .allocator = a, .rules = rules, .violations = &violations };
-    walk.walkZigFiles(a, "test-project/src", "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit }) catch return;
+    try walk.walkZigFiles(a, "test-project/src", "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit });
     try std.testing.expect(violations.items.len > 0);
 }

@@ -21,19 +21,19 @@ const CollectCtx = struct {
     lines: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = ast.pubFns(a, entry.content) catch return;
+    const fns = try ast.pubFns(a, entry.content);
     for (fns) |f| {
-        const line = std.fmt.allocPrint(a, "{s}::{s} fn", .{ entry.rel_path, f.name }) catch continue;
-        ctx.lines.append(a, line) catch {};
+        const line = try std.fmt.allocPrint(a, "{s}::{s} fn", .{ entry.rel_path, f.name });
+        try ctx.lines.append(a, line);
     }
-    const consts = ast.pubConsts(a, entry.content) catch return;
+    const consts = try ast.pubConsts(a, entry.content);
     for (consts) |c| {
-        const line = std.fmt.allocPrint(a, "{s}::{s} {s}", .{ entry.rel_path, c.name, @tagName(c.kind) }) catch continue;
-        ctx.lines.append(a, line) catch {};
+        const line = try std.fmt.allocPrint(a, "{s}::{s} {s}", .{ entry.rel_path, c.name, @tagName(c.kind) });
+        try ctx.lines.append(a, line);
     }
 }
 
@@ -41,7 +41,7 @@ fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8) ![][]cons
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
     return lines.toOwnedSlice(allocator);
 }
 
@@ -107,7 +107,7 @@ test "visit emits fn and struct entries" {
         \\pub const X = struct { x: i32 };
         \\pub const Y = 42;
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 3), lines.items.len);
     try std.testing.expectEqualStrings("src/x.zig::run fn", lines.items[0]);
     try std.testing.expectEqualStrings("src/x.zig::X struct_", lines.items[1]);

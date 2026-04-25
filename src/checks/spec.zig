@@ -38,11 +38,11 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
 
     var all_tags: std.ArrayListUnmanaged(spec_matcher.SpecTag) = .empty;
-    for (spec_matcher.scanDir(allocator, test_dir)) |t| all_tags.append(allocator, t) catch {};
-    for (spec_matcher.scanDir(allocator, src_dir)) |t| all_tags.append(allocator, t) catch {};
-    const tags = all_tags.toOwnedSlice(allocator) catch &.{};
+    for (try spec_matcher.scanDir(allocator, test_dir)) |t| try all_tags.append(allocator, t);
+    for (try spec_matcher.scanDir(allocator, src_dir)) |t| try all_tags.append(allocator, t);
+    const tags = try all_tags.toOwnedSlice(allocator);
 
-    const result = spec_matcher.analyze(allocator, sections, tags);
+    const result = try spec_matcher.analyze(allocator, sections, tags);
 
     const has_failures = result.unverified_behaviors.len > 0 or
         result.unlinked_tags.len > 0 or

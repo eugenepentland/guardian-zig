@@ -16,32 +16,24 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = ast.pubFns(a, entry.content) catch return;
+    const fns = try ast.pubFns(a, entry.content);
     for (fns) |f| {
         if (f.has_doc_comment) continue;
-        const msg = std.fmt.allocPrint(
-            a,
-            "{s}: pub fn {s} has no /// doc comment",
-            .{ entry.rel_path, f.name },
-        ) catch continue;
-        ctx.violations.append(a, msg) catch {};
+        const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} has no /// doc comment", .{ entry.rel_path, f.name });
+        try ctx.violations.append(a, msg);
     }
 
-    const consts = ast.pubConsts(a, entry.content) catch return;
+    const consts = try ast.pubConsts(a, entry.content);
     for (consts) |c| {
         switch (c.kind) {
             .struct_, .enum_, .union_, .opaque_ => {
                 if (c.has_doc_comment) continue;
-                const msg = std.fmt.allocPrint(
-                    a,
-                    "{s}: pub const {s} ({s}) has no /// doc comment",
-                    .{ entry.rel_path, c.name, @tagName(c.kind) },
-                ) catch continue;
-                ctx.violations.append(a, msg) catch {};
+                const msg = try std.fmt.allocPrint(a, "{s}: pub const {s} ({s}) has no /// doc comment", .{ entry.rel_path, c.name, @tagName(c.kind) });
+                try ctx.violations.append(a, msg);
             },
             else => {},
         }
@@ -57,7 +49,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all public declarations have doc comments", .{});
@@ -84,7 +76,7 @@ test "visit flags missing doc comment" {
         \\
         \\pub fn nodoc_fn() void {}
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
@@ -98,7 +90,7 @@ test "visit flags missing doc comment on pub struct" {
         \\pub const X = struct { x: i32 };
         \\pub const Y = 42;
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     // X has no /// → flag. Y is a value, exempt.
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }

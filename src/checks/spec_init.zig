@@ -23,14 +23,14 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
     var modules: std.ArrayListUnmanaged(spec_init.ModuleInfo) = .empty;
-    spec_init.collectModules(allocator, src_path, "", &modules) catch {};
+    try spec_init.collectModules(allocator, src_path, "", &modules);
 
     if (modules.items.len == 0) {
         fail("no pub fn declarations found in src/", .{});
         std.process.exit(1);
     }
 
-    const content = spec_init.generateSpecContent(allocator, modules.items);
+    const content = try spec_init.generateSpecContent(allocator, modules.items);
     const file = std.fs.cwd().createFile(spec_path, .{}) catch {
         fail("failed to write {s}", .{spec_path});
         std.process.exit(1);

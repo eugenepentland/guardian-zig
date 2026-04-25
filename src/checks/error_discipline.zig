@@ -16,30 +16,22 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = ast.pubFns(a, entry.content) catch return;
+    const fns = try ast.pubFns(a, entry.content);
     for (fns) |f| {
         // `main` is conventionally exempt; its inferred error set is idiomatic.
         if (std.mem.eql(u8, f.name, "main")) continue;
         switch (f.return_kind) {
             .err_union_inferred => {
-                const msg = std.fmt.allocPrint(
-                    a,
-                    "{s}: pub fn {s} uses inferred error set `!T` (use `MyErr!T`)",
-                    .{ entry.rel_path, f.name },
-                ) catch continue;
-                ctx.violations.append(a, msg) catch {};
+                const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} uses inferred error set `!T` (use `MyErr!T`)", .{ entry.rel_path, f.name });
+                try ctx.violations.append(a, msg);
             },
             .anyerror_union => {
-                const msg = std.fmt.allocPrint(
-                    a,
-                    "{s}: pub fn {s} uses anyerror (declare a specific error set)",
-                    .{ entry.rel_path, f.name },
-                ) catch continue;
-                ctx.violations.append(a, msg) catch {};
+                const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} uses anyerror (declare a specific error set)", .{ entry.rel_path, f.name });
+                try ctx.violations.append(a, msg);
             },
             else => {},
         }
@@ -55,7 +47,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("error discipline OK", .{});
@@ -81,7 +73,7 @@ test "visit catches inferred error set on pub fn" {
         \\pub const MyErr = error{ X };
         \\pub fn good() MyErr!void {}
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
@@ -92,7 +84,7 @@ test "visit allows main with inferred error set" {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn main() !void {}\n";
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/main.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/main.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }
 
@@ -103,6 +95,6 @@ test "visit catches anyerror on pub fn" {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn dynamic() anyerror!void {}\n";
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }

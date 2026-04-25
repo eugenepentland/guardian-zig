@@ -48,27 +48,17 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     for (sections) |sec| {
         for (sec.behaviors) |b| {
-            // Length check
             if (b.statement.len < min_behavior_chars) {
-                const msg = std.fmt.allocPrint(
-                    allocator,
-                    "{s} - {s}: behavior shorter than {d} chars",
-                    .{ b.section, b.statement, min_behavior_chars },
-                ) catch continue;
-                violations.append(allocator, msg) catch {};
+                const msg = try std.fmt.allocPrint(allocator, "{s} - {s}: behavior shorter than {d} chars", .{ b.section, b.statement, min_behavior_chars });
+                try violations.append(allocator, msg);
                 continue;
             }
-            // Vague phrase check (case-insensitive)
-            const lower = toLowerOwned(allocator, b.statement) catch continue;
+            const lower = try toLowerOwned(allocator, b.statement);
             for (phrases) |phrase| {
-                const lower_phrase = toLowerOwned(allocator, phrase) catch continue;
+                const lower_phrase = try toLowerOwned(allocator, phrase);
                 if (containsWord(lower, lower_phrase)) {
-                    const msg = std.fmt.allocPrint(
-                        allocator,
-                        "{s} - {s}: contains vague phrase \"{s}\"",
-                        .{ b.section, b.statement, phrase },
-                    ) catch continue;
-                    violations.append(allocator, msg) catch {};
+                    const msg = try std.fmt.allocPrint(allocator, "{s} - {s}: contains vague phrase \"{s}\"", .{ b.section, b.statement, phrase });
+                    try violations.append(allocator, msg);
                     break;
                 }
             }

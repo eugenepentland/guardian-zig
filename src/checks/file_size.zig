@@ -16,15 +16,15 @@ const FileSizeCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
     var lines: u32 = 1;
     for (entry.content) |c| {
         if (c == '\n') lines += 1;
     }
     if (lines > ctx.max_lines) {
-        const msg = std.fmt.allocPrint(ctx.allocator, "{s}: {d} lines (limit: {d})", .{ entry.rel_path, lines, ctx.max_lines }) catch return;
-        ctx.violations.append(ctx.allocator, msg) catch {};
+        const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: {d} lines (limit: {d})", .{ entry.rel_path, lines, ctx.max_lines });
+        try ctx.violations.append(ctx.allocator, msg);
     }
 }
 
@@ -44,7 +44,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const dirs_to_check = [_][]const u8{ "src", "test" };
     for (&dirs_to_check) |dir_name| {
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
-        walk.walkZigFiles(allocator, dir_path, dir_name, .{ .excludes = cfg.file_size_exclude }, .{ .ctx = &ctx, .visit = fileSizeVisit }) catch {};
+        try walk.walkZigFiles(allocator, dir_path, dir_name, .{ .excludes = cfg.file_size_exclude }, .{ .ctx = &ctx, .visit = fileSizeVisit });
     }
 
     if (violations.items.len == 0) {

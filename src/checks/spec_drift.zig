@@ -21,13 +21,13 @@ const CollectCtx = struct {
     lines: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const fns = ast.pubFns(a, entry.content) catch return;
+    const fns = try ast.pubFns(a, entry.content);
     for (fns) |f| {
-        const line = std.fmt.allocPrint(a, "{s}::{s} | {s}", .{ entry.rel_path, f.name, f.proto_span }) catch continue;
-        ctx.lines.append(a, line) catch {};
+        const line = try std.fmt.allocPrint(a, "{s}::{s} | {s}", .{ entry.rel_path, f.name, f.proto_span });
+        try ctx.lines.append(a, line);
     }
 }
 
@@ -35,7 +35,7 @@ fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8) ![][]cons
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
     return lines.toOwnedSlice(allocator);
 }
 
@@ -101,7 +101,7 @@ test "visit emits one line per pub fn with prototype" {
         \\fn private() void {}
         \\pub fn parse(input: []const u8) !u32 { return 0; }
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 2), lines.items.len);
     try std.testing.expectEqualStrings("src/x.zig::run | fn run() void", lines.items[0]);
     try std.testing.expectEqualStrings("src/x.zig::parse | fn parse(input: []const u8) !u32", lines.items[1]);

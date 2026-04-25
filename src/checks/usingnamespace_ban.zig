@@ -14,11 +14,11 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     // Tokenizer skips strings and comments correctly, so a token with this
     // text is genuinely in code (not a comment or string body).
-    const z = ctx.allocator.dupeZ(u8, entry.content) catch return;
+    const z = try ctx.allocator.dupeZ(u8, entry.content);
     var tok = std.zig.Tokenizer.init(z);
     var line: u32 = 1;
     var last_pos: usize = 0;
@@ -35,12 +35,12 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
             if (c == '\n') line += 1;
         }
         last_pos = t.loc.start;
-        const msg = std.fmt.allocPrint(
+        const msg = try std.fmt.allocPrint(
             ctx.allocator,
             "{s}:{d}: usingnamespace is forbidden",
             .{ entry.rel_path, line },
-        ) catch return;
-        ctx.violations.append(ctx.allocator, msg) catch {};
+        );
+        try ctx.violations.append(ctx.allocator, msg);
     }
 }
 
@@ -54,7 +54,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     // Scan src/ but not test/ — usingnamespace in test files is grandfathered.
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("no usingnamespace declarations", .{});
@@ -85,7 +85,7 @@ test "visit flags usingnamespace at correct line" {
         \\
         \\fn other() void {}
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
@@ -101,6 +101,6 @@ test "visit ignores usingnamespace in comments and strings" {
         \\const s = "usingnamespace bar;";
         \\fn x() void {}
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/y.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/y.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }

@@ -29,49 +29,37 @@ fn caseKind(name: []const u8) enum { pascal, camel, snake, other } {
     return .other;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = ast.pubFns(a, entry.content) catch return;
+    const fns = try ast.pubFns(a, entry.content);
     for (fns) |f| {
         const kind = caseKind(f.name);
         switch (f.return_kind) {
             .type_kw => {
                 if (kind != .pascal) {
-                    const msg = std.fmt.allocPrint(
-                        a,
-                        "{s}: pub fn {s} returns `type` but is not PascalCase",
-                        .{ entry.rel_path, f.name },
-                    ) catch continue;
-                    ctx.violations.append(a, msg) catch {};
+                    const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} returns `type` but is not PascalCase", .{ entry.rel_path, f.name });
+                    try ctx.violations.append(a, msg);
                 }
             },
             else => {
                 if (kind == .pascal) {
-                    const msg = std.fmt.allocPrint(
-                        a,
-                        "{s}: pub fn {s} is PascalCase but does not return `type`",
-                        .{ entry.rel_path, f.name },
-                    ) catch continue;
-                    ctx.violations.append(a, msg) catch {};
+                    const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} is PascalCase but does not return `type`", .{ entry.rel_path, f.name });
+                    try ctx.violations.append(a, msg);
                 }
             },
         }
     }
 
-    const consts = ast.pubConsts(a, entry.content) catch return;
+    const consts = try ast.pubConsts(a, entry.content);
     for (consts) |c| {
         switch (c.kind) {
             .struct_, .enum_, .union_, .opaque_ => {
                 const kind = caseKind(c.name);
                 if (kind != .pascal) {
-                    const msg = std.fmt.allocPrint(
-                        a,
-                        "{s}: pub const {s} is a {s} type but is not PascalCase",
-                        .{ entry.rel_path, c.name, @tagName(c.kind) },
-                    ) catch continue;
-                    ctx.violations.append(a, msg) catch {};
+                    const msg = try std.fmt.allocPrint(a, "{s}: pub const {s} is a {s} type but is not PascalCase", .{ entry.rel_path, c.name, @tagName(c.kind) });
+                    try ctx.violations.append(a, msg);
                 }
             },
             else => {},
@@ -88,7 +76,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("naming conventions OK", .{});
@@ -117,7 +105,7 @@ test "visit catches pascal fn that does not return type" {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn DoThing() void {}\n";
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
@@ -128,7 +116,7 @@ test "visit accepts pascal fn returning type" {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn List(comptime T: type) type { return T; }\n";
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }
 
@@ -139,6 +127,6 @@ test "visit catches snake_case struct" {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub const my_struct = struct { x: i32 };\n";
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }

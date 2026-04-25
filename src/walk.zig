@@ -14,8 +14,9 @@ pub const WalkOpts = struct {
     extension: []const u8 = ".zig",
 };
 
-/// Function signature of a walker visitor callback.
-pub const VisitFn = *const fn (ctx: *anyopaque, entry: FileEntry) void;
+/// Function signature of a walker visitor callback. Errors propagate
+/// up through walkZigFiles so checks see real I/O / OOM failures.
+pub const VisitFn = *const fn (ctx: *anyopaque, entry: FileEntry) anyerror!void;
 
 /// Bundle of (context pointer, callback) supplied to walkZigFiles.
 pub const Visitor = struct {
@@ -23,8 +24,9 @@ pub const Visitor = struct {
     visit: VisitFn,
 };
 
-/// Errors propagated by walkZigFiles.
-pub const WalkError = std.mem.Allocator.Error || std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error || std.fs.File.OpenError;
+/// Errors propagated by walkZigFiles. `anyerror` because the visitor
+/// callback may itself fail with arbitrary errors (OOM, format errors, etc.).
+pub const WalkError = anyerror;
 
 /// Recursively walks `fs_root`, invoking `visitor` for every matching file.
 /// `display_root` is prepended to each file's relative path in the entry.
@@ -70,7 +72,7 @@ fn walkRecursive(
                 };
                 if (excluded) continue;
                 const content = dir.readFileAlloc(allocator, entry.name, opts.max_file_bytes) catch continue;
-                visitor.visit(visitor.ctx, .{ .rel_path = rel, .content = content });
+                try visitor.visit(visitor.ctx, .{ .rel_path = rel, .content = content });
             },
             else => {},
         }
@@ -108,7 +110,7 @@ pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
 }
 
 /// Resolves `..` and `.` segments in a forward-slash path.
-pub fn normalizePath(allocator: Allocator, path: []const u8) []const u8 {
+pub fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8 {
     var parts: std.ArrayListUnmanaged([]const u8) = .empty;
     var iter = std.mem.splitScalar(u8, path, '/');
     while (iter.next()) |seg| {
@@ -116,15 +118,15 @@ pub fn normalizePath(allocator: Allocator, path: []const u8) []const u8 {
         if (std.mem.eql(u8, seg, "..")) {
             if (parts.items.len > 0) _ = parts.pop();
         } else {
-            parts.append(allocator, seg) catch {};
+            try parts.append(allocator, seg);
         }
     }
     var result: std.ArrayListUnmanaged(u8) = .empty;
     for (parts.items, 0..) |part, i| {
-        if (i > 0) result.append(allocator, '/') catch {};
-        result.appendSlice(allocator, part) catch {};
+        if (i > 0) try result.append(allocator, '/');
+        try result.appendSlice(allocator, part);
     }
-    return result.toOwnedSlice(allocator) catch path;
+    return result.toOwnedSlice(allocator);
 }
 
 test "matchGlob boundary patterns" {
@@ -154,7 +156,7 @@ test "normalizePath resolves parent refs" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    try std.testing.expectEqualStrings("src/utils/foo.zig", normalizePath(a, "src/core/../utils/foo.zig"));
-    try std.testing.expectEqualStrings("src/main.zig", normalizePath(a, "src/./main.zig"));
-    try std.testing.expectEqualStrings("foo.zig", normalizePath(a, "a/b/../../foo.zig"));
+    try std.testing.expectEqualStrings("src/utils/foo.zig", try normalizePath(a, "src/core/../utils/foo.zig"));
+    try std.testing.expectEqualStrings("src/main.zig", try normalizePath(a, "src/./main.zig"));
+    try std.testing.expectEqualStrings("foo.zig", try normalizePath(a, "a/b/../../foo.zig"));
 }

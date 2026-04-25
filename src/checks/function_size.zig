@@ -16,18 +16,14 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const fns = ast.allFns(a, entry.content) catch return;
+    const fns = try ast.allFns(a, entry.content);
     for (fns) |f| {
         if (f.param_count <= ctx.max_params) continue;
-        const msg = std.fmt.allocPrint(
-            a,
-            "{s}: fn {s} has {d} params (limit: {d})",
-            .{ entry.rel_path, f.name, f.param_count, ctx.max_params },
-        ) catch continue;
-        ctx.violations.append(a, msg) catch {};
+        const msg = try std.fmt.allocPrint(a, "{s}: fn {s} has {d} params (limit: {d})", .{ entry.rel_path, f.name, f.param_count, ctx.max_params });
+        try ctx.violations.append(a, msg);
     }
 }
 
@@ -52,7 +48,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const dirs_to_check = [_][]const u8{ "src", "test" };
     for (&dirs_to_check) |dir_name| {
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
-        walk.walkZigFiles(allocator, dir_path, dir_name, .{}, .{ .ctx = &ctx, .visit = visit }) catch {};
+        try walk.walkZigFiles(allocator, dir_path, dir_name, .{}, .{ .ctx = &ctx, .visit = visit });
     }
 
     if (violations.items.len == 0) {
@@ -81,6 +77,6 @@ test "visit catches over-budget functions" {
         \\pub fn ok_fn(a: i32, b: i32, c: i32) void {}
         \\pub fn too_many(a: i32, b: i32, c: i32, d: i32, e: i32) void {}
     ;
-    visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
