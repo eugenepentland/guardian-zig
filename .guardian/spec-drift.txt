@@ -1,0 +1,43 @@
+# guardian-snapshot v1
+src/ast/parser.zig::allFns | fn allFns(arena: Allocator, source: []const u8) ![]const FnInfo
+src/ast/parser.zig::imports | fn imports(arena: Allocator, source: []const u8) []const Import
+src/ast/parser.zig::pubConsts | fn pubConsts(arena: Allocator, source: []const u8) ![]const PubConst
+src/ast/parser.zig::pubFns | fn pubFns(arena: Allocator, source: []const u8) ![]const PubFn
+src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
+src/check.zig::main | fn main() !void
+src/checks/boundaries.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) !void
+src/checks/spec_drift.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) !void
+src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) !void
+src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) !void
+src/cli/registry.zig::find | fn find(name: []const u8) ?Command
+src/cli/registry.zig::printHelp | fn printHelp() void
+src/config.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
+src/config.zig::parse | fn parse(allocator: Allocator, content: []const u8) Config
+src/reporter.zig::detail | fn detail(comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::emit | fn emit(v: Violation) void
+src/reporter.zig::fail | fn fail(comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::init | fn init(quiet: bool) void
+src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
+src/snapshot.zig::diff | fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) !Diff
+src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
+src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) !void
+src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayListUnmanaged(ModuleInfo), ) !void
+src/spec/init.zig::extractPubFns | fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) []const []const u8
+src/spec/init.zig::generateSpecContent | fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) []const u8
+src/spec/matcher.zig::analyze | fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag) CoverageResult
+src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []const u8) []const SpecTag
+src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) ![]const u8
+src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ![]const Section
+src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ![]const Section
+src/walk.zig::matchGlob | fn matchGlob(text: []const u8, pattern: []const u8) bool
+src/walk.zig::normalizePath | fn normalizePath(allocator: Allocator, path: []const u8) []const u8
+src/walk.zig::walkZigFiles | fn walkZigFiles( allocator: Allocator, fs_root: []const u8, display_root: []const u8, opts: WalkOpts, visitor: Visitor, ) !void

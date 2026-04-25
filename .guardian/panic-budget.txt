@@ -1,0 +1,5 @@
+# guardian-panic-budget v1
+panics 0
+unreachables 0
+todos 4
+fixmes 2

@@ -72,4 +72,7 @@ test {
     _ = @import("checks/function_size.zig");
     _ = @import("checks/doc_comments.zig");
     _ = @import("checks/imports.zig");
+    _ = @import("checks/pub_api_surface.zig");
+    _ = @import("checks/panic_budget.zig");
+    _ = @import("checks/spec_drift.zig");
 }

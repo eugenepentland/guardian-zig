@@ -62,3 +62,18 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Imports
 
 - Detects cycles in the @import graph
+
+## Pub Api Surface
+
+- Snapshots every public declaration
+- Diff fails on unexpected pub additions or removals
+
+## Panic Budget
+
+- Tracks panic and unreachable token counts against a snapshot
+- Tracks TODO and FIXME comment counts against a snapshot
+
+## Spec Drift
+
+- Snapshots pub fn prototypes
+- Diff fails when an existing pub fn signature changes

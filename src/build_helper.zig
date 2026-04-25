@@ -13,6 +13,9 @@ pub const all_check_names: []const []const u8 = &.{
     "function-size",
     "doc-comments",
     "imports",
+    "pub-api-surface",
+    "panic-budget",
+    "spec-drift",
 };
 
 /// Tunables for addAllChecks.

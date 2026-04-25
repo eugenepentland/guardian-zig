@@ -12,6 +12,9 @@ pub const PubFn = struct {
     name: []const u8,
     return_kind: ReturnKind,
     has_doc_comment: bool,
+    /// Source span from the `fn` keyword through the return type, with
+    /// runs of whitespace collapsed to a single space.
+    proto_span: []const u8,
 };
 
 /// A top-level function (pub or private) discovered by allFns().
@@ -85,14 +88,43 @@ pub fn pubFns(arena: Allocator, source: []const u8) ![]const PubFn {
 
         const return_kind = classifyReturn(&tree, proto);
         const has_doc = hasPrecedingDocComment(&tree, decl);
+        const proto_span = collapseWhitespace(arena, fnProtoSource(&tree, proto)) catch "";
 
         result.append(arena, .{
             .name = name,
             .return_kind = return_kind,
             .has_doc_comment = has_doc,
+            .proto_span = proto_span,
         }) catch {};
     }
     return result.toOwnedSlice(arena) catch &.{};
+}
+
+fn fnProtoSource(tree: *const Ast, proto: Ast.full.FnProto) []const u8 {
+    const fn_kw = proto.ast.fn_token;
+    const ret_node = proto.ast.return_type.unwrap() orelse return tree.tokenSlice(fn_kw);
+    const last_tok = tree.lastToken(ret_node);
+    const start = tree.tokenStart(fn_kw);
+    const end_tok = tree.tokenStart(last_tok) + tree.tokenSlice(last_tok).len;
+    return tree.source[start..end_tok];
+}
+
+fn collapseWhitespace(arena: Allocator, text: []const u8) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var prev_was_space = false;
+    for (text) |c| {
+        const is_space = c == ' ' or c == '\t' or c == '\n' or c == '\r';
+        if (is_space) {
+            if (!prev_was_space and buf.items.len > 0) try buf.append(arena, ' ');
+            prev_was_space = true;
+        } else {
+            try buf.append(arena, c);
+            prev_was_space = false;
+        }
+    }
+    // Trim trailing space
+    while (buf.items.len > 0 and buf.items[buf.items.len - 1] == ' ') _ = buf.pop();
+    return buf.toOwnedSlice(arena);
 }
 
 /// All top-level functions (pub and private), with parameter counts.
@@ -236,6 +268,8 @@ test "pubFns finds public functions only" {
     try std.testing.expectEqualStrings("foo", fns[0].name);
     try std.testing.expectEqualStrings("bar", fns[1].name);
     try std.testing.expectEqual(ReturnKind.err_union, fns[1].return_kind);
+    try std.testing.expectEqualStrings("fn foo() void", fns[0].proto_span);
+    try std.testing.expectEqualStrings("fn bar(x: i32) !void", fns[1].proto_span);
 }
 
 test "pubFns classifies return type=type" {
