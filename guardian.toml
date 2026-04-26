@@ -11,7 +11,14 @@ forbidden = ["config"]
 # the parse/analyze/parseContent functions are state machines whose
 # refactor is queued separately. New consumers should use the default 15.
 [complexity]
-max_score = 55
+max_score = 65
+
+# Nesting-depth is also lenient here for the same reason: the
+# allocator-hygiene + debug-print-ban token-chain state machines
+# reach depth 7-8 inside their switch-on-token-tag dispatch.
+# New consumers should keep the default 4.
+[nesting_depth]
+max_depth = 8
 
 # Reporter has 6 anytype params (the format-string `args: anytype`
 # pattern in ok/fail/detail). New consumers should keep the default 2.

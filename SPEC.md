@@ -141,3 +141,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Function Length
 
 - Caps source lines per fn decl
+
+## Nesting Depth
+
+- Caps brace-nesting depth inside fn bodies

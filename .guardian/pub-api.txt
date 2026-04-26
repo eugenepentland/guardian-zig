@@ -43,6 +43,8 @@ src/checks/function_length.zig::run fn
 src/checks/function_size.zig::run fn
 src/checks/imports.zig::run fn
 src/checks/naming.zig::run fn
+src/checks/nesting_depth.zig::analyzeContent fn
+src/checks/nesting_depth.zig::run fn
 src/checks/orphan_files.zig::findOrphans fn
 src/checks/orphan_files.zig::run fn
 src/checks/panic_budget.zig::run fn
@@ -75,6 +77,7 @@ src/config.zig::Config struct_
 src/config.zig::DocQualityCfg struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
+src/config.zig::NestingDepthCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::TypeSizeCfg struct_

@@ -109,5 +109,6 @@ test {
     _ = @import("checks/comptime_quota.zig");
     _ = @import("checks/type_size.zig");
     _ = @import("checks/function_length.zig");
+    _ = @import("checks/nesting_depth.zig");
     _ = @import("ast/import_graph.zig");
 }

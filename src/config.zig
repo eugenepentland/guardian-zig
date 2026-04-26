@@ -63,6 +63,14 @@ pub const FunctionLengthCfg = struct {
     max_lines: u32 = 100,
 };
 
+/// Per-check config for the nesting-depth cap.
+pub const NestingDepthCfg = struct {
+    enabled: bool = true,
+    /// Max brace-nesting depth inside a function body. Body itself
+    /// counts as depth 1; nested blocks each add 1.
+    max_depth: u32 = 4,
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -77,6 +85,7 @@ pub const Config = struct {
     doc_quality: DocQualityCfg = .{},
     type_size: TypeSizeCfg = .{},
     function_length: FunctionLengthCfg = .{},
+    nesting_depth: NestingDepthCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -96,6 +105,7 @@ const Section = enum {
     doc_quality,
     type_size,
     function_length,
+    nesting_depth,
     unknown,
 };
 
@@ -168,6 +178,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .type_size;
             } else if (std.mem.eql(u8, name, "function_length")) {
                 section = .function_length;
+            } else if (std.mem.eql(u8, name, "nesting_depth")) {
+                section = .nesting_depth;
             } else {
                 section = .unknown;
             }
@@ -255,6 +267,13 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                         cfg.function_length.enabled = parseBool(val_raw) orelse cfg.function_length.enabled;
                     } else if (std.mem.eql(u8, key, "max_lines")) {
                         cfg.function_length.max_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.function_length.max_lines;
+                    }
+                },
+                .nesting_depth => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.nesting_depth.enabled = parseBool(val_raw) orelse cfg.nesting_depth.enabled;
+                    } else if (std.mem.eql(u8, key, "max_depth")) {
+                        cfg.nesting_depth.max_depth = std.fmt.parseInt(u32, val_raw, 10) catch cfg.nesting_depth.max_depth;
                     }
                 },
                 .unknown => {},

@@ -30,6 +30,8 @@ src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) regist
 src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/nesting_depth.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.NestingDepthCfg, ) std.mem.Allocator.Error![]const []const u8
+src/checks/nesting_depth.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/orphan_files.zig::findOrphans | fn findOrphans( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/checks/orphan_files.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
