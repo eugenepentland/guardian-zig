@@ -1,0 +1,7 @@
+fn dies() noreturn {
+    unreachable;
+}
+
+pub fn loops() noreturn {
+    unreachable;
+}

@@ -95,6 +95,23 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     }
 }
 
+/// Pure-function entry: scans `content` and returns violation lines
+/// (allocator-owned). Empty slice = pass. Used by the golden-file test
+/// harness; the production walker calls `visit()` directly.
+pub fn analyzeContent(
+    allocator: std.mem.Allocator,
+    rel_path: []const u8,
+    content: []const u8,
+) std.mem.Allocator.Error![]const []const u8 {
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
+    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    return violations.toOwnedSlice(allocator);
+}
+
 /// Entry point for the stub-body-ban check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
@@ -163,6 +180,30 @@ test "visit flags fn with stub body" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+// ── Golden file scenarios ──────────────────────────────────────────────
+
+const golden = @import("../testing/golden_runner.zig");
+
+test "golden: all-three-forms" {
+    try golden.run(std.testing.allocator, .{
+        .check_name = "stub-body-ban",
+        .name = "all-three-forms",
+        .input = @embedFile("../testing/golden/stub-body-ban/all-three-forms/input.zig.in"),
+        .expected = @embedFile("../testing/golden/stub-body-ban/all-three-forms/expected.txt"),
+        .expected_path = "src/testing/golden/stub-body-ban/all-three-forms/expected.txt",
+    }, analyzeContent);
+}
+
+test "golden: noreturn-allowed" {
+    try golden.run(std.testing.allocator, .{
+        .check_name = "stub-body-ban",
+        .name = "noreturn-allowed",
+        .input = @embedFile("../testing/golden/stub-body-ban/noreturn-allowed/input.zig.in"),
+        .expected = @embedFile("../testing/golden/stub-body-ban/noreturn-allowed/expected.txt"),
+        .expected_path = "src/testing/golden/stub-body-ban/noreturn-allowed/expected.txt",
+    }, analyzeContent);
 }
 
 test "visit allows real function bodies" {

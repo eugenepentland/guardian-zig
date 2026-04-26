@@ -1,0 +1,13 @@
+///
+pub fn empty() void {}
+
+/// TODO
+pub fn placeholder() void {}
+
+/// hi
+pub fn tooShort() void {}
+
+/// Computes the result of x times y, returning a 32-bit integer.
+pub fn realDoc(x: i32, y: i32) i32 {
+    return x * y;
+}

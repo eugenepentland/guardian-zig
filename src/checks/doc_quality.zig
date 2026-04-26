@@ -91,6 +91,24 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     }
 }
 
+/// Pure-function entry: scans `content` with the given config and
+/// returns violation lines (allocator-owned). Empty slice = pass. Used
+/// by the golden-file test harness.
+pub fn analyzeContent(
+    allocator: std.mem.Allocator,
+    rel_path: []const u8,
+    content: []const u8,
+    cfg: config_mod.DocQualityCfg,
+) std.mem.Allocator.Error![]const []const u8 {
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
+    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    return violations.toOwnedSlice(allocator);
+}
+
 /// Entry point for the doc-quality check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
@@ -178,6 +196,30 @@ test "visit allows good docs" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+// ── Golden file scenarios ──────────────────────────────────────────────
+
+const golden = @import("../testing/golden_runner.zig");
+
+test "golden: empty-and-placeholder" {
+    try golden.runWithCfg(std.testing.allocator, .{
+        .check_name = "doc-quality",
+        .name = "empty-and-placeholder",
+        .input = @embedFile("../testing/golden/doc-quality/empty-and-placeholder/input.zig.in"),
+        .expected = @embedFile("../testing/golden/doc-quality/empty-and-placeholder/expected.txt"),
+        .expected_path = "src/testing/golden/doc-quality/empty-and-placeholder/expected.txt",
+    }, analyzeContent, config_mod.DocQualityCfg{ .enabled = true, .min_chars = 12 });
+}
+
+test "golden: all-good" {
+    try golden.runWithCfg(std.testing.allocator, .{
+        .check_name = "doc-quality",
+        .name = "all-good",
+        .input = @embedFile("../testing/golden/doc-quality/all-good/input.zig.in"),
+        .expected = @embedFile("../testing/golden/doc-quality/all-good/expected.txt"),
+        .expected_path = "src/testing/golden/doc-quality/all-good/expected.txt",
+    }, analyzeContent, config_mod.DocQualityCfg{ .enabled = true, .min_chars = 12 });
 }
 
 test "visit ignores undocumented decls (doc-comments enforces presence)" {

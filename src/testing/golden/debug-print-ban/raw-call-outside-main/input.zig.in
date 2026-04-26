@@ -1,0 +1,9 @@
+const std = @import("std");
+
+fn helper() void {
+    std.debug.print("oops\n", .{});
+}
+
+pub fn other() void {
+    std.debug.print("also bad\n", .{});
+}

@@ -2,4 +2,4 @@
 fixmes 2
 panics 0
 todos 3
-unreachables 0
+unreachables 3

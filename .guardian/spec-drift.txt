@@ -16,8 +16,10 @@ src/checks/catch_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) regis
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/comptime_quota.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/doc_quality.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.DocQualityCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/doc_quality.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dup_const.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -33,6 +35,7 @@ src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_drift.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/stub_body_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/stub_body_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
@@ -59,6 +62,8 @@ src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []con
 src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
+src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void
+src/testing/golden_runner.zig::runWithCfg | fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype, cfg: anytype) GoldenError!void
 src/walk.zig::matchGlob | fn matchGlob(text: []const u8, pattern: []const u8) bool
 src/walk.zig::normalizePath | fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8
 src/walk.zig::walkZigFiles | fn walkZigFiles( allocator: Allocator, fs_root: []const u8, display_root: []const u8, opts: WalkOpts, visitor: Visitor, ) WalkError!void

@@ -1,0 +1,2 @@
+input.zig:4: std.debug.print(...) call outside main/test
+input.zig:8: std.debug.print(...) call outside main/test

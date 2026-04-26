@@ -1,0 +1,10 @@
+/// Computes the sum of two integers and returns the result.
+pub fn add(x: i32, y: i32) i32 {
+    return x + y;
+}
+
+/// A complete, descriptive multi-line doc comment that should pass
+/// every quality check we have.
+pub const Foo = struct {
+    x: i32,
+};

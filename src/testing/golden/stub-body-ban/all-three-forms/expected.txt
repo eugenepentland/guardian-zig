@@ -1,0 +1,3 @@
+input.zig: fn returnsUndefined: stub body `return undefined;`
+input.zig: fn todoLater: stub body `@panic(...)` with placeholder phrase (TODO/FIXME/unimplemented/stub)
+input.zig: fn unreachableValueFn: stub body `unreachable;` in non-noreturn function

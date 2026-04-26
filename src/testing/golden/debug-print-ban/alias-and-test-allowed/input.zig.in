@@ -1,0 +1,15 @@
+const std = @import("std");
+const print = std.debug.print;
+
+pub fn main() !void {
+    std.debug.print("startup ok\n", .{});
+    print("via alias\n", .{});
+}
+
+test "shows debug" {
+    std.debug.print("trace\n", .{});
+}
+
+fn use_alias() void {
+    print("alias call has no chain match\n", .{});
+}

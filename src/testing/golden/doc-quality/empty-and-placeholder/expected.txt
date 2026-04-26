@@ -1,0 +1,3 @@
+input.zig: pub fn empty: doc comment is empty
+input.zig: pub fn placeholder: doc comment is a placeholder phrase
+input.zig: pub fn tooShort: doc comment is shorter than the minimum

@@ -28,8 +28,10 @@ src/checks/catch_discipline.zig::run fn
 src/checks/cognitive_complexity.zig::run fn
 src/checks/comptime_quota.zig::run fn
 src/checks/dead_pub.zig::run fn
+src/checks/debug_print_ban.zig::analyzeContent fn
 src/checks/debug_print_ban.zig::run fn
 src/checks/doc_comments.zig::run fn
+src/checks/doc_quality.zig::analyzeContent fn
 src/checks/doc_quality.zig::run fn
 src/checks/dup_const.zig::run fn
 src/checks/error_discipline.zig::run fn
@@ -45,6 +47,7 @@ src/checks/spec.zig::run fn
 src/checks/spec_drift.zig::run fn
 src/checks/spec_init.zig::run fn
 src/checks/spec_quality.zig::run fn
+src/checks/stub_body_ban.zig::analyzeContent fn
 src/checks/stub_body_ban.zig::run fn
 src/checks/usingnamespace_ban.zig::run fn
 src/cli/registry.zig::Command value
@@ -111,6 +114,11 @@ src/spec/parser.zig::Section struct_
 src/spec/parser.zig::normalizeKey fn
 src/spec/parser.zig::parseContent fn
 src/spec/parser.zig::parseFile fn
+src/testing/golden_runner.zig::GoldenError value
+src/testing/golden_runner.zig::Scenario struct_
+src/testing/golden_runner.zig::UPDATE_ENV value
+src/testing/golden_runner.zig::run fn
+src/testing/golden_runner.zig::runWithCfg fn
 src/walk.zig::FileEntry struct_
 src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_

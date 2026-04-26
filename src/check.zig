@@ -81,6 +81,7 @@ test {
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
+    _ = @import("testing/golden_runner.zig");
     _ = @import("checks/spec.zig");
     _ = @import("checks/spec_init.zig");
     _ = @import("checks/file_size.zig");

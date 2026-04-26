@@ -131,6 +131,23 @@ fn lineOf(source: []const u8, byte_offset: usize) u32 {
     return line;
 }
 
+/// Pure-function entry: scans `content` and returns violation lines
+/// (allocator-owned). Empty slice = pass. Used by the golden-file test
+/// harness; the production walker calls `visit()` directly.
+pub fn analyzeContent(
+    allocator: std.mem.Allocator,
+    rel_path: []const u8,
+    content: []const u8,
+) std.mem.Allocator.Error![]const []const u8 {
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
+    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    return violations.toOwnedSlice(allocator);
+}
+
 /// Entry point for the debug-print-ban check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
@@ -238,6 +255,30 @@ test "visit ignores std.debug.print inside comment" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+// ── Golden file scenarios ──────────────────────────────────────────────
+
+const golden = @import("../testing/golden_runner.zig");
+
+test "golden: raw-call-outside-main" {
+    try golden.run(std.testing.allocator, .{
+        .check_name = "debug-print-ban",
+        .name = "raw-call-outside-main",
+        .input = @embedFile("../testing/golden/debug-print-ban/raw-call-outside-main/input.zig.in"),
+        .expected = @embedFile("../testing/golden/debug-print-ban/raw-call-outside-main/expected.txt"),
+        .expected_path = "src/testing/golden/debug-print-ban/raw-call-outside-main/expected.txt",
+    }, analyzeContent);
+}
+
+test "golden: alias-and-test-allowed" {
+    try golden.run(std.testing.allocator, .{
+        .check_name = "debug-print-ban",
+        .name = "alias-and-test-allowed",
+        .input = @embedFile("../testing/golden/debug-print-ban/alias-and-test-allowed/input.zig.in"),
+        .expected = @embedFile("../testing/golden/debug-print-ban/alias-and-test-allowed/expected.txt"),
+        .expected_path = "src/testing/golden/debug-print-ban/alias-and-test-allowed/expected.txt",
+    }, analyzeContent);
 }
 
 test "visit handles non-main fn followed by std.debug.print" {
