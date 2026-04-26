@@ -10,12 +10,14 @@ src/ast/parser.zig::FnInfo struct_
 src/ast/parser.zig::Import struct_
 src/ast/parser.zig::PubConst struct_
 src/ast/parser.zig::PubConstKind enum_
+src/ast/parser.zig::PubContainerInfo struct_
 src/ast/parser.zig::PubFn struct_
 src/ast/parser.zig::ReturnKind enum_
 src/ast/parser.zig::allFns fn
 src/ast/parser.zig::fnDeclInfos fn
 src/ast/parser.zig::imports fn
 src/ast/parser.zig::pubConsts fn
+src/ast/parser.zig::pubContainers fn
 src/ast/parser.zig::pubFns fn
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks fn
@@ -49,6 +51,8 @@ src/checks/spec_init.zig::run fn
 src/checks/spec_quality.zig::run fn
 src/checks/stub_body_ban.zig::analyzeContent fn
 src/checks/stub_body_ban.zig::run fn
+src/checks/type_size.zig::analyzeContent fn
+src/checks/type_size.zig::run fn
 src/checks/usingnamespace_ban.zig::run fn
 src/cli/registry.zig::Command value
 src/cli/registry.zig::NeedsAst value
@@ -70,6 +74,7 @@ src/config.zig::DocQualityCfg struct_
 src/config.zig::FunctionSizeCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_
+src/config.zig::TypeSizeCfg struct_
 src/config.zig::load fn
 src/config.zig::parse fn
 src/reporter.zig::GREEN value

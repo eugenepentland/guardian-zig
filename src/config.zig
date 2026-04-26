@@ -47,6 +47,14 @@ pub const DocQualityCfg = struct {
     min_chars: u32 = 12,
 };
 
+/// Per-check config for the type-size cap on pub containers.
+pub const TypeSizeCfg = struct {
+    enabled: bool = true,
+    /// Max fields per `pub const X = struct { ... }` (or variants for enums,
+    /// fields for unions). Methods and inner const decls don't count.
+    max_fields: u32 = 15,
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -59,6 +67,7 @@ pub const Config = struct {
     anytype_budget: AnytypeBudgetCfg = .{},
     orphan_files: OrphanFilesCfg = .{},
     doc_quality: DocQualityCfg = .{},
+    type_size: TypeSizeCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -76,6 +85,7 @@ const Section = enum {
     anytype_budget,
     orphan_files,
     doc_quality,
+    type_size,
     unknown,
 };
 
@@ -144,6 +154,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .orphan_files;
             } else if (std.mem.eql(u8, name, "doc_quality")) {
                 section = .doc_quality;
+            } else if (std.mem.eql(u8, name, "type_size")) {
+                section = .type_size;
             } else {
                 section = .unknown;
             }
@@ -217,6 +229,13 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                         cfg.doc_quality.enabled = parseBool(val_raw) orelse cfg.doc_quality.enabled;
                     } else if (std.mem.eql(u8, key, "min_chars")) {
                         cfg.doc_quality.min_chars = std.fmt.parseInt(u32, val_raw, 10) catch cfg.doc_quality.min_chars;
+                    }
+                },
+                .type_size => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.type_size.enabled = parseBool(val_raw) orelse cfg.type_size.enabled;
+                    } else if (std.mem.eql(u8, key, "max_fields")) {
+                        cfg.type_size.max_fields = std.fmt.parseInt(u32, val_raw, 10) catch cfg.type_size.max_fields;
                     }
                 },
                 .unknown => {},

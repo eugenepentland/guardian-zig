@@ -241,6 +241,71 @@ pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
     return result.toOwnedSlice(arena);
 }
 
+/// A top-level pub container declaration with its field/variant count.
+/// Skips `pub const X = 42;` (value-kind) and `pub const F = fn(...)`
+/// (fn_proto-kind) — only structs, enums, unions, and opaques appear.
+pub const PubContainerInfo = struct {
+    name: []const u8,
+    kind: PubConstKind,
+    /// Count of declared fields (struct/union) or variants (enum). Methods
+    /// and inner const decls are not counted.
+    field_count: u32,
+};
+
+/// Iterates every `pub const Name = struct/enum/union/opaque { ... }` and
+/// reports the field/variant count. Used by the type-size check.
+pub fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubContainerInfo {
+    const z = try arena.dupeZ(u8, source);
+    var tree = try Ast.parse(arena, z, .zig);
+    var result: std.ArrayListUnmanaged(PubContainerInfo) = .empty;
+
+    for (tree.rootDecls()) |decl| {
+        const var_decl = tree.fullVarDecl(decl) orelse continue;
+        if (var_decl.visib_token == null) continue;
+        const name_tok = var_decl.ast.mut_token + 1;
+        const name = tree.tokenSlice(name_tok);
+
+        const init_node = var_decl.ast.init_node.unwrap() orelse continue;
+        const init_tag = tree.nodeTag(init_node);
+        const is_container = switch (init_tag) {
+            .container_decl,
+            .container_decl_trailing,
+            .container_decl_two,
+            .container_decl_two_trailing,
+            .container_decl_arg,
+            .container_decl_arg_trailing,
+            => true,
+            else => false,
+        };
+        if (!is_container) continue;
+        const kind = classifyContainer(&tree, init_node);
+        switch (kind) {
+            .struct_, .enum_, .union_, .opaque_ => {},
+            else => continue,
+        }
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const cdecl = tree.fullContainerDecl(&buf, init_node) orelse continue;
+        var field_count: u32 = 0;
+        for (cdecl.ast.members) |member| {
+            const tag = tree.nodeTag(member);
+            switch (tag) {
+                .container_field,
+                .container_field_init,
+                .container_field_align,
+                => field_count += 1,
+                else => {},
+            }
+        }
+        try result.append(arena, .{
+            .name = name,
+            .kind = kind,
+            .field_count = field_count,
+        });
+    }
+    return result.toOwnedSlice(arena);
+}
+
 /// Top-level pub const declarations classified by initializer kind.
 pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst {
     const z = try arena.dupeZ(u8, source);
@@ -455,6 +520,33 @@ test "fnDeclInfos extracts body and return-type spans" {
     try std.testing.expectEqual(false, fns[1].is_pub);
     try std.testing.expectEqualStrings("noreturn", fns[1].return_type_text.?);
     try std.testing.expectEqualStrings("{ unreachable; }", fns[1].body_text);
+}
+
+test "pubContainers counts struct fields and enum variants" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source =
+        \\pub const Point = struct { x: i32, y: i32 };
+        \\pub const Color = enum { red, green, blue, yellow };
+        \\pub const Inner = union { i: i32, f: f32, s: []const u8 };
+        \\pub const Methods = struct {
+        \\    x: i32,
+        \\    pub fn get(self: Methods) i32 { return self.x; }
+        \\};
+        \\pub const Value = 42;
+    ;
+    const containers = try pubContainers(a, source);
+    try std.testing.expectEqual(@as(usize, 4), containers.len);
+    try std.testing.expectEqualStrings("Point", containers[0].name);
+    try std.testing.expectEqual(@as(u32, 2), containers[0].field_count);
+    try std.testing.expectEqualStrings("Color", containers[1].name);
+    try std.testing.expectEqual(@as(u32, 4), containers[1].field_count);
+    try std.testing.expectEqualStrings("Inner", containers[2].name);
+    try std.testing.expectEqual(@as(u32, 3), containers[2].field_count);
+    try std.testing.expectEqualStrings("Methods", containers[3].name);
+    // Methods has 1 field — `get` is a fn decl, not counted.
+    try std.testing.expectEqual(@as(u32, 1), containers[3].field_count);
 }
 
 test "pubConsts classifies container kinds" {

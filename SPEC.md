@@ -133,3 +133,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Comptime Quota
 
 - Tracks @setEvalBranchQuota call count and max value against a snapshot
+
+## Type Size
+
+- Caps fields per pub struct/enum/union/opaque
