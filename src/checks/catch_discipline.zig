@@ -93,7 +93,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     fail("catch discipline FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
     print("  fix: handle the error explicitly with a switch or named return.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "visit catches `catch unreachable`" {

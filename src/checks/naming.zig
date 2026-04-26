@@ -88,7 +88,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         print("  {s}\n", .{v});
     }
     print("  fix: PascalCase iff the fn returns `type`; types use PascalCase.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "caseKind classifies common cases" {

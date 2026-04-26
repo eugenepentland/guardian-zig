@@ -2,6 +2,7 @@ const std = @import("std");
 const config_mod = @import("config.zig");
 const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
+const run_all = @import("cli/run_all.zig");
 
 /// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
@@ -37,17 +38,25 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    const cmd = registry.find(command.?) orelse {
-        registry.printHelp();
-        std.process.exit(1);
-    };
-
     const cfg = config_mod.load(allocator, project_dir);
     var ctx: registry.RunCtx = .{
         .allocator = allocator,
         .project_dir = project_dir,
         .cfg = &cfg,
         .quiet = quiet_mode,
+    };
+
+    if (std.mem.eql(u8, command.?, run_all.COMMAND_NAME)) {
+        run_all.run(&ctx) catch |e| switch (e) {
+            error.CheckFailed => std.process.exit(1),
+            else => return e,
+        };
+        return;
+    }
+
+    const cmd = registry.find(command.?) orelse {
+        registry.printHelp();
+        std.process.exit(1);
     };
     cmd.run(&ctx) catch |e| switch (e) {
         // CheckFailed means the check already printed its own diagnostic.
@@ -71,6 +80,7 @@ test {
     _ = @import("snapshot_helper.zig");
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
+    _ = @import("cli/run_all.zig");
     _ = @import("checks/spec.zig");
     _ = @import("checks/spec_init.zig");
     _ = @import("checks/file_size.zig");

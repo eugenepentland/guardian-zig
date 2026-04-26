@@ -67,7 +67,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
     print("  fix: replace with explicit re-exports, e.g. `pub const x = bar.x;`\n", .{});
     print("  see https://github.com/ziglang/zig/issues/20663\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "visit flags usingnamespace at correct line" {

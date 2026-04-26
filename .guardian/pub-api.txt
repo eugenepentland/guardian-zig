@@ -53,6 +53,8 @@ src/cli/registry.zig::RunCtx value
 src/cli/registry.zig::all value
 src/cli/registry.zig::find fn
 src/cli/registry.zig::printHelp fn
+src/cli/run_all.zig::COMMAND_NAME value
+src/cli/run_all.zig::run fn
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_

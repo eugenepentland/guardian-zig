@@ -64,7 +64,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         print("  {s}\n", .{v});
     }
     print("  fix: bundle related parameters into a struct.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "visit catches over-budget functions" {

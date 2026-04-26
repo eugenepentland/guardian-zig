@@ -61,7 +61,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         print("  {s}\n", .{v});
     }
     print("  fix: add a /// doc comment line above each public declaration.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "visit flags missing doc comment" {

@@ -75,7 +75,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         print("  {s}\n", .{v});
     }
     print("  fix: rewrite each behavior as an observable outcome.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 fn toLowerOwned(allocator: std.mem.Allocator, s: []const u8) ![]u8 {

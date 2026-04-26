@@ -66,7 +66,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) ![]const []const u8 {

@@ -56,7 +56,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "fileSizeVisit accumulates violations" {

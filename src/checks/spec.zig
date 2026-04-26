@@ -31,7 +31,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         print("  Then tag each test with a matching // spec: comment:\n", .{});
         print("    // spec: Section Name - Behavior description\n", .{});
         print("    test \"behavior\" {{ ... }}\n", .{});
-        std.process.exit(1);
+        return error.CheckFailed;
     };
 
     const test_dir = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
@@ -79,5 +79,5 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     if (result.duplicate_tags.len > 0) {
         print("  Each spec behavior must have exactly one // spec: tag (1:1 mapping).\n", .{});
     }
-    std.process.exit(1);
+    return error.CheckFailed;
 }

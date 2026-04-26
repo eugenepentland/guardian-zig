@@ -180,7 +180,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     fail("allocator hygiene FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
     print("  fix: thread the allocator through as a parameter instead of hardcoding a global.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "visit flags page_allocator outside main and test" {

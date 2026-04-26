@@ -68,7 +68,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     fail("anytype budget FAILED ({d} file(s) over limit)", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
     print("  fix: replace anytype with comptime-typed generics where possible.\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "countAnytype counts only the keyword" {

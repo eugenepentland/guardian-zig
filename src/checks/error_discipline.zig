@@ -59,7 +59,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: declare an explicit error set, e.g.\n", .{});
     print("    pub const MyError = error{{ Foo, Bar }};\n", .{});
     print("    pub fn run(...) MyError!void {{ ... }}\n", .{});
-    std.process.exit(1);
+    return error.CheckFailed;
 }
 
 test "visit catches inferred error set on pub fn" {
