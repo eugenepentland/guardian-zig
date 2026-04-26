@@ -14,6 +14,7 @@ src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registr
 src/checks/boundaries.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/catch_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/comptime_quota.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

@@ -25,6 +25,7 @@ const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
 const check_orphan_files = @import("../checks/orphan_files.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
 const check_doc_quality = @import("../checks/doc_quality.zig");
+const check_comptime_quota = @import("../checks/comptime_quota.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -55,6 +56,7 @@ pub const all: []const Command = &.{
     .{ .name = "orphan-files", .summary = "Flag .zig files under src/ unreachable from any configured root", .run = check_orphan_files.run },
     .{ .name = "stub-body-ban", .summary = "Reject obvious stub function bodies (return undefined, placeholder panics, unreachable in value fns)", .run = check_stub_body_ban.run },
     .{ .name = "doc-quality", .summary = "Reject empty or stub /// doc comments on public declarations", .run = check_doc_quality.run },
+    .{ .name = "comptime-quota", .summary = "Track @setEvalBranchQuota call count and max value via snapshot", .run = check_comptime_quota.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.
