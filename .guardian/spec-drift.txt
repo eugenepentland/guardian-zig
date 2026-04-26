@@ -17,6 +17,7 @@ src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) r
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/doc_quality.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dup_const.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

@@ -40,6 +40,13 @@ pub const OrphanFilesCfg = struct {
     roots: []const []const u8 = &.{},
 };
 
+/// Per-check config for doc-quality (content lint on /// doc comments).
+pub const DocQualityCfg = struct {
+    enabled: bool = true,
+    /// Minimum non-whitespace character count after the `///` prefix.
+    min_chars: u32 = 12,
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -51,6 +58,7 @@ pub const Config = struct {
     complexity: ComplexityCfg = .{},
     anytype_budget: AnytypeBudgetCfg = .{},
     orphan_files: OrphanFilesCfg = .{},
+    doc_quality: DocQualityCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -67,6 +75,7 @@ const Section = enum {
     complexity,
     anytype_budget,
     orphan_files,
+    doc_quality,
     unknown,
 };
 
@@ -133,6 +142,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .anytype_budget;
             } else if (std.mem.eql(u8, name, "orphan_files")) {
                 section = .orphan_files;
+            } else if (std.mem.eql(u8, name, "doc_quality")) {
+                section = .doc_quality;
             } else {
                 section = .unknown;
             }
@@ -199,6 +210,13 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                     } else if (std.mem.eql(u8, key, "roots")) {
                         var list = try parseStringArray(allocator, val_raw);
                         cfg.orphan_files.roots = try list.toOwnedSlice(allocator);
+                    }
+                },
+                .doc_quality => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.doc_quality.enabled = parseBool(val_raw) orelse cfg.doc_quality.enabled;
+                    } else if (std.mem.eql(u8, key, "min_chars")) {
+                        cfg.doc_quality.min_chars = std.fmt.parseInt(u32, val_raw, 10) catch cfg.doc_quality.min_chars;
                     }
                 },
                 .unknown => {},

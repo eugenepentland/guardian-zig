@@ -12,6 +12,9 @@ pub const PubFn = struct {
     name: []const u8,
     return_kind: ReturnKind,
     has_doc_comment: bool,
+    /// Joined text of preceding /// doc comments with `///` stripped and
+    /// lines joined by `\n`. Null when has_doc_comment is false.
+    doc_text: ?[]const u8,
     /// Source span from the `fn` keyword through the return type, with
     /// runs of whitespace collapsed to a single space.
     proto_span: []const u8,
@@ -49,6 +52,9 @@ pub const PubConst = struct {
     name: []const u8,
     kind: PubConstKind,
     has_doc_comment: bool,
+    /// Joined text of preceding /// doc comments with `///` stripped and
+    /// lines joined by `\n`. Null when has_doc_comment is false.
+    doc_text: ?[]const u8,
 };
 
 /// Tokenizer-based @import extraction. Skips strings/comments correctly.
@@ -101,13 +107,14 @@ pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
         const name = tree.tokenSlice(name_tok);
 
         const return_kind = classifyReturn(&tree, proto);
-        const has_doc = hasPrecedingDocComment(&tree, decl);
+        const doc_text = try precedingDocText(arena, &tree, decl);
         const proto_span = try collapseWhitespace(arena, fnProtoSource(&tree, proto));
 
         try result.append(arena, .{
             .name = name,
             .return_kind = return_kind,
-            .has_doc_comment = has_doc,
+            .has_doc_comment = doc_text != null,
+            .doc_text = doc_text,
             .proto_span = proto_span,
         });
     }
@@ -254,8 +261,13 @@ pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
             else => .value,
         };
 
-        const has_doc = hasPrecedingDocComment(&tree, decl);
-        try result.append(arena, .{ .name = name, .kind = kind, .has_doc_comment = has_doc });
+        const doc_text = try precedingDocText(arena, &tree, decl);
+        try result.append(arena, .{
+            .name = name,
+            .kind = kind,
+            .has_doc_comment = doc_text != null,
+            .doc_text = doc_text,
+        });
     }
     return result.toOwnedSlice(arena);
 }
@@ -264,6 +276,38 @@ fn hasPrecedingDocComment(tree: *const Ast, decl: Ast.Node.Index) bool {
     const first_tok = tree.firstToken(decl);
     if (first_tok == 0) return false;
     return tree.tokens.items(.tag)[first_tok - 1] == .doc_comment;
+}
+
+/// Returns the joined text of /// doc comments immediately preceding `decl`,
+/// with the `///` prefix stripped and a single space of leading whitespace
+/// removed per line. Multi-line doc comments are joined with `\n`. Returns
+/// null when there are no preceding doc-comment tokens.
+fn precedingDocText(arena: Allocator, tree: *const Ast, decl: Ast.Node.Index) AstError!?[]const u8 {
+    const first_tok = tree.firstToken(decl);
+    if (first_tok == 0) return null;
+    const tags = tree.tokens.items(.tag);
+    if (tags[first_tok - 1] != .doc_comment) return null;
+
+    // Walk backwards through the run of doc_comment tokens.
+    var start: u32 = first_tok;
+    while (start > 0 and tags[start - 1] == .doc_comment) start -= 1;
+
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var i: u32 = start;
+    while (i < first_tok) : (i += 1) {
+        const slice = tree.tokenSlice(i);
+        const stripped = stripDocPrefix(slice);
+        if (i > start) try buf.append(arena, '\n');
+        try buf.appendSlice(arena, stripped);
+    }
+    const owned = try buf.toOwnedSlice(arena);
+    return owned;
+}
+
+fn stripDocPrefix(slice: []const u8) []const u8 {
+    var s = slice;
+    if (std.mem.startsWith(u8, s, "///")) s = s[3..];
+    return std.mem.trim(u8, s, &std.ascii.whitespace);
 }
 
 fn classifyReturn(tree: *const Ast, proto: Ast.full.FnProto) ReturnKind {

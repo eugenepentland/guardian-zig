@@ -125,3 +125,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Stub Body Ban
 
 - Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
+
+## Doc Quality
+
+- Rejects empty or stub doc comments on public declarations

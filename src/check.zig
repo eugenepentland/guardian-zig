@@ -94,5 +94,6 @@ test {
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/orphan_files.zig");
     _ = @import("checks/stub_body_ban.zig");
+    _ = @import("checks/doc_quality.zig");
     _ = @import("ast/import_graph.zig");
 }
