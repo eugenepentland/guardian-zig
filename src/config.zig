@@ -71,6 +71,18 @@ pub const NestingDepthCfg = struct {
     max_depth: u32 = 4,
 };
 
+/// Per-check config for the test-coverage check (per-pub-fn).
+pub const TestCoverageCfg = struct {
+    /// Off by default: the check is intentionally strict (every pub fn
+    /// must be referenced from some `test {…}` block) and most existing
+    /// codebases need migration before they can satisfy it. Set to true
+    /// in guardian.toml to opt in.
+    enabled: bool = false,
+    /// Pub fn names that are exempt from the requirement (commonly entry
+    /// points like `main`, `build`, etc.). Matched on the bare fn name.
+    exempt_names: []const []const u8 = &.{},
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -86,6 +98,7 @@ pub const Config = struct {
     type_size: TypeSizeCfg = .{},
     function_length: FunctionLengthCfg = .{},
     nesting_depth: NestingDepthCfg = .{},
+    test_coverage: TestCoverageCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -106,6 +119,7 @@ const Section = enum {
     type_size,
     function_length,
     nesting_depth,
+    test_coverage,
     unknown,
 };
 
@@ -180,6 +194,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .function_length;
             } else if (std.mem.eql(u8, name, "nesting_depth")) {
                 section = .nesting_depth;
+            } else if (std.mem.eql(u8, name, "test_coverage")) {
+                section = .test_coverage;
             } else {
                 section = .unknown;
             }
@@ -274,6 +290,14 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                         cfg.nesting_depth.enabled = parseBool(val_raw) orelse cfg.nesting_depth.enabled;
                     } else if (std.mem.eql(u8, key, "max_depth")) {
                         cfg.nesting_depth.max_depth = std.fmt.parseInt(u32, val_raw, 10) catch cfg.nesting_depth.max_depth;
+                    }
+                },
+                .test_coverage => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.test_coverage.enabled = parseBool(val_raw) orelse cfg.test_coverage.enabled;
+                    } else if (std.mem.eql(u8, key, "exempt_names")) {
+                        var list = try parseStringArray(allocator, val_raw);
+                        cfg.test_coverage.exempt_names = try list.toOwnedSlice(allocator);
                     }
                 },
                 .unknown => {},

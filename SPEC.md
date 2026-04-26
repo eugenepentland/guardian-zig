@@ -145,3 +145,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Nesting Depth
 
 - Caps brace-nesting depth inside fn bodies
+
+## Test Coverage
+
+- Requires every pub fn to be referenced from at least one test block

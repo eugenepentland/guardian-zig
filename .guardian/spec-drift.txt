@@ -42,6 +42,7 @@ src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/stub_body_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/stub_body_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/test_coverage.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

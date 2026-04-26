@@ -55,6 +55,7 @@ src/checks/spec_init.zig::run fn
 src/checks/spec_quality.zig::run fn
 src/checks/stub_body_ban.zig::analyzeContent fn
 src/checks/stub_body_ban.zig::run fn
+src/checks/test_coverage.zig::run fn
 src/checks/type_size.zig::analyzeContent fn
 src/checks/type_size.zig::run fn
 src/checks/usingnamespace_ban.zig::run fn
@@ -80,6 +81,7 @@ src/config.zig::FunctionSizeCfg struct_
 src/config.zig::NestingDepthCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_
+src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::load fn
 src/config.zig::parse fn

@@ -110,5 +110,6 @@ test {
     _ = @import("checks/type_size.zig");
     _ = @import("checks/function_length.zig");
     _ = @import("checks/nesting_depth.zig");
+    _ = @import("checks/test_coverage.zig");
     _ = @import("ast/import_graph.zig");
 }

@@ -29,6 +29,7 @@ const check_comptime_quota = @import("../checks/comptime_quota.zig");
 const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
+const check_test_coverage = @import("../checks/test_coverage.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -63,6 +64,7 @@ pub const all: []const Command = &.{
     .{ .name = "type-size", .summary = "Cap fields per pub struct/enum/union/opaque", .run = check_type_size.run },
     .{ .name = "function-length", .summary = "Cap source lines per fn decl", .run = check_function_length.run },
     .{ .name = "nesting-depth", .summary = "Cap brace-nesting depth inside fn bodies", .run = check_nesting_depth.run },
+    .{ .name = "test-coverage", .summary = "Require every pub fn to be referenced from a test block (opt-in)", .run = check_test_coverage.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.
