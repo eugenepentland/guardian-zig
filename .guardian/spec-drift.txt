@@ -25,6 +25,8 @@ src/checks/doc_quality.zig::run | fn run(ctx_param: *registry.RunCtx) registry.R
 src/checks/dup_const.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.FunctionLengthCfg, ) std.mem.Allocator.Error![]const []const u8
+src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

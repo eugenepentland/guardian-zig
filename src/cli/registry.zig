@@ -27,6 +27,7 @@ const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
 const check_doc_quality = @import("../checks/doc_quality.zig");
 const check_comptime_quota = @import("../checks/comptime_quota.zig");
 const check_type_size = @import("../checks/type_size.zig");
+const check_function_length = @import("../checks/function_length.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -59,6 +60,7 @@ pub const all: []const Command = &.{
     .{ .name = "doc-quality", .summary = "Reject empty or stub /// doc comments on public declarations", .run = check_doc_quality.run },
     .{ .name = "comptime-quota", .summary = "Track @setEvalBranchQuota call count and max value via snapshot", .run = check_comptime_quota.run },
     .{ .name = "type-size", .summary = "Cap fields per pub struct/enum/union/opaque", .run = check_type_size.run },
+    .{ .name = "function-length", .summary = "Cap source lines per fn decl", .run = check_function_length.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.

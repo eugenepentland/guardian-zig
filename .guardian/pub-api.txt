@@ -38,6 +38,8 @@ src/checks/doc_quality.zig::run fn
 src/checks/dup_const.zig::run fn
 src/checks/error_discipline.zig::run fn
 src/checks/file_size.zig::run fn
+src/checks/function_length.zig::analyzeContent fn
+src/checks/function_length.zig::run fn
 src/checks/function_size.zig::run fn
 src/checks/imports.zig::run fn
 src/checks/naming.zig::run fn
@@ -71,6 +73,7 @@ src/config.zig::BoundaryRule struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::Config struct_
 src/config.zig::DocQualityCfg struct_
+src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_

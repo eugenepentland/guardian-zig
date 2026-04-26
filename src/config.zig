@@ -55,6 +55,14 @@ pub const TypeSizeCfg = struct {
     max_fields: u32 = 15,
 };
 
+/// Per-check config for the function-length cap.
+pub const FunctionLengthCfg = struct {
+    enabled: bool = true,
+    /// Max source lines per fn decl, counted from the `fn` keyword line
+    /// through the closing `}` line.
+    max_lines: u32 = 100,
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -68,6 +76,7 @@ pub const Config = struct {
     orphan_files: OrphanFilesCfg = .{},
     doc_quality: DocQualityCfg = .{},
     type_size: TypeSizeCfg = .{},
+    function_length: FunctionLengthCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -86,6 +95,7 @@ const Section = enum {
     orphan_files,
     doc_quality,
     type_size,
+    function_length,
     unknown,
 };
 
@@ -156,6 +166,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .doc_quality;
             } else if (std.mem.eql(u8, name, "type_size")) {
                 section = .type_size;
+            } else if (std.mem.eql(u8, name, "function_length")) {
+                section = .function_length;
             } else {
                 section = .unknown;
             }
@@ -236,6 +248,13 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                         cfg.type_size.enabled = parseBool(val_raw) orelse cfg.type_size.enabled;
                     } else if (std.mem.eql(u8, key, "max_fields")) {
                         cfg.type_size.max_fields = std.fmt.parseInt(u32, val_raw, 10) catch cfg.type_size.max_fields;
+                    }
+                },
+                .function_length => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.function_length.enabled = parseBool(val_raw) orelse cfg.function_length.enabled;
+                    } else if (std.mem.eql(u8, key, "max_lines")) {
+                        cfg.function_length.max_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.function_length.max_lines;
                     }
                 },
                 .unknown => {},

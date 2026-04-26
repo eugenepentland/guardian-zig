@@ -158,6 +158,11 @@ pub const FnDeclInfo = struct {
     return_type_text: ?[]const u8,
     /// Source slice of the body block, including the surrounding braces.
     body_text: []const u8,
+    /// 1-indexed source line of the `fn` keyword.
+    start_line: u32,
+    /// Total source lines spanned by the decl, from `fn` keyword line
+    /// through the closing `}` line (both inclusive).
+    line_count: u32,
 };
 
 /// Yields every top-level fn declaration with a body. Bare extern protos
@@ -205,14 +210,30 @@ pub fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDecl
         const end_pos = tree.tokenStart(decl_last_tok) + tree.tokenSlice(decl_last_tok).len;
         const body_text = tree.source[start..end_pos];
 
+        const fn_kw_byte = tree.tokenStart(proto.ast.fn_token);
+        const start_line = lineOfByte(tree.source, fn_kw_byte);
+        const end_line = lineOfByte(tree.source, end_pos -| 1);
+        const line_count = end_line - start_line + 1;
+
         try result.append(arena, .{
             .name = name,
             .is_pub = is_pub,
             .return_type_text = ret_text,
             .body_text = body_text,
+            .start_line = start_line,
+            .line_count = line_count,
         });
     }
     return result.toOwnedSlice(arena);
+}
+
+fn lineOfByte(source: []const u8, byte: usize) u32 {
+    var line: u32 = 1;
+    var i: usize = 0;
+    while (i < byte and i < source.len) : (i += 1) {
+        if (source[i] == '\n') line += 1;
+    }
+    return line;
 }
 
 /// All top-level functions (pub and private), with parameter counts.
@@ -501,13 +522,15 @@ test "allFns returns all functions with params and visibility" {
     try std.testing.expectEqual(@as(u32, 0), fns[2].param_count);
 }
 
-test "fnDeclInfos extracts body and return-type spans" {
+test "fnDeclInfos extracts body, return-type, and line span" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const source =
         \\pub fn foo() void { return; }
-        \\fn bar() noreturn { unreachable; }
+        \\fn bar() noreturn {
+        \\    unreachable;
+        \\}
         \\extern fn baz() void;
     ;
     const fns = try fnDeclInfos(a, source);
@@ -516,10 +539,13 @@ test "fnDeclInfos extracts body and return-type spans" {
     try std.testing.expectEqual(true, fns[0].is_pub);
     try std.testing.expectEqualStrings("void", fns[0].return_type_text.?);
     try std.testing.expectEqualStrings("{ return; }", fns[0].body_text);
+    try std.testing.expectEqual(@as(u32, 1), fns[0].start_line);
+    try std.testing.expectEqual(@as(u32, 1), fns[0].line_count);
     try std.testing.expectEqualStrings("bar", fns[1].name);
     try std.testing.expectEqual(false, fns[1].is_pub);
     try std.testing.expectEqualStrings("noreturn", fns[1].return_type_text.?);
-    try std.testing.expectEqualStrings("{ unreachable; }", fns[1].body_text);
+    try std.testing.expectEqual(@as(u32, 2), fns[1].start_line);
+    try std.testing.expectEqual(@as(u32, 3), fns[1].line_count);
 }
 
 test "pubContainers counts struct fields and enum variants" {

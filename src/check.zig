@@ -108,5 +108,6 @@ test {
     _ = @import("checks/doc_quality.zig");
     _ = @import("checks/comptime_quota.zig");
     _ = @import("checks/type_size.zig");
+    _ = @import("checks/function_length.zig");
     _ = @import("ast/import_graph.zig");
 }

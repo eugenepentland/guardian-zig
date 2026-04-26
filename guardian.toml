@@ -17,3 +17,10 @@ max_score = 55
 # pattern in ok/fail/detail). New consumers should keep the default 2.
 [anytype_budget]
 max_per_file = 6
+
+# config.parse is a ~175-line state-machine TOML reader, and the
+# allocator-hygiene + debug-print-ban visitors are ~115-line token
+# state machines. Refactor of all three is queued separately. New
+# consumers should keep the default 100.
+[function_length]
+max_lines = 200

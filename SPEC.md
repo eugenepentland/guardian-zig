@@ -137,3 +137,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Type Size
 
 - Caps fields per pub struct/enum/union/opaque
+
+## Function Length
+
+- Caps source lines per fn decl
