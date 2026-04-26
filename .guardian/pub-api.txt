@@ -5,6 +5,7 @@ src/ast/import_graph.zig::build fn
 src/ast/import_graph.zig::findCycle fn
 src/ast/import_graph.zig::reachableFrom fn
 src/ast/parser.zig::AstError value
+src/ast/parser.zig::FnDeclInfo struct_
 src/ast/parser.zig::FnInfo struct_
 src/ast/parser.zig::Import struct_
 src/ast/parser.zig::PubConst struct_
@@ -12,6 +13,7 @@ src/ast/parser.zig::PubConstKind enum_
 src/ast/parser.zig::PubFn struct_
 src/ast/parser.zig::ReturnKind enum_
 src/ast/parser.zig::allFns fn
+src/ast/parser.zig::fnDeclInfos fn
 src/ast/parser.zig::imports fn
 src/ast/parser.zig::pubConsts fn
 src/ast/parser.zig::pubFns fn
@@ -41,6 +43,7 @@ src/checks/spec.zig::run fn
 src/checks/spec_drift.zig::run fn
 src/checks/spec_init.zig::run fn
 src/checks/spec_quality.zig::run fn
+src/checks/stub_body_ban.zig::run fn
 src/checks/usingnamespace_ban.zig::run fn
 src/cli/registry.zig::Command value
 src/cli/registry.zig::NeedsAst value

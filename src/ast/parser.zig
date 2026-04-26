@@ -141,6 +141,73 @@ fn collapseWhitespace(arena: Allocator, text: []const u8) ![]const u8 {
     return buf.toOwnedSlice(arena);
 }
 
+/// A top-level function declaration with a body (i.e. .fn_decl, not extern
+/// fn_proto). Carries the raw body and return-type spans so callers can do
+/// shape checks without re-parsing.
+pub const FnDeclInfo = struct {
+    name: []const u8,
+    is_pub: bool,
+    /// Source slice of the return type, or null if the proto has none.
+    return_type_text: ?[]const u8,
+    /// Source slice of the body block, including the surrounding braces.
+    body_text: []const u8,
+};
+
+/// Yields every top-level fn declaration with a body. Bare extern protos
+/// (no body) are skipped.
+pub fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo {
+    const z = try arena.dupeZ(u8, source);
+    var tree = try Ast.parse(arena, z, .zig);
+    var result: std.ArrayListUnmanaged(FnDeclInfo) = .empty;
+
+    const tags = tree.tokens.items(.tag);
+
+    for (tree.rootDecls()) |decl| {
+        if (tree.nodeTag(decl) != .fn_decl) continue;
+        var buf: [1]Ast.Node.Index = undefined;
+        const proto = tree.fullFnProto(&buf, decl) orelse continue;
+        const name_tok = proto.name_token orelse continue;
+        const name = tree.tokenSlice(name_tok);
+        const is_pub = proto.visib_token != null;
+
+        const ret_text: ?[]const u8 = if (proto.ast.return_type.unwrap()) |ret_node| blk: {
+            const first_tok = tree.firstToken(ret_node);
+            const start = tree.tokenStart(first_tok);
+            const last_tok = tree.lastToken(ret_node);
+            const end = tree.tokenStart(last_tok) + tree.tokenSlice(last_tok).len;
+            break :blk tree.source[start..end];
+        } else null;
+
+        // Body starts at the first `{` after the proto and ends at lastToken(decl).
+        const decl_last_tok = tree.lastToken(decl);
+        const search_start: u32 = if (proto.ast.return_type.unwrap()) |ret_node|
+            tree.lastToken(ret_node) + 1
+        else
+            tree.firstToken(decl) + 1;
+
+        var body_start_tok: ?u32 = null;
+        var i: u32 = search_start;
+        while (i <= decl_last_tok) : (i += 1) {
+            if (tags[i] == .l_brace) {
+                body_start_tok = i;
+                break;
+            }
+        }
+        const start_tok = body_start_tok orelse continue;
+        const start = tree.tokenStart(start_tok);
+        const end_pos = tree.tokenStart(decl_last_tok) + tree.tokenSlice(decl_last_tok).len;
+        const body_text = tree.source[start..end_pos];
+
+        try result.append(arena, .{
+            .name = name,
+            .is_pub = is_pub,
+            .return_type_text = ret_text,
+            .body_text = body_text,
+        });
+    }
+    return result.toOwnedSlice(arena);
+}
+
 /// All top-level functions (pub and private), with parameter counts.
 pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
     const z = try arena.dupeZ(u8, source);
@@ -323,6 +390,27 @@ test "allFns returns all functions with params and visibility" {
     try std.testing.expectEqual(false, fns[1].is_pub);
     try std.testing.expectEqual(@as(u32, 1), fns[1].param_count);
     try std.testing.expectEqual(@as(u32, 0), fns[2].param_count);
+}
+
+test "fnDeclInfos extracts body and return-type spans" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source =
+        \\pub fn foo() void { return; }
+        \\fn bar() noreturn { unreachable; }
+        \\extern fn baz() void;
+    ;
+    const fns = try fnDeclInfos(a, source);
+    try std.testing.expectEqual(@as(usize, 2), fns.len);
+    try std.testing.expectEqualStrings("foo", fns[0].name);
+    try std.testing.expectEqual(true, fns[0].is_pub);
+    try std.testing.expectEqualStrings("void", fns[0].return_type_text.?);
+    try std.testing.expectEqualStrings("{ return; }", fns[0].body_text);
+    try std.testing.expectEqualStrings("bar", fns[1].name);
+    try std.testing.expectEqual(false, fns[1].is_pub);
+    try std.testing.expectEqualStrings("noreturn", fns[1].return_type_text.?);
+    try std.testing.expectEqualStrings("{ unreachable; }", fns[1].body_text);
 }
 
 test "pubConsts classifies container kinds" {

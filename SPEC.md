@@ -121,3 +121,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Orphan Files
 
 - Reports .zig files under src/ unreachable from any configured root via @import
+
+## Stub Body Ban
+
+- Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)

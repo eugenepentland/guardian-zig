@@ -3,6 +3,7 @@ src/ast/import_graph.zig::build | fn build(allocator: Allocator, project_dir: []
 src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8
 src/ast/import_graph.zig::reachableFrom | fn reachableFrom(allocator: Allocator, nodes: []const Node, roots: []const []const u8) Allocator.Error![]const []const u8
 src/ast/parser.zig::allFns | fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo
+src/ast/parser.zig::fnDeclInfos | fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo
 src/ast/parser.zig::imports | fn imports(arena: Allocator, source: []const u8) []const Import
 src/ast/parser.zig::pubConsts | fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
 src/ast/parser.zig::pubFns | fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn
@@ -30,6 +31,7 @@ src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_drift.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/stub_body_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
