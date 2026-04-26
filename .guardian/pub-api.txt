@@ -20,6 +20,7 @@ src/checks/boundaries.zig::run fn
 src/checks/catch_discipline.zig::run fn
 src/checks/cognitive_complexity.zig::run fn
 src/checks/dead_pub.zig::run fn
+src/checks/debug_print_ban.zig::run fn
 src/checks/doc_comments.zig::run fn
 src/checks/dup_const.zig::run fn
 src/checks/error_discipline.zig::run fn

@@ -91,4 +91,5 @@ test {
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/allocator_hygiene.zig");
     _ = @import("checks/dup_const.zig");
+    _ = @import("checks/debug_print_ban.zig");
 }

@@ -113,3 +113,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Duplicate Const
 
 - Rejects file-scope const string-literal declarations with the same name and value defined in two or more files
+
+## Debug Print Ban
+
+- Rejects std.debug.print call expressions outside test blocks and pub fn main
