@@ -30,6 +30,33 @@ const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
+const check_ban_time = @import("../checks/ban_time.zig");
+const check_ban_rng = @import("../checks/ban_rng.zig");
+const check_ban_fs = @import("../checks/ban_fs.zig");
+const check_ban_net = @import("../checks/ban_net.zig");
+const check_ban_env = @import("../checks/ban_env.zig");
+const check_ban_sleep = @import("../checks/ban_sleep.zig");
+const check_ban_globals = @import("../checks/ban_globals.zig");
+const check_ban_hardcoded_paths = @import("../checks/ban_hardcoded_paths.zig");
+const check_compile_error_explanation = @import("../checks/compile_error_explanation.zig");
+const check_init_hygiene = @import("../checks/init_hygiene.zig");
+const check_static_factory_ban = @import("../checks/static_factory_ban.zig");
+const check_init_deinit_symmetry = @import("../checks/init_deinit_symmetry.zig");
+const check_errdefer_in_init = @import("../checks/errdefer_in_init.zig");
+const check_test_has_assertion = @import("../checks/test_has_assertion.zig");
+const check_test_no_conditional = @import("../checks/test_no_conditional.zig");
+const check_prod_imports_no_test = @import("../checks/no_test_imports_in_prod.zig");
+const check_bool_ops_per_condition = @import("../checks/bool_ops_per_condition.zig");
+const check_returns_per_function = @import("../checks/returns_per_function.zig");
+const check_line_length = @import("../checks/line_length.zig");
+const check_vague_name_blacklist = @import("../checks/vague_name_blacklist.zig");
+const check_boolean_param_ban = @import("../checks/boolean_param_ban.zig");
+const check_magic_number = @import("../checks/magic_number.zig");
+const check_repeated_string_literal = @import("../checks/repeated_string_literal.zig");
+const check_struct_method_cap = @import("../checks/struct_method_cap.zig");
+const check_optional_density = @import("../checks/optional_density.zig");
+const check_stringly_typed_switches = @import("../checks/stringly_typed_switches.zig");
+const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -65,6 +92,33 @@ pub const all: []const Command = &.{
     .{ .name = "function-length", .summary = "Cap source lines per fn decl", .run = check_function_length.run },
     .{ .name = "nesting-depth", .summary = "Cap brace-nesting depth inside fn bodies", .run = check_nesting_depth.run },
     .{ .name = "test-coverage", .summary = "Require every pub fn to be referenced from a test block (opt-in)", .run = check_test_coverage.run },
+    .{ .name = "ban-time", .summary = "Reject std.time wall-clock reads outside infra/clock", .run = check_ban_time.run },
+    .{ .name = "ban-rng", .summary = "Reject RNG construction outside infra/random", .run = check_ban_rng.run },
+    .{ .name = "ban-fs", .summary = "Reject std.fs I/O calls outside infra/fs", .run = check_ban_fs.run },
+    .{ .name = "ban-net", .summary = "Reject std.net / std.http use outside adapters/http or infra/net", .run = check_ban_net.run },
+    .{ .name = "ban-env", .summary = "Reject env-var reads outside config or main", .run = check_ban_env.run },
+    .{ .name = "ban-sleep", .summary = "Reject sleep calls outside test infrastructure", .run = check_ban_sleep.run },
+    .{ .name = "ban-globals", .summary = "Reject mutable pub var globals outside wiring/main", .run = check_ban_globals.run },
+    .{ .name = "ban-hardcoded-paths", .summary = "Reject hardcoded absolute paths and URLs in string literals", .run = check_ban_hardcoded_paths.run },
+    .{ .name = "compile-error-explanation", .summary = "Reject @compileError without a non-empty string explanation", .run = check_compile_error_explanation.run },
+    .{ .name = "init-hygiene", .summary = "Reject init bodies with loops, conditionals, or switch statements", .run = check_init_hygiene.run },
+    .{ .name = "static-factory-ban", .summary = "Reject static factory / singleton patterns in business logic", .run = check_static_factory_ban.run },
+    .{ .name = "init-deinit-symmetry", .summary = "Require pub deinit on structs that own an allocator field", .run = check_init_deinit_symmetry.run },
+    .{ .name = "errdefer-in-init", .summary = "Require errdefer between multiple try calls inside init", .run = check_errdefer_in_init.run },
+    .{ .name = "test-has-assertion", .summary = "Require every test block to contain at least one expect* call", .run = check_test_has_assertion.run },
+    .{ .name = "test-no-conditional", .summary = "Reject if/while/switch and extra for loops at the top level of a test body", .run = check_test_no_conditional.run },
+    .{ .name = "prod-imports-no-test", .summary = "Reject production code @import-ing test files", .run = check_prod_imports_no_test.run },
+    .{ .name = "bool-ops-per-condition", .summary = "Cap boolean operators per condition", .run = check_bool_ops_per_condition.run },
+    .{ .name = "returns-per-function", .summary = "Cap return statements per function body", .run = check_returns_per_function.run },
+    .{ .name = "line-length", .summary = "Cap source line length", .run = check_line_length.run },
+    .{ .name = "vague-name-blacklist", .summary = "Reject vague identifier names on public declarations", .run = check_vague_name_blacklist.run },
+    .{ .name = "boolean-param-ban", .summary = "Reject bool parameters in public functions", .run = check_boolean_param_ban.run },
+    .{ .name = "magic-number", .summary = "Reject bare integer literals outside a small allowlist", .run = check_magic_number.run },
+    .{ .name = "repeated-string-literal", .summary = "Reject identical string literals appearing 3+ times in a single file", .run = check_repeated_string_literal.run },
+    .{ .name = "struct-method-cap", .summary = "Cap pub fn methods per pub struct/enum/union", .run = check_struct_method_cap.run },
+    .{ .name = "optional-density", .summary = "Cap percentage of optional fields in a public struct", .run = check_optional_density.run },
+    .{ .name = "stringly-typed-switches", .summary = "Reject switch expressions whose case keys are string literals", .run = check_stringly_typed_switches.run },
+    .{ .name = "repeated-switch-on-enum", .summary = "Flag the same enum dot-prong set switched in 2+ files", .run = check_repeated_switch_on_enum.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.

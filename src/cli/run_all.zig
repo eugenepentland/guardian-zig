@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
+const baseline = @import("../baseline.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -13,18 +14,27 @@ const SKIP = [_][]const u8{"spec-init"};
 /// Continues past failures so the user sees every failing check at once;
 /// returns error.CheckFailed if any check failed.
 ///
+/// When `cfg.baseline.enabled = true`, each check is run with output
+/// captured: the first run records current violations into
+/// `.guardian/baselines/<check>.txt` and reports success; subsequent
+/// runs only fail when new violations appear above the baseline.
+///
 /// Skips `spec-init` (a generator, not a gate). The `all` command itself
 /// is dispatched outside the registry, so it never recurses.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var failed: u32 = 0;
     var ran: u32 = 0;
+    const baseline_on = ctx.cfg.baseline.enabled;
+
     for (registry.all) |cmd| {
         if (shouldSkip(cmd.name)) continue;
         ran += 1;
-        cmd.run(ctx) catch |e| switch (e) {
-            error.CheckFailed => {
-                failed += 1;
-            },
+        const outcome = if (baseline_on)
+            baseline.runWithBaseline(ctx, cmd)
+        else
+            cmd.run(ctx);
+        outcome catch |e| switch (e) {
+            error.CheckFailed => failed += 1,
             else => return e,
         };
     }

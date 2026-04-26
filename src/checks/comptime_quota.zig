@@ -5,7 +5,7 @@ const registry = @import("../cli/types.zig");
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 
-const print = std.debug.print;
+const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 

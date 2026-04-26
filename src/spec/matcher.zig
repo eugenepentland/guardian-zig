@@ -5,6 +5,8 @@ const walk = @import("../walk.zig");
 
 // spec: Spec Coverage - Scans test and source files for // spec: tags
 
+const SPEC_PREFIX = "// spec: ";
+
 /// One `// spec:` tag found in source.
 pub const SpecTag = struct {
     file: []const u8,
@@ -54,8 +56,8 @@ fn extractTags(allocator: Allocator, path: []const u8, content: []const u8, tags
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
-        if (std.mem.startsWith(u8, line, "// spec: ")) {
-            const tag_text = line[9..];
+        if (std.mem.startsWith(u8, line, SPEC_PREFIX)) {
+            const tag_text = line[SPEC_PREFIX.len..];
             const key = try parser.normalizeKey(allocator, tag_text);
             try tags.append(allocator, .{
                 .file = path,

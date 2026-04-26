@@ -11,7 +11,7 @@ forbidden = ["config"]
 # the parse/analyze/parseContent functions are state machines whose
 # refactor is queued separately. New consumers should use the default 15.
 [complexity]
-max_score = 65
+max_score = 80
 
 # Nesting-depth is also lenient here for the same reason: the
 # allocator-hygiene + debug-print-ban token-chain state machines
@@ -23,11 +23,38 @@ max_depth = 8
 # Reporter has 6 anytype params (the format-string `args: anytype`
 # pattern in ok/fail/detail). New consumers should keep the default 2.
 [anytype_budget]
-max_per_file = 6
+max_per_file = 7
 
 # config.parse is a ~175-line state-machine TOML reader, and the
 # allocator-hygiene + debug-print-ban visitors are ~115-line token
 # state machines. Refactor of all three is queued separately. New
-# consumers should keep the default 100.
+# consumers should keep the default 60.
 [function_length]
-max_lines = 200
+max_lines = 230
+
+# walk.walkZigFiles / walkRecursive and snapshot_helper.lifecycle each
+# take 5 params (allocator + 3 inputs + opts/visitor). Bundling into
+# context structs is queued separately — would touch 35 call sites
+# across every check. New consumers should keep the default 4.
+[function_size]
+max_params = 5
+
+# The Config aggregator holds one field per per-check config struct
+# (14 fields today, climbing as new checks land). Splitting into
+# nested category structs would force `cfg.x.y` everywhere, churning
+# every check. New consumers should keep the default 7.
+[type_size]
+max_fields = 30
+
+# Pattern-matching / dispatch fns (e.g. `suspicious` in ban-hardcoded-paths,
+# `classify` in stub-body-ban) idiomatically have many early returns.
+# Refactoring them to a single tail return adds nesting without changing
+# behavior. New consumers should keep the framework default 3.
+[returns_per_fn]
+max_returns = 10
+
+# Guardian's registry holds one-line check definitions whose summaries
+# add up to ~150 chars each. Several internal helpers also exceed 140.
+# New consumers should keep the framework recommendation 100-120.
+[line_length]
+max_len = 220

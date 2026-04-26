@@ -3,7 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 
-const print = std.debug.print;
+const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 

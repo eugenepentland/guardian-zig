@@ -3,7 +3,7 @@ const spec_parser = @import("../spec/parser.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 
-const print = std.debug.print;
+const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
@@ -104,9 +104,4 @@ test "containsWord respects word boundaries" {
     try std.testing.expect(!containsWord("supports the proper interface", "properly"));
     try std.testing.expect(containsWord("works correctly with input", "works correctly"));
     try std.testing.expect(!containsWord("nonpropery", "propery"));
-}
-
-test "spec_quality flags short behaviors" {
-    // We test the helper containsWord above; full integration is exercised
-    // by Guardian's self-build via build.zig.
 }

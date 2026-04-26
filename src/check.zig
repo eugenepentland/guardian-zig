@@ -3,6 +3,7 @@ const config_mod = @import("config.zig");
 const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
+const baseline = @import("baseline.zig");
 
 /// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
@@ -58,7 +59,11 @@ pub fn main() !void {
         registry.printHelp();
         std.process.exit(1);
     };
-    cmd.run(&ctx) catch |e| switch (e) {
+    const outcome = if (cfg.baseline.enabled)
+        baseline.runWithBaseline(&ctx, cmd)
+    else
+        cmd.run(&ctx);
+    outcome catch |e| switch (e) {
         // CheckFailed means the check already printed its own diagnostic.
         // Exit non-zero without surfacing a Zig stack trace.
         error.CheckFailed => std.process.exit(1),
@@ -81,6 +86,7 @@ test {
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
+    _ = @import("baseline.zig");
     _ = @import("testing/golden_runner.zig");
     _ = @import("checks/spec.zig");
     _ = @import("checks/spec_init.zig");

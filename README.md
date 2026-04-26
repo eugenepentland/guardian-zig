@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-27 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in).
+55 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -48,10 +48,10 @@ zig build  # guardian gates every build
 | Check | Blocks on |
 |---|---|
 | **file-size** | Any .zig file exceeding `max_file_lines` (default 500) |
-| **function-size** | Any function with more than `max_params` parameters (default 5) |
-| **function-length** | Any fn over `max_lines` source lines (default 100) |
+| **function-size** | Any function with more than `max_params` parameters (default 4) |
+| **function-length** | Any fn over `max_lines` source lines (default 60) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 4) |
-| **type-size** | Any pub struct/enum/union over `max_fields` (default 15) |
+| **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
@@ -89,7 +89,70 @@ zig build  # guardian gates every build
 | **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests |
 | **dup-const** | Same `pub const NAME = "literal"` declared in 2+ files |
 
+### Hidden Dependency Bans (Tier 1)
+Every nondeterminism source must be injected, not acquired. Each check ships with the FRAMEWORK.md symbol list baked in.
+
+| Check | Blocks on |
+|---|---|
+| **ban-time** | `std.time.timestamp` / `nanoTimestamp` / `Instant.now` etc. outside `infra/clock` |
+| **ban-rng** | `std.crypto.random` / `std.Random.DefaultPrng.init` outside `infra/random` |
+| **ban-fs** | `std.fs.cwd` / `openFileAbsolute` etc. outside `infra/fs` |
+| **ban-net** | `std.net.*` / `std.http.*` outside `adapters/http` or `infra/net` |
+| **ban-env** | `std.process.getEnvVarOwned` etc. outside `config` or `main` |
+| **ban-sleep** | `std.Thread.sleep` / `std.time.sleep` outside test infrastructure |
+| **ban-globals** | top-level `pub var` outside `wiring` / `main` |
+| **ban-hardcoded-paths** | absolute `/etc`, `/usr`, Windows `C:\`, `http://`, `https://` literals |
+| **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests |
+
+### Constructor & DI Hygiene (Tier 1)
+| Check | Blocks on |
+|---|---|
+| **compile-error-explanation** | `@compileError` without a non-empty string literal |
+| **init-hygiene** | `init` / `create` / `make` body containing `if`, `while`, `for`, or `switch` |
+| **static-factory-ban** | `.getDefault()`, `.singleton()`, `.shared()` etc. outside `main` / `wiring` |
+| **init-deinit-symmetry** | A pub struct with an `allocator:` / `gpa:` field but no `pub fn deinit` |
+| **errdefer-in-init** | An `init` body with 2+ `try` calls and no `errdefer` |
+
+### Test Hygiene (Tier 1)
+| Check | Blocks on |
+|---|---|
+| **test-has-assertion** | A named `test "..." {…}` block with no `expect*` call |
+| **test-no-conditional** | `if` / `while` / `switch` or 2+ `for` loops at the top level of a test body |
+| **prod-imports-no-test** | Production code `@import`-ing a `*_test.zig` or `tests/` path |
+
+### Complexity Bounds (Tier 1)
+| Check | Blocks on |
+|---|---|
+| **bool-ops-per-condition** | More than `max_ops` (default 3) `and`/`or`/`!` per condition |
+| **returns-per-function** | More than `max_returns` (default 3) `return` keywords per fn body |
+
+### Tier 2 Anti-patterns
+| Check | Blocks on |
+|---|---|
+| **line-length** | Source line over `max_len` codepoints (default 120) |
+| **vague-name-blacklist** | Public identifiers named `tmp` / `data` / `Manager` / `Util` / `Helper` etc. |
+| **boolean-param-ban** | A `bool` parameter in any `pub fn` |
+| **magic-number** | Bare integer literals outside the small allowlist |
+| **repeated-string-literal** | The same string literal appearing 3+ times in a single file |
+| **struct-method-cap** | Pub container with > 20 `pub fn` methods |
+| **optional-density** | Pub struct where > 50% of fields are `?T` |
+| **stringly-typed-switches** | `switch` whose case keys are string literals |
+
+### Tier 3 Architectural Fitness
+| Check | Blocks on |
+|---|---|
+| **repeated-switch-on-enum** | The same enum prong-set switched in 2+ files (move dispatch onto the type) |
+
 Plus `zig fmt --check` and the `spec-init` generator.
+
+### Future work (not yet shipped)
+The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
+- **allocator-injection** — needs full parameter-list AST parsing to avoid false positives on every `pub fn run(ctx: *RunCtx)`. `allocator-hygiene` covers the worst case (hardcoded global allocators) until then.
+- **train-wreck** — depth-2 member-access analysis was prototyped but produced too many false positives on legitimate `tree.tokens.items` / `obj.field.method()` chains; needs taint-style filtering.
+- **same-type-adjacent-params**, **identical-switch-case** — both need the AST helper to expose parameter types and switch-case bodies.
+- **stable-deps** — extending `import_graph.zig` with per-node Ce / Ca / I metrics. Designed but not implemented.
+- **dup-tokens** — token-window hashing with snapshot ratchet. Designed but not implemented.
+- **port-implementations** — opt-in via `[[port]]` declarations. Designed but not implemented.
 
 ## Spec-Driven Workflow
 
@@ -117,6 +180,52 @@ git add .guardian/
 
 The snapshot files are plain text, sorted, designed to diff cleanly in code review.
 
+## Adopting Guardian on an existing codebase
+
+Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — every check records its current violations on the first run and only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.
+
+In `guardian.toml`:
+
+```toml
+[baseline]
+enabled = true
+```
+
+Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is written for each check that found violations, and the build passes. On subsequent builds:
+
+| What changed in your code | Outcome | Exit code |
+|---|---|---|
+| Nothing | `<check>: baseline matches (N violation(s))` | 0 |
+| You fixed some violations | `<check>: M resolved (now N) — re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune` | 0 |
+| You introduced a new violation | `<check>: K new violation(s) above baseline of N` — only the new ones are printed | 1 |
+| You set the env var | `<check>: baseline refreshed (N violation(s))` | 0 |
+
+The recommended workflow once baselines exist:
+1. **PRs that fix violations** — let the build print "M resolved", then run `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit the shrunk baseline.
+2. **PRs that intentionally accept a new violation** (rare) — same env var, same commit pattern.
+3. **PRs that incidentally regress** — fix the new violation, no baseline changes.
+
+The baseline files are plain text and sorted, so they diff cleanly in code review.
+
+### Tier-by-tier rollout
+
+If you'd rather adopt one rule family at a time, every check has an `enabled` flag in its config struct. Start with all of Tier 1 disabled, turn one check on, fix violations (or baseline them), commit, move on:
+
+```toml
+[baseline]
+enabled = true       # always-on safety net while you work through the tiers
+
+[ban_time]
+enabled = false      # Tier 1 — turn on once Clock port exists
+
+[ban_fs]
+enabled = false      # Tier 1 — turn on once Filesystem port exists
+
+# ... and so on for Tier 2 + Tier 3 checks
+```
+
+A common combination: baseline mode + threshold relaxation. Set `[function_length] max_lines = 200` to your current worst case, ship Guardian, ratchet the cap down 10–20 lines per release, fix the few new violations each step.
+
 ## Config (guardian.toml)
 
 Optional — sensible defaults work out of the box. Each check has its own section:
@@ -131,7 +240,7 @@ module = "src/core/*"
 forbidden = ["utils"]
 
 [function_size]
-max_params = 5
+max_params = 4
 
 [complexity]
 max_score = 15
@@ -143,13 +252,13 @@ max_per_file = 2
 forbidden_phrases = ["properly", "as needed"]
 
 [function_length]
-max_lines = 100
+max_lines = 60
 
 [nesting_depth]
 max_depth = 4
 
 [type_size]
-max_fields = 15
+max_fields = 7
 
 # Opt-in: every pub fn must be referenced from at least one test block.
 [test_coverage]

@@ -4,11 +4,16 @@ const registry = @import("cli/registry.zig");
 const GENERATOR_NAME = "spec-init"; // generator, not a gate
 const RUN_ALL_NAME = "all";
 
+// Comptime branch budget for the registry-iteration loop in
+// all_check_names. Bumped manually if the registry grows enough to
+// exhaust it.
+const REGISTRY_EVAL_QUOTA: u32 = 20000;
+
 /// Hard-block checks that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
 /// here automatically.
 pub const all_check_names: []const []const u8 = blk: {
-    @setEvalBranchQuota(20000);
+    @setEvalBranchQuota(REGISTRY_EVAL_QUOTA);
     var names: []const []const u8 = &.{};
     for (registry.all) |cmd| {
         if (std.mem.eql(u8, cmd.name, GENERATOR_NAME)) continue;

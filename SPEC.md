@@ -117,6 +117,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Debug Print Ban
 
 - Rejects std.debug.print call expressions outside test blocks and pub fn main
+- Rejects std.log.* call expressions outside test blocks and pub fn main
 
 ## Orphan Files
 
@@ -149,3 +150,53 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Test Coverage
 
 - Requires every pub fn to be referenced from at least one test block
+
+## Constructor Hygiene
+
+- Rejects @compileError without a non-empty string explanation
+- Rejects init bodies with loops, conditionals, or switch statements
+- Rejects static factory / singleton patterns in business logic
+- Requires structs that own an allocator field to declare a pub fn deinit
+- Requires init bodies with multiple try calls to use errdefer
+
+## Tier 2 Anti-patterns
+
+- Caps source line length
+- Rejects vague identifier names on public declarations
+- Rejects bool parameters in public functions
+- Rejects bare integer literals outside a small allowlist
+- Rejects identical string literals appearing 3 or more times in a single file
+- Caps pub fn methods per pub struct/enum/union
+- Caps the percentage of optional fields in a public struct
+- Rejects switch expressions whose case keys are string literals
+
+## Tier 3 Architectural Fitness
+
+- Flags the same enum dot-prong set switched in 2+ files
+
+## Baseline Mode
+
+- Captures each check's current violations on first run and only fails on additions
+- Wraps a single check run with capture, diff, and outcome reporting
+
+## Complexity Bounds
+
+- Caps boolean operators per condition
+- Caps return statements per function body
+
+## Test Hygiene
+
+- Requires every test block to contain at least one std.testing.expect call
+- Rejects if/while/switch and extra for loops at the top level of a test body
+- Rejects production code @import-ing test files
+
+## Hidden Dependency Bans
+
+- Rejects std.time wall-clock reads outside infra/clock
+- Rejects RNG construction outside infra/random
+- Rejects std.fs I/O calls outside infra/fs
+- Rejects std.net and std.http use outside adapters/http or infra/net
+- Rejects environment-variable reads outside config or main
+- Rejects sleep calls outside test infrastructure
+- Rejects mutable pub var globals outside wiring/main
+- Rejects hardcoded absolute paths and URLs in string literals

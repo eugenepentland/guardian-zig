@@ -16,7 +16,7 @@ pub const SpecQualityCfg = struct {
 /// Per-check config for the function-size cap.
 pub const FunctionSizeCfg = struct {
     enabled: bool = true,
-    max_params: u32 = 5,
+    max_params: u32 = 4,
 };
 
 /// Per-check config for cognitive-complexity scoring.
@@ -52,7 +52,7 @@ pub const TypeSizeCfg = struct {
     enabled: bool = true,
     /// Max fields per `pub const X = struct { ... }` (or variants for enums,
     /// fields for unions). Methods and inner const decls don't count.
-    max_fields: u32 = 15,
+    max_fields: u32 = 7,
 };
 
 /// Per-check config for the function-length cap.
@@ -60,7 +60,7 @@ pub const FunctionLengthCfg = struct {
     enabled: bool = true,
     /// Max source lines per fn decl, counted from the `fn` keyword line
     /// through the closing `}` line.
-    max_lines: u32 = 100,
+    max_lines: u32 = 60,
 };
 
 /// Per-check config for the nesting-depth cap.
@@ -69,6 +69,35 @@ pub const NestingDepthCfg = struct {
     /// Max brace-nesting depth inside a function body. Body itself
     /// counts as depth 1; nested blocks each add 1.
     max_depth: u32 = 4,
+};
+
+/// Project-wide baseline mode. When enabled, every check's current
+/// violations are recorded on first run and only NEW violations fail
+/// the build thereafter — converting the hard-block wall into a ratchet.
+/// Designed for adopting Guardian on legacy codebases.
+pub const BaselineCfg = struct {
+    enabled: bool = false,
+};
+
+/// Per-check config for the line-length cap.
+pub const LineLengthCfg = struct {
+    enabled: bool = true,
+    /// Max codepoints per line. Framework recommends 100-120.
+    max_len: u32 = 120,
+};
+
+/// Per-check config for the bool-ops-per-condition cap.
+pub const BoolOpsCfg = struct {
+    enabled: bool = true,
+    /// Max `and` / `or` / `!` tokens inside a single `if`/`while` condition.
+    max_ops: u32 = 3,
+};
+
+/// Per-check config for the returns-per-function cap.
+pub const ReturnsPerFnCfg = struct {
+    enabled: bool = true,
+    /// Max `return` keywords per fn body (excludes nested fn defs).
+    max_returns: u32 = 3,
 };
 
 /// Per-check config for the test-coverage check (per-pub-fn).
@@ -99,6 +128,10 @@ pub const Config = struct {
     function_length: FunctionLengthCfg = .{},
     nesting_depth: NestingDepthCfg = .{},
     test_coverage: TestCoverageCfg = .{},
+    bool_ops: BoolOpsCfg = .{},
+    returns_per_fn: ReturnsPerFnCfg = .{},
+    line_length: LineLengthCfg = .{},
+    baseline: BaselineCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -120,6 +153,10 @@ const Section = enum {
     function_length,
     nesting_depth,
     test_coverage,
+    bool_ops,
+    returns_per_fn,
+    line_length,
+    baseline,
     unknown,
 };
 
@@ -196,6 +233,14 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .nesting_depth;
             } else if (std.mem.eql(u8, name, "test_coverage")) {
                 section = .test_coverage;
+            } else if (std.mem.eql(u8, name, "bool_ops")) {
+                section = .bool_ops;
+            } else if (std.mem.eql(u8, name, "returns_per_fn")) {
+                section = .returns_per_fn;
+            } else if (std.mem.eql(u8, name, "line_length")) {
+                section = .line_length;
+            } else if (std.mem.eql(u8, name, "baseline")) {
+                section = .baseline;
             } else {
                 section = .unknown;
             }
@@ -298,6 +343,32 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                     } else if (std.mem.eql(u8, key, "exempt_names")) {
                         var list = try parseStringArray(allocator, val_raw);
                         cfg.test_coverage.exempt_names = try list.toOwnedSlice(allocator);
+                    }
+                },
+                .bool_ops => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.bool_ops.enabled = parseBool(val_raw) orelse cfg.bool_ops.enabled;
+                    } else if (std.mem.eql(u8, key, "max_ops")) {
+                        cfg.bool_ops.max_ops = std.fmt.parseInt(u32, val_raw, 10) catch cfg.bool_ops.max_ops;
+                    }
+                },
+                .returns_per_fn => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.returns_per_fn.enabled = parseBool(val_raw) orelse cfg.returns_per_fn.enabled;
+                    } else if (std.mem.eql(u8, key, "max_returns")) {
+                        cfg.returns_per_fn.max_returns = std.fmt.parseInt(u32, val_raw, 10) catch cfg.returns_per_fn.max_returns;
+                    }
+                },
+                .line_length => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.line_length.enabled = parseBool(val_raw) orelse cfg.line_length.enabled;
+                    } else if (std.mem.eql(u8, key, "max_len")) {
+                        cfg.line_length.max_len = std.fmt.parseInt(u32, val_raw, 10) catch cfg.line_length.max_len;
+                    }
+                },
+                .baseline => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.baseline.enabled = parseBool(val_raw) orelse cfg.baseline.enabled;
                     }
                 },
                 .unknown => {},
