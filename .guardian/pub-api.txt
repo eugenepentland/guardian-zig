@@ -1,4 +1,9 @@
 # guardian-snapshot v1
+src/ast/import_graph.zig::BuildError value
+src/ast/import_graph.zig::Node struct_
+src/ast/import_graph.zig::build fn
+src/ast/import_graph.zig::findCycle fn
+src/ast/import_graph.zig::reachableFrom fn
 src/ast/parser.zig::AstError value
 src/ast/parser.zig::FnInfo struct_
 src/ast/parser.zig::Import struct_
@@ -28,6 +33,8 @@ src/checks/file_size.zig::run fn
 src/checks/function_size.zig::run fn
 src/checks/imports.zig::run fn
 src/checks/naming.zig::run fn
+src/checks/orphan_files.zig::findOrphans fn
+src/checks/orphan_files.zig::run fn
 src/checks/panic_budget.zig::run fn
 src/checks/pub_api_surface.zig::run fn
 src/checks/spec.zig::run fn
@@ -50,6 +57,7 @@ src/config.zig::BoundaryRule struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::Config struct_
 src/config.zig::FunctionSizeCfg struct_
+src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::load fn
 src/config.zig::parse fn

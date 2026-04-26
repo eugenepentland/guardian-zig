@@ -31,6 +31,15 @@ pub const AnytypeBudgetCfg = struct {
     max_per_file: u32 = 2,
 };
 
+/// Per-check config for the orphan-files reachability scan.
+pub const OrphanFilesCfg = struct {
+    enabled: bool = true,
+    /// Explicit root files for reachability. Paths are walker-relative
+    /// (e.g. "src/main.zig"). When empty, every top-level src/*.zig
+    /// is treated as a root.
+    roots: []const []const u8 = &.{},
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -41,6 +50,7 @@ pub const Config = struct {
     function_size: FunctionSizeCfg = .{},
     complexity: ComplexityCfg = .{},
     anytype_budget: AnytypeBudgetCfg = .{},
+    orphan_files: OrphanFilesCfg = .{},
 };
 
 /// Reads guardian.toml from `dir` and returns parsed config; defaults if missing.
@@ -56,6 +66,7 @@ const Section = enum {
     function_size,
     complexity,
     anytype_budget,
+    orphan_files,
     unknown,
 };
 
@@ -120,6 +131,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                 section = .complexity;
             } else if (std.mem.eql(u8, name, "anytype_budget")) {
                 section = .anytype_budget;
+            } else if (std.mem.eql(u8, name, "orphan_files")) {
+                section = .orphan_files;
             } else {
                 section = .unknown;
             }
@@ -178,6 +191,14 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                         cfg.anytype_budget.enabled = parseBool(val_raw) orelse cfg.anytype_budget.enabled;
                     } else if (std.mem.eql(u8, key, "max_per_file")) {
                         cfg.anytype_budget.max_per_file = std.fmt.parseInt(u32, val_raw, 10) catch cfg.anytype_budget.max_per_file;
+                    }
+                },
+                .orphan_files => {
+                    if (std.mem.eql(u8, key, "enabled")) {
+                        cfg.orphan_files.enabled = parseBool(val_raw) orelse cfg.orphan_files.enabled;
+                    } else if (std.mem.eql(u8, key, "roots")) {
+                        var list = try parseStringArray(allocator, val_raw);
+                        cfg.orphan_files.roots = try list.toOwnedSlice(allocator);
                     }
                 },
                 .unknown => {},

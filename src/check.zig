@@ -92,4 +92,6 @@ test {
     _ = @import("checks/allocator_hygiene.zig");
     _ = @import("checks/dup_const.zig");
     _ = @import("checks/debug_print_ban.zig");
+    _ = @import("checks/orphan_files.zig");
+    _ = @import("ast/import_graph.zig");
 }

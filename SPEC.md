@@ -117,3 +117,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Debug Print Ban
 
 - Rejects std.debug.print call expressions outside test blocks and pub fn main
+
+## Orphan Files
+
+- Reports .zig files under src/ unreachable from any configured root via @import

@@ -22,6 +22,7 @@ const check_dead_pub = @import("../checks/dead_pub.zig");
 const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
 const check_dup_const = @import("../checks/dup_const.zig");
 const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
+const check_orphan_files = @import("../checks/orphan_files.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -49,6 +50,7 @@ pub const all: []const Command = &.{
     .{ .name = "allocator-hygiene", .summary = "Reject hardcoded global allocators outside main/test", .run = check_allocator_hygiene.run },
     .{ .name = "dup-const", .summary = "Reject duplicate file-scope string-literal consts across files", .run = check_dup_const.run },
     .{ .name = "debug-print-ban", .summary = "Reject std.debug.print(...) calls outside main/test", .run = check_debug_print_ban.run },
+    .{ .name = "orphan-files", .summary = "Flag .zig files under src/ unreachable from any configured root", .run = check_orphan_files.run },
 };
 
 /// Look up a command by its CLI name; null if not registered.
