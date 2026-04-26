@@ -107,21 +107,25 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-| Check | What it does | Blocks on |
-|-------|-------------|-----------|
-| Format | `zig fmt --check src/` | Any unformatted files |
-| Spec coverage | Matches SPEC.md behaviors to `// spec:` tags | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
-| File size | Counts lines in src/ and test/ .zig files | Any file exceeding max_file_lines (default 500) |
-| Boundaries | Checks `@import` paths against `[[boundary]]` rules | Forbidden imports |
+23 hard-block checks plus `zig fmt --check`. Full table in README.md;
+the categories are: spec workflow, structural, public API, code style,
+error handling, and allocation. Three checks are snapshot-based
+(pub-api-surface, panic-budget, spec-drift, comptime-quota) — refresh
+with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit `.guardian/`.
 
 ## Project Structure
 
 ```
 src/
-  check.zig          # Analysis executable (spec, file-size, boundaries, spec-init)
-  config.zig         # guardian.toml parser
-  spec/
-    parser.zig       # SPEC.md parser
-    matcher.zig      # // spec: tag scanner + 1:1 enforcement
-    init.zig         # pub fn scanner for spec-init
+  check.zig            # CLI entry / dispatch
+  cli/                 # Command registry + shared types
+  checks/              # One file per check
+  spec/                # SPEC.md parser, // spec: matcher, spec-init
+  ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)
+  walk.zig             # Recursive .zig file walker (visitor pattern)
+  reporter.zig         # ok / fail printing + Violation type
+  snapshot.zig         # Read/write/diff for snapshot-based checks
+  snapshot_helper.zig  # Lifecycle helper used by all snapshot checks
+  config.zig           # guardian.toml parser
+  build_helper.zig     # addAllChecks for downstream consumers
 ```

@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-17 hard-block checks ship today, all gating Guardian's own self-build.
+23 hard-block checks ship today, all gating Guardian's own self-build.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -51,6 +51,7 @@ zig build  # guardian gates every build
 | **function-size** | Any function with more than `max_params` parameters (default 5) |
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
+| **orphan-files** | A .zig file unreachable from any configured root via `@import` |
 
 ### Public API
 | Check | Blocks on |
@@ -63,16 +64,26 @@ zig build  # guardian gates every build
 |---|---|
 | **naming** | PascalCase fns that don't return `type`; lowercase types |
 | **doc-comments** | `pub fn` or `pub struct/enum/union` without a `///` doc comment |
+| **doc-quality** | Empty / placeholder / sub-`min_chars` `///` comments (default 12) |
 | **cognitive-complexity** | Per-function complexity score (default 15) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
+| **debug-print-ban** | `std.debug.print(...)` calls outside `pub fn main` / test blocks |
 
 ### Error handling
 | Check | Blocks on |
 |---|---|
 | **error-discipline** | Inferred `!T` or `anyerror!T` on `pub fn` (require explicit error sets) |
 | **catch-discipline** | `catch unreachable` and `catch {}` (silent error swallow) |
+| **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
 | **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts (snapshot) |
+| **comptime-quota** | Increase in `@setEvalBranchQuota` call count or max literal (snapshot) |
+
+### Allocation
+| Check | Blocks on |
+|---|---|
+| **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests |
+| **dup-const** | Same `pub const NAME = "literal"` declared in 2+ files |
 
 Plus `zig fmt --check` and the `spec-init` generator.
 
