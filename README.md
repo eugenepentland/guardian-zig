@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-23 hard-block checks ship today, all gating Guardian's own self-build.
+27 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in).
 
 ### Spec workflow
 | Check | Blocks on |
@@ -49,9 +49,13 @@ zig build  # guardian gates every build
 |---|---|
 | **file-size** | Any .zig file exceeding `max_file_lines` (default 500) |
 | **function-size** | Any function with more than `max_params` parameters (default 5) |
+| **function-length** | Any fn over `max_lines` source lines (default 100) |
+| **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 4) |
+| **type-size** | Any pub struct/enum/union over `max_fields` (default 15) |
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
+| **test-coverage** *(opt-in)* | A pub fn with no identifier reference from any test block |
 
 ### Public API
 | Check | Blocks on |
@@ -137,6 +141,20 @@ max_per_file = 2
 
 [spec_quality]
 forbidden_phrases = ["properly", "as needed"]
+
+[function_length]
+max_lines = 100
+
+[nesting_depth]
+max_depth = 4
+
+[type_size]
+max_fields = 15
+
+# Opt-in: every pub fn must be referenced from at least one test block.
+[test_coverage]
+enabled = true
+exempt_names = ["main", "build"]
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
