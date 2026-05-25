@@ -82,6 +82,7 @@ test {
     _ = @import("reporter.zig");
     _ = @import("ast/parser.zig");
     _ = @import("ast/index.zig");
+    _ = @import("cache.zig");
     _ = @import("snapshot.zig");
     _ = @import("snapshot_helper.zig");
     _ = @import("cli/types.zig");

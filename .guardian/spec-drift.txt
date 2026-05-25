@@ -21,6 +21,10 @@ src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []c
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
+src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
+src/cache.zig::inputDigest | fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest
+src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) ?Digest
+src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
 src/check.zig::main | fn main() !void
 src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

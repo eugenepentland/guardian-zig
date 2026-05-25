@@ -38,6 +38,12 @@ src/baseline.zig::runWithBaseline fn
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks fn
 src/build_helper.zig::all_check_names value
+src/cache.zig::Digest value
+src/cache.zig::Error value
+src/cache.zig::eql fn
+src/cache.zig::inputDigest fn
+src/cache.zig::readStored fn
+src/cache.zig::writeStored fn
 src/check.zig::main fn
 src/checks/allocator_hygiene.zig::run fn
 src/checks/anytype_budget.zig::run fn

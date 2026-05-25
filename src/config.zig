@@ -116,6 +116,9 @@ pub const TestCoverageCfg = struct {
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
     max_file_lines: u32 = 500,
+    /// When true, `all` skips the whole run when its hashed input set is
+    /// unchanged since the last all-green run (see cache.zig).
+    cache_enabled: bool = true,
     file_size_exclude: []const []const u8 = &.{},
     boundary_rules: []const BoundaryRule = &.{},
     spec_quality: SpecQualityCfg = .{},
@@ -267,6 +270,8 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
                         if (parseString(val_raw)) |v| cfg.spec_file = v;
                     } else if (std.mem.eql(u8, key, "max_file_lines")) {
                         cfg.max_file_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.max_file_lines;
+                    } else if (std.mem.eql(u8, key, "cache_enabled")) {
+                        cfg.cache_enabled = parseBool(val_raw) orelse cfg.cache_enabled;
                     } else if (std.mem.eql(u8, key, "file_size_exclude")) {
                         var list = try parseStringArray(allocator, val_raw);
                         cfg.file_size_exclude = try list.toOwnedSlice(allocator);
