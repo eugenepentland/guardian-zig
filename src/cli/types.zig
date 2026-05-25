@@ -1,5 +1,6 @@
 const std = @import("std");
 const config_mod = @import("../config.zig");
+const ast_index = @import("../ast/index.zig");
 
 /// Errors any check `run` function may propagate. The walker's visitor
 /// callback is `anyerror!void` so checks can return arbitrary errors;
@@ -15,6 +16,10 @@ pub const RunCtx = struct {
     project_dir: []const u8,
     cfg: *const config_mod.Config,
     quiet: bool,
+    /// Shared parsed-source index, built once per `all` run when any
+    /// to-run check declares `needs_ast = .yes`. Null for standalone
+    /// single-check runs, which build a private index on demand.
+    source_index: ?*const ast_index.Index = null,
 };
 
 /// Whether a check needs the AST index built before invocation.

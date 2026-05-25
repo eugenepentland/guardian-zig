@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 
 const print = reporter.detail;
@@ -24,23 +25,22 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = try ast.pubFns(a, entry.content);
+    const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
         const line = try std.fmt.allocPrint(a, "{s}::{s} fn", .{ entry.rel_path, f.name });
         try ctx.lines.append(a, line);
     }
-    const consts = try ast.pubConsts(a, entry.content);
+    const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
     for (consts) |c| {
         const line = try std.fmt.allocPrint(a, "{s}::{s} {s}", .{ entry.rel_path, c.name, @tagName(c.kind) });
         try ctx.lines.append(a, line);
     }
 }
 
-fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8) ![][]const u8 {
+fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8, source_index: ?*const ast_index.Index) ![][]const u8 {
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
+    try ast_index.runSrc(source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
     return lines.toOwnedSlice(allocator);
 }
 
@@ -50,7 +50,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const project_dir = ctx_param.project_dir;
 
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
-    const lines = try collectLines(allocator, project_dir);
+    const lines = try collectLines(allocator, project_dir, ctx_param.source_index);
 
     const force = snapshot_helper.shouldUpdate(allocator);
     const outcome = try snapshot_helper.lifecycle(allocator, snap_path, SNAPSHOT_VERSION, lines, force);

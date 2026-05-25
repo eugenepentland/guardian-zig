@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -19,7 +20,7 @@ const ScanCtx = struct {
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const fns = try ast.allFns(a, entry.content);
+    const fns = if (entry.tree) |t| try ast.allFnsFromTree(a, t) else try ast.allFns(a, entry.content);
     for (fns) |f| {
         if (f.param_count <= ctx.max_params) continue;
         const msg = try std.fmt.allocPrint(a, "{s}: fn {s} has {d} params (limit: {d})", .{ entry.rel_path, f.name, f.param_count, ctx.max_params });
@@ -45,11 +46,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .violations = &violations,
     };
 
-    const dirs_to_check = [_][]const u8{ "src", "test" };
-    for (&dirs_to_check) |dir_name| {
-        const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
-        try walk.walkZigFiles(allocator, dir_path, dir_name, .{}, .{ .ctx = &ctx, .visit = visit });
-    }
+    // `src` reuses the shared parsed index; `test` is not indexed, so it
+    // still walks (its parses are not shared).
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
+    const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
+    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all functions within {d} param limit", .{cfg.function_size.max_params});

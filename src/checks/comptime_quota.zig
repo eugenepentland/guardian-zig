@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 
@@ -112,8 +113,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     var totals: Counts = .{};
     var scan_ctx: ScanCtx = .{ .allocator = allocator, .totals = &totals };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &scan_ctx, .visit = visit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &scan_ctx, .visit = visit });
 
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
     const new_lines = try countsToLines(allocator, totals);

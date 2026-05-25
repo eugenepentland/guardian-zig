@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 const config_mod = @import("../config.zig");
 
 const print = reporter.detail;
@@ -51,7 +52,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = try ast.fnDeclInfos(a, entry.content);
+    const fns = if (entry.tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, entry.content);
     for (fns) |f| {
         const depth = maxNestingDepth(a, f.body_text);
         if (depth <= ctx.cfg.max_depth) continue;
@@ -95,8 +96,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all functions within nesting depth {d}", .{cfg.max_depth});

@@ -97,6 +97,14 @@ pub const AstError = std.mem.Allocator.Error;
 pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
+    return pubFnsFromTree(arena, &tree);
+}
+
+/// Same as `pubFns` but operates on an already-parsed syntax tree, so a
+/// caller holding a shared parse (see ast/index.zig) avoids re-tokenizing
+/// and re-parsing the source for this query.
+pub fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubFn {
+    var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(PubFn) = .empty;
 
     for (tree.rootDecls()) |decl| {
@@ -170,6 +178,13 @@ pub const FnDeclInfo = struct {
 pub fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
+    return fnDeclInfosFromTree(arena, &tree);
+}
+
+/// Same as `fnDeclInfos` but operates on an already-parsed syntax tree so
+/// a caller holding a shared parse can skip re-parsing the source.
+pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnDeclInfo {
+    var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(FnDeclInfo) = .empty;
 
     const tags = tree.tokens.items(.tag);
@@ -240,6 +255,13 @@ fn lineOfByte(source: []const u8, byte: usize) u32 {
 pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
+    return allFnsFromTree(arena, &tree);
+}
+
+/// Same as `allFns` but operates on an already-parsed syntax tree so a
+/// caller holding a shared parse can skip re-parsing the source.
+pub fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnInfo {
+    var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(FnInfo) = .empty;
 
     for (tree.rootDecls()) |decl| {
@@ -278,6 +300,13 @@ pub const PubContainerInfo = struct {
 pub fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubContainerInfo {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
+    return pubContainersFromTree(arena, &tree);
+}
+
+/// Same as `pubContainers` but operates on an already-parsed syntax tree
+/// so a caller holding a shared parse can skip re-parsing the source.
+pub fn pubContainersFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubContainerInfo {
+    var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(PubContainerInfo) = .empty;
 
     for (tree.rootDecls()) |decl| {
@@ -331,6 +360,13 @@ pub fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubC
 pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst {
     const z = try arena.dupeZ(u8, source);
     var tree = try Ast.parse(arena, z, .zig);
+    return pubConstsFromTree(arena, &tree);
+}
+
+/// Same as `pubConsts` but operates on an already-parsed syntax tree so a
+/// caller holding a shared parse can skip re-parsing the source.
+pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubConst {
+    var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(PubConst) = .empty;
 
     for (tree.rootDecls()) |decl| {

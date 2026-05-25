@@ -63,6 +63,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Detects cycles in the @import graph
 
+## AST Index
+
+- Builds a parsed-source index by reading and parsing each file once
+- Iterates the index exposing each file's pre-parsed syntax tree to a visitor
+- Returns the shared index when present and builds a private one otherwise
+
 ## Snapshot Lifecycle
 
 - Creates snapshot file on first run with no prior snapshot

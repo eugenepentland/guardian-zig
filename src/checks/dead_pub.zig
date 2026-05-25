@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -29,14 +30,14 @@ const CollectCtx = struct {
 fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const fns = try ast.pubFns(a, entry.content);
+    const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
         if (std.mem.eql(u8, f.name, "main")) continue;
         if (std.mem.eql(u8, f.name, "build")) continue;
         if (std.mem.eql(u8, f.name, "run")) continue;
         try ctx.decls.append(a, .{ .file = entry.rel_path, .name = f.name });
     }
-    const consts = try ast.pubConsts(a, entry.content);
+    const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
     for (consts) |c| {
         try ctx.decls.append(a, .{ .file = entry.rel_path, .name = c.name });
     }
@@ -93,8 +94,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // Pass 1: collect every pub decl in src/.
     var decls: std.ArrayListUnmanaged(Decl) = .empty;
     var collect_ctx: CollectCtx = .{ .allocator = allocator, .decls = &decls };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &collect_ctx, .visit = collectVisit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &collect_ctx, .visit = collectVisit });
 
     if (decls.items.len == 0) {
         ok("no public declarations to check", .{});
@@ -107,11 +107,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         try counts.put(d.name, 0);
     }
     var ref_ctx: RefCtx = .{ .allocator = allocator, .counts = &counts };
-    const dirs = [_][]const u8{ "src", "test" };
-    for (&dirs) |dir| {
-        const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
-        try walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
-    }
+    // `src` reuses the shared index's cached file contents; `test` is not
+    // indexed, so it still walks.
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
+    const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
+    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
     // build.zig is a Zig file at the project root — include its references
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});

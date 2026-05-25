@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -82,8 +83,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     // Scan src/ only — test files are exempt.
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("no catch unreachable in production code", .{});
