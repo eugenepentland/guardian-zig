@@ -15,6 +15,7 @@ const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
 const check_spec_drift = @import("../checks/spec_drift.zig");
 const check_catch_discipline = @import("../checks/catch_discipline.zig");
+const check_unwrap_discipline = @import("../checks/unwrap_discipline.zig");
 const check_error_discipline = @import("../checks/error_discipline.zig");
 const check_cognitive_complexity = @import("../checks/cognitive_complexity.zig");
 const check_anytype_budget = @import("../checks/anytype_budget.zig");
@@ -76,7 +77,8 @@ pub const all: []const Command = &.{
     .{ .name = "pub-api-surface", .summary = "Snapshot every pub fn/type; diff fails build", .needs_ast = .yes, .run = check_pub_api_surface.run },
     .{ .name = "panic-budget", .summary = "Cap @panic / unreachable / TODO / FIXME counts via snapshot", .run = check_panic_budget.run },
     .{ .name = "spec-drift", .summary = "Snapshot pub fn prototypes; diff fails on signature change", .needs_ast = .yes, .run = check_spec_drift.run },
-    .{ .name = "catch-discipline", .summary = "Reject catch unreachable in production code", .run = check_catch_discipline.run },
+    .{ .name = "catch-discipline", .summary = "Reject catch unreachable/undefined and empty catch blocks", .run = check_catch_discipline.run },
+    .{ .name = "unwrap-discipline", .summary = "Reject orelse unreachable / orelse undefined (crash-on-null)", .run = check_unwrap_discipline.run },
     .{ .name = "error-discipline", .summary = "Require explicit error sets on pub fn", .needs_ast = .yes, .run = check_error_discipline.run },
     .{ .name = "cognitive-complexity", .summary = "Cap per-function cognitive complexity score", .run = check_cognitive_complexity.run },
     .{ .name = "anytype-budget", .summary = "Cap anytype parameter count per file", .run = check_anytype_budget.run },

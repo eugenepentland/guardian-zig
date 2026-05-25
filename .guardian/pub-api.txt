@@ -139,6 +139,7 @@ src/checks/test_no_conditional.zig::analyzeContent fn
 src/checks/test_no_conditional.zig::run fn
 src/checks/type_size.zig::analyzeContent fn
 src/checks/type_size.zig::run fn
+src/checks/unwrap_discipline.zig::run fn
 src/checks/usingnamespace_ban.zig::run fn
 src/checks/vague_name_blacklist.zig::analyzeContent fn
 src/checks/vague_name_blacklist.zig::run fn

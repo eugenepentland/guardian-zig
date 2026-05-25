@@ -99,6 +99,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects catch unreachable in production code
 - Rejects catch with empty block (silent error swallow)
+- Rejects catch undefined assigning undefined on error
+
+## Unwrap Discipline
+
+- Rejects orelse unreachable in production code
+- Rejects orelse undefined in production code
 
 ## Error Discipline
 

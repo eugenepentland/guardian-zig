@@ -10,6 +10,7 @@ const fail = reporter.fail;
 
 // spec: Catch Discipline - Rejects catch unreachable in production code
 // spec: Catch Discipline - Rejects catch with empty block (silent error swallow)
+// spec: Catch Discipline - Rejects catch undefined assigning undefined on error
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
@@ -20,15 +21,16 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    // Tokenizer-based 3-state scan looking for two forbidden patterns:
-    //   `catch unreachable`  — production code shouldn't crash silently
-    //   `catch {}`           — silent error swallow (catch immediately
-    //                          followed by an empty block)
+    // Tokenizer-based scan for catch patterns that hide failures:
+    //   `catch unreachable`  — crashes instead of handling the error
+    //   `catch undefined`    — assigns undefined (UB) on error
+    //   `catch {}`           — empty block silently swallows the error
+    //   `catch |e| {}`       — captured but empty body, the same swallow
     // The Tokenizer skips //-comments and string literals so we only
     // match real code, not text inside doc-strings or comments.
     const z = try a.dupeZ(u8, entry.content);
     var tok = std.zig.Tokenizer.init(z);
-    const State = enum { none, after_catch, after_catch_lbrace };
+    const State = enum { none, after_catch, in_capture, expect_brace, after_lbrace };
     var state: State = .none;
     var catch_pos: usize = 0;
     while (true) {
@@ -41,20 +43,35 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
             },
             .after_catch => switch (t.tag) {
                 .keyword_unreachable => {
-                    const line = lineOf(z, catch_pos);
-                    const msg = try std.fmt.allocPrint(a, "{s}:{d}: catch unreachable in production code", .{ entry.rel_path, line });
-                    try ctx.violations.append(a, msg);
+                    try appendAt(ctx, z, entry.rel_path, catch_pos, "catch unreachable in production code");
                     state = .none;
                 },
-                .l_brace => state = .after_catch_lbrace,
+                .identifier => {
+                    if (std.mem.eql(u8, z[t.loc.start..t.loc.end], "undefined")) {
+                        try appendAt(ctx, z, entry.rel_path, catch_pos, "catch undefined assigns undefined on error");
+                    }
+                    state = .none;
+                },
+                .pipe => state = .in_capture,
+                .l_brace => state = .after_lbrace,
                 .keyword_catch => catch_pos = t.loc.start,
                 else => state = .none,
             },
-            .after_catch_lbrace => {
+            // Skip the `|capture|`; the closing pipe leads to the body.
+            .in_capture => if (t.tag == .pipe) {
+                state = .expect_brace;
+            },
+            .expect_brace => switch (t.tag) {
+                .l_brace => state = .after_lbrace,
+                .keyword_catch => {
+                    catch_pos = t.loc.start;
+                    state = .after_catch;
+                },
+                else => state = .none,
+            },
+            .after_lbrace => {
                 if (t.tag == .r_brace) {
-                    const line = lineOf(z, catch_pos);
-                    const msg = try std.fmt.allocPrint(a, "{s}:{d}: catch {{}} silently swallows error", .{ entry.rel_path, line });
-                    try ctx.violations.append(a, msg);
+                    try appendAt(ctx, z, entry.rel_path, catch_pos, "catch block is empty (silently swallows the error)");
                 }
                 state = if (t.tag == .keyword_catch) blk: {
                     catch_pos = t.loc.start;
@@ -63,6 +80,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
             },
         }
     }
+}
+
+fn appendAt(ctx: *ScanCtx, z: []const u8, rel_path: []const u8, pos: usize, comptime what: []const u8) !void {
+    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}:{d}: " ++ what, .{ rel_path, lineOf(z, pos) });
+    try ctx.violations.append(ctx.allocator, msg);
 }
 
 fn lineOf(source: []const u8, byte_offset: usize) u32 {
@@ -148,6 +170,52 @@ test "visit allows `catch |err| ...`" {
         \\fn x() !void {
         \\    const f = std.fs.cwd().openFile("x", .{}) catch |err| return err;
         \\    _ = f;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+test "visit catches `catch undefined`" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content =
+        \\fn x() void {
+        \\    const n = parse(s) catch undefined;
+        \\    _ = n;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "visit catches `catch |e| {}` empty captured body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content =
+        \\fn x() void {
+        \\    list.append(item) catch |e| {};
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "visit allows `catch |e| { handle(e); }` non-empty body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content =
+        \\fn x() void {
+        \\    list.append(item) catch |e| { log(e); };
         \\}
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
