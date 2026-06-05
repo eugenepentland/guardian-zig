@@ -3,6 +3,9 @@ const types = @import("types.zig");
 const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
 const baseline = @import("../baseline.zig");
+const ast_index = @import("../ast/index.zig");
+const cache = @import("../cache.zig");
+const snapshot_helper = @import("../snapshot_helper.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -26,6 +29,30 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var ran: u32 = 0;
     const baseline_on = ctx.cfg.baseline.enabled;
 
+    // Skip the whole run when guardian's hashed input set is unchanged since
+    // the last all-green run. GUARDIAN_UPDATE_SNAPSHOT forces a full run.
+    const force_update = snapshot_helper.shouldUpdate(ctx.allocator);
+    var digest: ?cache.Digest = null;
+    if (ctx.cfg.cache_enabled and !force_update) {
+        if (cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file)) |d| {
+            digest = d;
+            if (cache.readStored(ctx.allocator, ctx.project_dir)) |stored| {
+                if (cache.eql(stored, d)) {
+                    reporter.ok("run-all: inputs unchanged since last green run — checks skipped", .{});
+                    return;
+                }
+            }
+        } else |_| {}
+    }
+
+    // Build the shared parsed-source index once if any check needs it, so
+    // the ~17 AST checks read and parse each file once instead of per check.
+    var index_storage: ast_index.Index = undefined;
+    if (anyNeedsAst()) {
+        index_storage = try ast_index.build(ctx.allocator, ctx.project_dir);
+        ctx.source_index = &index_storage;
+    }
+
     for (registry.all) |cmd| {
         if (shouldSkip(cmd.name)) continue;
         ran += 1;
@@ -41,6 +68,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
+        // Record this green input state so an unchanged re-run can skip.
+        if (digest) |d| cache.writeStored(ctx.allocator, ctx.project_dir, d);
         return;
     }
 
@@ -50,5 +79,15 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
 fn shouldSkip(name: []const u8) bool {
     for (SKIP) |s| if (std.mem.eql(u8, name, s)) return true;
+    return false;
+}
+
+/// True when at least one non-skipped check declares `needs_ast = .yes`,
+/// meaning the shared parsed-source index is worth building for this run.
+fn anyNeedsAst() bool {
+    for (registry.all) |cmd| {
+        if (shouldSkip(cmd.name)) continue;
+        if (cmd.needs_ast == .yes) return true;
+    }
     return false;
 }

@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 const config_mod = @import("../config.zig");
 
 const print = reporter.detail;
@@ -21,7 +22,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const containers = try ast.pubContainers(a, entry.content);
+    const containers = if (entry.tree) |t| try ast.pubContainersFromTree(a, t) else try ast.pubContainers(a, entry.content);
     for (containers) |c| {
         if (c.field_count <= ctx.cfg.max_fields) continue;
         const msg = try std.fmt.allocPrint(
@@ -65,8 +66,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("no public containers exceed {d} fields", .{cfg.max_fields});

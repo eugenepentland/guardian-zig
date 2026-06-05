@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -166,8 +167,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     var sig_to_files: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
     var pctx: ProjectCtx = .{ .allocator = allocator, .sig_to_files = &sig_to_files };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{ctx.project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &pctx, .visit = projectVisit });
+    try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &pctx, .visit = projectVisit });
 
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var iter = sig_to_files.iterator();

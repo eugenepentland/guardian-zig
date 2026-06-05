@@ -1,5 +1,6 @@
 zig-out/
 .zig-cache/
+.guardian/cache/
 GUARDIAN_FEEDBACK.md
 test-project/zig-out/
 test-project/.zig-cache/

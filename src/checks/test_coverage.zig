@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 const config_mod = @import("../config.zig");
 
 const print = reporter.detail;
@@ -30,7 +31,7 @@ fn isExempt(exempt: []const []const u8, name: []const u8) bool {
 fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
-    const fns = try ast.pubFns(a, entry.content);
+    const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
         if (isExempt(ctx.exempt_names, f.name)) continue;
         try ctx.decls.append(a, .{ .file = entry.rel_path, .name = f.name });
@@ -128,8 +129,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .decls = &decls,
         .exempt_names = cfg.exempt_names,
     };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &collect_ctx, .visit = collectVisit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &collect_ctx, .visit = collectVisit });
 
     if (decls.items.len == 0) {
         ok("no public functions to check", .{});
@@ -140,11 +140,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var counts = std.StringHashMap(u32).init(allocator);
     for (decls.items) |d| try counts.put(d.name, 0);
     var ref_ctx: RefCtx = .{ .allocator = allocator, .counts = &counts };
-    const dirs = [_][]const u8{ "src", "test" };
-    for (&dirs) |dir| {
-        const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
-        try walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
-    }
+    // `src` reuses the shared index's cached file contents; `test` is not
+    // indexed, so it still walks.
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
+    const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
+    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
 
     const untested = try findUntested(allocator, decls.items, &counts);
 

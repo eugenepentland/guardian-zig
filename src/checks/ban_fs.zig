@@ -26,6 +26,7 @@ const opts: helper.ScanOpts = .{
         "infra/fs*",
         // Guardian-internal exemptions:
         "src/walk*",
+        "src/cache*",
         "src/snapshot*",
         "src/snapshot_helper*",
         "src/config*",

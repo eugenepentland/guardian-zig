@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -137,8 +138,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{ctx.project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &fs_ctx, .visit = fileVisit });
+    try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
     if (violations.items.len == 0) {
         reporter.ok("ban-hardcoded-paths: no hardcoded paths or URLs", .{});

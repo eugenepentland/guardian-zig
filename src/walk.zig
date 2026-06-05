@@ -2,9 +2,13 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 /// One file yielded by the walker: its display path and full content.
+/// `tree` is set only when the entry originates from a prebuilt AST index
+/// (see ast/index.zig) and points at the file's already-parsed syntax tree
+/// so AST checks can reuse a shared parse; it is null for a bare walk.
 pub const FileEntry = struct {
     rel_path: []const u8,
     content: []const u8,
+    tree: ?*const std.zig.Ast = null,
 };
 
 /// Options controlling which files the walker yields.

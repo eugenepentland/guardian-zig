@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -90,11 +91,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .violations = &violations,
     };
 
-    const dirs = [_][]const u8{ "src", "test" };
-    for (&dirs) |dir| {
-        const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
-        try walk.walkZigFiles(allocator, dir_path, dir, .{}, .{ .ctx = &ctx, .visit = visit });
-    }
+    // `src` reuses the shared index's cached file contents; `test` is not
+    // indexed, so it still walks.
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
+    const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
+    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all functions within complexity {d}", .{ctx.threshold});

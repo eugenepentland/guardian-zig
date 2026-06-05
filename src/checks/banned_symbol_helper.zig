@@ -2,6 +2,7 @@ const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -261,8 +262,7 @@ pub fn scan(
         .violations = &violations,
         .opts = opts,
     };
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &fs_ctx, .visit = fileVisit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
     if (violations.items.len == 0) {
         reporter.ok("{s}: no forbidden references", .{check_name});

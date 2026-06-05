@@ -81,6 +81,8 @@ test {
     _ = @import("walk.zig");
     _ = @import("reporter.zig");
     _ = @import("ast/parser.zig");
+    _ = @import("ast/index.zig");
+    _ = @import("cache.zig");
     _ = @import("snapshot.zig");
     _ = @import("snapshot_helper.zig");
     _ = @import("cli/types.zig");
@@ -102,6 +104,7 @@ test {
     _ = @import("checks/panic_budget.zig");
     _ = @import("checks/spec_drift.zig");
     _ = @import("checks/catch_discipline.zig");
+    _ = @import("checks/unwrap_discipline.zig");
     _ = @import("checks/error_discipline.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/anytype_budget.zig");

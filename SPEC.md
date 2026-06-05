@@ -63,6 +63,17 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Detects cycles in the @import graph
 
+## AST Index
+
+- Builds a parsed-source index by reading and parsing each file once
+- Iterates the index exposing each file's pre-parsed syntax tree to a visitor
+- Returns the shared index when present and builds a private one otherwise
+
+## Skip Cache
+
+- Hashes the guardian input set into a stable digest
+- Round-trips the digest through the cache file
+
 ## Snapshot Lifecycle
 
 - Creates snapshot file on first run with no prior snapshot
@@ -88,6 +99,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects catch unreachable in production code
 - Rejects catch with empty block (silent error swallow)
+- Rejects catch undefined assigning undefined on error
+
+## Unwrap Discipline
+
+- Rejects orelse unreachable in production code
+- Rejects orelse undefined in production code
 
 ## Error Discipline
 

@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const config_mod = @import("../config.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const ast_index = @import("../ast/index.zig");
 const ast = @import("../ast/parser.zig");
 
 const print = reporter.detail;
@@ -54,8 +55,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .violations = &violations,
     };
 
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = boundaryVisit });
 
     if (violations.items.len == 0) {
         ok("all imports comply with boundary rules", .{});

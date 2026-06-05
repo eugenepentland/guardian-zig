@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
+const ast_index = @import("../ast/index.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -20,14 +21,14 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const fns = try ast.pubFns(a, entry.content);
+    const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
         if (f.has_doc_comment) continue;
         const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} has no /// doc comment", .{ entry.rel_path, f.name });
         try ctx.violations.append(a, msg);
     }
 
-    const consts = try ast.pubConsts(a, entry.content);
+    const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
     for (consts) |c| {
         switch (c.kind) {
             .struct_, .enum_, .union_, .opaque_ => {
@@ -48,8 +49,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = visit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all public declarations have doc comments", .{});
