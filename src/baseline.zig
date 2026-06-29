@@ -65,6 +65,72 @@ fn isFixLine(trimmed: []const u8) bool {
     return std.mem.startsWith(u8, trimmed, "fix:");
 }
 
+/// Blanks the source-line position in a violation line so baseline matching is
+/// insensitive to line-number churn. A violation reads `<file>:<line>: <message>`;
+/// an unrelated edit *above* it shifts `<line>`, which would otherwise read as the
+/// old violation resolved + a new one added — a spurious "new violation" that fails
+/// the build and forces a needless baseline refresh. The stable identity is
+/// file + message (the message names the function / construct), so blank the first
+/// `:<digits>:` group. Lines with no such group (file-level `<file>: N lines`,
+/// plain tokens) are returned unchanged.
+fn positionKey(arena: Allocator, line: []const u8) Allocator.Error![]const u8 {
+    var i: usize = 0;
+    while (i < line.len) : (i += 1) {
+        if (line[i] != ':') continue;
+        var j = i + 1;
+        while (j < line.len and line[j] >= '0' and line[j] <= '9') j += 1;
+        if (j > i + 1 and j < line.len) {
+            if (line[j] == ':') return std.fmt.allocPrint(arena, "{s}::{s}", .{ line[0..i], line[j + 1 ..] });
+        }
+    }
+    return line;
+}
+
+/// Position-insensitive multiset diff of baseline vs. current violations: like
+/// `snapshot.diff`, but matches on `positionKey`, so a violation that only moved
+/// source lines is neither added nor removed. Multiplicity is preserved (N hits of
+/// the same message in one file still diff correctly), and a genuinely new
+/// violation still surfaces as `added`.
+fn diffByPosition(arena: Allocator, old: snapshot.Snapshot, current: []const []const u8) Allocator.Error!snapshot.Diff {
+    const Item = struct { key: []const u8, line: []const u8 };
+    const order = struct {
+        fn lt(_: void, a: Item, b: Item) bool {
+            const c = std.mem.order(u8, a.key, b.key);
+            return if (c != .eq) c == .lt else std.mem.order(u8, a.line, b.line) == .lt;
+        }
+    }.lt;
+    const olds = try arena.alloc(Item, old.lines.len);
+    for (old.lines, 0..) |l, k| olds[k] = .{ .key = try positionKey(arena, l), .line = l };
+    const news = try arena.alloc(Item, current.len);
+    for (current, 0..) |l, k| news[k] = .{ .key = try positionKey(arena, l), .line = l };
+    std.mem.sort(Item, olds, {}, order);
+    std.mem.sort(Item, news, {}, order);
+
+    var added: std.ArrayListUnmanaged([]const u8) = .empty;
+    var removed: std.ArrayListUnmanaged([]const u8) = .empty;
+    var i: usize = 0;
+    var j: usize = 0;
+    while (i < olds.len and j < news.len) {
+        switch (std.mem.order(u8, olds[i].key, news[j].key)) {
+            .eq => {
+                i += 1;
+                j += 1;
+            },
+            .lt => {
+                try removed.append(arena, olds[i].line);
+                i += 1;
+            },
+            .gt => {
+                try added.append(arena, news[j].line);
+                j += 1;
+            },
+        }
+    }
+    while (i < olds.len) : (i += 1) try removed.append(arena, olds[i].line);
+    while (j < news.len) : (j += 1) try added.append(arena, news[j].line);
+    return .{ .added = try added.toOwnedSlice(arena), .removed = try removed.toOwnedSlice(arena) };
+}
+
 /// Run the baseline lifecycle for a check.
 ///
 /// `current` may be reordered (sorted) for diffing.
@@ -94,7 +160,9 @@ pub fn lifecycle(
     };
 
     std.mem.sort([]const u8, current, {}, lessThan);
-    const d = try snapshot.diff(arena, old, current);
+    // Match ignoring source-line position so an unrelated edit that merely shifts a
+    // legacy violation's line number isn't reported as a new violation (see positionKey).
+    const d = try diffByPosition(arena, old, current);
     if (d.added.len > 0) {
         return .{ .grown = .{
             .new_lines = d.added,
@@ -313,4 +381,68 @@ test "lifecycle force_refresh rewrites the baseline" {
     var lines3 = [_][]const u8{ "alpha", "gamma" };
     const out2 = try lifecycle(a, path, &lines3, false);
     try std.testing.expect(out2 == .matched);
+}
+
+test "positionKey blanks the source-line position, leaves position-free lines alone" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings(
+        "src/x.zig:: fn foo is 246 lines (cap 200)",
+        try positionKey(a, "src/x.zig:553: fn foo is 246 lines (cap 200)"),
+    );
+    // No `:<digits>:` group (a file-level metric line) → returned unchanged.
+    try std.testing.expectEqualStrings(
+        "src/x.zig: 1234 lines (max 1000)",
+        try positionKey(a, "src/x.zig: 1234 lines (max 1000)"),
+    );
+}
+
+test "diffByPosition ignores a pure line-number shift" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const old: snapshot.Snapshot = .{ .version = 1, .lines = &.{"src/x.zig:553: fn foo is 246 lines (cap 200)"} };
+    const new_lines = [_][]const u8{"src/x.zig:559: fn foo is 246 lines (cap 200)"};
+    const d = try diffByPosition(a, old, &new_lines);
+    try std.testing.expect(d.isEmpty());
+}
+
+test "diffByPosition still flags a genuinely new violation amid shifts" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const old: snapshot.Snapshot = .{ .version = 1, .lines = &.{"src/x.zig:10: fn foo reaches nesting depth 7 (cap 6)"} };
+    const new_lines = [_][]const u8{
+        "src/x.zig:14: fn foo reaches nesting depth 7 (cap 6)", // same violation, only moved
+        "src/y.zig:99: fn bar reaches nesting depth 8 (cap 6)", // genuinely new
+    };
+    const d = try diffByPosition(a, old, &new_lines);
+    try std.testing.expectEqual(@as(usize, 1), d.added.len);
+    try std.testing.expectEqualStrings("src/y.zig:99: fn bar reaches nesting depth 8 (cap 6)", d.added[0]);
+    try std.testing.expectEqual(@as(usize, 0), d.removed.len);
+}
+
+test "diffByPosition preserves multiplicity for count-based checks" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Two identical-message hits in one file, both shifted → still a match (no churn).
+    const old: snapshot.Snapshot = .{ .version = 1, .lines = &.{
+        "src/x.zig:5: std.fs.cwd reference outside allowed paths",
+        "src/x.zig:50: std.fs.cwd reference outside allowed paths",
+    } };
+    const shifted = [_][]const u8{
+        "src/x.zig:7: std.fs.cwd reference outside allowed paths",
+        "src/x.zig:60: std.fs.cwd reference outside allowed paths",
+    };
+    try std.testing.expect((try diffByPosition(a, old, &shifted)).isEmpty());
+    // A third hit appears → exactly one new violation.
+    const grown = [_][]const u8{
+        "src/x.zig:7: std.fs.cwd reference outside allowed paths",
+        "src/x.zig:60: std.fs.cwd reference outside allowed paths",
+        "src/x.zig:80: std.fs.cwd reference outside allowed paths",
+    };
+    const d = try diffByPosition(a, old, &grown);
+    try std.testing.expectEqual(@as(usize, 1), d.added.len);
 }
