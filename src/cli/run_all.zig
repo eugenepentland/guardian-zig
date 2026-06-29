@@ -48,13 +48,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Build the shared parsed-source index once if any check needs it, so
     // the ~17 AST checks read and parse each file once instead of per check.
     var index_storage: ast_index.Index = undefined;
-    if (anyNeedsAst()) {
+    if (anyNeedsAst(ctx.cfg.disabled)) {
         index_storage = try ast_index.build(ctx.allocator, ctx.project_dir);
         ctx.source_index = &index_storage;
     }
 
     for (registry.all) |cmd| {
-        if (shouldSkip(cmd.name)) continue;
+        if (shouldSkip(cmd.name, ctx.cfg.disabled)) continue;
         ran += 1;
         const outcome = if (baseline_on)
             baseline.runWithBaseline(ctx, cmd)
@@ -77,17 +77,25 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     return error.CheckFailed;
 }
 
-fn shouldSkip(name: []const u8) bool {
+fn shouldSkip(name: []const u8, disabled: []const []const u8) bool {
     for (SKIP) |s| if (std.mem.eql(u8, name, s)) return true;
+    for (disabled) |s| if (std.mem.eql(u8, name, s)) return true;
     return false;
 }
 
 /// True when at least one non-skipped check declares `needs_ast = .yes`,
 /// meaning the shared parsed-source index is worth building for this run.
-fn anyNeedsAst() bool {
+fn anyNeedsAst(disabled: []const []const u8) bool {
     for (registry.all) |cmd| {
-        if (shouldSkip(cmd.name)) continue;
+        if (shouldSkip(cmd.name, disabled)) continue;
         if (cmd.needs_ast == .yes) return true;
     }
     return false;
+}
+
+// spec: Run All - Skips checks whose name appears in the disabled config list
+test "shouldSkip honors the disabled list and built-in skips" {
+    try std.testing.expect(shouldSkip("magic-number", &.{"magic-number"}));
+    try std.testing.expect(shouldSkip("spec-init", &.{}));
+    try std.testing.expect(!shouldSkip("spec", &.{"magic-number"}));
 }

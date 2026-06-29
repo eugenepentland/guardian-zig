@@ -9,6 +9,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Loads guardian.toml from target directory
 - Falls back to defaults when no config file exists
 - Supports boundary rules via [[boundary]] sections
+- Parses a top-level disabled list of check names
 
 ## Spec Coverage
 
@@ -73,6 +74,10 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Hashes the guardian input set into a stable digest
 - Round-trips the digest through the cache file
+
+## Run All
+
+- Skips checks whose name appears in the disabled config list
 
 ## Snapshot Lifecycle
 

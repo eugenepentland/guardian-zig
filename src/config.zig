@@ -120,6 +120,10 @@ pub const Config = struct {
     /// unchanged since the last all-green run (see cache.zig).
     cache_enabled: bool = true,
     file_size_exclude: []const []const u8 = &.{},
+    /// Registry names of checks to skip entirely in `all` runs (e.g.
+    /// "magic-number"). Lets a project disable individual checks that have no
+    /// dedicated [section] toggle. Matched against each check's registry name.
+    disabled: []const []const u8 = &.{},
     boundary_rules: []const BoundaryRule = &.{},
     spec_quality: SpecQualityCfg = .{},
     function_size: FunctionSizeCfg = .{},
@@ -162,6 +166,24 @@ const Section = enum {
     baseline,
     unknown,
 };
+
+/// Applies a top-level `key = value` line (one outside any [section] header)
+/// to `cfg`. Unknown keys are ignored, preserving the field's default.
+fn applyTopLevelKey(allocator: Allocator, cfg: *Config, key: []const u8, val_raw: []const u8) std.mem.Allocator.Error!void {
+    if (std.mem.eql(u8, key, "spec_file")) {
+        if (parseString(val_raw)) |v| cfg.spec_file = v;
+    } else if (std.mem.eql(u8, key, "max_file_lines")) {
+        cfg.max_file_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.max_file_lines;
+    } else if (std.mem.eql(u8, key, "cache_enabled")) {
+        cfg.cache_enabled = parseBool(val_raw) orelse cfg.cache_enabled;
+    } else if (std.mem.eql(u8, key, "file_size_exclude")) {
+        var list = try parseStringArray(allocator, val_raw);
+        cfg.file_size_exclude = try list.toOwnedSlice(allocator);
+    } else if (std.mem.eql(u8, key, "disabled")) {
+        var list = try parseStringArray(allocator, val_raw);
+        cfg.disabled = try list.toOwnedSlice(allocator);
+    }
+}
 
 /// Parses guardian.toml content. Unknown sections and malformed values are
 /// silently ignored; defaults are preserved for any field not set. Errors
@@ -265,18 +287,7 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
             }
 
             switch (section) {
-                .top => {
-                    if (std.mem.eql(u8, key, "spec_file")) {
-                        if (parseString(val_raw)) |v| cfg.spec_file = v;
-                    } else if (std.mem.eql(u8, key, "max_file_lines")) {
-                        cfg.max_file_lines = std.fmt.parseInt(u32, val_raw, 10) catch cfg.max_file_lines;
-                    } else if (std.mem.eql(u8, key, "cache_enabled")) {
-                        cfg.cache_enabled = parseBool(val_raw) orelse cfg.cache_enabled;
-                    } else if (std.mem.eql(u8, key, "file_size_exclude")) {
-                        var list = try parseStringArray(allocator, val_raw);
-                        cfg.file_size_exclude = try list.toOwnedSlice(allocator);
-                    }
-                },
+                .top => try applyTopLevelKey(allocator, &cfg, key, val_raw),
                 .spec_quality => {
                     if (std.mem.eql(u8, key, "enabled")) {
                         cfg.spec_quality.enabled = parseBool(val_raw) orelse cfg.spec_quality.enabled;
@@ -509,6 +520,19 @@ test "parse empty array" {
     ;
     const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(usize, 0), cfg.file_size_exclude.len);
+}
+
+// spec: Configuration - Parses a top-level disabled list of check names
+test "parse disabled check list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\disabled = ["spec-drift", "magic-number"]
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
+    try std.testing.expectEqualStrings("spec-drift", cfg.disabled[0]);
+    try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
 }
 
 test "parse named section" {
