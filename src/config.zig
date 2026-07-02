@@ -175,6 +175,13 @@ pub const Config = struct {
     /// deterministic. Set false to force the sequential path.
     parallel: bool = true,
     file_size_exclude: []const []const u8 = &.{},
+    /// Path globs (walker-relative, e.g. "src/serve/templates") dropped from the
+    /// whole source scan — no check ever sees a file whose path matches. Unlike
+    /// [[allow]] (which each check honors or ignores), this excludes the file
+    /// before any check runs, so it works uniformly. Use for GENERATED code
+    /// (codegen output committed under src/) that shouldn't be linted at all.
+    /// Substring match when a pattern has no `*` (see walk.matchGlob).
+    exclude: []const []const u8 = &.{},
     /// Registry names of checks to skip entirely in `all` runs (e.g.
     /// "magic-number"). Lets a project disable individual checks that have no
     /// dedicated [section] toggle. Matched against each check's registry name.

@@ -43,7 +43,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // the ~17 AST checks read and parse each file once instead of per check.
     var index_storage: ast_index.Index = undefined;
     if (anyNeedsAst(ctx.cfg.disabled)) {
-        index_storage = try ast_index.build(ctx.allocator, ctx.project_dir);
+        index_storage = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
         ctx.source_index = &index_storage;
     }
 

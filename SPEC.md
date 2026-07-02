@@ -11,6 +11,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
 - Parses per-check allowed-path overrides via [[allow]] sections
+- Parses a top-level exclude list of path globs dropped from the scan
 
 ## Spec Coverage
 
@@ -77,6 +78,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Builds a parsed-source index by reading and parsing each file once
 - Iterates the index exposing each file's pre-parsed syntax tree to a visitor
 - Returns the shared index when present and builds a private one otherwise
+- Drops files matching a config exclude glob from the built index
 
 ## Skip Cache
 

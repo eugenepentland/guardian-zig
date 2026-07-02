@@ -282,6 +282,8 @@ fn applyTopLevelKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         cfg.parallel = parseBool(kv.val) orelse cfg.parallel;
     } else if (std.mem.eql(u8, kv.key, "file_size_exclude")) {
         cfg.file_size_exclude = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, "exclude")) {
+        cfg.exclude = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, "disabled")) {
         cfg.disabled = try toStrings(ctx.allocator, kv.val);
     }
@@ -477,6 +479,19 @@ test "parse disabled check list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
     try std.testing.expectEqualStrings("spec-drift", cfg.disabled[0]);
     try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
+}
+
+// spec: Configuration - Parses a top-level exclude list of path globs dropped from the scan
+test "parse top-level exclude list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\exclude = ["src/serve/templates", "*/generated/*"]
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(usize, 2), cfg.exclude.len);
+    try std.testing.expectEqualStrings("src/serve/templates", cfg.exclude[0]);
+    try std.testing.expectEqualStrings("*/generated/*", cfg.exclude[1]);
 }
 
 // spec: Configuration - Parses per-check allowed-path overrides via [[allow]] sections

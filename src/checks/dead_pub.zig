@@ -102,6 +102,27 @@ fn findDead(
     return dead.toOwnedSlice(allocator);
 }
 
+/// Tallies identifier references across src/ into `ref_ctx.counts`. With no
+/// excludes it reuses the pre-parsed shared index (fast). With excludes, files
+/// are dropped from that index — but a decl referenced ONLY from an excluded
+/// (e.g. generated) file is still alive, so it walks src/ unfiltered instead
+/// (costs a re-parse; dead-pub isn't hot). This keeps `exclude` meaning "don't
+/// lint" rather than "pretend the file's references don't exist".
+fn tallySrcRefs(
+    ctx_param: *registry.RunCtx,
+    allocator: std.mem.Allocator,
+    project_dir: []const u8,
+    ref_ctx: *RefCtx,
+) !void {
+    const visitor: walk.Visitor = .{ .ctx = ref_ctx, .visit = refVisit };
+    if (ctx_param.cfg.exclude.len == 0) {
+        try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, visitor);
+    } else {
+        const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
+        try walk.walkZigFiles(allocator, src_path, .{ .display_root = "src" }, visitor);
+    }
+}
+
 /// Entry point for the dead-pub check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
@@ -131,10 +152,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .counts = &counts,
         .skip_tests = ignore_test,
     };
-    // `src` reuses the shared index's cached file contents; `test` is not
-    // indexed, so it still walks. When ignore_test_refs is set, test-block
-    // references in src don't count and the test/ tree is skipped entirely.
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
+    try tallySrcRefs(ctx_param, allocator, project_dir, &ref_ctx);
+    // `test` is not indexed, so it always walks. When ignore_test_refs is set,
+    // the test/ tree is skipped entirely.
     if (!ignore_test) {
         const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
         const test_opts: walk.Visitor = .{ .ctx = &ref_ctx, .visit = refVisit };

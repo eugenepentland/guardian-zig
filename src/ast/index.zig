@@ -47,17 +47,25 @@ fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// Walks `<project_dir>/src` once, reading and parsing every `.zig` file
 /// into an `Index`. `arena` must outlive every check that consumes the
 /// returned index — the run-wide arena in check.zig satisfies this.
-pub fn build(arena: Allocator, project_dir: []const u8) walk.WalkError!Index {
+/// `excludes` are walker-relative path globs (config `exclude`) dropped from
+/// the scan, so a file matching one never reaches any check that reads the
+/// shared index (see Config.exclude, walk.matchGlob).
+pub fn build(arena: Allocator, project_dir: []const u8, excludes: []const []const u8) walk.WalkError!Index {
     var files: std.ArrayListUnmanaged(Entry) = .empty;
     var ctx: BuildCtx = .{ .arena = arena, .files = &files };
     const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(arena, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = collect });
+    const opts: walk.WalkOpts = .{ .display_root = "src", .excludes = excludes };
+    try walk.walkZigFiles(arena, src_path, opts, .{ .ctx = &ctx, .visit = collect });
     return .{ .files = try files.toOwnedSlice(arena) };
 }
 
 /// Returns the shared index when one is present, otherwise builds a private
 /// one into `storage` — for standalone single-check runs that bypass the
 /// shared `all` build. The returned pointer is valid for `storage`'s scope.
+/// The private build is unfiltered (empty excludes): config `exclude` is
+/// applied where the shared index is built (cli/run_all.zig), which every
+/// `all` run — the build/CI gate that generates baselines — goes through. A
+/// standalone single-check invocation scans the whole tree by design.
 pub fn resolve(
     shared: ?*const Index,
     arena: Allocator,
@@ -65,7 +73,7 @@ pub fn resolve(
     storage: *Index,
 ) walk.WalkError!*const Index {
     if (shared) |idx| return idx;
-    storage.* = try build(arena, project_dir);
+    storage.* = try build(arena, project_dir, &.{});
     return storage;
 }
 
@@ -106,12 +114,27 @@ test "build reads and parses every src file once" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const idx = try build(a, "test-project");
+    const idx = try build(a, "test-project", &.{});
     try std.testing.expect(idx.files.len > 0);
     // Every entry carries a parsed tree over null-terminated content.
     for (idx.files) |f| {
         try std.testing.expect(std.mem.endsWith(u8, f.rel_path, ".zig"));
         try std.testing.expectEqual(@as(u8, 0), f.content[f.content.len]);
+    }
+}
+
+// spec: AST Index - Drops files matching a config exclude glob from the built index
+test "build honors exclude globs, dropping matching files" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const all = try build(a, "test-project", &.{});
+    const filtered = try build(a, "test-project", &.{"core/"});
+    // Excluding the core/ subtree drops files without touching the rest.
+    try std.testing.expect(filtered.files.len < all.files.len);
+    for (filtered.files) |f| {
+        try std.testing.expect(std.mem.indexOf(u8, f.rel_path, "core/") == null);
     }
 }
 
