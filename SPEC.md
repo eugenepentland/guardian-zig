@@ -138,6 +138,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Dead Pub
 
 - Flags public declarations referenced only by themselves
+- Skips test-block references toward liveness when configured
 
 ## Allocator Hygiene
 

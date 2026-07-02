@@ -141,6 +141,16 @@ pub const OomDisciplineCfg = struct {
     enabled: bool = false,
 };
 
+/// Per-check config for the dead-pub check.
+pub const DeadPubCfg = struct {
+    /// When true, references from inside `test {...}` blocks (and the test/
+    /// tree) don't count toward a pub decl's liveness — so production-dead code
+    /// kept alive only by its own test is flagged. Off by default: the
+    /// tested-pure-function-seam idiom (a `pub fn analyzeContent` exercised only
+    /// by tests) is legitimate, so opting in is a per-project decision.
+    ignore_test_refs: bool = false,
+};
+
 /// Per-check config for the test-coverage check (per-pub-fn).
 pub const TestCoverageCfg = struct {
     /// Off by default: the check is intentionally strict (every pub fn
@@ -182,6 +192,7 @@ pub const Config = struct {
     baseline: BaselineCfg = .{},
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
+    dead_pub: DeadPubCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 

@@ -37,6 +37,7 @@ const Section = enum {
     baseline,
     escape_discipline,
     oom_discipline,
+    dead_pub,
     unknown,
 };
 
@@ -201,6 +202,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .baseline => applyEnabledCfg("baseline", ctx, kv),
         .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
+        .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .unknown => {},
     }
 }
@@ -224,6 +226,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "baseline", Section.baseline },
         .{ "escape_discipline", Section.escape_discipline },
         .{ "oom_discipline", Section.oom_discipline },
+        .{ "dead_pub", Section.dead_pub },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -310,6 +313,12 @@ fn applyEnabledCfg(comptime group: []const u8, ctx: ApplyCtx, kv: KeyVal) void {
     if (std.mem.eql(u8, kv.key, "enabled")) {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     }
+}
+
+/// Applies a single named bool key to `cfg.<group>`.
+fn applyBoolCfg(comptime group: []const u8, comptime key: []const u8, ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &@field(ctx.cfg, group);
+    if (std.mem.eql(u8, kv.key, key)) @field(g, key) = parseBool(kv.val) orelse @field(g, key);
 }
 
 fn parseBool(val: []const u8) ?bool {

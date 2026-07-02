@@ -4,6 +4,7 @@ const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
 const ast_index = @import("../ast/index.zig");
+const text = @import("../text.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -45,26 +46,33 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 const RefCtx = struct {
     allocator: std.mem.Allocator,
     counts: *std.StringHashMap(u32),
+    skip_tests: bool = false,
 };
 
 fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *RefCtx = @ptrCast(@alignCast(raw_ctx));
-    try tallyIdentifiers(ctx.allocator, entry.content, ctx.counts);
+    try tallyIdentifiers(ctx.allocator, entry.content, ctx.counts, ctx.skip_tests);
 }
 
 /// Increments `counts[name]` for every identifier token in `content` that is
-/// already a key in `counts`. Identifiers we don't track are ignored.
+/// already a key in `counts`. Identifiers we don't track are ignored. When
+/// `skip_tests` is set, identifiers inside `test {...}` blocks don't count, so
+/// a pub decl kept alive only by its own test is still seen as dead.
 fn tallyIdentifiers(
     allocator: std.mem.Allocator,
     content: []const u8,
     counts: *std.StringHashMap(u32),
+    skip_tests: bool,
 ) !void {
     const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
+    var scope: text.TestScope = .{};
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
+        scope.update(t.tag);
         if (t.tag != .identifier) continue;
+        if (skip_tests and scope.in_test) continue;
         const name = z[t.loc.start..t.loc.end];
         if (counts.getPtr(name)) |p| p.* += 1;
     }
@@ -108,17 +116,26 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     for (decls.items) |d| {
         try counts.put(d.name, 0);
     }
-    var ref_ctx: RefCtx = .{ .allocator = allocator, .counts = &counts };
+    const ignore_test = ctx_param.cfg.dead_pub.ignore_test_refs;
+    var ref_ctx: RefCtx = .{
+        .allocator = allocator,
+        .counts = &counts,
+        .skip_tests = ignore_test,
+    };
     // `src` reuses the shared index's cached file contents; `test` is not
-    // indexed, so it still walks.
+    // indexed, so it still walks. When ignore_test_refs is set, test-block
+    // references in src don't count and the test/ tree is skipped entirely.
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
-    const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, .{ .ctx = &ref_ctx, .visit = refVisit });
+    if (!ignore_test) {
+        const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
+        const test_opts: walk.Visitor = .{ .ctx = &ref_ctx, .visit = refVisit };
+        try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, test_opts);
+    }
     // build.zig is a Zig file at the project root — include its references
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});
     if (std.fs.cwd().readFileAlloc(allocator, build_path, 1024 * 1024)) |content| {
-        try tallyIdentifiers(allocator, content, &counts);
+        try tallyIdentifiers(allocator, content, &counts, false);
     } else |_| {}
 
     const dead = try findDead(allocator, decls.items, &counts);
@@ -182,8 +199,29 @@ test "tallyIdentifiers counts identifiers and skips strings/comments" {
         \\}
         \\const s = "foo in string"; // foo in comment
     ;
-    try tallyIdentifiers(a, content, &counts);
+    try tallyIdentifiers(a, content, &counts, false);
     try testing.expectEqual(@as(u32, 2), counts.get("foo").?);
+}
+
+// spec: Dead Pub - Skips test-block references toward liveness when configured
+test "tallyIdentifiers can skip test-block references" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var counts = std.StringHashMap(u32).init(a);
+    try counts.put("widget", 0);
+
+    const content =
+        \\pub fn widget() void {}
+        \\test "uses widget" {
+        \\    widget();
+        \\    widget();
+        \\}
+    ;
+    try tallyIdentifiers(a, content, &counts, true);
+    // Only the declaration itself counts; the two test references are skipped.
+    try testing.expectEqual(@as(u32, 1), counts.get("widget").?);
 }
 
 test "findDead known limitation: same-named decls in different files share a counter" {

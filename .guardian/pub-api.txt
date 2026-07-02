@@ -184,6 +184,7 @@ src/config.zig::BoolOpsCfg struct_
 src/config.zig::BoundaryRule struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::Config struct_
+src/config.zig::DeadPubCfg struct_
 src/config.zig::DocQualityCfg struct_
 src/config.zig::EscapeDisciplineCfg struct_
 src/config.zig::FunctionLengthCfg struct_
