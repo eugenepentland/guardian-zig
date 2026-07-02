@@ -367,18 +367,7 @@ pub fn pubContainersFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]
         const name = tree.tokenSlice(name_tok);
 
         const init_node = var_decl.ast.init_node.unwrap() orelse continue;
-        const init_tag = tree.nodeTag(init_node);
-        const is_container = switch (init_tag) {
-            .container_decl,
-            .container_decl_trailing,
-            .container_decl_two,
-            .container_decl_two_trailing,
-            .container_decl_arg,
-            .container_decl_arg_trailing,
-            => true,
-            else => false,
-        };
-        if (!is_container) continue;
+        if (!isContainerNode(&tree, init_node)) continue;
         const kind = classifyContainer(&tree, init_node);
         switch (kind) {
             .struct_, .enum_, .union_, .opaque_ => {},
@@ -428,8 +417,9 @@ pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]cons
 
         const init_node = var_decl.ast.init_node.unwrap() orelse continue;
         const init_tag = tree.nodeTag(init_node);
-        const kind: PubConstKind = switch (init_tag) {
-            .container_decl, .container_decl_trailing, .container_decl_two, .container_decl_two_trailing, .container_decl_arg, .container_decl_arg_trailing => classifyContainer(&tree, init_node),
+        const kind: PubConstKind = if (isContainerNode(&tree, init_node))
+            classifyContainer(&tree, init_node)
+        else switch (init_tag) {
             .fn_proto, .fn_proto_simple, .fn_proto_one, .fn_proto_multi => .fn_proto,
             else => .value,
         };
@@ -504,14 +494,19 @@ fn classifyReturn(tree: *const Ast, proto: Ast.full.FnProto) ReturnKind {
 }
 
 fn classifyContainer(tree: *const Ast, node: Ast.Node.Index) PubConstKind {
-    // First token of a container_decl is the container keyword: struct/enum/union/opaque
-    const first_tok = tree.firstToken(node);
-    const text = tree.tokenSlice(first_tok);
-    if (std.mem.eql(u8, text, "struct")) return .struct_;
-    if (std.mem.eql(u8, text, "enum")) return .enum_;
-    if (std.mem.eql(u8, text, "union")) return .union_;
-    if (std.mem.eql(u8, text, "opaque")) return .opaque_;
-    return .value;
+    // The container keyword (struct/enum/union/opaque) is the node's *main*
+    // token. firstToken returns the layout keyword for `packed struct` /
+    // `extern struct`, so those would misclassify as .value if compared by
+    // text — compare the main token's tag instead. tagged_union nodes
+    // (`union(enum)`) also main-token on `union`.
+    const main_tok = tree.nodeMainToken(node);
+    return switch (tree.tokens.items(.tag)[main_tok]) {
+        .keyword_struct => .struct_,
+        .keyword_enum => .enum_,
+        .keyword_union => .union_,
+        .keyword_opaque => .opaque_,
+        else => .value,
+    };
 }
 
 test "imports finds simple @import calls" {
@@ -691,6 +686,28 @@ test "pubContainers counts struct fields and enum variants" {
     try std.testing.expectEqualStrings("Methods", containers[3].name);
     // Methods has 1 field — `get` is a fn decl, not counted.
     try std.testing.expectEqual(@as(u32, 1), containers[3].field_count);
+}
+
+test "pubConsts and pubContainers classify tagged unions and layout structs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source: [:0]const u8 =
+        \\pub const Tagged = union(enum) { a: u8, b: u16 };
+        \\pub const Packed = packed struct { x: u1, y: u1 };
+        \\pub const Ext = extern struct { p: usize };
+    ;
+    const consts = try pubConsts(a, source);
+    try std.testing.expectEqual(@as(usize, 3), consts.len);
+    try std.testing.expectEqual(PubConstKind.union_, consts[0].kind);
+    try std.testing.expectEqual(PubConstKind.struct_, consts[1].kind);
+    try std.testing.expectEqual(PubConstKind.struct_, consts[2].kind);
+
+    // All three are containers with counted fields (previously misclassified
+    // as .value and skipped entirely).
+    const containers = try pubContainers(a, source);
+    try std.testing.expectEqual(@as(usize, 3), containers.len);
+    try std.testing.expectEqual(@as(u32, 2), containers[0].field_count);
 }
 
 test "pubConsts classifies container kinds" {

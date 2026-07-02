@@ -18,10 +18,17 @@ const FileSizeCtx = struct {
 
 fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
-    var lines: u32 = 1;
+    // Count newlines, then add 1 only for a final unterminated line. `zig fmt`
+    // always emits a trailing newline, so counting 1 + newlines would report
+    // an off-by-one (an N-line file as N+1) and fail files exactly at the cap.
+    var newlines: u32 = 0;
     for (entry.content) |c| {
-        if (c == '\n') lines += 1;
+        if (c == '\n') newlines += 1;
     }
+    const lines: u32 = if (entry.content.len > 0 and entry.content[entry.content.len - 1] != '\n')
+        newlines + 1
+    else
+        newlines;
     if (lines > ctx.max_lines) {
         const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: {d} lines (limit: {d})", .{ entry.rel_path, lines, ctx.max_lines });
         try ctx.violations.append(ctx.allocator, msg);
@@ -57,6 +64,20 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         print("  {s}\n", .{v});
     }
     return error.CheckFailed;
+}
+
+test "fileSizeVisit is not off-by-one on the trailing newline" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: FileSizeCtx = .{ .allocator = a, .max_lines = 2, .violations = &violations };
+    // Exactly 2 lines with the fmt-mandated trailing newline: at the cap, ok.
+    try fileSizeVisit(@ptrCast(&ctx), .{ .rel_path = "x.zig", .content = "a\nb\n" });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    // 3 lines: over the cap.
+    try fileSizeVisit(@ptrCast(&ctx), .{ .rel_path = "y.zig", .content = "a\nb\nc\n" });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
 test "fileSizeVisit accumulates violations" {

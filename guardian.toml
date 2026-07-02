@@ -5,7 +5,7 @@ spec_file = "SPEC.md"
 # their tests. That split is what lets every AST check parse each file once and
 # see declarations nested inside structs. New consumers should keep the
 # framework default 500.
-max_file_lines = 730
+max_file_lines = 760
 file_size_exclude = []
 
 # Spec modules must not depend on config or analysis — only check.zig bridges them

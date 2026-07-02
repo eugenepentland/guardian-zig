@@ -30,7 +30,7 @@ src/ast/parser.zig::pubContainers fn
 src/ast/parser.zig::pubContainersFromTree fn
 src/ast/parser.zig::pubFns fn
 src/ast/parser.zig::pubFnsFromTree fn
-src/baseline.zig::Outcome value
+src/baseline.zig::Outcome union_
 src/baseline.zig::VERSION value
 src/baseline.zig::extract fn
 src/baseline.zig::lifecycle fn
@@ -203,7 +203,7 @@ src/snapshot.zig::isEmpty fn
 src/snapshot.zig::read fn
 src/snapshot.zig::write fn
 src/snapshot_helper.zig::LifecycleError value
-src/snapshot_helper.zig::Outcome value
+src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::UPDATE_ENV value
 src/snapshot_helper.zig::lifecycle fn
 src/snapshot_helper.zig::shouldUpdate fn
