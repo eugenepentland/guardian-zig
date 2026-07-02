@@ -87,6 +87,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Skips checks whose name appears in the disabled config list
 - Rejects unknown check names in the disabled list
+- Tolerates retired check names in the disabled list
 
 ## Snapshot Lifecycle
 

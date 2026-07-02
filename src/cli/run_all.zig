@@ -59,10 +59,35 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     return error.CheckFailed;
 }
 
-/// Fails the run when the `disabled` config names a check that doesn't exist.
+/// A check removed by a merge/fold. Its name is still tolerated in `disabled`
+/// (and silently ignored) so a consumer's guardian.toml — and any leftover
+/// baseline/snapshot file — doesn't break the build when a check is folded into
+/// another. `[[allow]]` entries for a retired name are already inert (nothing
+/// looks them up). Guardian emits a one-line migration notice instead.
+const RetiredCheck = struct { name: []const u8, folded_into: []const u8 };
+const retired = [_]RetiredCheck{
+    .{ .name = "spec-drift", .folded_into = "pub-api-surface" },
+    .{ .name = "comptime-quota", .folded_into = "panic-budget" },
+    .{ .name = "doc-quality", .folded_into = "doc-comments" },
+    .{ .name = "vague-name-blacklist", .folded_into = "naming" },
+    .{ .name = "dup-const", .folded_into = "repeated-string-literal" },
+};
+
+fn retiredInfo(name: []const u8) ?RetiredCheck {
+    for (retired) |r| if (std.mem.eql(u8, r.name, name)) return r;
+    return null;
+}
+
+/// Fails the run when the `disabled` config names a check that doesn't exist,
+/// except for retired names (folded into another check), which are tolerated
+/// with a migration notice so folds don't break downstream config.
 fn validateDisabled(disabled: []const []const u8) types.RunError!void {
     for (disabled) |name| {
         if (registry.find(name) != null) continue;
+        if (retiredInfo(name)) |r| {
+            reporter.ok("note: '{s}' is retired (folded into {s})", .{ r.name, r.folded_into });
+            continue;
+        }
         fail("unknown check name in `disabled`: {s}", .{name});
         return error.CheckFailed;
     }
@@ -121,6 +146,7 @@ fn anyNeedsAst(disabled: []const []const u8) bool {
 
 // spec: Run All - Skips checks whose name appears in the disabled config list
 // spec: Run All - Rejects unknown check names in the disabled list
+// spec: Run All - Tolerates retired check names in the disabled list
 
 test "shouldSkip honors the disabled list and built-in skips" {
     try std.testing.expect(shouldSkip("magic-number", &.{"magic-number"}));
@@ -132,4 +158,12 @@ test "disabled list entries must be real check names" {
     // A real check resolves; a typo does not.
     try std.testing.expect(registry.find("magic-number") != null);
     try std.testing.expect(registry.find("magic-numbers") == null);
+}
+
+test "retired check names are recognized (tolerated in disabled)" {
+    // A retired name resolves via retiredInfo (so validate won't reject it),
+    // and reports where it was folded; a genuine typo does not.
+    try std.testing.expect(retiredInfo("spec-drift") != null);
+    try std.testing.expectEqualStrings("pub-api-surface", retiredInfo("spec-drift").?.folded_into);
+    try std.testing.expect(retiredInfo("not-a-real-check") == null);
 }
