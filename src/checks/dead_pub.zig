@@ -51,13 +51,31 @@ const RefCtx = struct {
 
 fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *RefCtx = @ptrCast(@alignCast(raw_ctx));
-    try tallyIdentifiers(ctx.allocator, entry.content, ctx.counts, ctx.skip_tests);
+    if (entry.tree) |t| {
+        tallyTree(t, ctx.counts, ctx.skip_tests);
+    } else {
+        try tallyIdentifiers(ctx.allocator, entry.content, ctx.counts, ctx.skip_tests);
+    }
 }
 
-/// Increments `counts[name]` for every identifier token in `content` that is
-/// already a key in `counts`. Identifiers we don't track are ignored. When
-/// `skip_tests` is set, identifiers inside `test {...}` blocks don't count, so
-/// a pub decl kept alive only by its own test is still seen as dead.
+/// Increments `counts[name]` for every identifier token in a pre-parsed tree
+/// that is already a key in `counts`. Iterating the shared token stream avoids
+/// re-tokenizing. When `skip_tests` is set, identifiers inside `test {...}`
+/// blocks don't count, so a pub decl kept alive only by its own test is still
+/// seen as dead.
+fn tallyTree(tree: *const std.zig.Ast, counts: *std.StringHashMap(u32), skip_tests: bool) void {
+    const tags = tree.tokens.items(.tag);
+    var scope: text.TestScope = .{};
+    for (tags, 0..) |tag, i| {
+        scope.update(tag);
+        if (tag != .identifier) continue;
+        if (skip_tests and scope.in_test) continue;
+        if (counts.getPtr(tree.tokenSlice(@intCast(i)))) |p| p.* += 1;
+    }
+}
+
+/// Content entry for files outside the shared index (the test/ tree and
+/// build.zig): parses a tree once, then tallies via `tallyTree`.
 fn tallyIdentifiers(
     allocator: std.mem.Allocator,
     content: []const u8,
@@ -65,17 +83,8 @@ fn tallyIdentifiers(
     skip_tests: bool,
 ) !void {
     const z = try allocator.dupeZ(u8, content);
-    var tok = std.zig.Tokenizer.init(z);
-    var scope: text.TestScope = .{};
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
-        scope.update(t.tag);
-        if (t.tag != .identifier) continue;
-        if (skip_tests and scope.in_test) continue;
-        const name = z[t.loc.start..t.loc.end];
-        if (counts.getPtr(name)) |p| p.* += 1;
-    }
+    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    tallyTree(&tree, counts, skip_tests);
 }
 
 /// Returns decls whose identifier-token count is at most 1 (only the

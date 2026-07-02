@@ -33,35 +33,41 @@ fn isWriterName(name: []const u8) bool {
         std.mem.endsWith(u8, name, "_writer");
 }
 
-/// Counts `anytype` parameter tokens in source, excluding writer-typed params
-/// (`writer: anytype`). Tokenizer-based so it correctly skips strings/comments.
-fn countAnytype(allocator: std.mem.Allocator, content: []const u8) u32 {
-    const z = allocator.dupeZ(u8, content) catch return 0;
-    var tok = std.zig.Tokenizer.init(z);
+/// Counts `anytype` parameter tokens in a pre-parsed tree, excluding
+/// writer-typed params (`writer: anytype`). Iterates the shared token stream;
+/// only identifiers need their text, so `tokenSlice` is called only for those.
+fn countAnytypeTree(tree: *const std.zig.Ast) u32 {
+    const tags = tree.tokens.items(.tag);
     var count: u32 = 0;
     var prev: std.zig.Token.Tag = .invalid;
     var name_before_colon: []const u8 = "";
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
+    for (tags, 0..) |tag, i| {
+        if (tag == .eof) break;
         // `<name> : anytype` — prev is the colon, name_before_colon the param.
-        if (t.tag == .keyword_anytype and !(prev == .colon and isWriterName(name_before_colon))) {
+        if (tag == .keyword_anytype and !(prev == .colon and isWriterName(name_before_colon))) {
             count += 1;
         }
-        if (t.tag == .identifier) name_before_colon = z[t.loc.start..t.loc.end];
+        if (tag == .identifier) name_before_colon = tree.tokenSlice(@intCast(i));
         // Keep the identifier alive across the single colon before `anytype`;
         // any other token resets it so only `ident : anytype` matches.
-        if (t.tag != .identifier and t.tag != .colon) name_before_colon = "";
-        prev = t.tag;
+        if (tag != .identifier and tag != .colon) name_before_colon = "";
+        prev = tag;
     }
     return count;
+}
+
+/// Content entry (tests / standalone with no shared tree): parse once, count.
+fn countAnytype(allocator: std.mem.Allocator, content: []const u8) u32 {
+    const z = allocator.dupeZ(u8, content) catch return 0;
+    var tree = std.zig.Ast.parse(allocator, z, .zig) catch return 0;
+    return countAnytypeTree(&tree);
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isExcluded(entry.rel_path, ctx.exclude)) return;
     const a = ctx.allocator;
-    const count = countAnytype(a, entry.content);
+    const count = if (entry.tree) |t| countAnytypeTree(t) else countAnytype(a, entry.content);
     if (count > ctx.max_per_file) {
         const msg = try std.fmt.allocPrint(
             a,

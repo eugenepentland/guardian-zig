@@ -26,27 +26,31 @@ pub fn analyzeContent(
     defer arena.deinit();
     const a = arena.allocator();
     const z = try a.dupeZ(u8, content);
+    var tree = try std.zig.Ast.parse(a, z, .zig);
 
     var counts: std.StringHashMapUnmanaged(u32) = .empty;
     defer counts.deinit(a);
 
-    try countLiterals(a, z, &counts);
+    try countLiteralsTree(&tree, a, &counts);
     return collectViolations(allocator, rel_path, &counts);
 }
 
-/// Tokenizes `z` and tallies every non-test string literal at or above the
-/// minimum length into `counts`.
-fn countLiterals(
+/// Tallies every non-test string literal at or above the minimum length in a
+/// pre-parsed tree. Iterates the shared token stream; only string literals need
+/// their end offset (via tokenSlice).
+fn countLiteralsTree(
+    tree: *const std.zig.Ast,
     a: Allocator,
-    z: [:0]const u8,
     counts: *std.StringHashMapUnmanaged(u32),
 ) Allocator.Error!void {
-    var tok = std.zig.Tokenizer.init(z);
     var scan: ScanState = .{};
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
-        const inner = scan.step(z, t) orelse continue;
+    const tags = tree.tokens.items(.tag);
+    const starts = tree.tokens.items(.start);
+    for (tags, 0..) |tag, i| {
+        if (tag == .eof) break;
+        const start: usize = starts[i];
+        const end = if (tag == .string_literal) start + tree.tokenSlice(@intCast(i)).len else start;
+        const inner = scan.step(tree.source, .{ .tag = tag, .loc = .{ .start = start, .end = end } }) orelse continue;
         if (inner.len < min_length) continue;
         const gop = try counts.getOrPut(a, inner);
         if (!gop.found_existing) gop.value_ptr.* = 0;
@@ -181,8 +185,41 @@ fn appendStringLiteral(sink: Sink, name: []const u8, raw: []const u8) !void {
     });
 }
 
-/// Tokenizer-based scan for top-level `(pub) const NAME = "literal";`. Tracks
-/// brace depth so consts inside function bodies are ignored.
+/// Applies one token to the const-scan state machine. `text` is the token's
+/// source text (only meaningful for identifiers and string literals).
+fn stepConst(state: *ConstScanState, sink: Sink, tag: std.zig.Token.Tag, text: []const u8) !void {
+    switch (tag) {
+        .l_brace => state.depth += 1,
+        .r_brace => state.depth -= 1,
+        .keyword_const => beginConst(state),
+        .identifier => recordName(state, text),
+        .equal => markAfterEq(state),
+        .string_literal => try onStringLiteral(state, sink, text),
+        .semicolon => state.reset(),
+        else => if (state.pending_after_eq) state.reset(),
+    }
+}
+
+/// Collects top-level `(pub) const NAME = "literal";` from a pre-parsed tree.
+/// Brace depth keeps consts inside function bodies out. Iterates the shared
+/// token stream; only identifiers / string literals need their text.
+fn extractConstsTree(
+    tree: *const std.zig.Ast,
+    allocator: Allocator,
+    file: []const u8,
+    out: *std.ArrayListUnmanaged(Decl),
+) !void {
+    var state: ConstScanState = .{};
+    const sink: Sink = .{ .allocator = allocator, .file = file, .out = out };
+    const tags = tree.tokens.items(.tag);
+    for (tags, 0..) |tag, i| {
+        if (tag == .eof) break;
+        const text = if (tag == .identifier or tag == .string_literal) tree.tokenSlice(@intCast(i)) else "";
+        try stepConst(&state, sink, tag, text);
+    }
+}
+
+/// Content entry (tests / standalone with no shared tree): parse once, collect.
 fn extractFileScopeStringConsts(
     allocator: Allocator,
     file: []const u8,
@@ -190,24 +227,8 @@ fn extractFileScopeStringConsts(
     out: *std.ArrayListUnmanaged(Decl),
 ) !void {
     const z = try allocator.dupeZ(u8, content);
-    var tok = std.zig.Tokenizer.init(z);
-    var state: ConstScanState = .{};
-    const sink: Sink = .{ .allocator = allocator, .file = file, .out = out };
-
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
-        switch (t.tag) {
-            .l_brace => state.depth += 1,
-            .r_brace => state.depth -= 1,
-            .keyword_const => beginConst(&state),
-            .identifier => recordName(&state, z[t.loc.start..t.loc.end]),
-            .equal => markAfterEq(&state),
-            .string_literal => try onStringLiteral(&state, sink, z[t.loc.start..t.loc.end]),
-            .semicolon => state.reset(),
-            else => if (state.pending_after_eq) state.reset(),
-        }
-    }
+    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    try extractConstsTree(&tree, allocator, file, out);
 }
 
 /// Handles a `string_literal` token: when a value is expected, records the decl
@@ -266,9 +287,30 @@ const MergedCtx = struct {
 
 fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *MergedCtx = @ptrCast(@alignCast(raw_ctx));
-    const out = try analyzeContent(ctx.allocator, entry.rel_path, entry.content);
+    if (entry.tree) |t| {
+        try scanFile(ctx, t, entry.rel_path);
+    } else {
+        const z = try ctx.allocator.dupeZ(u8, entry.content);
+        var tree = try std.zig.Ast.parse(ctx.allocator, z, .zig);
+        try scanFile(ctx, &tree, entry.rel_path);
+    }
+}
+
+/// Runs both analyses over one file's pre-parsed tree: per-file repeated
+/// literals (emitted now) and its file-scope string consts (accumulated for the
+/// cross-file duplicate pass in `run`).
+fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) anyerror!void {
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    const fa = arena.allocator();
+
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try countLiteralsTree(tree, fa, &counts);
+    const out = try collectViolations(ctx.allocator, rel_path, &counts);
     for (out) |line| try ctx.violations.append(ctx.allocator, line);
-    try extractFileScopeStringConsts(ctx.allocator, entry.rel_path, entry.content, ctx.decls);
+
+    // Decls persist into the cross-file pass, so they use the run allocator.
+    try extractConstsTree(tree, ctx.allocator, rel_path, ctx.decls);
 }
 
 /// Entry point for the repeated-string-literal check (in-file repeats +
