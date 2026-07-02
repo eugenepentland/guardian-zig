@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-56 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
+58 checks ship today, gating Guardian's own self-build. Most are hard-block; `test-coverage`, `escape-discipline`, and `oom-discipline` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
 
 ### Spec workflow
 | Check | Blocks on |

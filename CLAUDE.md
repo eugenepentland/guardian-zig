@@ -107,7 +107,8 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-56 hard-block checks plus `zig fmt --check`. Full table in README.md;
+58 checks (most hard-block; test-coverage/escape-discipline/oom-discipline
+opt-in) plus `zig fmt --check`. Full table in README.md;
 the categories are: spec workflow, structural, public API, code style,
 error handling, and allocation. Four checks are snapshot-based
 (pub-api-surface, panic-budget, spec-drift, comptime-quota) — refresh
