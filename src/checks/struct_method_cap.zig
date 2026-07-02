@@ -103,6 +103,9 @@ fn countPubFns(tok: *std.zig.Tokenizer) u32 {
             .l_brace => depth += 1,
             .r_brace => depth -= 1,
             .keyword_pub => saw_pub = true,
+            // Modifiers sit between `pub` and `fn`; they must not clear saw_pub,
+            // or `pub inline fn` / `pub extern fn` / `pub export fn` go uncounted.
+            .keyword_inline, .keyword_noinline, .keyword_extern, .keyword_export => {},
             .keyword_fn => {
                 if (saw_pub and depth == 1) count += 1;
                 saw_pub = false;
@@ -173,6 +176,21 @@ test "analyzeContent flags struct with > 20 methods" {
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }
 
+test "analyzeContent counts pub inline/extern methods toward the cap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    try buf.appendSlice(a, "pub const Big = struct {\n");
+    // 21 `pub inline fn` methods: before the fix the modifier reset saw_pub
+    // and none were counted.
+    for (0..21) |i| {
+        try buf.appendSlice(a, try std.fmt.allocPrint(a, "    pub inline fn m{d}() void {{}}\n", .{i}));
+    }
+    try buf.appendSlice(a, "};\n");
+    const out = try analyzeContent(a, "src/x.zig", buf.items);
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
 test "analyzeContent allows struct with few methods" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
