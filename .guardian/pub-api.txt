@@ -188,8 +188,8 @@ src/config.zig::ReturnsPerFnCfg struct_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
-src/config.zig::load fn
-src/config.zig::parse fn
+src/config_parser.zig::load fn
+src/config_parser.zig::parse fn
 src/reporter.zig::Capture struct_
 src/reporter.zig::GREEN value
 src/reporter.zig::PREFIX value

@@ -1,5 +1,6 @@
 const std = @import("std");
 const config_mod = @import("config.zig");
+const config_parser = @import("config_parser.zig");
 const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
@@ -28,7 +29,7 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    const cfg = config_mod.load(allocator, parsed.project_dir);
+    const cfg = config_parser.load(allocator, parsed.project_dir);
     var ctx: registry.RunCtx = .{
         .allocator = allocator,
         .project_dir = parsed.project_dir,
@@ -91,6 +92,7 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
 test {
     // Framework modules
     _ = @import("config.zig");
+    _ = @import("config_parser.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");

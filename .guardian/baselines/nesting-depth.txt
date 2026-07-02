@@ -1,2 +1,1 @@
 # guardian-snapshot v1
-src/config.zig:191: fn parse reaches nesting depth 6 (cap 4)

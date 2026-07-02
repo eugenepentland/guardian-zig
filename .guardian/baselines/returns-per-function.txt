@@ -1,2 +1,1 @@
 # guardian-snapshot v1
-src/config.zig:145: fn 'load' has 4 return statements (cap 3)

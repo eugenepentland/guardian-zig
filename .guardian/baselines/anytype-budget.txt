@@ -1,3 +1,1 @@
 # guardian-snapshot v1
-src/reporter.zig: 7 `anytype` parameters (limit: 2)
-src/testing/golden_runner.zig: 3 `anytype` parameters (limit: 2)

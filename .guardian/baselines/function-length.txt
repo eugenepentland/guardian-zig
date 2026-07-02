@@ -1,2 +1,1 @@
 # guardian-snapshot v1
-src/config.zig:191: fn parse is 219 lines (cap 60)

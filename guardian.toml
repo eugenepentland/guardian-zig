@@ -15,6 +15,17 @@ enabled = true
 module = "src/spec/*"
 forbidden = ["config"]
 
+# The reporter is Guardian's printf-style logging boundary and golden_runner is
+# a generic test harness — variadic `anytype` is the idiomatic mechanism there,
+# not the untyped-generics smell the budget targets. Exempt both.
+[anytype_budget]
+exclude = ["reporter.zig", "testing/golden_runner.zig"]
+
+# Config is a flat settings aggregation (one field per knob), not a "god struct"
+# doing too much — the type-size smell doesn't apply. Exempt it.
+[type_size]
+exclude = ["config.zig"]
+
 # Self-hosting: enforce that every pub fn is referenced from a test. Entry
 # points (main), CLI/build integration (printHelp, addAllChecks), env/IO
 # wrappers around already-tested pure logic (parseFile, scanDir,

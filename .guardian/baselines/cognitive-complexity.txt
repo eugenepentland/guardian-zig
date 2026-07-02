@@ -1,2 +1,1 @@
 # guardian-snapshot v1
-src/config.zig: fn parse cognitive complexity 71 (limit: 15)

@@ -129,8 +129,8 @@ src/checks/vague_name_blacklist.zig::run | fn run(ctx: *registry.RunCtx) registr
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
-src/config.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
-src/config.zig::parse | fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!Config
+src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
+src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config
 src/reporter.zig::deinit | fn deinit(self: *Capture) void
 src/reporter.zig::detail | fn detail(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::detail | fn detail(self: Reporter, comptime fmt: []const u8, args: anytype) void

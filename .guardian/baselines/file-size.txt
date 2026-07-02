@@ -1,2 +1,1 @@
 # guardian-snapshot v1
-src/config.zig: 624 lines (limit: 500)
