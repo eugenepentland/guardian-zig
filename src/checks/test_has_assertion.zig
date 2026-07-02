@@ -104,14 +104,7 @@ fn matchesAssertPrefix(name: []const u8, prefix: []const u8) bool {
     return std.ascii.isUpper(name[prefix.len]);
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,

@@ -84,6 +84,7 @@ test {
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");
     _ = @import("walk.zig");
+    _ = @import("text.zig");
     _ = @import("reporter.zig");
     _ = @import("ast/parser.zig");
     _ = @import("ast/index.zig");

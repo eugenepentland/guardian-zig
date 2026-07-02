@@ -157,6 +157,8 @@ src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, conten
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void
 src/testing/golden_runner.zig::runWithCfg | fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype, cfg: anytype) GoldenError!void
+src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
+src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/walk.zig::matchGlob | fn matchGlob(text: []const u8, pattern: []const u8) bool
 src/walk.zig::normalizePath | fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8
 src/walk.zig::walkZigFiles | fn walkZigFiles( allocator: Allocator, fs_root: []const u8, display_root: []const u8, opts: WalkOpts, visitor: Visitor, ) WalkError!void

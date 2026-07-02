@@ -88,47 +88,14 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     }
 }
 
-/// Brace-depth tracker for inline `test { ... }` scope. Feed every token tag
-/// to `update`; `in_test` is true while the tokenizer is inside a test body.
-const TestScope = struct {
-    depth: u32 = 0,
-    test_depth: u32 = 0,
-    in_test: bool = false,
-    pending: bool = false,
-
-    fn update(self: *TestScope, tag: std.zig.Token.Tag) void {
-        switch (tag) {
-            .keyword_test => self.pending = true,
-            .l_brace => {
-                self.depth += 1;
-                if (self.pending) {
-                    self.in_test = true;
-                    self.test_depth = self.depth;
-                    self.pending = false;
-                }
-            },
-            .r_brace => {
-                if (self.in_test and self.depth == self.test_depth) self.in_test = false;
-                if (self.depth > 0) self.depth -= 1;
-            },
-            else => {},
-        }
-    }
-};
+const TestScope = @import("../text.zig").TestScope;
 
 fn appendAt(ctx: *ScanCtx, z: []const u8, rel_path: []const u8, pos: usize, comptime what: []const u8) !void {
     const msg = try std.fmt.allocPrint(ctx.allocator, "{s}:{d}: " ++ what, .{ rel_path, lineOf(z, pos) });
     try ctx.violations.append(ctx.allocator, msg);
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 /// Entry point for the catch-discipline check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
