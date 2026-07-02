@@ -435,12 +435,6 @@ pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]cons
     return result.toOwnedSlice(arena);
 }
 
-fn hasPrecedingDocComment(tree: *const Ast, decl: Ast.Node.Index) bool {
-    const first_tok = tree.firstToken(decl);
-    if (first_tok == 0) return false;
-    return tree.tokens.items(.tag)[first_tok - 1] == .doc_comment;
-}
-
 /// Returns the joined text of /// doc comments immediately preceding `decl`,
 /// with the `///` prefix stripped and a single space of leading whitespace
 /// removed per line. Multi-line doc comments are joined with `\n`. Returns
