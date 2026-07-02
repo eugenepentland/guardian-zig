@@ -247,6 +247,7 @@ max_score = 15
 
 [anytype_budget]
 max_per_file = 2
+exclude = ["reporter.zig"]   # variadic/formatting boundaries are exempt
 
 [spec_quality]
 forbidden_phrases = ["properly", "as needed"]
@@ -259,6 +260,7 @@ max_depth = 4
 
 [type_size]
 max_fields = 7
+exclude = ["config.zig"]   # flat aggregation structs are exempt
 
 # Opt-in: every pub fn must be referenced from at least one test block.
 [test_coverage]
