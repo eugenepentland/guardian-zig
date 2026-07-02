@@ -214,8 +214,11 @@ src/spec/init.zig::collectModules fn
 src/spec/init.zig::extractPubFns fn
 src/spec/init.zig::generateSpecContent fn
 src/spec/matcher.zig::CoverageResult struct_
+src/spec/matcher.zig::DuplicateBehavior struct_
 src/spec/matcher.zig::DuplicateTag struct_
+src/spec/matcher.zig::MalformedTag struct_
 src/spec/matcher.zig::ScanError value
+src/spec/matcher.zig::ScanResult struct_
 src/spec/matcher.zig::SpecTag struct_
 src/spec/matcher.zig::analyze fn
 src/spec/matcher.zig::scanDir fn

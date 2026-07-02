@@ -150,7 +150,7 @@ src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Alloca
 src/spec/init.zig::extractPubFns | fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error![]const []const u8
 src/spec/init.zig::generateSpecContent | fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) std.mem.Allocator.Error![]const u8
 src/spec/matcher.zig::analyze | fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag) std.mem.Allocator.Error!CoverageResult
-src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError![]const SpecTag
+src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult
 src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section

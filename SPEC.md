@@ -18,6 +18,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Reports unverified behaviors and unlinked tags
 - Enforces 1:1 mapping between spec behaviors and test tags
 - Fails with clear error when SPEC.md is missing
+- Fails when SPEC.md defines no behaviors
+- Reports near-miss spec tags that miss the exact prefix
+- Reports duplicate spec behavior bullets
 
 ## Spec Lifecycle
 

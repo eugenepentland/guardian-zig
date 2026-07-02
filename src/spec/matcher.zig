@@ -14,12 +14,37 @@ pub const SpecTag = struct {
     key: []const u8,
 };
 
+/// A comment that was clearly meant to be a `// spec:` tag but doesn't match
+/// the exact prefix (e.g. `//spec:`, `// Spec:`, `// spec :`, missing space
+/// after the colon). Reported so a typo'd tag isn't silently ignored.
+pub const MalformedTag = struct {
+    file: []const u8,
+    line: u32,
+    text: []const u8,
+};
+
+/// Tags and near-miss tags collected from one directory scan.
+pub const ScanResult = struct {
+    tags: []const SpecTag,
+    malformed: []const MalformedTag,
+};
+
 // spec: Spec Coverage - Enforces 1:1 mapping between spec behaviors and test tags
+// spec: Spec Coverage - Reports near-miss spec tags that miss the exact prefix
+// spec: Spec Coverage - Reports duplicate spec behavior bullets
 
 /// A spec key found on more than one tag — a 1:1 mapping violation.
 pub const DuplicateTag = struct {
     key: []const u8,
     files: []const []const u8,
+};
+
+/// A behavior key that appears on more than one SPEC.md bullet. Two identical
+/// bullets would both count as covered by a single tag, so 1:1 must be
+/// enforced on the behavior side too, not just the tag side.
+pub const DuplicateBehavior = struct {
+    key: []const u8,
+    count: usize,
 };
 
 /// Errors that scanDir may propagate (visitor-induced).
@@ -32,29 +57,56 @@ pub const CoverageResult = struct {
     unverified_behaviors: []const parser.Behavior,
     unlinked_tags: []const SpecTag,
     duplicate_tags: []const DuplicateTag,
+    duplicate_behaviors: []const DuplicateBehavior,
 };
 
 const ScanCtx = struct {
     allocator: Allocator,
     tags: *std.ArrayListUnmanaged(SpecTag),
+    malformed: *std.ArrayListUnmanaged(MalformedTag),
 };
 
 fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    try extractTags(ctx.allocator, entry.rel_path, entry.content, ctx.tags);
+    try extractTags(ctx.allocator, entry.rel_path, entry.content, ctx.tags, ctx.malformed);
 }
 
-/// Recursively scans a directory for `// spec:` tags and returns the list.
-pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError![]const SpecTag {
+/// Recursively scans a directory for `// spec:` tags (and near-miss tags).
+pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult {
     var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
-    var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags };
+    var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags, .malformed = &malformed };
     try walk.walkZigFiles(allocator, dir_path, dir_path, .{}, .{ .ctx = &ctx, .visit = scanVisit });
-    return tags.toOwnedSlice(allocator);
+    return .{
+        .tags = try tags.toOwnedSlice(allocator),
+        .malformed = try malformed.toOwnedSlice(allocator),
+    };
 }
 
-fn extractTags(allocator: Allocator, path: []const u8, content: []const u8, tags: *std.ArrayListUnmanaged(SpecTag)) !void {
+/// True when a comment was clearly meant to be a `// spec:` tag but doesn't
+/// match the exact `// spec: ` prefix. Requires the comment's first word to be
+/// "spec" (case-insensitive) directly followed by `:` (with optional spaces),
+/// so prose like `// species: ...` or `// the spec: prefix` is not flagged.
+fn looksLikeSpecTag(line: []const u8) bool {
+    const kw = "spec";
+    if (!std.mem.startsWith(u8, line, "//")) return false;
+    const rest = std.mem.trimLeft(u8, line[2..], " ");
+    if (rest.len <= kw.len or !std.ascii.eqlIgnoreCase(rest[0..kw.len], kw)) return false;
+    const after = std.mem.trimLeft(u8, rest[kw.len..], " ");
+    return after.len > 0 and after[0] == ':';
+}
+
+fn extractTags(
+    allocator: Allocator,
+    path: []const u8,
+    content: []const u8,
+    tags: *std.ArrayListUnmanaged(SpecTag),
+    malformed: *std.ArrayListUnmanaged(MalformedTag),
+) !void {
     var lines = std.mem.splitScalar(u8, content, '\n');
+    var line_no: u32 = 0;
     while (lines.next()) |raw_line| {
+        line_no += 1;
         const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
         if (std.mem.startsWith(u8, line, SPEC_PREFIX)) {
             const tag_text = line[SPEC_PREFIX.len..];
@@ -63,6 +115,12 @@ fn extractTags(allocator: Allocator, path: []const u8, content: []const u8, tags
                 .file = path,
                 .tag = tag_text,
                 .key = key,
+            });
+        } else if (looksLikeSpecTag(line)) {
+            try malformed.append(allocator, .{
+                .file = path,
+                .line = line_no,
+                .text = try allocator.dupe(u8, line),
             });
         }
     }
@@ -123,12 +181,28 @@ pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []c
         });
     }
 
+    // Duplicate detection on the behavior side: two identical bullets would
+    // both be "covered" by one tag, silently breaking the 1:1 guarantee.
+    var behavior_counts = std.StringArrayHashMap(usize).init(allocator);
+    for (behaviors) |b| {
+        const gop = try behavior_counts.getOrPut(b.key);
+        if (!gop.found_existing) gop.value_ptr.* = 0;
+        gop.value_ptr.* += 1;
+    }
+    var dup_behaviors: std.ArrayListUnmanaged(DuplicateBehavior) = .empty;
+    var bit = behavior_counts.iterator();
+    while (bit.next()) |e| {
+        if (e.value_ptr.* <= 1) continue;
+        try dup_behaviors.append(allocator, .{ .key = e.key_ptr.*, .count = e.value_ptr.* });
+    }
+
     return .{
         .total_behaviors = behaviors.len,
         .covered_behaviors = behaviors.len - unverified.items.len,
         .unverified_behaviors = try unverified.toOwnedSlice(allocator),
         .unlinked_tags = try unlinked.toOwnedSlice(allocator),
         .duplicate_tags = try duplicates.toOwnedSlice(allocator),
+        .duplicate_behaviors = try dup_behaviors.toOwnedSlice(allocator),
     };
 }
 
@@ -195,6 +269,43 @@ test "analyze duplicate tags" {
     try std.testing.expectEqual(@as(usize, 1), result.duplicate_tags.len);
     try std.testing.expectEqualStrings("math - adds", result.duplicate_tags[0].key);
     try std.testing.expectEqual(@as(usize, 2), result.duplicate_tags[0].files.len);
+}
+
+test "analyze detects duplicate behavior bullets" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sections = &[_]parser.Section{
+        .{ .name = "Math", .behaviors = &.{
+            .{ .section = "Math", .statement = "adds", .key = "math - adds" },
+            .{ .section = "Math", .statement = "adds", .key = "math - adds" },
+        } },
+    };
+    const tags = &[_]SpecTag{
+        .{ .file = "a.zig", .tag = "Math - adds", .key = "math - adds" },
+    };
+    const result = try analyze(a, sections, tags);
+    try std.testing.expectEqual(@as(usize, 1), result.duplicate_behaviors.len);
+    try std.testing.expectEqual(@as(usize, 2), result.duplicate_behaviors[0].count);
+}
+
+test "extractTags flags near-miss tags but not prose or valid tags" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        "// spec: Math - adds\n" ++ // valid
+        "//spec: Math - subs\n" ++ // malformed: no space after //
+        "// Spec: Math - muls\n" ++ // malformed: capital S
+        "// spec : Math - divs\n" ++ // malformed: space before colon
+        "// species of birds: many\n" ++ // prose, not a tag
+        "// the spec: prefix is exact\n"; // prose, not a tag
+    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
+    var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    try extractTags(a, "x.zig", content, &tags, &malformed);
+    try std.testing.expectEqual(@as(usize, 1), tags.items.len);
+    try std.testing.expectEqual(@as(usize, 3), malformed.items.len);
 }
 
 test "analyze unlinked tag" {

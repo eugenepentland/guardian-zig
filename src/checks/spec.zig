@@ -38,27 +38,42 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
 
     var all_tags: std.ArrayListUnmanaged(spec_matcher.SpecTag) = .empty;
-    for (try spec_matcher.scanDir(allocator, test_dir)) |t| try all_tags.append(allocator, t);
-    for (try spec_matcher.scanDir(allocator, src_dir)) |t| try all_tags.append(allocator, t);
+    var malformed: std.ArrayListUnmanaged(spec_matcher.MalformedTag) = .empty;
+    for ([_][]const u8{ test_dir, src_dir }) |dir| {
+        const scan = try spec_matcher.scanDir(allocator, dir);
+        for (scan.tags) |t| try all_tags.append(allocator, t);
+        for (scan.malformed) |m| try malformed.append(allocator, m);
+    }
     const tags = try all_tags.toOwnedSlice(allocator);
 
     const result = try spec_matcher.analyze(allocator, sections, tags);
 
+    // spec: Spec Coverage - Fails when SPEC.md defines no behaviors
+    if (result.total_behaviors == 0) {
+        fail("spec coverage FAILED — {s} defines no behaviors", .{cfg.spec_file});
+        print("  Add at least one `## Section` with `- behavior` bullets.\n", .{});
+        return error.CheckFailed;
+    }
+
     const has_failures = result.unverified_behaviors.len > 0 or
         result.unlinked_tags.len > 0 or
-        result.duplicate_tags.len > 0;
+        result.duplicate_tags.len > 0 or
+        result.duplicate_behaviors.len > 0 or
+        malformed.items.len > 0;
 
     if (!has_failures) {
         ok("spec coverage {d}/{d} behaviors covered", .{ result.covered_behaviors, result.total_behaviors });
         return;
     }
 
-    fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} duplicate)", .{
+    fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} dup-tag, {d} dup-behavior, {d} malformed)", .{
         result.covered_behaviors,
         result.total_behaviors,
         result.unverified_behaviors.len,
         result.unlinked_tags.len,
         result.duplicate_tags.len,
+        result.duplicate_behaviors.len,
+        malformed.items.len,
     });
     for (result.unverified_behaviors) |b| {
         print("  unverified: {s} - {s}\n", .{ b.section, b.statement });
@@ -72,11 +87,20 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
             print("    in: {s}\n", .{f});
         }
     }
+    for (result.duplicate_behaviors) |d| {
+        print("  duplicate behavior bullet ({d}x): {s}\n", .{ d.count, d.key });
+    }
+    for (malformed.items) |m| {
+        print("  malformed spec tag: {s}:{d}: {s}\n", .{ m.file, m.line, m.text });
+    }
     print("\n", .{});
     for (result.unverified_behaviors) |b| {
         print("  add: // spec: {s} - {s}\n", .{ b.section, b.statement });
     }
-    if (result.duplicate_tags.len > 0) {
+    if (malformed.items.len > 0) {
+        print("  A tag must be exactly `// spec: Section - Behavior` (check spacing/case).\n", .{});
+    }
+    if (result.duplicate_tags.len > 0 or result.duplicate_behaviors.len > 0) {
         print("  Each spec behavior must have exactly one // spec: tag (1:1 mapping).\n", .{});
     }
     return error.CheckFailed;
