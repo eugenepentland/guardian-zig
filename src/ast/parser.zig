@@ -578,6 +578,25 @@ test "pubFns classifies return type=type" {
     try std.testing.expectEqual(ReturnKind.other, fns[1].return_kind);
 }
 
+test "the *FromTree variants operate on a shared parsed tree" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source: [:0]const u8 =
+        \\pub const T = struct { x: i32, pub fn m(self: T) void { _ = self; } };
+        \\pub fn top(a2: i32) void { _ = a2; }
+        \\pub const V = 1;
+    ;
+    var tree = try Ast.parse(a, source, .zig);
+    const t = &tree;
+    try std.testing.expect((try collectDecls(a, t)).len >= 3);
+    try std.testing.expect((try pubFnsFromTree(a, t)).len == 2);
+    try std.testing.expect((try allFnsFromTree(a, t)).len == 2);
+    try std.testing.expect((try fnDeclInfosFromTree(a, t)).len == 2);
+    try std.testing.expect((try pubContainersFromTree(a, t)).len == 1);
+    try std.testing.expect((try pubConstsFromTree(a, t)).len >= 2);
+}
+
 test "queries descend into methods and types nested in containers" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

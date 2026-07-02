@@ -131,6 +131,16 @@ test "forEach hands each file's parsed tree to the visitor" {
     try std.testing.expect(ctx.all_have_tree);
 }
 
+test "runSrc iterates a freshly built index" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ctx: CountCtx = .{};
+    try runSrc(null, a, "test-project", .{ .ctx = @ptrCast(&ctx), .visit = countVisit });
+    try std.testing.expect(ctx.seen > 0);
+    try std.testing.expect(ctx.all_have_tree);
+}
+
 test "resolve returns the shared index when present" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

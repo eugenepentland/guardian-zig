@@ -613,3 +613,11 @@ test "parse named section then boundary" {
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules.len);
     try std.testing.expectEqualStrings("src/x/*", cfg.boundary_rules[0].module_pattern);
 }
+
+test "load falls back to defaults when guardian.toml is absent" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = load(arena.allocator(), "definitely/not/a/real/dir");
+    try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
+    try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
+}

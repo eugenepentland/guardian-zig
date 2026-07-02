@@ -257,6 +257,13 @@ fn deleteIfExists(path: []const u8) void {
     };
 }
 
+test "pathFor builds the baseline file path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const p = try pathFor(arena.allocator(), "proj", "magic-number");
+    try std.testing.expectEqualStrings("proj/.guardian/baselines/magic-number.txt", p);
+}
+
 test "extract pulls violation lines and skips headers and fix hints" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
