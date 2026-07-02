@@ -18,14 +18,14 @@ const ScanCtx = struct {
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    const a = ctx.allocator;
 
     // Flag the optional-unwrap forms that turn a null into a crash or UB
     // instead of handling it: `orelse unreachable` and `orelse undefined`.
     // The Tokenizer skips //-comments and string literals, so only real
     // code matches. Bare `.?` is intentionally NOT flagged — it is too
     // common a (usually safe) idiom for a hard block to read soundly.
-    const z = try a.dupeZ(u8, entry.content);
+    // entry.content is already null-terminated by the walker.
+    const z = entry.content;
     var tok = std.zig.Tokenizer.init(z);
     var after_orelse = false;
     var orelse_pos: usize = 0;

@@ -19,7 +19,8 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     // Tokenizer skips strings and comments correctly, so a token with this
     // text is genuinely in code (not a comment or string body).
-    const z = try ctx.allocator.dupeZ(u8, entry.content);
+    // entry.content is already null-terminated by the walker.
+    const z = entry.content;
     var tok = std.zig.Tokenizer.init(z);
     var line: u32 = 1;
     var last_pos: usize = 0;

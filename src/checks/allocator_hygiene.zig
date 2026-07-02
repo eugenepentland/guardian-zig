@@ -40,7 +40,8 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const z = try a.dupeZ(u8, entry.content);
+    // entry.content is already null-terminated by the walker.
+    const z = entry.content;
     var tok = std.zig.Tokenizer.init(z);
 
     // Permissive-scope tracking: when we enter a `test {…}` block or a

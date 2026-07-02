@@ -42,9 +42,10 @@ const BuildCtx = struct {
 
 fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *BuildCtx = @ptrCast(@alignCast(raw_ctx));
-    const z = try ctx.arena.dupeZ(u8, entry.content);
-    const tree = try Ast.parse(ctx.arena, z, .zig);
-    try ctx.files.append(ctx.arena, .{ .rel_path = entry.rel_path, .content = z, .tree = tree });
+    // entry.content is already null-terminated by the walker — parse it in
+    // place instead of copying the whole file again for the sentinel.
+    const tree = try Ast.parse(ctx.arena, entry.content, .zig);
+    try ctx.files.append(ctx.arena, .{ .rel_path = entry.rel_path, .content = entry.content, .tree = tree });
 }
 
 /// Walks `<project_dir>/src` once, reading and parsing every `.zig` file

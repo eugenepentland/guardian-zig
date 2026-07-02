@@ -19,7 +19,6 @@ const ScanCtx = struct {
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    const a = ctx.allocator;
 
     // Tokenizer-based scan for catch patterns that hide failures:
     //   `catch unreachable`  — crashes instead of handling the error
@@ -28,7 +27,8 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     //   `catch |e| {}`       — captured but empty body, the same swallow
     // The Tokenizer skips //-comments and string literals so we only
     // match real code, not text inside doc-strings or comments.
-    const z = try a.dupeZ(u8, entry.content);
+    // entry.content is already null-terminated by the walker.
+    const z = entry.content;
     var tok = std.zig.Tokenizer.init(z);
     const State = enum { none, after_catch, in_capture, expect_brace, after_lbrace };
     var state: State = .none;

@@ -7,7 +7,10 @@ const Allocator = std.mem.Allocator;
 /// so AST checks can reuse a shared parse; it is null for a bare walk.
 pub const FileEntry = struct {
     rel_path: []const u8,
-    content: []const u8,
+    /// Null-terminated so std.zig.Ast.parse (and any tokenizer) can consume it
+    /// directly — no per-check dupeZ. Coerces to []const u8 where a plain slice
+    /// is wanted.
+    content: [:0]const u8,
     tree: ?*const std.zig.Ast = null,
 };
 
@@ -41,7 +44,13 @@ pub fn walkZigFiles(
     opts: WalkOpts,
     visitor: Visitor,
 ) WalkError!void {
-    var dir = std.fs.cwd().openDir(fs_root, .{ .iterate = true }) catch return;
+    var dir = std.fs.cwd().openDir(fs_root, .{ .iterate = true }) catch |e| switch (e) {
+        // A missing root (e.g. an optional test/ dir) is simply nothing to
+        // scan. Any other failure (permissions, etc.) is a real error — a hard
+        // gate must never silently pass because it couldn't read the sources.
+        error.FileNotFound => return,
+        else => |err| return err,
+    };
     defer dir.close();
     try walkRecursive(allocator, dir, display_root, opts, visitor);
 }
@@ -75,7 +84,9 @@ fn walkRecursive(
                     break :blk false;
                 };
                 if (excluded) continue;
-                const content = dir.readFileAlloc(allocator, entry.name, opts.max_file_bytes) catch continue;
+                // Fail loud on read errors (permissions, > max_file_bytes): a
+                // silently skipped file would be exempt from every check.
+                const content = try dir.readFileAllocOptions(allocator, entry.name, opts.max_file_bytes, null, .of(u8), 0);
                 try visitor.visit(visitor.ctx, .{ .rel_path = rel, .content = content });
             },
             else => {},
