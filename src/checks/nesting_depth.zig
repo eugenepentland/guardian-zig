@@ -29,21 +29,35 @@ fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) u32 {
     const z = allocator.dupeZ(u8, body_text) catch return 0;
     defer allocator.free(z);
     var tok = std.zig.Tokenizer.init(z);
+    // Data-literal braces (`.{ ... }`, `Foo{ ... }`, `[_]u8{ ... }`) are not
+    // control-flow nesting — counting them punished declarative data. Track,
+    // per open brace, whether it counted, so the matching close stays balanced
+    // even when literals and blocks nest inside each other.
+    var counted: std.ArrayListUnmanaged(bool) = .empty;
+    defer counted.deinit(allocator);
     var depth: u32 = 0;
     var max_depth: u32 = 0;
+    var prev_tag: std.zig.Token.Tag = .invalid;
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
             .l_brace => {
-                depth += 1;
-                if (depth > max_depth) max_depth = depth;
+                const is_literal = prev_tag == .period or prev_tag == .identifier or prev_tag == .r_bracket;
+                counted.append(allocator, !is_literal) catch return max_depth;
+                if (!is_literal) {
+                    depth += 1;
+                    if (depth > max_depth) max_depth = depth;
+                }
             },
-            .r_brace => if (depth > 0) {
-                depth -= 1;
+            .r_brace => {
+                if (counted.pop()) |was_counted| {
+                    if (was_counted and depth > 0) depth -= 1;
+                }
             },
             else => {},
         }
+        prev_tag = t.tag;
     }
     return max_depth;
 }
@@ -119,6 +133,17 @@ test "maxNestingDepth nested if reaches 2" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     try std.testing.expectEqual(@as(u32, 2), maxNestingDepth(arena.allocator(), "{ if (x) { return; } }"));
+}
+test "maxNestingDepth ignores data-literal braces" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A nested anonymous struct literal is data, not control-flow nesting.
+    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(a, "{ const c = .{ .a = .{ .b = 1 } }; }"));
+    // Typed struct/array literals likewise don't add depth.
+    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(a, "{ const c = Foo{ .a = 1 }; }"));
+    // Control-flow still counts through/around a literal.
+    try std.testing.expectEqual(@as(u32, 2), maxNestingDepth(a, "{ if (x) { const c = .{ .a = 1 }; } }"));
 }
 
 test "maxNestingDepth deeply nested reaches 4" {
