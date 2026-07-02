@@ -141,6 +141,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Allocator Hygiene
 
 - Rejects hardcoded global allocators outside test blocks and pub fn main
+- Honors a // allocator-ok justification comment to suppress a site
 
 ## Duplicate Const
 

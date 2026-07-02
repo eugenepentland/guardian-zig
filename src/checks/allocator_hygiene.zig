@@ -86,11 +86,13 @@ fn handleIdentifier(ctx: *ScanCtx, entry: walk.FileEntry, state: *ScanState, loc
         },
         .after_std_dot => state.chain = afterStdDot(text),
         .after_std_heap_dot => {
-            if (!in_permissive and isForbiddenHeap(text)) try appendHeap(ctx, entry, state, text);
+            const hit = !in_permissive and isForbiddenHeap(text);
+            if (hit and !suppressed(entry.content, state.chain_start)) try appendHeap(ctx, entry, state, text);
             state.chain = .none;
         },
         .after_std_testing_dot => {
-            if (!in_permissive and std.mem.eql(u8, text, "allocator")) try appendTesting(ctx, entry, state);
+            const hit = !in_permissive and std.mem.eql(u8, text, "allocator");
+            if (hit and !suppressed(entry.content, state.chain_start)) try appendTesting(ctx, entry, state);
             state.chain = .none;
         },
     }
@@ -122,6 +124,22 @@ fn appendTesting(ctx: *ScanCtx, entry: walk.FileEntry, state: *ScanState) !void 
         .{ entry.rel_path, line },
     );
     try ctx.violations.append(a, msg);
+}
+
+/// True when a `// allocator-ok` justification comment sits on the offending
+/// line or the line directly above it. The tokenizer drops comments, so this
+/// re-reads the raw source around the flagged byte. Lets a deliberate
+/// process-lifetime store (e.g. an HTTP server's page_allocator) opt out with a
+/// documented reason instead of forcing a project-wide baseline.
+fn suppressed(content: []const u8, byte: usize) bool {
+    const marker = "// allocator-ok";
+    const line_start = if (std.mem.lastIndexOfScalar(u8, content[0..byte], '\n')) |i| i + 1 else 0;
+    const line_end = std.mem.indexOfScalarPos(u8, content, byte, '\n') orelse content.len;
+    if (std.mem.indexOf(u8, content[line_start..line_end], marker) != null) return true;
+    if (line_start == 0) return false;
+    const prev_end = line_start - 1;
+    const prev_start = if (std.mem.lastIndexOfScalar(u8, content[0..prev_end], '\n')) |i| i + 1 else 0;
+    return std.mem.indexOf(u8, content[prev_start..prev_end], marker) != null;
 }
 
 fn advanceOnPeriod(chain: ChainState) ChainState {
@@ -204,6 +222,27 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 }
 
 // spec: Allocator Hygiene - Rejects hardcoded global allocators outside test blocks and pub fn main
+// spec: Allocator Hygiene - Honors a // allocator-ok justification comment to suppress a site
+
+test "visit honors an allocator-ok justification comment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    // Comment on the line above, and same-line — both suppress.
+    const content =
+        \\fn server() void {
+        \\    // allocator-ok: process-lifetime store, freed at exit
+        \\    const g = std.heap.page_allocator;
+        \\    const h = std.heap.c_allocator; // allocator-ok: same reason
+        \\    _ = g;
+        \\    _ = h;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
 
 test "visit flags page_allocator outside main and test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
