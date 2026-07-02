@@ -7,9 +7,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: File Size - Checks source files against configurable line limit
-// spec: File Size - Respects file_size_exclude patterns
-
 const FileSizeCtx = struct {
     allocator: std.mem.Allocator,
     max_lines: u32,
@@ -65,6 +62,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
     return error.CheckFailed;
 }
+
+// spec: File Size - Checks source files against configurable line limit
+// spec: File Size - Respects file_size_exclude patterns
 
 test "fileSizeVisit is not off-by-one on the trailing newline" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

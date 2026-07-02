@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Requires init bodies with multiple try calls to use errdefer
-
 const init_names = [_][]const u8{ "init", "create", "make" };
 
 /// Pure-function entry: scans `content` for init-shaped fns whose body
@@ -99,6 +97,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: add `errdefer` after each allocating `try` so a later failure cleans up.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Requires init bodies with multiple try calls to use errdefer
 
 test "analyzeContent flags init with two trys and no errdefer" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 3 Architectural Fitness - Flags the same enum dot-prong set switched in 2+ files
-
 const min_prong_count: u32 = 2;
 
 // Guardian itself dispatches several internal enums (Outcome, ReadError,
@@ -201,6 +199,8 @@ fn uniqueFileCount(allocator: Allocator, files: []const []const u8) usize {
     }
     return seen.count();
 }
+
+// spec: Tier 3 Architectural Fitness - Flags the same enum dot-prong set switched in 2+ files
 
 test "analyzeContent collects single switch signature" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

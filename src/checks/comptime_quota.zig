@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Comptime Quota - Tracks @setEvalBranchQuota call count and max value against a snapshot
-
 const SNAPSHOT_LEAF = "comptime-quota.txt";
 const SNAPSHOT_VERSION: u32 = 1;
 
@@ -160,6 +158,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
     return error.CheckFailed;
 }
+
+// spec: Comptime Quota - Tracks @setEvalBranchQuota call count and max value against a snapshot
 
 test "countQuotas counts calls and tracks max" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

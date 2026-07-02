@@ -2,8 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Hidden Dependency Bans - Rejects std.net and std.http use outside adapters/http or infra/net
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "net" }, .display = "std.net.*" },
     .{ .chain = &.{ "std", "http" }, .display = "std.http.*" },
@@ -33,6 +31,8 @@ pub fn analyzeContent(
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx, "ban-net", opts);
 }
+
+// spec: Hidden Dependency Bans - Rejects std.net and std.http use outside adapters/http or infra/net
 
 test "analyzeContent flags std.net.Address outside adapters" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -10,9 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Spec Drift - Snapshots pub fn prototypes
-// spec: Spec Drift - Diff fails when an existing pub fn signature changes
-
 const SNAPSHOT_LEAF = "spec-drift.txt";
 const SNAPSHOT_VERSION: u32 = 1;
 
@@ -69,6 +66,9 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
         },
     }
 }
+
+// spec: Spec Drift - Snapshots pub fn prototypes
+// spec: Spec Drift - Diff fails when an existing pub fn signature changes
 
 test "visit emits one line per pub fn with prototype" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

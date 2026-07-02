@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Rejects static factory / singleton patterns in business logic
-
 const factory_names = [_][]const u8{
     "getDefault",
     "getInstance",
@@ -143,6 +141,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: take the dependency as a constructor parameter; let main/wiring assemble it.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Rejects static factory / singleton patterns in business logic
 
 test "analyzeContent flags getDefault" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

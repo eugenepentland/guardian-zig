@@ -9,8 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Stub Body Ban - Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -136,6 +134,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: implement the function, OR mark it noreturn if `unreachable;` is intentional.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Stub Body Ban - Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
 
 test "classify flags return undefined" {
     try std.testing.expectEqual(StubKind.return_undefined, classify("{ return undefined; }", "i32"));

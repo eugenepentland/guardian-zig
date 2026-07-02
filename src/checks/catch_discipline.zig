@@ -8,10 +8,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Catch Discipline - Rejects catch unreachable in production code
-// spec: Catch Discipline - Rejects catch with empty block (silent error swallow)
-// spec: Catch Discipline - Rejects catch undefined assigning undefined on error
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -118,6 +114,10 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: handle the error explicitly with a switch or named return.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Catch Discipline - Rejects catch unreachable in production code
+// spec: Catch Discipline - Rejects catch with empty block (silent error swallow)
+// spec: Catch Discipline - Rejects catch undefined assigning undefined on error
 
 test "visit catches `catch unreachable`" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

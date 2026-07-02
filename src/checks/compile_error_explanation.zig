@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Rejects @compileError without a non-empty string explanation
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -97,6 +95,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: pass a string literal explaining why this branch is unreachable.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Rejects @compileError without a non-empty string explanation
 
 test "analyzeContent flags @compileError with no args" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

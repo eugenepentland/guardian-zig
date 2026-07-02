@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Type Size - Caps fields per pub struct/enum/union/opaque
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -78,6 +76,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: split into smaller types, group related fields into nested structs, or raise [type_size] max_fields.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Type Size - Caps fields per pub struct/enum/union/opaque
 
 test "visit flags oversized struct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

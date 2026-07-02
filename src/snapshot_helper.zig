@@ -86,6 +86,10 @@ fn deleteIfExists(path: []const u8) void {
     };
 }
 
+// spec: Snapshot Lifecycle - Creates snapshot file on first run with no prior snapshot
+// spec: Snapshot Lifecycle - Reports drift when current state differs from prior snapshot
+// spec: Snapshot Lifecycle - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
+
 test "snapshotPath joins project_dir, .guardian, leaf" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -94,7 +98,6 @@ test "snapshotPath joins project_dir, .guardian, leaf" {
     try testing.expectEqualStrings("/tmp/proj/.guardian/panic-budget.txt", p);
 }
 
-// spec: Snapshot Lifecycle - Creates snapshot file on first run with no prior snapshot
 test "lifecycle creates snapshot when missing" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -115,7 +118,6 @@ test "lifecycle creates snapshot when missing" {
     try testing.expect(out2 == .unchanged);
 }
 
-// spec: Snapshot Lifecycle - Reports drift when current state differs from prior snapshot
 test "lifecycle reports drift when changed" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -137,7 +139,6 @@ test "lifecycle reports drift when changed" {
     try testing.expectEqualStrings("beta", out.drift.removed[0]);
 }
 
-// spec: Snapshot Lifecycle - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
 test "lifecycle force_update overwrites existing snapshot" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

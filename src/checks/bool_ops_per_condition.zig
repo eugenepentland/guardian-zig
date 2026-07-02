@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Complexity Bounds - Caps boolean operators per condition
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -131,6 +129,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: extract the condition into a named bool, or split into nested ifs.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Complexity Bounds - Caps boolean operators per condition
 
 test "analyzeContent flags 4-op condition" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

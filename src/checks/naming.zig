@@ -9,11 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Naming - PascalCase pub fn must return type
-// spec: Naming - camelCase pub fn must not return type
-// spec: Naming - snake_case pub fn is rejected
-// spec: Naming - pub const struct/enum/union with fields must be PascalCase
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -95,6 +90,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: PascalCase iff the fn returns `type`; types use PascalCase.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Naming - PascalCase pub fn must return type
+// spec: Naming - camelCase pub fn must not return type
+// spec: Naming - snake_case pub fn is rejected
+// spec: Naming - pub const struct/enum/union with fields must be PascalCase
 
 test "caseKind classifies common cases" {
     try std.testing.expectEqual(@as(@TypeOf(caseKind("Foo")), .pascal), caseKind("Foo"));

@@ -21,6 +21,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Fails when SPEC.md defines no behaviors
 - Reports near-miss spec tags that miss the exact prefix
 - Reports duplicate spec behavior bullets
+- Requires each spec tag to sit directly on a test
 
 ## Spec Lifecycle
 

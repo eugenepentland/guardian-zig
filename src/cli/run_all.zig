@@ -103,13 +103,14 @@ fn anyNeedsAst(disabled: []const []const u8) bool {
 }
 
 // spec: Run All - Skips checks whose name appears in the disabled config list
+// spec: Run All - Rejects unknown check names in the disabled list
+
 test "shouldSkip honors the disabled list and built-in skips" {
     try std.testing.expect(shouldSkip("magic-number", &.{"magic-number"}));
     try std.testing.expect(shouldSkip("spec-init", &.{}));
     try std.testing.expect(!shouldSkip("spec", &.{"magic-number"}));
 }
 
-// spec: Run All - Rejects unknown check names in the disabled list
 test "disabled list entries must be real check names" {
     // A real check resolves; a typo does not.
     try std.testing.expect(registry.find("magic-number") != null);

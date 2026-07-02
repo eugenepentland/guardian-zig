@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Test Hygiene - Rejects production code @import-ing test files
-
 const ScanCtx = struct {
     allocator: Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -82,6 +80,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: keep test-only utilities under tests/ or *_test.zig and import them only from tests.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Test Hygiene - Rejects production code @import-ing test files
 
 test "analyzeContent flags import of *_test.zig from prod" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

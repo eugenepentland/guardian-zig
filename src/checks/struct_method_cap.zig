@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Caps pub fn methods per pub struct/enum/union
-
 const max_methods: u32 = 20;
 
 const ScanCtx = struct {
@@ -151,6 +149,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: split the type into smaller responsibilities — large method sets indicate two roles.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Caps pub fn methods per pub struct/enum/union
 
 test "analyzeContent flags struct with > 20 methods" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

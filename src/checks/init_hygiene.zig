@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Rejects init bodies with loops, conditionals, or switch statements
-
 const init_names = [_][]const u8{ "init", "create", "make" };
 
 const ScanCtx = struct {
@@ -104,6 +102,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: move conditional logic into a factory or builder; keep init field-assignment-only.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Rejects init bodies with loops, conditionals, or switch statements
 
 test "analyzeContent flags init with if" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

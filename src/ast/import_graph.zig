@@ -180,6 +180,7 @@ test "findCycle returns null for acyclic graph" {
     try std.testing.expect(findCycle(a, nodes) == null);
 }
 
+// spec: Imports - Detects cycles in the @import graph
 test "findCycle detects two-node cycle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

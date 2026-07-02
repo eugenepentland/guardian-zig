@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Test Coverage - Requires every pub fn to be referenced from at least one test block
-
 const Decl = struct {
     file: []const u8,
     name: []const u8,
@@ -162,6 +160,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+// spec: Test Coverage - Requires every pub fn to be referenced from at least one test block
 
 test "tallyTestRefs counts only inside test blocks" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Caps the percentage of optional fields in a public struct
-
 const min_fields: u32 = 4;
 const max_density_pct: u32 = 50;
 
@@ -193,6 +191,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: split the type into a 'maybe-built' phase and a 'fully-built' phase, or model the optionality as a tagged union.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Caps the percentage of optional fields in a public struct
 
 test "analyzeContent flags 75% optional" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

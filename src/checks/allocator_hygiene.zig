@@ -8,8 +8,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Allocator Hygiene - Rejects hardcoded global allocators outside test blocks and pub fn main
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -182,6 +180,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: thread the allocator through as a parameter instead of hardcoding a global.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Allocator Hygiene - Rejects hardcoded global allocators outside test blocks and pub fn main
 
 test "visit flags page_allocator outside main and test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Complexity Bounds - Caps return statements per function body
-
 /// Pure-function entry: scans `content` for fns whose body contains
 /// more than `cap` `return` keywords.
 pub fn analyzeContentWithLimit(
@@ -137,6 +135,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: collapse early returns into a guard clause + single tail return, or split the fn.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Complexity Bounds - Caps return statements per function body
 
 test "analyzeContent flags fn with 4 returns" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

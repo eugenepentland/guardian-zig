@@ -9,7 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Dead Pub - Flags public declarations referenced only by themselves
 //
 // Known limitation: counts are keyed by name only. Two pub decls in
 // different files sharing a name share a counter — if either is referenced,
@@ -135,6 +134,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+// spec: Dead Pub - Flags public declarations referenced only by themselves
 
 test "findDead flags decl with no callers" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

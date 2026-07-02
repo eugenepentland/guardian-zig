@@ -451,6 +451,10 @@ fn parseStringArray(allocator: Allocator, val: []const u8) std.mem.Allocator.Err
 }
 
 // spec: Configuration - Falls back to defaults when no config file exists
+// spec: Configuration - Loads guardian.toml from target directory
+// spec: Configuration - Supports boundary rules via [[boundary]] sections
+// spec: Configuration - Parses a top-level disabled list of check names
+
 test "parse default config" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -459,8 +463,6 @@ test "parse default config" {
     try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
 }
 
-// spec: Configuration - Loads guardian.toml from target directory
-// spec: Configuration - Supports boundary rules via [[boundary]] sections
 test "parse config with values" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -551,7 +553,6 @@ test "parse strips inline comments from values" {
     try std.testing.expectEqualStrings("docs/SPEC.md", cfg.spec_file);
 }
 
-// spec: Configuration - Parses a top-level disabled list of check names
 test "parse disabled check list" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

@@ -3,9 +3,6 @@ const Allocator = std.mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const walk = @import("walk.zig");
 
-// spec: Skip Cache - Hashes the guardian input set into a stable digest
-// spec: Skip Cache - Round-trips the digest through the cache file
-
 /// SHA-256 digest of guardian's input set.
 pub const Digest = [Sha256.digest_length]u8;
 
@@ -118,6 +115,9 @@ pub fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) vo
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
+
+// spec: Skip Cache - Hashes the guardian input set into a stable digest
+// spec: Skip Cache - Round-trips the digest through the cache file
 
 test "inputDigest is deterministic for an unchanged input set" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

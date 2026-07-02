@@ -2,8 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Hidden Dependency Bans - Rejects std.fs I/O calls outside infra/fs
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "fs", "cwd" }, .display = "std.fs.cwd" },
     .{ .chain = &.{ "std", "fs", "openFileAbsolute" }, .display = "std.fs.openFileAbsolute" },
@@ -52,6 +50,8 @@ pub fn analyzeContent(
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx, "ban-fs", opts);
 }
+
+// spec: Hidden Dependency Bans - Rejects std.fs I/O calls outside infra/fs
 
 test "analyzeContent flags std.fs.cwd outside infra" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

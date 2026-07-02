@@ -9,9 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Error Discipline - Rejects inferred error sets on pub fn
-// spec: Error Discipline - Rejects anyerror on pub fn
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -61,6 +58,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("    pub fn run(...) MyError!void {{ ... }}\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Error Discipline - Rejects inferred error sets on pub fn
+// spec: Error Discipline - Rejects anyerror on pub fn
 
 test "visit catches inferred error set on pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

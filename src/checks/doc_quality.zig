@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Doc Quality - Rejects empty or stub doc comments on public declarations
-
 const placeholder_phrases = [_][]const u8{
     "TODO",
     "FIXME",
@@ -139,6 +137,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: rewrite the /// comment with a real one-line description (>= {d} non-whitespace chars).\n", .{cfg.min_chars});
     return error.CheckFailed;
 }
+
+// spec: Doc Quality - Rejects empty or stub doc comments on public declarations
 
 test "judge passes ok docs" {
     try std.testing.expectEqual(Verdict.ok, judge("Computes the result of x times y.", 12));

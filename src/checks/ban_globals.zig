@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Hidden Dependency Bans - Rejects mutable pub var globals outside wiring/main
-
 const allowed_paths = [_][]const u8{
     "src/main*",
     "src/wiring*",
@@ -119,6 +117,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: scope mutable state to a struct field, or move to wiring/main.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Hidden Dependency Bans - Rejects mutable pub var globals outside wiring/main
 
 test "analyzeContent flags pub var at file scope" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

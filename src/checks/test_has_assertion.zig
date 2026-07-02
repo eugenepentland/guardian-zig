@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Test Hygiene - Requires every test block to contain at least one std.testing.expect call
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -137,6 +135,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: add at least one `try std.testing.expect*` call to verify behavior.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Test Hygiene - Requires every test block to contain at least one std.testing.expect call
 
 test "analyzeContent flags test with no expect" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

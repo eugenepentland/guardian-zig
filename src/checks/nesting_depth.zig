@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Nesting Depth - Caps brace-nesting depth inside fn bodies
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -122,6 +120,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: extract nested blocks into helper fns, invert conditions to early-return, or raise [nesting_depth] max_depth.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Nesting Depth - Caps brace-nesting depth inside fn bodies
 
 test "maxNestingDepth flat body is depth 1" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

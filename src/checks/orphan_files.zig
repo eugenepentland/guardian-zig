@@ -8,8 +8,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Orphan Files - Reports .zig files under src/ unreachable from any configured root via @import
-
 /// Returns the set of root paths to use for reachability. If the user
 /// configured `[orphan_files] roots`, those win; otherwise default to
 /// every node whose path is a top-level src/* file (no further slash
@@ -89,6 +87,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: import the file from a reachable module, or add it to [orphan_files] roots in guardian.toml.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Orphan Files - Reports .zig files under src/ unreachable from any configured root via @import
 
 test "defaultRoots picks only top-level src files" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

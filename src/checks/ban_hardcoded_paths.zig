@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Hidden Dependency Bans - Rejects hardcoded absolute paths and URLs in string literals
-
 const allowed_paths = [_][]const u8{
     "src/config*",
     "config/*",
@@ -142,6 +140,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: read the value from config or pass as a parameter; keep config under config/.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Hidden Dependency Bans - Rejects hardcoded absolute paths and URLs in string literals
 
 test "analyzeContent flags absolute /etc path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Requires structs that own an allocator field to declare a pub fn deinit
-
 const allowed_paths = [_][]const u8{
     // Pure context-passing structs that borrow an allocator without
     // owning heap data. Detecting this distinction structurally is
@@ -203,6 +201,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: add `pub fn deinit(self: *Self) void` that frees the owned resources.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Requires structs that own an allocator field to declare a pub fn deinit
 
 test "analyzeContent flags struct with allocator and no deinit" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects switch expressions whose case keys are string literals
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -126,6 +124,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: model the cases as an enum or tagged union; let the type system enforce exhaustiveness.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Rejects switch expressions whose case keys are string literals
 
 test "analyzeContent flags switch on string literals" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

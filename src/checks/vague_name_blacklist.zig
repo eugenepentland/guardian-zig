@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects vague identifier names on public declarations
-
 const blacklist = [_][]const u8{
     "tmp",
     "data",
@@ -109,6 +107,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: rename to describe what the value/fn represents in this domain.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Rejects vague identifier names on public declarations
 
 test "analyzeContent flags pub fn named Manager" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

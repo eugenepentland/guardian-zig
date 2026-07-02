@@ -9,9 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Doc Comments - Requires /// on every pub fn
-// spec: Doc Comments - Requires /// on every pub struct/enum/union/opaque
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -63,6 +60,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: add a /// doc comment line above each public declaration.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Doc Comments - Requires /// on every pub fn
+// spec: Doc Comments - Requires /// on every pub struct/enum/union/opaque
 
 test "visit flags missing doc comment" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -9,8 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Function Size - Caps parameter count per function
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     max_params: u32,
@@ -67,6 +65,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: bundle related parameters into a struct.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Function Size - Caps parameter count per function
 
 test "visit catches over-budget functions" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

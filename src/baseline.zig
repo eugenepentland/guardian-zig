@@ -5,9 +5,6 @@ const reporter = @import("reporter.zig");
 const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
 
-// spec: Baseline Mode - Captures each check's current violations on first run and only fails on additions
-// spec: Baseline Mode - Wraps a single check run with capture, diff, and outcome reporting
-
 /// Baseline file format version. Bump if the format changes meaningfully.
 pub const VERSION: u32 = 1;
 
@@ -256,6 +253,9 @@ fn deleteIfExists(path: []const u8) void {
         else => std.log.warn("test cleanup {s}: {s}", .{ path, @errorName(e) }),
     };
 }
+
+// spec: Baseline Mode - Captures each check's current violations on first run and only fails on additions
+// spec: Baseline Mode - Wraps a single check run with capture, diff, and outcome reporting
 
 test "pathFor builds the baseline file path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Function Length - Caps source lines per fn decl
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -77,6 +75,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: extract helpers to break the function into focused units, or raise [function_length] max_lines.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Function Length - Caps source lines per fn decl
 
 test "visit flags fn over the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

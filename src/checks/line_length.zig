@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Caps source line length
-
 /// Pure-function entry: scans `content` for any line whose codepoint
 /// length exceeds `max_len`.
 pub fn analyzeContentWithLimit(
@@ -80,6 +78,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: split long expressions; introduce intermediate names.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Caps source line length
 
 test "analyzeContent flags overlong line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

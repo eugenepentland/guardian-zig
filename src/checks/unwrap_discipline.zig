@@ -8,9 +8,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Unwrap Discipline - Rejects orelse unreachable in production code
-// spec: Unwrap Discipline - Rejects orelse undefined in production code
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -78,6 +75,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: handle the null case — `orelse <fallback>`, `if (x) |v| …`, or `orelse return error.X`.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Unwrap Discipline - Rejects orelse unreachable in production code
+// spec: Unwrap Discipline - Rejects orelse undefined in production code
 
 test "visit exempts orelse unreachable inside a test block" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

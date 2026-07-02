@@ -10,9 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Panic Budget - Tracks panic and unreachable token counts against a snapshot
-// spec: Panic Budget - Tracks TODO and FIXME comment counts against a snapshot
-
 const SNAPSHOT_LEAF = "panic-budget.txt";
 const SNAPSHOT_VERSION: u32 = 1;
 
@@ -206,6 +203,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
     return error.CheckFailed;
 }
+
+// spec: Panic Budget - Tracks panic and unreachable token counts against a snapshot
+// spec: Panic Budget - Tracks TODO and FIXME comment counts against a snapshot
 
 test "countTokens counts panics and unreachables" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects identical string literals appearing 3 or more times in a single file
-
 const min_occurrences: u32 = 3;
 // Length threshold tuned above 7 chars to skip common short identifiers
 // ("init", "time", "enabled") that happen to recur as token literals in
@@ -115,6 +113,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: extract the literal to a file-scope `const NAME = \"...\";`.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Rejects identical string literals appearing 3 or more times in a single file
 
 test "analyzeContent flags 3 copies of the same literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

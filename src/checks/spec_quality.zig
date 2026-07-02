@@ -7,9 +7,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Spec Quality - Flags vague behavior phrases in SPEC.md
-// spec: Spec Quality - Rejects behaviors shorter than the minimum length
-
 const default_forbidden_phrases: []const []const u8 = &.{
     "works correctly",
     "properly",
@@ -98,6 +95,9 @@ fn containsWord(text: []const u8, phrase: []const u8) bool {
     }
     return false;
 }
+
+// spec: Spec Quality - Flags vague behavior phrases in SPEC.md
+// spec: Spec Quality - Rejects behaviors shorter than the minimum length
 
 test "containsWord respects word boundaries" {
     try std.testing.expect(containsWord("handles things properly here", "properly"));

@@ -3,10 +3,6 @@ const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
 const walk = @import("../walk.zig");
 
-// spec: AST Index - Builds a parsed-source index by reading and parsing each file once
-// spec: AST Index - Iterates the index exposing each file's pre-parsed syntax tree to a visitor
-// spec: AST Index - Returns the shared index when present and builds a private one otherwise
-
 /// One source file parsed exactly once: its display path, null-terminated
 /// content, and syntax tree. The index lets every AST-based check in a run
 /// share a single read+parse per file instead of repeating it per check.
@@ -100,6 +96,10 @@ fn countVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     ctx.seen += 1;
     if (entry.tree == null) ctx.all_have_tree = false;
 }
+
+// spec: AST Index - Builds a parsed-source index by reading and parsing each file once
+// spec: AST Index - Iterates the index exposing each file's pre-parsed syntax tree to a visitor
+// spec: AST Index - Returns the shared index when present and builds a private one otherwise
 
 test "build reads and parses every src file once" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

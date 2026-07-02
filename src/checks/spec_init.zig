@@ -7,8 +7,6 @@ const print = std.debug.print;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
-
 /// Entry point for the spec-init generator.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Test Hygiene - Rejects if/while/switch and extra for loops at the top level of a test body
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -206,6 +204,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: split a conditional test into two independent tests; use a single table-driven `for`.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Test Hygiene - Rejects if/while/switch and extra for loops at the top level of a test body
 
 test "analyzeContent flags top-level if in test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

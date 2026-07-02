@@ -10,11 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Boundaries - Extracts @import paths from source files and normalizes relative paths
-// spec: Boundaries - Matches file paths against glob and prefix boundary patterns
-// spec: Boundaries - Checks against boundary rules defined in guardian.toml
-// spec: Boundaries - Reports forbidden import violations
-
 const BoundaryCtx = struct {
     allocator: std.mem.Allocator,
     rules: []const config_mod.BoundaryRule,
@@ -83,6 +78,11 @@ fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: 
     }
     return resolved.toOwnedSlice(allocator);
 }
+
+// spec: Boundaries - Extracts @import paths from source files and normalizes relative paths
+// spec: Boundaries - Matches file paths against glob and prefix boundary patterns
+// spec: Boundaries - Checks against boundary rules defined in guardian.toml
+// spec: Boundaries - Reports forbidden import violations
 
 test "extractImports resolves paths" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects bare integer literals outside a small allowlist
-
 // Allowlist covers the framework's recommended {-1, 0, 1, 2} plus
 // pervasive idiom values that are not "magic" in practice: radix `10`
 // (parseInt), `16` (hex), and common power-of-two sizes that read
@@ -176,6 +174,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: extract the value to `const NAME: T = ...;` so the meaning is documented.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Rejects bare integer literals outside a small allowlist
 
 test "analyzeContent flags magic in expression" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

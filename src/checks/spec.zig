@@ -15,7 +15,6 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const project_dir = ctx.project_dir;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, cfg.spec_file });
 
-    // spec: Spec Coverage - Fails with clear error when SPEC.md is missing
     const sections = spec_parser.parseFile(allocator, spec_path) catch {
         fail("ERROR — {s} not found", .{cfg.spec_file});
         print("\n", .{});
@@ -39,16 +38,17 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
 
     var all_tags: std.ArrayListUnmanaged(spec_matcher.SpecTag) = .empty;
     var malformed: std.ArrayListUnmanaged(spec_matcher.MalformedTag) = .empty;
+    var unattached: std.ArrayListUnmanaged(spec_matcher.MalformedTag) = .empty;
     for ([_][]const u8{ test_dir, src_dir }) |dir| {
         const scan = try spec_matcher.scanDir(allocator, dir);
         for (scan.tags) |t| try all_tags.append(allocator, t);
         for (scan.malformed) |m| try malformed.append(allocator, m);
+        for (scan.unattached) |u| try unattached.append(allocator, u);
     }
     const tags = try all_tags.toOwnedSlice(allocator);
 
     const result = try spec_matcher.analyze(allocator, sections, tags);
 
-    // spec: Spec Coverage - Fails when SPEC.md defines no behaviors
     if (result.total_behaviors == 0) {
         fail("spec coverage FAILED — {s} defines no behaviors", .{cfg.spec_file});
         print("  Add at least one `## Section` with `- behavior` bullets.\n", .{});
@@ -59,14 +59,15 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         result.unlinked_tags.len > 0 or
         result.duplicate_tags.len > 0 or
         result.duplicate_behaviors.len > 0 or
-        malformed.items.len > 0;
+        malformed.items.len > 0 or
+        unattached.items.len > 0;
 
     if (!has_failures) {
         ok("spec coverage {d}/{d} behaviors covered", .{ result.covered_behaviors, result.total_behaviors });
         return;
     }
 
-    fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} dup-tag, {d} dup-behavior, {d} malformed)", .{
+    fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} dup-tag, {d} dup-behavior, {d} malformed, {d} unattached)", .{
         result.covered_behaviors,
         result.total_behaviors,
         result.unverified_behaviors.len,
@@ -74,6 +75,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         result.duplicate_tags.len,
         result.duplicate_behaviors.len,
         malformed.items.len,
+        unattached.items.len,
     });
     for (result.unverified_behaviors) |b| {
         print("  unverified: {s} - {s}\n", .{ b.section, b.statement });
@@ -92,6 +94,9 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     for (malformed.items) |m| {
         print("  malformed spec tag: {s}:{d}: {s}\n", .{ m.file, m.line, m.text });
+    }
+    for (unattached.items) |u| {
+        print("  tag not on a test: {s}:{d}: {s}\n", .{ u.file, u.line, u.text });
     }
     print("\n", .{});
     for (result.unverified_behaviors) |b| {

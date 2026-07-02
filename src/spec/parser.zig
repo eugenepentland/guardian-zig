@@ -109,7 +109,6 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
     return sections.toOwnedSlice(allocator);
 }
 
-// spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison
 /// Lowercases and collapses whitespace for whitespace-insensitive comparison.
 pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8 {
     // Lowercase and collapse whitespace
@@ -133,7 +132,10 @@ pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u
     return std.mem.trim(u8, slice, &std.ascii.whitespace);
 }
 
+// spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison
 // spec: Spec Coverage - Parses SPEC.md for section headers and behavior bullets
+// spec: Spec Coverage - Reports unverified behaviors and unlinked tags
+
 test "parse spec content" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -187,7 +189,23 @@ test "parse ignores fenced code and trailing Planned section" {
     try std.testing.expectEqual(@as(usize, 1), sections[0].behaviors.len);
 }
 
-// spec: Spec Coverage - Reports unverified behaviors and unlinked tags
+// spec: Spec Coverage - Fails with clear error when SPEC.md is missing
+test "parseFile errors when the spec file is missing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(error.CouldNotReadSpec, parseFile(arena.allocator(), "definitely/not/a/spec.md"));
+}
+
+// spec: Spec Coverage - Fails when SPEC.md defines no behaviors
+test "parseContent yields no behaviors for a headings-only spec" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const sections = try parseContent(arena.allocator(), "# Title\n## Section\n");
+    var total: usize = 0;
+    for (sections) |s| total += s.behaviors.len;
+    try std.testing.expectEqual(@as(usize, 0), total);
+}
+
 test "normalize key" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

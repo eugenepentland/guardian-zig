@@ -8,8 +8,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Anytype Budget - Caps anytype parameter count per file
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     max_per_file: u32,
@@ -70,6 +68,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: replace anytype with comptime-typed generics where possible.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Anytype Budget - Caps anytype parameter count per file
 
 test "countAnytype counts only the keyword" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

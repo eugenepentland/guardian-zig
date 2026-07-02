@@ -10,9 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Pub Api Surface - Snapshots every public declaration
-// spec: Pub Api Surface - Diff fails on unexpected pub additions or removals
-
 const SNAPSHOT_LEAF = "pub-api.txt";
 const SNAPSHOT_VERSION: u32 = 1;
 
@@ -75,6 +72,9 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
         },
     }
 }
+
+// spec: Pub Api Surface - Snapshots every public declaration
+// spec: Pub Api Surface - Diff fails on unexpected pub additions or removals
 
 test "visit emits fn and struct entries" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

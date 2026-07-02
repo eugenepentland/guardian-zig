@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects bool parameters in public functions
-
 // Guardian's reporter.init(quiet), snapshot_helper.lifecycle(force_update),
 // and baseline.lifecycle(force_refresh) take bool params. Refactor to enums
 // is queued separately. Downstream consumers should leave this empty.
@@ -147,6 +145,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: split into two named entry points, or introduce an enum that encodes intent.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Rejects bool parameters in public functions
 
 test "analyzeContent flags bool param in pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

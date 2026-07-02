@@ -136,6 +136,7 @@ test "extractPubFns ignores non-function pub declarations" {
     try std.testing.expectEqualStrings("actual", fns[0]);
 }
 
+// spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
 test "generateSpecContent emits one bullet per pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

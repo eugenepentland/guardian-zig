@@ -9,8 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Cognitive Complexity - Caps per-function cognitive complexity score
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     threshold: u32,
@@ -133,6 +131,8 @@ fn scoreSource(allocator: std.mem.Allocator, source: []const u8) !u32 {
     }
     return 0;
 }
+
+// spec: Cognitive Complexity - Caps per-function cognitive complexity score
 
 test "scoreTokens scores trivial fn as 0" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
