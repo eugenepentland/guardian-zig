@@ -11,6 +11,7 @@ const check_naming = @import("../checks/naming.zig");
 const check_function_size = @import("../checks/function_size.zig");
 const check_doc_comments = @import("../checks/doc_comments.zig");
 const check_imports = @import("../checks/imports.zig");
+// doc-quality folded into doc-comments (presence + quality in one walk).
 const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
 const check_catch_discipline = @import("../checks/catch_discipline.zig");
@@ -26,7 +27,6 @@ const check_dup_const = @import("../checks/dup_const.zig");
 const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
 const check_orphan_files = @import("../checks/orphan_files.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
-const check_doc_quality = @import("../checks/doc_quality.zig");
 const check_int_from_float_budget = @import("../checks/int_from_float_budget.zig");
 const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
@@ -97,7 +97,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "doc-comments",
-        .summary = "Require /// doc comments on every public fn/type",
+        .summary = "Require a real /// doc comment on every public fn/type (presence + quality)",
         .needs_ast = .yes,
         .run = check_doc_comments.run,
     },
@@ -171,12 +171,6 @@ pub const all: []const Command = &.{
             "(return undefined, placeholder panics, unreachable in value fns)",
         .needs_ast = .yes,
         .run = check_stub_body_ban.run,
-    },
-    .{
-        .name = "doc-quality",
-        .summary = "Reject empty or stub /// doc comments on public declarations",
-        .needs_ast = .yes,
-        .run = check_doc_quality.run,
     },
     .{
         .name = "int-from-float-budget",

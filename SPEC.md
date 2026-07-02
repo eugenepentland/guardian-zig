@@ -66,6 +66,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Requires /// on every pub fn
 - Requires /// on every pub struct/enum/union/opaque
+- Rejects empty or stub doc comments on public declarations
 
 ## Imports
 
@@ -159,10 +160,6 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Stub Body Ban
 
 - Rejects single-statement stub bodies (undefined, placeholder panic, unreachable in value fn)
-
-## Doc Quality
-
-- Rejects empty or stub doc comments on public declarations
 
 ## Int From Float Budget
 
