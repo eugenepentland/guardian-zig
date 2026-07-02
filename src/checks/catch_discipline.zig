@@ -33,9 +33,15 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const State = enum { none, after_catch, in_capture, expect_brace, after_lbrace };
     var state: State = .none;
     var catch_pos: usize = 0;
+    // Inline `test { ... }` blocks are exempt: `x catch unreachable` is an
+    // idiomatic (and correct) assertion in a test. Track test scope by brace
+    // depth alongside the catch state machine.
+    var scope = TestScope{};
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
+        scope.update(t.tag);
+        const in_test = scope.in_test;
         switch (state) {
             .none => if (t.tag == .keyword_catch) {
                 state = .after_catch;
@@ -43,11 +49,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
             },
             .after_catch => switch (t.tag) {
                 .keyword_unreachable => {
-                    try appendAt(ctx, z, entry.rel_path, catch_pos, "catch unreachable in production code");
+                    if (!in_test) try appendAt(ctx, z, entry.rel_path, catch_pos, "catch unreachable in production code");
                     state = .none;
                 },
                 .identifier => {
-                    if (std.mem.eql(u8, z[t.loc.start..t.loc.end], "undefined")) {
+                    if (!in_test and std.mem.eql(u8, z[t.loc.start..t.loc.end], "undefined")) {
                         try appendAt(ctx, z, entry.rel_path, catch_pos, "catch undefined assigns undefined on error");
                     }
                     state = .none;
@@ -70,7 +76,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
                 else => state = .none,
             },
             .after_lbrace => {
-                if (t.tag == .r_brace) {
+                if (t.tag == .r_brace and !in_test) {
                     try appendAt(ctx, z, entry.rel_path, catch_pos, "catch block is empty (silently swallows the error)");
                 }
                 state = if (t.tag == .keyword_catch) blk: {
@@ -81,6 +87,34 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
         }
     }
 }
+
+/// Brace-depth tracker for inline `test { ... }` scope. Feed every token tag
+/// to `update`; `in_test` is true while the tokenizer is inside a test body.
+const TestScope = struct {
+    depth: u32 = 0,
+    test_depth: u32 = 0,
+    in_test: bool = false,
+    pending: bool = false,
+
+    fn update(self: *TestScope, tag: std.zig.Token.Tag) void {
+        switch (tag) {
+            .keyword_test => self.pending = true,
+            .l_brace => {
+                self.depth += 1;
+                if (self.pending) {
+                    self.in_test = true;
+                    self.test_depth = self.depth;
+                    self.pending = false;
+                }
+            },
+            .r_brace => {
+                if (self.in_test and self.depth == self.test_depth) self.in_test = false;
+                if (self.depth > 0) self.depth -= 1;
+            },
+            else => {},
+        }
+    }
+};
 
 fn appendAt(ctx: *ScanCtx, z: []const u8, rel_path: []const u8, pos: usize, comptime what: []const u8) !void {
     const msg = try std.fmt.allocPrint(ctx.allocator, "{s}:{d}: " ++ what, .{ rel_path, lineOf(z, pos) });
@@ -145,6 +179,21 @@ test "visit ignores `catch unreachable` inside string literal" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }
 
+test "visit exempts catch unreachable inside a test block" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content =
+        \\test "ok" {
+        \\    const v = mightFail() catch unreachable;
+        \\    _ = v;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
 test "visit catches `catch {}`" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
