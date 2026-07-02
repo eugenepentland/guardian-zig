@@ -105,8 +105,10 @@ pub const BoolOpsCfg = struct {
 /// Per-check config for the returns-per-function cap.
 pub const ReturnsPerFnCfg = struct {
     enabled: bool = true,
-    /// Max `return` keywords per fn body (excludes nested fn defs).
-    max_returns: u32 = 3,
+    /// Max `return` keywords per fn body (excludes nested fn defs and
+    /// `orelse`/`catch` guard-clause returns, which are Zig's error-model
+    /// idiom rather than control-flow branching).
+    max_returns: u32 = 5,
 };
 
 /// Per-check config for the test-coverage check (per-pub-fn).

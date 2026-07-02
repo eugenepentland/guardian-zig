@@ -214,6 +214,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Caps boolean operators per condition
 - Caps return statements per function body
+- Excludes orelse/catch guard-clause returns from the count
 
 ## Test Hygiene
 

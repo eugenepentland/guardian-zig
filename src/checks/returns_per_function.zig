@@ -74,6 +74,12 @@ const ReturnScan = struct {
     pending_fn: bool = false, // saw `fn`, still seeking its body `{`
     nested: std.ArrayListUnmanaged(u32) = .empty,
     prev_tag: std.zig.Token.Tag = .invalid,
+    // Armed by `orelse`/`catch`; a bare `return` reached while armed (past an
+    // optional `|payload|`) is an error-guard clause, not a control-flow exit,
+    // so it is not counted. Zig's exception-free error model makes these
+    // ubiquitous (`x orelse return err`), and counting them taxes the idiom
+    // `returns-per-function` exists to keep readable in the first place.
+    guard_armed: bool = false,
 };
 
 // Opens a nested fn body when the current `{` is that body's brace. The body
@@ -106,10 +112,18 @@ fn stepScan(arena: Allocator, s: *ReturnScan, tag: std.zig.Token.Tag) Allocator.
         .semicolon, .comma => s.pending_fn = false,
         .l_brace => try openBraceScan(arena, s),
         .r_brace => closeBraceScan(s),
-        .keyword_return => if (s.nested.items.len == 0) {
+        .keyword_orelse, .keyword_catch => s.guard_armed = true,
+        .keyword_return => if (s.nested.items.len == 0 and !s.guard_armed) {
             s.count += 1;
         },
         else => {},
+    }
+    // Keep the guard armed only across the operator, an optional `|payload|`,
+    // and the return itself; anything else (`;`, a `{` block, an expression)
+    // means the orelse/catch RHS was not a bare return, so disarm.
+    switch (tag) {
+        .keyword_orelse, .keyword_catch, .pipe, .identifier, .keyword_return => {},
+        else => s.guard_armed = false,
     }
     s.prev_tag = tag;
 }
@@ -194,6 +208,25 @@ test "analyzeContent allows fn with 2 returns" {
         \\fn classify(x: u32) u8 {
         \\    if (x == 0) return 0;
         \\    return 1;
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Complexity Bounds - Excludes orelse/catch guard-clause returns from the count
+test "analyzeContent: orelse/catch guard returns are not counted" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // 6 return keywords, but 5 are `orelse`/`catch` guard clauses; only the
+    // tail return is a real control-flow exit, so this passes the cap of 3.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\fn f(x: ?u8, y: ?u8, z: ?u8) !u8 {
+        \\    const a1 = x orelse return error.A;
+        \\    const b1 = y orelse return error.B;
+        \\    const c1 = z orelse return error.C;
+        \\    thing() catch return error.D;
+        \\    other() catch |e| return e;
+        \\    return a1 + b1 + c1;
         \\}
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
