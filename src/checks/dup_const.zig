@@ -49,10 +49,17 @@ fn extractFileScopeStringConsts(
                 continue;
             },
             .keyword_const => {
-                pending_const_at_depth0 = (depth == 0);
-                pending_name = null;
-                pending_after_eq = false;
-                prev_was_pub = false;
+                // Only a `const` that *starts* a declaration resets state. A
+                // `const` inside a type (`[]const u8`, `*const T`) arrives while
+                // we're already tracking one — ignoring it keeps the real name
+                // instead of capturing the type (e.g. recording `u8` as the
+                // const's name).
+                if (!pending_const_at_depth0) {
+                    pending_const_at_depth0 = (depth == 0);
+                    pending_name = null;
+                    pending_after_eq = false;
+                    prev_was_pub = false;
+                }
                 continue;
             },
             .identifier => {
@@ -197,6 +204,23 @@ test "extractFileScopeStringConsts finds top-level pub and private consts" {
     try testing.expectEqualStrings("beta", decls.items[1].value);
 }
 
+test "extractFileScopeStringConsts keeps the real name on type-annotated consts" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var decls: std.ArrayListUnmanaged(Decl) = .empty;
+
+    const content =
+        \\pub const Greeting: []const u8 = "hi";
+        \\const Ptr: *const [3:0]u8 = "abc";
+    ;
+    try extractFileScopeStringConsts(a, "src/x.zig", content, &decls);
+    try testing.expectEqual(@as(usize, 2), decls.items.len);
+    // Previously the `const` in `[]const u8` overwrote the name with `u8`.
+    try testing.expectEqualStrings("Greeting", decls.items[0].name);
+    try testing.expectEqualStrings("hi", decls.items[0].value);
+    try testing.expectEqualStrings("Ptr", decls.items[1].name);
+}
 test "findDuplicates groups by (name, value)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

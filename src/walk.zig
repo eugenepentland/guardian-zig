@@ -103,15 +103,23 @@ pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
     var ti: usize = 0;
     var parts = std.mem.splitScalar(u8, pattern, '*');
     var first = true;
+    const ends_with_star = std.mem.endsWith(u8, pattern, "*");
     while (parts.next()) |part| {
         if (part.len == 0) {
             first = false;
             continue;
         }
+        const is_last = parts.peek() == null;
         if (first) {
             if (!std.mem.startsWith(u8, text[ti..], part)) return false;
             ti += part.len;
             first = false;
+        } else if (is_last and !ends_with_star) {
+            // Anchor the final literal segment to the end of the text so a
+            // repeated substring can't consume it early (e.g. "*.zig" must
+            // match "a.zig.zig"). endsWith also confirms nothing trails it.
+            if (!std.mem.endsWith(u8, text[ti..], part)) return false;
+            ti = text.len;
         } else {
             if (std.mem.indexOf(u8, text[ti..], part)) |idx| {
                 ti += idx + part.len;
@@ -120,7 +128,7 @@ pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
             }
         }
     }
-    if (std.mem.endsWith(u8, pattern, "*")) return true;
+    if (ends_with_star) return true;
     return ti == text.len;
 }
 
@@ -165,6 +173,10 @@ test "matchGlob wildcards" {
     try std.testing.expect(matchGlob("src/core/math.zig", "src/*/math.zig"));
     try std.testing.expect(matchGlob("a/b/c/d.zig", "a/*/c/*"));
     try std.testing.expect(matchGlob("anything", "*"));
+    // Trailing literal must anchor to the end even when it repeats earlier.
+    try std.testing.expect(matchGlob("a.zig.zig", "*.zig"));
+    try std.testing.expect(!matchGlob("a.zig.txt", "*.zig"));
+    try std.testing.expect(matchGlob("src/vendor_foo.zig", "*/vendor_*.zig"));
 }
 
 test "normalizePath resolves parent refs" {

@@ -59,6 +59,10 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cap = ctx.cfg.line_length.max_len;
+    if (!ctx.cfg.line_length.enabled) {
+        reporter.ok("line-length disabled by config", .{});
+        return;
+    }
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,

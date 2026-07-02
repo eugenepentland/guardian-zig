@@ -117,6 +117,10 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cap = ctx.cfg.bool_ops.max_ops;
+    if (!ctx.cfg.bool_ops.enabled) {
+        reporter.ok("bool-ops-per-condition disabled by config", .{});
+        return;
+    }
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,

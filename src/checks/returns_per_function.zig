@@ -87,6 +87,10 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cap = ctx.cfg.returns_per_fn.max_returns;
+    if (!ctx.cfg.returns_per_fn.enabled) {
+        reporter.ok("returns-per-function disabled by config", .{});
+        return;
+    }
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
