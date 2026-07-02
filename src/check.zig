@@ -158,7 +158,30 @@ test {
     _ = @import("checks/vague_name_blacklist.zig");
 }
 
-// NOTE: a meta-guard test that walks src/checks/ and fails when a file is
-// missing from the block above lands with the test-no-conditional /
-// test-has-assertion / ban-fs fixes (it needs an fs walk + iterator loop that
-// those checks currently over-flag). See AUDIT.md "test-root drift".
+// Meta-guard: the block above is hand-maintained, and the whole reason ~78
+// tests once silently never ran is that it drifted from the files on disk.
+// This walks src/checks/ and fails if any file is missing from the block, so
+// the next added check can't skip its tests unnoticed. (The fs walk is allowed
+// in test scope; the capturing while is an iterator loop, and its inner `if`s
+// are nested — so neither ban-fs nor test-no-conditional flags it.)
+test "test root imports every check file" {
+    const self_src = @embedFile("check.zig");
+    var dir = try std.fs.cwd().openDir("src/checks", .{ .iterate = true });
+    defer dir.close();
+    var it = dir.iterate();
+    var missing_buf: [256]u8 = undefined;
+    var missing_len: usize = 0;
+    var needle_buf: [256]u8 = undefined;
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        const needle = try std.fmt.bufPrint(&needle_buf, "@import(\"checks/{s}\")", .{entry.name});
+        if (std.mem.indexOf(u8, self_src, needle) == null) {
+            @memcpy(missing_buf[0..entry.name.len], entry.name);
+            missing_len = entry.name.len;
+            break;
+        }
+    }
+    // A non-empty result names a check file missing from the block above.
+    try std.testing.expectEqualStrings("", missing_buf[0..missing_len]);
+}
