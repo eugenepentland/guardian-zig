@@ -55,6 +55,9 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
     var pending_permissive = false;
     var saw_fn = false;
+    // Previous token, so an `error{...}` set in `pub fn main()`'s return type
+    // doesn't steal the permissive scope from the actual body brace.
+    var prev_tag: std.zig.Token.Tag = .invalid;
 
     var chain: ChainState = .none;
     var chain_start: usize = 0;
@@ -62,6 +65,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
+        defer prev_tag = t.tag;
 
         switch (t.tag) {
             .keyword_test => {
@@ -75,7 +79,9 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
             },
             .l_brace => {
                 depth += 1;
-                if (pending_permissive) {
+                // Skip an `error{...}` return-set brace so the permissive scope
+                // latches onto the real body brace instead.
+                if (pending_permissive and prev_tag != .keyword_error) {
                     try permissive.append(a, depth);
                     pending_permissive = false;
                 }
@@ -210,6 +216,23 @@ test "visit allows page_allocator inside pub fn main" {
         \\pub fn main() !void {
         \\    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         \\    _ = arena;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+test "visit allows page_allocator in main with an explicit error set" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    // The error{...} return set used to consume the permissive scope, leaving
+    // the real body non-permissive and flagging page_allocator.
+    const content =
+        \\pub fn main() error{Oops}!void {
+        \\    const p = std.heap.page_allocator;
+        \\    _ = p;
         \\}
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });

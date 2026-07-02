@@ -122,6 +122,7 @@ fn parseStructHead(ts: *TokenStream) ?StructHead {
 fn collectStructBody(z: []const u8, ts: *TokenStream, head: StructHead) StructInfo {
     var info: StructInfo = .{ .name = head.name, .line = head.line };
     var depth: u32 = 1;
+    var paren_depth: u32 = 0;
     var prev_pub = false;
     var prev_was_fn = false;
 
@@ -131,6 +132,10 @@ fn collectStructBody(z: []const u8, ts: *TokenStream, head: StructHead) StructIn
         switch (t.tag) {
             .l_brace => depth += 1,
             .r_brace => depth -= 1,
+            .l_paren => paren_depth += 1,
+            .r_paren => if (paren_depth > 0) {
+                paren_depth -= 1;
+            },
             .keyword_pub => {
                 prev_pub = true;
                 prev_was_fn = false;
@@ -143,7 +148,10 @@ fn collectStructBody(z: []const u8, ts: *TokenStream, head: StructHead) StructIn
                 if (prev_was_fn and prev_pub and std.mem.eql(u8, text, "deinit")) {
                     info.has_pub_deinit = true;
                 }
-                if (depth == 1 and (std.mem.eql(u8, text, "allocator") or std.mem.eql(u8, text, "gpa"))) {
+                // Only a real field counts — an `allocator`/`gpa` inside a
+                // method's parameter list (paren_depth > 0) is a per-call
+                // allocator, not an owned field.
+                if (depth == 1 and paren_depth == 0 and (std.mem.eql(u8, text, "allocator") or std.mem.eql(u8, text, "gpa"))) {
                     info.has_allocator_field = true;
                 }
                 prev_was_fn = false;
@@ -238,6 +246,21 @@ test "analyzeContent allows struct without allocator field" {
         \\pub const Point = struct {
         \\    x: f32,
         \\    y: f32,
+        \\};
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+test "analyzeContent: a per-call allocator param is not an owned field" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // clone takes an allocator per call but owns none — must not require deinit.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\pub const Point = struct {
+        \\    x: f32,
+        \\    pub fn clone(self: Point, allocator: std.mem.Allocator) !Point {
+        \\        _ = allocator;
+        \\        return self;
+        \\    }
         \\};
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
