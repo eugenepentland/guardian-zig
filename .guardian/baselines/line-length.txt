@@ -1,6 +1,4 @@
 # guardian-snapshot v1
-src/checks/dup_const.zig:197: line is 137 chars (cap 120)
-src/checks/stub_body_ban.zig:148: line is 171 chars (cap 120)
 src/config.zig:172: line is 124 chars (cap 120)
 src/config.zig:305: line is 125 chars (cap 120)
 src/config.zig:319: line is 131 chars (cap 120)

@@ -97,7 +97,9 @@ test {
     _ = @import("walk.zig");
     _ = @import("text.zig");
     _ = @import("reporter.zig");
+    _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
+    _ = @import("ast/containers.zig");
     _ = @import("ast/index.zig");
     _ = @import("ast/import_graph.zig");
     _ = @import("cache.zig");

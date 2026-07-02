@@ -1,4 +1,3 @@
 # guardian-snapshot v1
-src/ast/parser.zig:359: fn pubContainersFromTree reaches nesting depth 5 (cap 4)
 src/config.zig:191: fn parse reaches nesting depth 6 (cap 4)
 src/walk.zig:58: fn walkRecursive reaches nesting depth 6 (cap 4)

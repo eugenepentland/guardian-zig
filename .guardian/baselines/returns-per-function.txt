@@ -1,5 +1,4 @@
 # guardian-snapshot v1
-src/ast/parser.zig:470: fn 'classifyReturn' has 6 return statements (cap 3)
 src/config.zig:145: fn 'load' has 4 return statements (cap 3)
 src/snapshot_helper.zig:47: fn 'lifecycle' has 6 return statements (cap 3)
 src/walk.zig:99: fn 'matchGlob' has 6 return statements (cap 3)
