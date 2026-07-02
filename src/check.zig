@@ -160,7 +160,6 @@ test {
     _ = @import("checks/repeated_string_literal.zig");
     _ = @import("checks/repeated_switch_on_enum.zig");
     _ = @import("checks/returns_per_function.zig");
-    _ = @import("checks/spec_drift.zig");
     _ = @import("checks/spec_init.zig");
     _ = @import("checks/spec_quality.zig");
     _ = @import("checks/spec.zig");

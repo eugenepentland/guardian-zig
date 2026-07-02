@@ -1,29 +1,29 @@
-# guardian-snapshot v1
+# guardian-snapshot v2
 src/ast/containers.zig::FnDeclInfo struct_
 src/ast/containers.zig::PubConst struct_
 src/ast/containers.zig::PubConstKind enum_
 src/ast/containers.zig::PubContainerInfo struct_
-src/ast/containers.zig::fnDeclInfos fn
-src/ast/containers.zig::fnDeclInfosFromTree fn
-src/ast/containers.zig::pubConsts fn
-src/ast/containers.zig::pubConstsFromTree fn
-src/ast/containers.zig::pubContainers fn
-src/ast/containers.zig::pubContainersFromTree fn
+src/ast/containers.zig::fnDeclInfos | fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo
+src/ast/containers.zig::fnDeclInfosFromTree | fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnDeclInfo
+src/ast/containers.zig::pubConsts | fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
+src/ast/containers.zig::pubConstsFromTree | fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubConst
+src/ast/containers.zig::pubContainers | fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubContainerInfo
+src/ast/containers.zig::pubContainersFromTree | fn pubContainersFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubContainerInfo
 src/ast/decls.zig::AstError value
-src/ast/decls.zig::collectDecls fn
-src/ast/decls.zig::isContainerNode fn
-src/ast/decls.zig::precedingDocText fn
+src/ast/decls.zig::collectDecls | fn collectDecls(arena: Allocator, tree: *const Ast) AstError![]const Ast.Node.Index
+src/ast/decls.zig::isContainerNode | fn isContainerNode(tree: *const Ast, node: Ast.Node.Index) bool
+src/ast/decls.zig::precedingDocText | fn precedingDocText(arena: Allocator, tree: *const Ast, decl: Ast.Node.Index) AstError!?[]const u8
 src/ast/import_graph.zig::BuildError value
 src/ast/import_graph.zig::Node struct_
-src/ast/import_graph.zig::build fn
-src/ast/import_graph.zig::findCycle fn
-src/ast/import_graph.zig::reachableFrom fn
+src/ast/import_graph.zig::build | fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node
+src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8
+src/ast/import_graph.zig::reachableFrom | fn reachableFrom( allocator: Allocator, nodes: []const Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/ast/index.zig::Entry struct_
 src/ast/index.zig::Index struct_
-src/ast/index.zig::build fn
-src/ast/index.zig::forEach fn
-src/ast/index.zig::resolve fn
-src/ast/index.zig::runSrc fn
+src/ast/index.zig::build | fn build(arena: Allocator, project_dir: []const u8) walk.WalkError!Index
+src/ast/index.zig::forEach | fn forEach(self: *const Index, visitor: walk.Visitor) walk.WalkError!void
+src/ast/index.zig::resolve | fn resolve( shared: ?*const Index, arena: Allocator, project_dir: []const u8, storage: *Index, ) walk.WalkError!*const Index
+src/ast/index.zig::runSrc | fn runSrc( shared: ?*const Index, arena: Allocator, project_dir: []const u8, visitor: walk.Visitor, ) walk.WalkError!void
 src/ast/parser.zig::AstError value
 src/ast/parser.zig::FnDeclInfo value
 src/ast/parser.zig::FnInfo struct_
@@ -33,146 +33,145 @@ src/ast/parser.zig::PubConstKind value
 src/ast/parser.zig::PubContainerInfo value
 src/ast/parser.zig::PubFn struct_
 src/ast/parser.zig::ReturnKind enum_
-src/ast/parser.zig::allFns fn
-src/ast/parser.zig::allFnsFromTree fn
+src/ast/parser.zig::allFns | fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo
+src/ast/parser.zig::allFnsFromTree | fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnInfo
 src/ast/parser.zig::collectDecls value
 src/ast/parser.zig::fnDeclInfos value
 src/ast/parser.zig::fnDeclInfosFromTree value
-src/ast/parser.zig::imports fn
+src/ast/parser.zig::imports | fn imports(arena: Allocator, source: []const u8) []const Import
 src/ast/parser.zig::pubConsts value
 src/ast/parser.zig::pubConstsFromTree value
 src/ast/parser.zig::pubContainers value
 src/ast/parser.zig::pubContainersFromTree value
-src/ast/parser.zig::pubFns fn
-src/ast/parser.zig::pubFnsFromTree fn
+src/ast/parser.zig::pubFns | fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn
+src/ast/parser.zig::pubFnsFromTree | fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubFn
 src/baseline.zig::Outcome union_
 src/baseline.zig::VERSION value
-src/baseline.zig::extract fn
-src/baseline.zig::lifecycle fn
-src/baseline.zig::pathFor fn
-src/baseline.zig::runWithBaseline fn
+src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
+src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: [][]const u8, force_refresh: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
+src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
+src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/build_helper.zig::Options struct_
-src/build_helper.zig::addAllChecks fn
+src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
 src/build_helper.zig::all_check_names value
 src/cache.zig::Digest value
 src/cache.zig::Error value
-src/cache.zig::eql fn
-src/cache.zig::inputDigest fn
-src/cache.zig::readStored fn
-src/cache.zig::writeStored fn
-src/check.zig::main fn
-src/checks/allocator_hygiene.zig::run fn
-src/checks/anytype_budget.zig::run fn
-src/checks/ban_env.zig::analyzeContent fn
-src/checks/ban_env.zig::run fn
-src/checks/ban_fs.zig::analyzeContent fn
-src/checks/ban_fs.zig::run fn
-src/checks/ban_globals.zig::analyzeContent fn
-src/checks/ban_globals.zig::run fn
-src/checks/ban_hardcoded_paths.zig::analyzeContent fn
-src/checks/ban_hardcoded_paths.zig::run fn
-src/checks/ban_net.zig::analyzeContent fn
-src/checks/ban_net.zig::run fn
-src/checks/ban_rng.zig::analyzeContent fn
-src/checks/ban_rng.zig::run fn
-src/checks/ban_sleep.zig::analyzeContent fn
-src/checks/ban_sleep.zig::run fn
-src/checks/ban_time.zig::analyzeContent fn
-src/checks/ban_time.zig::run fn
+src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
+src/cache.zig::inputDigest | fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest
+src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) ?Digest
+src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
+src/check.zig::main | fn main() !void
+src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/ban_env.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/ban_env.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_fs.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/ban_fs.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_globals.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/ban_globals.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_hardcoded_paths.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/ban_hardcoded_paths.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_net.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/ban_net.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_rng.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/ban_rng.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_sleep.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/ban_sleep.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_time.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/ban_time.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/banned_symbol_helper.zig::Rule struct_
 src/checks/banned_symbol_helper.zig::ScanOpts struct_
-src/checks/banned_symbol_helper.zig::analyzeContent fn
-src/checks/banned_symbol_helper.zig::scan fn
-src/checks/bool_ops_per_condition.zig::analyzeContent fn
-src/checks/bool_ops_per_condition.zig::analyzeContentWithLimit fn
-src/checks/bool_ops_per_condition.zig::run fn
-src/checks/boolean_param_ban.zig::analyzeContent fn
-src/checks/boolean_param_ban.zig::run fn
-src/checks/boundaries.zig::run fn
-src/checks/catch_discipline.zig::run fn
-src/checks/cognitive_complexity.zig::run fn
-src/checks/compile_error_explanation.zig::analyzeContent fn
-src/checks/compile_error_explanation.zig::run fn
-src/checks/comptime_quota.zig::run fn
-src/checks/dead_pub.zig::run fn
-src/checks/debug_print_ban.zig::analyzeContent fn
-src/checks/debug_print_ban.zig::run fn
-src/checks/doc_comments.zig::run fn
-src/checks/doc_quality.zig::analyzeContent fn
-src/checks/doc_quality.zig::run fn
-src/checks/dup_const.zig::run fn
-src/checks/errdefer_in_init.zig::analyzeContent fn
-src/checks/errdefer_in_init.zig::run fn
-src/checks/error_discipline.zig::run fn
-src/checks/escape_discipline.zig::analyzeContent fn
-src/checks/escape_discipline.zig::run fn
-src/checks/file_size.zig::run fn
-src/checks/function_length.zig::analyzeContent fn
-src/checks/function_length.zig::run fn
-src/checks/function_size.zig::run fn
-src/checks/imports.zig::run fn
-src/checks/init_deinit_symmetry.zig::analyzeContent fn
-src/checks/init_deinit_symmetry.zig::run fn
-src/checks/init_hygiene.zig::analyzeContent fn
-src/checks/init_hygiene.zig::run fn
-src/checks/int_from_float_budget.zig::run fn
-src/checks/line_length.zig::analyzeContent fn
-src/checks/line_length.zig::analyzeContentWithLimit fn
-src/checks/line_length.zig::run fn
-src/checks/magic_number.zig::analyzeContent fn
-src/checks/magic_number.zig::run fn
-src/checks/naming.zig::run fn
-src/checks/nesting_depth.zig::analyzeContent fn
-src/checks/nesting_depth.zig::run fn
-src/checks/no_test_imports_in_prod.zig::analyzeContent fn
-src/checks/no_test_imports_in_prod.zig::run fn
-src/checks/oom_discipline.zig::analyzeContent fn
-src/checks/oom_discipline.zig::run fn
-src/checks/optional_density.zig::analyzeContent fn
-src/checks/optional_density.zig::run fn
-src/checks/orphan_files.zig::findOrphans fn
-src/checks/orphan_files.zig::run fn
-src/checks/panic_budget.zig::run fn
-src/checks/pub_api_surface.zig::run fn
-src/checks/repeated_string_literal.zig::analyzeContent fn
-src/checks/repeated_string_literal.zig::run fn
-src/checks/repeated_switch_on_enum.zig::analyzeContent fn
-src/checks/repeated_switch_on_enum.zig::run fn
+src/checks/banned_symbol_helper.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, opts: ScanOpts, ) Allocator.Error![]const []const u8
+src/checks/banned_symbol_helper.zig::scan | fn scan( ctx_param: *registry.RunCtx, check_name: []const u8, opts: ScanOpts, ) registry.RunError!void
+src/checks/bool_ops_per_condition.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/bool_ops_per_condition.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_ops: u32, ) Allocator.Error![]const []const u8
+src/checks/bool_ops_per_condition.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/boolean_param_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/boolean_param_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/boundaries.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/catch_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/compile_error_explanation.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/compile_error_explanation.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/comptime_quota.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/doc_quality.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.DocQualityCfg, ) std.mem.Allocator.Error![]const []const u8
+src/checks/doc_quality.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/dup_const.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/errdefer_in_init.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/escape_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/escape_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.FunctionLengthCfg, ) std.mem.Allocator.Error![]const []const u8
+src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/init_deinit_symmetry.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/init_hygiene.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/init_hygiene.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/int_from_float_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/line_length.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_len: u32, ) Allocator.Error![]const []const u8
+src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/magic_number.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/magic_number.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/nesting_depth.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.NestingDepthCfg, ) std.mem.Allocator.Error![]const []const u8
+src/checks/nesting_depth.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/no_test_imports_in_prod.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/no_test_imports_in_prod.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/oom_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/oom_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/optional_density.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/optional_density.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/orphan_files.zig::findOrphans | fn findOrphans( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
+src/checks/orphan_files.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/repeated_switch_on_enum.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/returns_per_function.zig::ScanInput struct_
-src/checks/returns_per_function.zig::analyzeContent fn
-src/checks/returns_per_function.zig::analyzeContentWithLimit fn
-src/checks/returns_per_function.zig::run fn
-src/checks/spec.zig::run fn
-src/checks/spec_drift.zig::run fn
-src/checks/spec_init.zig::run fn
-src/checks/spec_quality.zig::run fn
-src/checks/static_factory_ban.zig::analyzeContent fn
-src/checks/static_factory_ban.zig::run fn
-src/checks/stringly_typed_switches.zig::analyzeContent fn
-src/checks/stringly_typed_switches.zig::run fn
-src/checks/struct_method_cap.zig::analyzeContent fn
-src/checks/struct_method_cap.zig::run fn
-src/checks/stub_body_ban.zig::analyzeContent fn
-src/checks/stub_body_ban.zig::run fn
-src/checks/test_coverage.zig::run fn
-src/checks/test_has_assertion.zig::analyzeContent fn
-src/checks/test_has_assertion.zig::run fn
-src/checks/test_no_conditional.zig::analyzeContent fn
-src/checks/test_no_conditional.zig::run fn
-src/checks/type_size.zig::analyzeContent fn
-src/checks/type_size.zig::run fn
-src/checks/unwrap_discipline.zig::run fn
-src/checks/usingnamespace_ban.zig::run fn
-src/checks/vague_name_blacklist.zig::analyzeContent fn
-src/checks/vague_name_blacklist.zig::run fn
+src/checks/returns_per_function.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/returns_per_function.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, input: ScanInput, ) Allocator.Error![]const []const u8
+src/checks/returns_per_function.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/static_factory_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/static_factory_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/stringly_typed_switches.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/stringly_typed_switches.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/struct_method_cap.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/struct_method_cap.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/stub_body_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/stub_body_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/test_coverage.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/test_has_assertion.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/test_has_assertion.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/test_no_conditional.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
+src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/vague_name_blacklist.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/vague_name_blacklist.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/cli/registry.zig::Command value
 src/cli/registry.zig::NeedsAst value
 src/cli/registry.zig::RunCtx value
 src/cli/registry.zig::all value
-src/cli/registry.zig::find fn
-src/cli/registry.zig::printHelp fn
+src/cli/registry.zig::find | fn find(name: []const u8) ?Command
+src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/run_all.zig::COMMAND_NAME value
-src/cli/run_all.zig::run fn
+src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_
@@ -197,9 +196,9 @@ src/config.zig::ReturnsPerFnCfg struct_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
-src/config.zig::extraAllowed fn
-src/config_parser.zig::load fn
-src/config_parser.zig::parse fn
+src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
+src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
+src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config
 src/reporter.zig::Capture struct_
 src/reporter.zig::GREEN value
 src/reporter.zig::PREFIX value
@@ -208,38 +207,38 @@ src/reporter.zig::RESET value
 src/reporter.zig::Reporter struct_
 src/reporter.zig::Violation struct_
 src/reporter.zig::default value
-src/reporter.zig::deinit fn
-src/reporter.zig::detail fn
-src/reporter.zig::detail fn
-src/reporter.zig::emit fn
-src/reporter.zig::emit fn
-src/reporter.zig::fail fn
-src/reporter.zig::fail fn
-src/reporter.zig::init fn
-src/reporter.zig::ok fn
-src/reporter.zig::ok fn
-src/reporter.zig::write fn
+src/reporter.zig::deinit | fn deinit(self: *Capture) void
+src/reporter.zig::detail | fn detail(comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::detail | fn detail(self: Reporter, comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::emit | fn emit(self: Reporter, v: Violation) void
+src/reporter.zig::emit | fn emit(v: Violation) void
+src/reporter.zig::fail | fn fail(comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::fail | fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::init | fn init(quiet: bool) void
+src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
 src/snapshot.zig::Diff struct_
 src/snapshot.zig::MAGIC_PREFIX value
 src/snapshot.zig::ReadError value
 src/snapshot.zig::Snapshot struct_
 src/snapshot.zig::WriteError value
-src/snapshot.zig::diff fn
-src/snapshot.zig::isEmpty fn
-src/snapshot.zig::read fn
-src/snapshot.zig::write fn
+src/snapshot.zig::diff | fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff
+src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
+src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
+src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_
 src/snapshot_helper.zig::UPDATE_ENV value
-src/snapshot_helper.zig::lifecycle fn
-src/snapshot_helper.zig::shouldUpdate fn
-src/snapshot_helper.zig::snapshotPath fn
+src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, ) LifecycleError!Outcome
+src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
+src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
-src/spec/init.zig::collectModules fn
-src/spec/init.zig::extractPubFns fn
-src/spec/init.zig::generateSpecContent fn
+src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayListUnmanaged(ModuleInfo), ) InitError!void
+src/spec/init.zig::extractPubFns | fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error![]const []const u8
+src/spec/init.zig::generateSpecContent | fn generateSpecContent( allocator: std.mem.Allocator, modules: []const ModuleInfo, ) std.mem.Allocator.Error![]const u8
 src/spec/matcher.zig::CoverageResult struct_
 src/spec/matcher.zig::DuplicateBehavior struct_
 src/spec/matcher.zig::DuplicateTag struct_
@@ -247,27 +246,27 @@ src/spec/matcher.zig::MalformedTag struct_
 src/spec/matcher.zig::ScanError value
 src/spec/matcher.zig::ScanResult struct_
 src/spec/matcher.zig::SpecTag struct_
-src/spec/matcher.zig::analyze fn
-src/spec/matcher.zig::scanDir fn
+src/spec/matcher.zig::analyze | fn analyze( allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag, ) std.mem.Allocator.Error!CoverageResult
+src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult
 src/spec/parser.zig::Behavior struct_
 src/spec/parser.zig::ParseError value
 src/spec/parser.zig::Section struct_
-src/spec/parser.zig::normalizeKey fn
-src/spec/parser.zig::parseContent fn
-src/spec/parser.zig::parseFile fn
+src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8
+src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
+src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_
 src/testing/golden_runner.zig::UPDATE_ENV value
-src/testing/golden_runner.zig::run fn
-src/testing/golden_runner.zig::runWithCfg fn
+src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void
+src/testing/golden_runner.zig::runWithCfg | fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype, cfg: anytype) GoldenError!void
 src/text.zig::TestScope struct_
-src/text.zig::lineOf fn
-src/text.zig::update fn
+src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
+src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/walk.zig::FileEntry struct_
 src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_
 src/walk.zig::WalkError value
 src/walk.zig::WalkOpts struct_
-src/walk.zig::matchGlob fn
-src/walk.zig::normalizePath fn
-src/walk.zig::walkZigFiles fn
+src/walk.zig::matchGlob | fn matchGlob(text: []const u8, pattern: []const u8) bool
+src/walk.zig::normalizePath | fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8
+src/walk.zig::walkZigFiles | fn walkZigFiles( allocator: Allocator, fs_root: []const u8, opts: WalkOpts, visitor: Visitor, ) WalkError!void

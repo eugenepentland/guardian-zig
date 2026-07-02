@@ -99,16 +99,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Snapshots every public declaration
 - Diff fails on unexpected pub additions or removals
+- Diff fails when an existing pub fn signature changes
 
 ## Panic Budget
 
 - Tracks panic and unreachable token counts against a snapshot
 - Tracks TODO and FIXME comment counts against a snapshot
-
-## Spec Drift
-
-- Snapshots pub fn prototypes
-- Diff fails when an existing pub fn signature changes
 
 ## Catch Discipline
 

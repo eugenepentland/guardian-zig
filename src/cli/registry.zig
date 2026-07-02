@@ -13,7 +13,6 @@ const check_doc_comments = @import("../checks/doc_comments.zig");
 const check_imports = @import("../checks/imports.zig");
 const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
-const check_spec_drift = @import("../checks/spec_drift.zig");
 const check_catch_discipline = @import("../checks/catch_discipline.zig");
 const check_unwrap_discipline = @import("../checks/unwrap_discipline.zig");
 const check_error_discipline = @import("../checks/error_discipline.zig");
@@ -114,12 +113,6 @@ pub const all: []const Command = &.{
         .name = "panic-budget",
         .summary = "Cap @panic / unreachable / TODO / FIXME counts via snapshot",
         .run = check_panic_budget.run,
-    },
-    .{
-        .name = "spec-drift",
-        .summary = "Snapshot pub fn prototypes; diff fails on signature change",
-        .needs_ast = .yes,
-        .run = check_spec_drift.run,
     },
     .{
         .name = "catch-discipline",

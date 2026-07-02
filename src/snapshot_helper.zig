@@ -44,7 +44,7 @@ pub const SnapSpec = struct {
 };
 
 /// Runs the standard snapshot lifecycle for set-diff style checks
-/// (pub-api-surface, spec-drift): if no snapshot exists OR `force_update` is
+/// (e.g. pub-api-surface): if no snapshot exists OR `force_update` is
 /// set, write the current `new_lines` and report created/updated. Otherwise
 /// read the prior snapshot and diff against the (sorted) current state.
 ///

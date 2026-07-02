@@ -11,7 +11,8 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 const SNAPSHOT_LEAF = "pub-api.txt";
-const SNAPSHOT_VERSION: u32 = 1;
+// v2: fn entries now include the full prototype (folded in spec-drift).
+const SNAPSHOT_VERSION: u32 = 2;
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
@@ -22,9 +23,12 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
+    // fn entries carry the full prototype so this single snapshot catches both
+    // surface changes (add/remove/rename) AND signature drift on an existing
+    // pub fn — subsuming the former standalone spec-drift check.
     const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
-        const line = try std.fmt.allocPrint(a, "{s}::{s} fn", .{ entry.rel_path, f.name });
+        const line = try std.fmt.allocPrint(a, "{s}::{s} | {s}", .{ entry.rel_path, f.name, f.proto_span });
         try ctx.lines.append(a, line);
     }
     const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
@@ -83,6 +87,7 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
 
 // spec: Pub Api Surface - Snapshots every public declaration
 // spec: Pub Api Surface - Diff fails on unexpected pub additions or removals
+// spec: Pub Api Surface - Diff fails when an existing pub fn signature changes
 
 test "visit emits fn and struct entries" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -97,7 +102,7 @@ test "visit emits fn and struct entries" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 3), lines.items.len);
-    try std.testing.expectEqualStrings("src/x.zig::run fn", lines.items[0]);
+    try std.testing.expectEqualStrings("src/x.zig::run | fn run() void", lines.items[0]);
     try std.testing.expectEqualStrings("src/x.zig::X struct_", lines.items[1]);
     try std.testing.expectEqualStrings("src/x.zig::Y value", lines.items[2]);
 }
