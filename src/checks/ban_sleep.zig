@@ -2,8 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Hidden Dependency Bans - Rejects sleep calls outside test infrastructure
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "Thread", "sleep" }, .display = "std.Thread.sleep" },
     .{ .chain = &.{ "std", "time", "sleep" }, .display = "std.time.sleep" },
@@ -28,6 +26,8 @@ pub fn analyzeContent(
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx, "ban-sleep", opts);
 }
+
+// spec: Hidden Dependency Bans - Rejects sleep calls outside test infrastructure
 
 test "analyzeContent flags Thread.sleep in production" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

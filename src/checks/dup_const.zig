@@ -19,6 +19,65 @@ const ScanCtx = struct {
     decls: *std.ArrayListUnmanaged(Decl),
 };
 
+/// Mutable state carried across tokens while scanning for a top-level
+/// `(pub) const NAME = "literal";` declaration.
+const ScanState = struct {
+    depth: i32 = 0,
+    pending_const_at_depth0: bool = false,
+    pending_name: ?[]const u8 = null,
+    pending_after_eq: bool = false,
+
+    fn reset(self: *ScanState) void {
+        self.pending_const_at_depth0 = false;
+        self.pending_name = null;
+        self.pending_after_eq = false;
+    }
+};
+
+/// Starts tracking a declaration when a `const` opens one at depth 0. A `const`
+/// inside a type (`[]const u8`, `*const T`) arrives while we're already tracking
+/// one — ignoring it keeps the real name instead of capturing the type.
+fn beginConst(state: *ScanState) void {
+    if (state.pending_const_at_depth0) return;
+    state.pending_const_at_depth0 = (state.depth == 0);
+    state.pending_name = null;
+    state.pending_after_eq = false;
+}
+
+/// Captures the first identifier after `const` as the declaration's name.
+fn recordName(state: *ScanState, name: []const u8) void {
+    if (state.pending_const_at_depth0 and state.pending_name == null) {
+        state.pending_name = name;
+    }
+}
+
+/// Notes that `=` was seen for the tracked `const NAME`, arming value capture.
+fn markAfterEq(state: *ScanState) void {
+    if (state.pending_const_at_depth0 and state.pending_name != null) {
+        state.pending_after_eq = true;
+    }
+}
+
+/// Append destination for collected decls, bundling the fields shared by every
+/// `out.append` call so per-token helpers stay within the parameter limit.
+const Sink = struct {
+    allocator: std.mem.Allocator,
+    file: []const u8,
+    out: *std.ArrayListUnmanaged(Decl),
+};
+
+/// Appends a completed `NAME = "value"` decl when `raw` is a quoted literal.
+/// Non-string values are dropped. The caller resets scan state afterward.
+fn appendStringLiteral(sink: Sink, name: []const u8, raw: []const u8) !void {
+    const quoted = raw.len >= 2 and raw[0] == '"' and raw[raw.len - 1] == '"';
+    if (!quoted) return;
+    try sink.out.append(sink.allocator, .{
+        .file = sink.file,
+        .name = name,
+        .value = raw[1 .. raw.len - 1],
+    });
+}
+
 /// Tokenizer-based scan for top-level `(pub) const NAME = "literal";`. Tracks
 /// brace depth so consts inside function bodies are ignored. Returns owned
 /// slices of name and unquoted value.
@@ -30,73 +89,34 @@ fn extractFileScopeStringConsts(
 ) !void {
     const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
-    var depth: i32 = 0;
-
-    var prev_was_pub = false;
-    var pending_const_at_depth0: bool = false;
-    var pending_name: ?[]const u8 = null;
-    var pending_after_eq: bool = false;
+    var state: ScanState = .{};
+    const sink: Sink = .{ .allocator = allocator, .file = file, .out = out };
 
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
 
         switch (t.tag) {
-            .l_brace => depth += 1,
-            .r_brace => depth -= 1,
-            .keyword_pub => {
-                prev_was_pub = (depth == 0);
-                continue;
-            },
-            .keyword_const => {
-                pending_const_at_depth0 = (depth == 0);
-                pending_name = null;
-                pending_after_eq = false;
-                prev_was_pub = false;
-                continue;
-            },
-            .identifier => {
-                if (pending_const_at_depth0 and pending_name == null) {
-                    pending_name = z[t.loc.start..t.loc.end];
-                }
-            },
-            .equal => {
-                if (pending_const_at_depth0 and pending_name != null) {
-                    pending_after_eq = true;
-                }
-            },
-            .string_literal => {
-                if (pending_after_eq) {
-                    const raw = z[t.loc.start..t.loc.end];
-                    if (raw.len >= 2 and raw[0] == '"' and raw[raw.len - 1] == '"') {
-                        const value = raw[1 .. raw.len - 1];
-                        try out.append(allocator, .{
-                            .file = file,
-                            .name = pending_name.?,
-                            .value = value,
-                        });
-                    }
-                    pending_const_at_depth0 = false;
-                    pending_name = null;
-                    pending_after_eq = false;
-                }
-            },
-            .semicolon => {
-                pending_const_at_depth0 = false;
-                pending_name = null;
-                pending_after_eq = false;
-            },
-            else => {
-                // Anything else after `= ` that isn't a string literal means
-                // this const isn't a string-literal value — drop it.
-                if (pending_after_eq) {
-                    pending_const_at_depth0 = false;
-                    pending_name = null;
-                    pending_after_eq = false;
-                }
-            },
+            .l_brace => state.depth += 1,
+            .r_brace => state.depth -= 1,
+            .keyword_const => beginConst(&state),
+            .identifier => recordName(&state, z[t.loc.start..t.loc.end]),
+            .equal => markAfterEq(&state),
+            .string_literal => try onStringLiteral(&state, sink, z[t.loc.start..t.loc.end]),
+            .semicolon => state.reset(),
+            // Anything else after `= ` that isn't a string literal means this
+            // const isn't a string-literal value — drop it.
+            else => if (state.pending_after_eq) state.reset(),
         }
     }
+}
+
+/// Handles a `string_literal` token: when a value is expected, records the decl
+/// (quoted literals only) and resets scan state. Ignored otherwise.
+fn onStringLiteral(state: *ScanState, sink: Sink, raw: []const u8) !void {
+    if (!state.pending_after_eq) return;
+    try appendStringLiteral(sink, state.pending_name.?, raw);
+    state.reset();
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -174,7 +194,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 const testing = std.testing;
 
-// spec: Duplicate Const - Rejects file-scope const string-literal declarations with the same name and value defined in two or more files
+// spec: Duplicate Const - Rejects duplicate file-scope string-literal consts (same name and value) across files
+
 test "extractFileScopeStringConsts finds top-level pub and private consts" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -197,6 +218,23 @@ test "extractFileScopeStringConsts finds top-level pub and private consts" {
     try testing.expectEqualStrings("beta", decls.items[1].value);
 }
 
+test "extractFileScopeStringConsts keeps the real name on type-annotated consts" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var decls: std.ArrayListUnmanaged(Decl) = .empty;
+
+    const content =
+        \\pub const Greeting: []const u8 = "hi";
+        \\const Ptr: *const [3:0]u8 = "abc";
+    ;
+    try extractFileScopeStringConsts(a, "src/x.zig", content, &decls);
+    try testing.expectEqual(@as(usize, 2), decls.items.len);
+    // Previously the `const` in `[]const u8` overwrote the name with `u8`.
+    try testing.expectEqualStrings("Greeting", decls.items[0].name);
+    try testing.expectEqualStrings("hi", decls.items[0].value);
+    try testing.expectEqualStrings("Ptr", decls.items[1].name);
+}
 test "findDuplicates groups by (name, value)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

@@ -9,8 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Stub Body Ban - Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -46,28 +44,38 @@ const StubKind = enum {
 
 fn classify(body_text: []const u8, return_type_text: ?[]const u8) StubKind {
     const inner = stripBraces(body_text) orelse return .none;
+    return classifyInner(inner, return_type_text);
+}
 
+/// Classifies an already-brace-stripped body: `return undefined;`, a
+/// placeholder `@panic(...)`, or a bare `unreachable;` in a value fn. Split
+/// from `classify` so each fn's return-statement count stays within cap.
+fn classifyInner(inner: []const u8, return_type_text: ?[]const u8) StubKind {
     if (std.mem.eql(u8, inner, "return undefined;")) return .return_undefined;
+    if (isPlaceholderPanic(inner)) return .placeholder_panic;
+    return classifyUnreachable(inner, return_type_text);
+}
 
-    if (std.mem.startsWith(u8, inner, "@panic(") and std.mem.endsWith(u8, inner, ");")) {
-        // Pull the argument out: between the parens, looking only at the
-        // outer call (no nested parens expected for a literal stub).
-        const arg = inner["@panic(".len .. inner.len - ");".len];
-        for (placeholder_phrases) |phr| {
-            if (std.mem.indexOf(u8, arg, phr) != null) return .placeholder_panic;
-        }
+/// True when `inner` is a bare `@panic("…");` whose argument contains one of
+/// `placeholder_phrases` (unimplemented/stub markers). Only the outer call is
+/// inspected — no nested parens are expected for a literal stub.
+fn isPlaceholderPanic(inner: []const u8) bool {
+    if (!std.mem.startsWith(u8, inner, "@panic(") or !std.mem.endsWith(u8, inner, ");")) return false;
+    const arg = inner["@panic(".len .. inner.len - ");".len];
+    for (placeholder_phrases) |phr| {
+        if (std.mem.indexOf(u8, arg, phr) != null) return true;
     }
+    return false;
+}
 
-    if (std.mem.eql(u8, inner, "unreachable;")) {
-        // unreachable; is idiomatic in fn x() noreturn — only flag elsewhere.
-        const rt = return_type_text orelse return .unreachable_in_value_fn;
-        if (std.mem.eql(u8, std.mem.trim(u8, rt, &std.ascii.whitespace), "noreturn")) {
-            return .none;
-        }
-        return .unreachable_in_value_fn;
-    }
-
-    return .none;
+/// Classifies a bare `unreachable;` body. It is idiomatic in `fn x() noreturn`,
+/// so only flag it when the return type is absent or something other than
+/// `noreturn`. Any body that isn't exactly `unreachable;` is `.none`.
+fn classifyUnreachable(inner: []const u8, return_type_text: ?[]const u8) StubKind {
+    if (!std.mem.eql(u8, inner, "unreachable;")) return .none;
+    const rt = return_type_text orelse return .unreachable_in_value_fn;
+    const is_noreturn = std.mem.eql(u8, std.mem.trim(u8, rt, &std.ascii.whitespace), "noreturn");
+    return if (is_noreturn) .none else .unreachable_in_value_fn;
 }
 
 fn kindLabel(kind: StubKind) []const u8 {
@@ -106,7 +114,10 @@ pub fn analyzeContent(
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
-    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
+    // Test-harness entry (production walks via the shared index); terminate the
+    // borrowed content so it fits FileEntry's [:0]const u8 contract.
+    const z = try allocator.dupeZ(u8, content);
+    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z }) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
@@ -133,6 +144,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: implement the function, OR mark it noreturn if `unreachable;` is intentional.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Stub Body Ban - Rejects single-statement stub bodies (undefined, placeholder panic, unreachable in value fn)
 
 test "classify flags return undefined" {
     try std.testing.expectEqual(StubKind.return_undefined, classify("{ return undefined; }", "i32"));

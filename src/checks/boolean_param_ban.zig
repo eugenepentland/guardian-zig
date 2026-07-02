@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects bool parameters in public functions
-
 // Guardian's reporter.init(quiet), snapshot_helper.lifecycle(force_update),
 // and baseline.lifecycle(force_refresh) take bool params. Refactor to enums
 // is queued separately. Downstream consumers should leave this empty.
@@ -55,6 +53,8 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
         if (t.tag == .eof) break;
         switch (t.tag) {
             .keyword_pub => saw_pub = true,
+            // Modifiers between `pub` and `fn` must not clear saw_pub.
+            .keyword_inline, .keyword_noinline, .keyword_extern, .keyword_export => {},
             .keyword_fn => {
                 if (saw_pub) try checkParams(ctx, &tok, z, t.loc.start);
                 saw_pub = false;
@@ -69,9 +69,11 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
 fn checkParams(ctx: *ScanCtx, tok: *std.zig.Tokenizer, z: []const u8, fn_byte: usize) Allocator.Error!void {
     var saw_lparen = false;
     var depth: u32 = 0;
+    var prev_tag: std.zig.Token.Tag = .invalid;
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) return;
+        defer prev_tag = t.tag;
         if (!saw_lparen) {
             if (t.tag == .l_paren) {
                 saw_lparen = true;
@@ -88,30 +90,28 @@ fn checkParams(ctx: *ScanCtx, tok: *std.zig.Tokenizer, z: []const u8, fn_byte: u
             .identifier => {
                 if (depth != 1) continue;
                 const text = z[t.loc.start..t.loc.end];
-                if (std.mem.eql(u8, text, "bool")) {
-                    const line = lineOf(z, fn_byte);
-                    const msg = try std.fmt.allocPrint(
-                        ctx.allocator,
-                        "{s}:{d}: pub fn has a `bool` parameter (replace with two named methods or an enum)",
-                        .{ ctx.rel_path, line },
-                    );
-                    try ctx.violations.append(ctx.allocator, msg);
-                    return;
-                }
+                // Only a bare `name: bool` / `name: ?bool` flag param — not
+                // `[]const bool`, `*bool`, or other bool-typed data.
+                const is_flag_param = prev_tag == .colon or prev_tag == .question_mark;
+                if (!is_flag_param or !std.mem.eql(u8, text, "bool")) continue;
+                try recordBoolParam(ctx, lineOf(z, fn_byte));
+                return;
             },
             else => {},
         }
     }
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
+fn recordBoolParam(ctx: *ScanCtx, line: usize) Allocator.Error!void {
+    const msg = try std.fmt.allocPrint(
+        ctx.allocator,
+        "{s}:{d}: pub fn has a `bool` parameter (replace with two named methods or an enum)",
+        .{ ctx.rel_path, line },
+    );
+    try ctx.violations.append(ctx.allocator, msg);
 }
+
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -148,6 +148,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+// spec: Tier 2 Anti-patterns - Rejects bool parameters in public functions
+
 test "analyzeContent flags bool param in pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -155,6 +157,22 @@ test "analyzeContent flags bool param in pub fn" {
         \\pub fn render(verbose: bool) void { _ = verbose; }
     );
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+test "analyzeContent flags bool param on pub inline fn" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\pub inline fn render(verbose: bool) void { _ = verbose; }
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+test "analyzeContent allows []const bool / *bool data params" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\pub fn setMask(bits: []const bool, flag: *bool) void { _ = bits; _ = flag; }
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
 }
 
 test "analyzeContent allows enum param" {

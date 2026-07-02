@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Caps pub fn methods per pub struct/enum/union
-
 const max_methods: u32 = 20;
 
 const ScanCtx = struct {
@@ -66,30 +64,33 @@ const Head = struct {
 
 fn parseHead(tok: *std.zig.Tokenizer, z: []const u8) ?Head {
     const id = tok.next();
-    if (id.tag != .identifier) return null;
-    const name = z[id.loc.start..id.loc.end];
-
     const eq = tok.next();
-    if (eq.tag != .equal) return null;
+    if (id.tag != .identifier or eq.tag != .equal) return null;
+    const name = z[id.loc.start..id.loc.end];
 
     var t = tok.next();
     while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = tok.next();
     const is_container = t.tag == .keyword_struct or t.tag == .keyword_enum or t.tag == .keyword_union;
-    if (!is_container) return null;
-    // Skip optional `(tag_type)` for tagged unions / enums.
+    if (!is_container or !skipToBrace(tok)) return null;
+    return .{ .name = name, .line = lineOf(z, id.loc.start) };
+}
+
+// Consumes tokens up to and including the container body's opening `{`, skipping
+// an optional `(tag_type)` for tagged unions / enums. Returns false if the
+// stream ends or the next significant token isn't `(` or `{`.
+fn skipToBrace(tok: *std.zig.Tokenizer) bool {
     var nxt = tok.next();
     if (nxt.tag == .l_paren) {
         var d: u32 = 1;
         while (d > 0) {
             const inner = tok.next();
-            if (inner.tag == .eof) return null;
+            if (inner.tag == .eof) return false;
             if (inner.tag == .l_paren) d += 1;
             if (inner.tag == .r_paren) d -= 1;
         }
         nxt = tok.next();
     }
-    if (nxt.tag != .l_brace) return null;
-    return .{ .name = name, .line = lineOf(z, id.loc.start) };
+    return nxt.tag == .l_brace;
 }
 
 fn countPubFns(tok: *std.zig.Tokenizer) u32 {
@@ -103,6 +104,9 @@ fn countPubFns(tok: *std.zig.Tokenizer) u32 {
             .l_brace => depth += 1,
             .r_brace => depth -= 1,
             .keyword_pub => saw_pub = true,
+            // Modifiers sit between `pub` and `fn`; they must not clear saw_pub,
+            // or `pub inline fn` / `pub extern fn` / `pub export fn` go uncounted.
+            .keyword_inline, .keyword_noinline, .keyword_extern, .keyword_export => {},
             .keyword_fn => {
                 if (saw_pub and depth == 1) count += 1;
                 saw_pub = false;
@@ -115,14 +119,7 @@ fn countPubFns(tok: *std.zig.Tokenizer) u32 {
     return count;
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -156,6 +153,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+// spec: Tier 2 Anti-patterns - Caps pub fn methods per pub struct/enum/union
+
 test "analyzeContent flags struct with > 20 methods" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -173,6 +172,21 @@ test "analyzeContent flags struct with > 20 methods" {
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }
 
+test "analyzeContent counts pub inline/extern methods toward the cap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    try buf.appendSlice(a, "pub const Big = struct {\n");
+    // 21 `pub inline fn` methods: before the fix the modifier reset saw_pub
+    // and none were counted.
+    for (0..21) |i| {
+        try buf.appendSlice(a, try std.fmt.allocPrint(a, "    pub inline fn m{d}() void {{}}\n", .{i}));
+    }
+    try buf.appendSlice(a, "};\n");
+    const out = try analyzeContent(a, "src/x.zig", buf.items);
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
 test "analyzeContent allows struct with few methods" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

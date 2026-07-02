@@ -38,7 +38,7 @@ pub fn collectModules(
     modules: *std.ArrayListUnmanaged(ModuleInfo),
 ) InitError!void {
     var ctx: CollectCtx = .{ .allocator = allocator, .modules = modules };
-    try walk.walkZigFiles(allocator, dir_path, prefix, .{}, .{ .ctx = &ctx, .visit = collectVisit });
+    try walk.walkZigFiles(allocator, dir_path, .{ .display_root = prefix }, .{ .ctx = &ctx, .visit = collectVisit });
 }
 
 /// Returns the names of every `pub fn` in `content`, excluding main/build.
@@ -56,7 +56,10 @@ pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.
 /// Renders a starter SPEC.md from a list of modules with one bullet per pub fn.
 /// Each bullet is long enough to clear spec-quality's minimum-length gate so the
 /// generated file is hard-block-clean once the user adds matching // spec: tags.
-pub fn generateSpecContent(allocator: std.mem.Allocator, modules: []const ModuleInfo) std.mem.Allocator.Error![]const u8 {
+pub fn generateSpecContent(
+    allocator: std.mem.Allocator,
+    modules: []const ModuleInfo,
+) std.mem.Allocator.Error![]const u8 {
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     try buf.appendSlice(allocator, "# Project Specification\n\n");
     try buf.appendSlice(allocator, "## Overview\n\nDescribe the project here.\n\n");
@@ -136,6 +139,7 @@ test "extractPubFns ignores non-function pub declarations" {
     try std.testing.expectEqualStrings("actual", fns[0]);
 }
 
+// spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
 test "generateSpecContent emits one bullet per pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

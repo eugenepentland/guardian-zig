@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Doc Quality - Rejects empty or stub doc comments on public declarations
-
 const placeholder_phrases = [_][]const u8{
     "TODO",
     "FIXME",
@@ -34,18 +32,24 @@ fn judge(doc_text: ?[]const u8, min_chars: u32) Verdict {
     const trimmed = std.mem.trim(u8, text, &std.ascii.whitespace);
     if (trimmed.len == 0) return .empty;
 
-    // Placeholder check applies first so messages stay specific.
-    for (placeholder_phrases) |phr| {
-        if (std.ascii.eqlIgnoreCase(trimmed, phr)) return .placeholder;
-    }
+    // Placeholder check applies first so messages stay specific;
+    // otherwise fall back to the non-whitespace length verdict.
+    return if (isPlaceholder(trimmed)) .placeholder else lengthVerdict(trimmed, min_chars);
+}
 
-    // Count non-whitespace chars.
+fn isPlaceholder(trimmed: []const u8) bool {
+    for (placeholder_phrases) |phr| {
+        if (std.ascii.eqlIgnoreCase(trimmed, phr)) return true;
+    }
+    return false;
+}
+
+fn lengthVerdict(trimmed: []const u8, min_chars: u32) Verdict {
     var count: u32 = 0;
     for (trimmed) |c| {
         if (!std.ascii.isWhitespace(c)) count += 1;
     }
-    if (count < min_chars) return .too_short;
-    return .ok;
+    return if (count < min_chars) .too_short else .ok;
 }
 
 fn verdictLabel(v: Verdict) []const u8 {
@@ -103,7 +107,10 @@ pub fn analyzeContent(
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
-    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
+    // Test-harness entry (production walks via the shared index); terminate the
+    // borrowed content so it fits FileEntry's [:0]const u8 contract.
+    const z = try allocator.dupeZ(u8, content);
+    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z }) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
@@ -133,9 +140,15 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("doc quality FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: rewrite the /// comment with a real one-line description (>= {d} non-whitespace chars).\n", .{cfg.min_chars});
+    print(
+        "  fix: rewrite the /// comment with a real one-line description" ++
+            " (>= {d} non-whitespace chars).\n",
+        .{cfg.min_chars},
+    );
     return error.CheckFailed;
 }
+
+// spec: Doc Quality - Rejects empty or stub doc comments on public declarations
 
 test "judge passes ok docs" {
     try std.testing.expectEqual(Verdict.ok, judge("Computes the result of x times y.", 12));

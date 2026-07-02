@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Rejects init bodies with loops, conditionals, or switch statements
-
 const init_names = [_][]const u8{ "init", "create", "make" };
 
 const ScanCtx = struct {
@@ -38,7 +36,7 @@ fn analyzeWithTree(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const fns = (if (tree) |t| ast.fnDeclInfosFromTree(a, t) else ast.fnDeclInfos(a, content)) catch return violations.toOwnedSlice(allocator);
+    const fns = if (tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, content);
 
     for (fns) |fn_info| {
         if (!isInitName(fn_info.name)) continue;
@@ -66,13 +64,14 @@ fn scanBody(arena: Allocator, body: []const u8) Allocator.Error!?[]const u8 {
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
-        switch (t.tag) {
-            .keyword_if => return "if",
-            .keyword_while => return "while",
-            .keyword_for => return "for",
-            .keyword_switch => return "switch",
-            else => {},
-        }
+        const keyword: ?[]const u8 = switch (t.tag) {
+            .keyword_if => "if",
+            .keyword_while => "while",
+            .keyword_for => "for",
+            .keyword_switch => "switch",
+            else => null,
+        };
+        if (keyword) |k| return k;
     }
     return null;
 }
@@ -104,6 +103,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: move conditional logic into a factory or builder; keep init field-assignment-only.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Rejects init bodies with loops, conditionals, or switch statements
 
 test "analyzeContent flags init with if" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

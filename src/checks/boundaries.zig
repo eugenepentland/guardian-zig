@@ -10,11 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Boundaries - Extracts @import paths from source files and normalizes relative paths
-// spec: Boundaries - Matches file paths against glob and prefix boundary patterns
-// spec: Boundaries - Checks against boundary rules defined in guardian.toml
-// spec: Boundaries - Reports forbidden import violations
-
 const BoundaryCtx = struct {
     allocator: std.mem.Allocator,
     rules: []const config_mod.BoundaryRule,
@@ -26,13 +21,25 @@ fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const imports = try extractImports(ctx.allocator, entry.content, entry.rel_path);
     for (ctx.rules) |rule| {
         if (!walk.matchGlob(entry.rel_path, rule.module_pattern)) continue;
-        for (imports) |imp| {
-            for (rule.forbidden_imports) |f| {
-                if (std.mem.indexOf(u8, imp, f) != null) {
-                    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ entry.rel_path, imp, rule.module_pattern });
-                    try ctx.violations.append(ctx.allocator, msg);
-                }
-            }
+        try recordRuleViolations(ctx, entry.rel_path, imports, rule);
+    }
+}
+
+fn recordRuleViolations(
+    ctx: *BoundaryCtx,
+    rel_path: []const u8,
+    imports: []const []const u8,
+    rule: config_mod.BoundaryRule,
+) anyerror!void {
+    for (imports) |imp| {
+        for (rule.forbidden_imports) |f| {
+            if (std.mem.indexOf(u8, imp, f) == null) continue;
+            const msg = try std.fmt.allocPrint(
+                ctx.allocator,
+                "{s}: forbidden import '{s}' (rule: {s})",
+                .{ rel_path, imp, rule.module_pattern },
+            );
+            try ctx.violations.append(ctx.allocator, msg);
         }
     }
 }
@@ -84,6 +91,11 @@ fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: 
     return resolved.toOwnedSlice(allocator);
 }
 
+// spec: Boundaries - Extracts @import paths from source files and normalizes relative paths
+// spec: Boundaries - Matches file paths against glob and prefix boundary patterns
+// spec: Boundaries - Checks against boundary rules defined in guardian.toml
+// spec: Boundaries - Reports forbidden import violations
+
 test "extractImports resolves paths" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -108,6 +120,6 @@ test "boundaryVisit detects violation" {
     };
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: BoundaryCtx = .{ .allocator = a, .rules = rules, .violations = &violations };
-    try walk.walkZigFiles(a, "test-project/src", "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit });
+    try walk.walkZigFiles(a, "test-project/src", .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = boundaryVisit });
     try std.testing.expect(violations.items.len > 0);
 }

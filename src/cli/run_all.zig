@@ -25,37 +25,72 @@ const SKIP = [_][]const u8{"spec-init"};
 /// Skips `spec-init` (a generator, not a gate). The `all` command itself
 /// is dispatched outside the registry, so it never recurses.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
-    var failed: u32 = 0;
-    var ran: u32 = 0;
-    const baseline_on = ctx.cfg.baseline.enabled;
+    // Validate the disabled list up front: a typo like "magic-numbers" would
+    // otherwise silently disable nothing while the user believes it's off.
+    try validateDisabled(ctx.cfg.disabled);
 
     // Skip the whole run when guardian's hashed input set is unchanged since
     // the last all-green run. GUARDIAN_UPDATE_SNAPSHOT forces a full run.
-    const force_update = snapshot_helper.shouldUpdate(ctx.allocator);
-    var digest: ?cache.Digest = null;
-    if (ctx.cfg.cache_enabled and !force_update) {
-        if (cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file)) |d| {
-            digest = d;
-            if (cache.readStored(ctx.allocator, ctx.project_dir)) |stored| {
-                if (cache.eql(stored, d)) {
-                    reporter.ok("run-all: inputs unchanged since last green run — checks skipped", .{});
-                    return;
-                }
-            }
-        } else |_| {}
+    const cache_state = cacheState(ctx);
+    if (cache_state.skip) {
+        reporter.ok("run-all: inputs unchanged since last green run — checks skipped", .{});
+        return;
     }
 
     // Build the shared parsed-source index once if any check needs it, so
     // the ~17 AST checks read and parse each file once instead of per check.
     var index_storage: ast_index.Index = undefined;
-    if (anyNeedsAst()) {
+    if (anyNeedsAst(ctx.cfg.disabled)) {
         index_storage = try ast_index.build(ctx.allocator, ctx.project_dir);
         ctx.source_index = &index_storage;
     }
 
+    var ran: u32 = 0;
+    const failed = try runChecks(ctx, &ran);
+
+    if (failed == 0) {
+        reporter.ok("run-all: {d} check(s) passed", .{ran});
+        // Record this green input state so an unchanged re-run can skip.
+        if (cache_state.digest) |d| cache.writeStored(ctx.allocator, ctx.project_dir, d);
+        return;
+    }
+
+    fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
+    return error.CheckFailed;
+}
+
+/// Fails the run when the `disabled` config names a check that doesn't exist.
+fn validateDisabled(disabled: []const []const u8) types.RunError!void {
+    for (disabled) |name| {
+        if (registry.find(name) != null) continue;
+        fail("unknown check name in `disabled`: {s}", .{name});
+        return error.CheckFailed;
+    }
+}
+
+/// Digest for the current input set plus whether an unchanged re-run may skip.
+const CacheState = struct { digest: ?cache.Digest = null, skip: bool = false };
+
+/// Computes this run's input digest and whether it matches the last green run.
+fn cacheState(ctx: *types.RunCtx) CacheState {
+    const force_update = snapshot_helper.shouldUpdate(ctx.allocator);
+    if (!ctx.cfg.cache_enabled or force_update) return .{};
+    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch {
+        return .{};
+    };
+    const stored = cache.readStored(ctx.allocator, ctx.project_dir);
+    const skip = if (stored) |s| cache.eql(s, d) else false;
+    return .{ .digest = d, .skip = skip };
+}
+
+/// Runs every non-skipped check, tallying how many ran (into `ran`) and
+/// returning how many failed. Propagates any non-CheckFailed error.
+fn runChecks(ctx: *types.RunCtx, ran: *u32) types.RunError!u32 {
+    const baseline_on = ctx.cfg.baseline.enabled;
+    var failed: u32 = 0;
     for (registry.all) |cmd| {
-        if (shouldSkip(cmd.name)) continue;
-        ran += 1;
+        if (shouldSkip(cmd.name, ctx.cfg.disabled)) continue;
+        ran.* += 1;
         const outcome = if (baseline_on)
             baseline.runWithBaseline(ctx, cmd)
         else
@@ -65,29 +100,36 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
             else => return e,
         };
     }
-
-    if (failed == 0) {
-        reporter.ok("run-all: {d} check(s) passed", .{ran});
-        // Record this green input state so an unchanged re-run can skip.
-        if (digest) |d| cache.writeStored(ctx.allocator, ctx.project_dir, d);
-        return;
-    }
-
-    fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
-    return error.CheckFailed;
+    return failed;
 }
 
-fn shouldSkip(name: []const u8) bool {
+fn shouldSkip(name: []const u8, disabled: []const []const u8) bool {
     for (SKIP) |s| if (std.mem.eql(u8, name, s)) return true;
+    for (disabled) |s| if (std.mem.eql(u8, name, s)) return true;
     return false;
 }
 
 /// True when at least one non-skipped check declares `needs_ast = .yes`,
 /// meaning the shared parsed-source index is worth building for this run.
-fn anyNeedsAst() bool {
+fn anyNeedsAst(disabled: []const []const u8) bool {
     for (registry.all) |cmd| {
-        if (shouldSkip(cmd.name)) continue;
+        if (shouldSkip(cmd.name, disabled)) continue;
         if (cmd.needs_ast == .yes) return true;
     }
     return false;
+}
+
+// spec: Run All - Skips checks whose name appears in the disabled config list
+// spec: Run All - Rejects unknown check names in the disabled list
+
+test "shouldSkip honors the disabled list and built-in skips" {
+    try std.testing.expect(shouldSkip("magic-number", &.{"magic-number"}));
+    try std.testing.expect(shouldSkip("spec-init", &.{}));
+    try std.testing.expect(!shouldSkip("spec", &.{"magic-number"}));
+}
+
+test "disabled list entries must be real check names" {
+    // A real check resolves; a typo does not.
+    try std.testing.expect(registry.find("magic-number") != null);
+    try std.testing.expect(registry.find("magic-numbers") == null);
 }

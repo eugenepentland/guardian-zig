@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Requires structs that own an allocator field to declare a pub fn deinit
-
 const allowed_paths = [_][]const u8{
     // Pure context-passing structs that borrow an allocator without
     // owning heap data. Detecting this distinction structurally is
@@ -106,67 +104,80 @@ fn parseStructHead(ts: *TokenStream) ?StructHead {
     if (id.tag != .identifier) return null;
     const name = ts.peekText(id);
 
-    const eq = ts.next();
-    if (eq.tag != .equal) return null;
-
-    var t = ts.next();
-    while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = ts.next();
-    if (t.tag != .keyword_struct) return null;
-
-    const lbrace = ts.next();
-    if (lbrace.tag != .l_brace) return null;
+    if (!consumeStructOpen(ts)) return null;
 
     return .{ .name = name, .line = lineOf(ts.z, id.loc.start) };
 }
 
+// Consumes `= struct {` (allowing extern/packed before struct) starting
+// right after the type name. Returns false at the first token that breaks
+// the shape, matching the original short-circuit consumption order.
+fn consumeStructOpen(ts: *TokenStream) bool {
+    if (ts.next().tag != .equal) return false;
+
+    var t = ts.next();
+    while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = ts.next();
+    if (t.tag != .keyword_struct) return false;
+
+    return ts.next().tag == .l_brace;
+}
+
+// Running parser state while walking a single struct body.
+const BodyState = struct {
+    depth: u32 = 1,
+    paren_depth: u32 = 0,
+    prev_pub: bool = false,
+    prev_was_fn: bool = false,
+};
+
 fn collectStructBody(z: []const u8, ts: *TokenStream, head: StructHead) StructInfo {
     var info: StructInfo = .{ .name = head.name, .line = head.line };
-    var depth: u32 = 1;
-    var prev_pub = false;
-    var prev_was_fn = false;
+    var st: BodyState = .{};
 
-    while (depth > 0) {
+    while (st.depth > 0) {
         const t = ts.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
-            .l_brace => depth += 1,
-            .r_brace => depth -= 1,
+            .l_brace => st.depth += 1,
+            .r_brace => st.depth -= 1,
+            .l_paren => st.paren_depth += 1,
+            .r_paren => st.paren_depth -|= 1,
             .keyword_pub => {
-                prev_pub = true;
-                prev_was_fn = false;
+                st.prev_pub = true;
+                st.prev_was_fn = false;
             },
-            .keyword_fn => {
-                prev_was_fn = true;
-            },
-            .identifier => {
-                const text = z[t.loc.start..t.loc.end];
-                if (prev_was_fn and prev_pub and std.mem.eql(u8, text, "deinit")) {
-                    info.has_pub_deinit = true;
-                }
-                if (depth == 1 and (std.mem.eql(u8, text, "allocator") or std.mem.eql(u8, text, "gpa"))) {
-                    info.has_allocator_field = true;
-                }
-                prev_was_fn = false;
-                prev_pub = false;
-            },
+            .keyword_fn => st.prev_was_fn = true,
+            .identifier => classifyIdentifier(&info, &st, z[t.loc.start..t.loc.end]),
             .colon, .comma, .equal, .semicolon => {},
             else => {
-                prev_was_fn = false;
-                prev_pub = false;
+                st.prev_was_fn = false;
+                st.prev_pub = false;
             },
         }
     }
     return info;
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
+// Updates struct flags for one identifier token and clears the pub/fn markers.
+fn classifyIdentifier(info: *StructInfo, st: *BodyState, text: []const u8) void {
+    if (st.prev_was_fn and st.prev_pub and std.mem.eql(u8, text, "deinit")) {
+        info.has_pub_deinit = true;
     }
-    return line;
+    // Only a real field counts — an `allocator`/`gpa` inside a method's
+    // parameter list (paren_depth > 0) is a per-call allocator, not an
+    // owned field.
+    if (st.depth == 1 and st.paren_depth == 0 and isAllocatorName(text)) {
+        info.has_allocator_field = true;
+    }
+    st.prev_was_fn = false;
+    st.prev_pub = false;
 }
+
+fn isAllocatorName(text: []const u8) bool {
+    return std.mem.eql(u8, text, "allocator") or std.mem.eql(u8, text, "gpa");
+}
+
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -203,6 +214,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+// spec: Constructor Hygiene - Requires structs that own an allocator field to declare a pub fn deinit
+
 test "analyzeContent flags struct with allocator and no deinit" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -238,6 +251,21 @@ test "analyzeContent allows struct without allocator field" {
         \\pub const Point = struct {
         \\    x: f32,
         \\    y: f32,
+        \\};
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+test "analyzeContent: a per-call allocator param is not an owned field" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // clone takes an allocator per call but owns none — must not require deinit.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\pub const Point = struct {
+        \\    x: f32,
+        \\    pub fn clone(self: Point, allocator: std.mem.Allocator) !Point {
+        \\        _ = allocator;
+        \\        return self;
+        \\    }
         \\};
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);

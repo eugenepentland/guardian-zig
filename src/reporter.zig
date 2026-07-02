@@ -21,10 +21,12 @@ pub const Capture = struct {
     allocator: Allocator,
     buf: std.ArrayListUnmanaged(u8) = .empty,
 
+    /// Frees the captured buffer.
     pub fn deinit(self: *Capture) void {
         self.buf.deinit(self.allocator);
     }
 
+    /// Appends `fmt`/`args` to the capture buffer; logs a warning on OOM.
     pub fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void {
         self.buf.writer(self.allocator).print(fmt, args) catch |e|
             std.log.warn("guardian capture write failed: {s}", .{@errorName(e)});
@@ -38,6 +40,7 @@ pub const Reporter = struct {
     /// When non-null, all output is appended here and not printed.
     capture: ?*Capture = null,
 
+    /// Reports a passing check (green when colored, suppressed in quiet mode).
     pub fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void {
         if (self.capture) |c| {
             c.write(PREFIX ++ fmt ++ "\n", args);
@@ -50,6 +53,7 @@ pub const Reporter = struct {
             print(PREFIX ++ fmt ++ "\n", args);
     }
 
+    /// Reports a failing check (red when colored); always shown, even in quiet.
     pub fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void {
         if (self.capture) |c| {
             c.write(PREFIX ++ fmt ++ "\n", args);
@@ -61,6 +65,8 @@ pub const Reporter = struct {
             print(PREFIX ++ fmt ++ "\n", args);
     }
 
+    /// Prints an indented detail line under a check (violation specifics,
+    /// fix hints). Routed to the capture buffer in baseline mode.
     pub fn detail(self: Reporter, comptime fmt: []const u8, args: anytype) void {
         if (self.capture) |c| {
             c.write(fmt, args);
@@ -69,6 +75,7 @@ pub const Reporter = struct {
         print(fmt, args);
     }
 
+    /// Emits a structured Violation (file:line, message, optional fix hint).
     pub fn emit(self: Reporter, v: Violation) void {
         if (self.capture) |c| {
             emitTo(c, v);

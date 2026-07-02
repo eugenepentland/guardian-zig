@@ -2,9 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Debug Print Ban - Rejects std.debug.print call expressions outside test blocks and pub fn main
-// spec: Debug Print Ban - Rejects std.log.* call expressions outside test blocks and pub fn main
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "debug", "print" }, .display = "std.debug.print", .require_call = true },
     .{ .chain = &.{ "std", "log", "debug" }, .display = "std.log.debug", .require_call = true },
@@ -45,6 +42,9 @@ pub fn analyzeContent(
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx_param, "debug print ban", opts);
 }
+
+// spec: Debug Print Ban - Rejects std.debug.print call expressions outside test blocks and pub fn main
+// spec: Debug Print Ban - Rejects std.log.* call expressions outside test blocks and pub fn main
 
 test "analyzeContent flags std.debug.print call outside main" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

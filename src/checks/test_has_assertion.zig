@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Test Hygiene - Requires every test block to contain at least one std.testing.expect call
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -43,65 +41,83 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
         if (t.tag != .keyword_test) continue;
         const test_byte = t.loc.start;
 
-        // Anonymous tests (`test { ... }`) are typically test aggregators
-        // (`_ = @import(...)`) — exempt them.
-        var lbrace: std.zig.Token = undefined;
-        var has_name = false;
-        while (true) {
-            lbrace = tok.next();
-            if (lbrace.tag == .string_literal) has_name = true;
-            if (lbrace.tag == .l_brace or lbrace.tag == .eof) break;
-        }
-        if (lbrace.tag != .l_brace) continue;
-        if (!has_name) {
-            // Skip the body to keep the outer loop in sync.
-            var depth: u32 = 1;
-            while (depth > 0) {
-                const inner = tok.next();
-                if (inner.tag == .eof) return;
-                if (inner.tag == .l_brace) depth += 1;
-                if (inner.tag == .r_brace) depth -= 1;
-            }
-            continue;
-        }
+        const header = scanTestHeader(&tok);
+        if (!header.reached_lbrace) continue;
 
-        const body_start = lbrace.loc.end;
-        var depth: u32 = 1;
-        var body_end: usize = body_start;
-        while (true) {
-            const inner = tok.next();
-            if (inner.tag == .eof) break;
-            if (inner.tag == .l_brace) depth += 1;
-            if (inner.tag == .r_brace) {
+        // A named test (`test "..."` or decltest `test foo`) with no assertion
+        // in its body is a violation. Anonymous tests (`test { ... }`) are
+        // typically aggregators (`_ = @import(...)`) and are exempt.
+        if (header.has_name and !bodyHasAssertion(&tok, z)) {
+            try appendMissingAssertion(ctx, lineOf(z, test_byte));
+        }
+    }
+}
+
+const TestHeader = struct { has_name: bool, reached_lbrace: bool };
+
+/// Consumes tokens from just after `test` up to and including the opening
+/// `{`. Reports whether a name (string literal or identifier) preceded it —
+/// a decltest `test foo` has an identifier name and IS a real test.
+fn scanTestHeader(tok: *std.zig.Tokenizer) TestHeader {
+    var has_name = false;
+    while (true) {
+        const t = tok.next();
+        if (t.tag == .string_literal or t.tag == .identifier) has_name = true;
+        if (t.tag == .l_brace) return .{ .has_name = has_name, .reached_lbrace = true };
+        if (t.tag == .eof) return .{ .has_name = has_name, .reached_lbrace = false };
+    }
+}
+
+/// Scans a test body token-by-token (never a raw substring, which matched a
+/// variable named `expected` or a comment and missed try-based/custom
+/// assertions). An assertion is a `try` (error-propagation counts) or an
+/// `expect*`/`assert*` call. Consumes through the body's closing `}`.
+fn bodyHasAssertion(tok: *std.zig.Tokenizer, z: [:0]const u8) bool {
+    var depth: u32 = 1;
+    var has_assertion = false;
+    while (true) {
+        const inner = tok.next();
+        switch (inner.tag) {
+            .eof => break,
+            .l_brace => depth += 1,
+            .r_brace => {
                 depth -= 1;
-                if (depth == 0) {
-                    body_end = inner.loc.start;
-                    break;
-                }
-            }
-        }
-        if (body_end <= body_start) continue;
-        const body = z[body_start..body_end];
-        if (std.mem.indexOf(u8, body, "expect") == null) {
-            const line = lineOf(z, test_byte);
-            const msg = try std.fmt.allocPrint(
-                a,
-                "{s}:{d}: test block has no expect* assertion",
-                .{ ctx.rel_path, line },
-            );
-            try ctx.violations.append(a, msg);
+                if (depth == 0) break;
+            },
+            .keyword_try => has_assertion = true,
+            .identifier => has_assertion = has_assertion or
+                isAssertionName(z[inner.loc.start..inner.loc.end]),
+            else => {},
         }
     }
+    return has_assertion;
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
+fn appendMissingAssertion(ctx: *ScanCtx, line: u32) Allocator.Error!void {
+    const a = ctx.allocator;
+    const msg = try std.fmt.allocPrint(
+        a,
+        "{s}:{d}: test has no assertion (expect*/assert*/try)",
+        .{ ctx.rel_path, line },
+    );
+    try ctx.violations.append(a, msg);
 }
+
+/// True for std.testing / std.debug assertion call names: exactly `expect` or
+/// `assert`, or those prefixes continued in camelCase (expectEqual,
+/// expectError, assertEqual). A lowercase continuation (`expected`,
+/// `assertion`) is a variable, not a call, so it does not match.
+fn isAssertionName(name: []const u8) bool {
+    return matchesAssertPrefix(name, "expect") or matchesAssertPrefix(name, "assert");
+}
+
+fn matchesAssertPrefix(name: []const u8, prefix: []const u8) bool {
+    if (!std.mem.startsWith(u8, name, prefix)) return false;
+    if (name.len == prefix.len) return true;
+    return std.ascii.isUpper(name[prefix.len]);
+}
+
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -135,11 +151,45 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+// spec: Test Hygiene - Requires every test block to contain at least one std.testing.expect call
+
 test "analyzeContent flags test with no expect" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const out = try analyzeContent(arena.allocator(), "src/x.zig",
         \\test "side effect only" {
+        \\    var x: u32 = 1;
+        \\    x += 1;
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+test "analyzeContent: `expected` variable does not count as an assertion" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\test "no real assertion" {
+        \\    const expected: u32 = 1;
+        \\    _ = expected;
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+test "analyzeContent: a bare try counts as a (weak) assertion" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\test "propagates" {
+        \\    try doSomethingThatMayError();
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+test "analyzeContent: decltests are not exempt like anonymous tests" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\test decltestName {
         \\    var x: u32 = 1;
         \\    x += 1;
         \\}

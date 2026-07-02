@@ -9,8 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Function Size - Caps parameter count per function
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     max_params: u32,
@@ -23,7 +21,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const fns = if (entry.tree) |t| try ast.allFnsFromTree(a, t) else try ast.allFns(a, entry.content);
     for (fns) |f| {
         if (f.param_count <= ctx.max_params) continue;
-        const msg = try std.fmt.allocPrint(a, "{s}: fn {s} has {d} params (limit: {d})", .{ entry.rel_path, f.name, f.param_count, ctx.max_params });
+        const msg = try std.fmt.allocPrint(
+            a,
+            "{s}: fn {s} has {d} params (limit: {d})",
+            .{ entry.rel_path, f.name, f.param_count, ctx.max_params },
+        );
         try ctx.violations.append(a, msg);
     }
 }
@@ -50,7 +52,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // still walks (its parses are not shared).
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
     const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ctx, .visit = visit });
+    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all functions within {d} param limit", .{cfg.function_size.max_params});
@@ -67,6 +69,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: bundle related parameters into a struct.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Function Size - Caps parameter count per function
 
 test "visit catches over-budget functions" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -2,8 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Hidden Dependency Bans - Rejects RNG construction outside infra/random
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "crypto", "random" }, .display = "std.crypto.random" },
     .{ .chain = &.{ "std", "Random", "DefaultPrng", "init" }, .display = "std.Random.DefaultPrng.init" },
@@ -30,6 +28,8 @@ pub fn analyzeContent(
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx, "ban-rng", opts);
 }
+
+// spec: Hidden Dependency Bans - Rejects RNG construction outside infra/random
 
 test "analyzeContent flags std.crypto.random outside infra" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

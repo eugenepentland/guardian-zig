@@ -2,8 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Hidden Dependency Bans - Rejects std.time wall-clock reads outside infra/clock
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "time", "timestamp" }, .display = "std.time.timestamp" },
     .{ .chain = &.{ "std", "time", "nanoTimestamp" }, .display = "std.time.nanoTimestamp" },
@@ -32,6 +30,8 @@ pub fn analyzeContent(
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx, "ban-time", opts);
 }
+
+// spec: Hidden Dependency Bans - Rejects std.time wall-clock reads outside infra/clock
 
 test "analyzeContent flags std.time.timestamp outside infra" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

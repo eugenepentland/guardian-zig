@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Hidden Dependency Bans - Rejects mutable pub var globals outside wiring/main
-
 const allowed_paths = [_][]const u8{
     "src/main*",
     "src/wiring*",
@@ -83,14 +81,7 @@ fn report(ctx: *ScanCtx, z: []const u8, byte: usize) Allocator.Error!void {
     try ctx.violations.append(ctx.allocator, msg);
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -126,6 +117,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: scope mutable state to a struct field, or move to wiring/main.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Hidden Dependency Bans - Rejects mutable pub var globals outside wiring/main
 
 test "analyzeContent flags pub var at file scope" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

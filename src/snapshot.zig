@@ -14,6 +14,7 @@ pub const Diff = struct {
     added: []const []const u8,
     removed: []const []const u8,
 
+    /// True when nothing was added or removed — the snapshot is unchanged.
     pub fn isEmpty(self: Diff) bool {
         return self.added.len == 0 and self.removed.len == 0;
     }
@@ -25,21 +26,37 @@ pub const ReadError = error{
     VersionMismatch,
 } || std.mem.Allocator.Error || std.fs.File.OpenError || std.posix.ReadError;
 
+/// Parses the magic header line, validating the prefix and version.
+/// Returns BadFormat on a missing/malformed header and VersionMismatch
+/// when the parsed version doesn't equal expected_version.
+fn parseHeader(header: ?[]const u8, expected_version: u32) ReadError!u32 {
+    const version = try parseVersion(header);
+    if (version != expected_version) return error.VersionMismatch;
+    return version;
+}
+
+/// Extracts the version integer from a header line, or BadFormat if the
+/// line is missing, lacks the magic prefix, or has a non-integer version.
+fn parseVersion(header: ?[]const u8) ReadError!u32 {
+    const line = header orelse return error.BadFormat;
+    if (!std.mem.startsWith(u8, line, MAGIC_PREFIX)) return error.BadFormat;
+    const ver_str = line[MAGIC_PREFIX.len..];
+    return std.fmt.parseInt(u32, ver_str, 10) catch error.BadFormat;
+}
+
 /// Reads a snapshot file. Returns Missing if the file does not exist,
 /// BadFormat if the magic header is missing or malformed, VersionMismatch
 /// if the version doesn't match expected_version.
 pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot {
     const content = std.fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return error.Missing,
-        else => return error.BadFormat,
+        // Pass through real I/O / OOM errors — only a bad header is BadFormat,
+        // so "your snapshot is corrupt" isn't reported for a permission error.
+        else => |err| return err,
     };
 
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
-    const header = lines_iter.next() orelse return error.BadFormat;
-    if (!std.mem.startsWith(u8, header, MAGIC_PREFIX)) return error.BadFormat;
-    const ver_str = header[MAGIC_PREFIX.len..];
-    const version = std.fmt.parseInt(u32, ver_str, 10) catch return error.BadFormat;
-    if (version != expected_version) return error.VersionMismatch;
+    const version = try parseHeader(lines_iter.next(), expected_version);
 
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     while (lines_iter.next()) |line| {
@@ -120,7 +137,8 @@ test "write then read round-trips" {
     const tmp_path = "zig-cache/test-snapshot.txt";
     var lines = [_][]const u8{ "zebra", "apple", "mango" };
     try write(tmp_path, 1, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch |e| std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
+    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+        std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     const snap = try read(a, tmp_path, 1);
     try std.testing.expectEqual(@as(u32, 1), snap.version);
@@ -146,7 +164,8 @@ test "read returns VersionMismatch on wrong version" {
     const tmp_path = "zig-cache/test-snapshot-ver.txt";
     var lines = [_][]const u8{"x"};
     try write(tmp_path, 1, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch |e| std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
+    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+        std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     try std.testing.expectError(error.VersionMismatch, read(a, tmp_path, 2));
 }

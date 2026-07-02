@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects bare integer literals outside a small allowlist
-
 // Allowlist covers the framework's recommended {-1, 0, 1, 2} plus
 // pervasive idiom values that are not "magic" in practice: radix `10`
 // (parseInt), `16` (hex), and common power-of-two sizes that read
@@ -57,58 +55,100 @@ pub fn analyzeContent(
     return violations.toOwnedSlice(allocator);
 }
 
+// Mutable tokenizer bookkeeping for a single `scan` pass. `saw_const_decl`
+// is true between `const`/`var` and its `=` (the name/type portion, e.g. the
+// `1024` in `[1024]u8`); `in_const_init` is true between that `=` and the `;`
+// (the whole initializer, so `const t = base * 30_000;` is exempt, not just
+// the first token after `=`).
+const ScanState = struct {
+    in_test: bool = false,
+    in_comptime: bool = false,
+    depth: u32 = 0,
+    test_depth: u32 = 0,
+    comptime_depth: u32 = 0,
+    saw_const_decl: bool = false,
+    in_const_init: bool = false,
+
+    // Advances scope/decl tracking for one non-number token.
+    fn update(self: *ScanState, tag: std.zig.Token.Tag, prev_tag: std.zig.Token.Tag) void {
+        switch (tag) {
+            .keyword_test => {
+                self.in_test = true;
+                self.test_depth = self.depth + 1;
+            },
+            .l_brace => self.enterBrace(prev_tag),
+            .r_brace => self.leaveBrace(),
+            .keyword_const, .keyword_var => self.saw_const_decl = true,
+            .equal => {
+                if (self.saw_const_decl) {
+                    self.in_const_init = true;
+                    self.saw_const_decl = false;
+                }
+            },
+            .semicolon => {
+                self.saw_const_decl = false;
+                self.in_const_init = false;
+            },
+            else => {},
+        }
+    }
+
+    fn enterBrace(self: *ScanState, prev_tag: std.zig.Token.Tag) void {
+        self.depth += 1;
+        // Only a real `comptime { ... }` block exempts its body. A bare
+        // `comptime` param modifier or expression prefix has no block —
+        // treating it as one exempted every generic function entirely.
+        if (prev_tag == .keyword_comptime) {
+            self.in_comptime = true;
+            self.comptime_depth = self.depth;
+        }
+    }
+
+    fn leaveBrace(self: *ScanState) void {
+        if (self.depth > 0) self.depth -= 1;
+        if (self.in_test and self.depth < self.test_depth) self.in_test = false;
+        if (self.in_comptime and self.depth < self.comptime_depth) self.in_comptime = false;
+    }
+
+    // A number literal is exempt inside test/comptime bodies and const decls,
+    // or right after `=` (struct-field defaults, assignments).
+    fn exemptsNumber(self: *const ScanState, prev_tag: std.zig.Token.Tag) bool {
+        if (self.in_test or self.in_comptime) return true;
+        if (self.saw_const_decl or self.in_const_init) return true;
+        return prev_tag == .equal;
+    }
+};
+
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
-    const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
+    const z = try ctx.allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
-    var in_test = false;
-    var in_comptime = false;
-    var depth: u32 = 0;
-    var test_depth: u32 = 0;
-    var comptime_depth: u32 = 0;
+    var state: ScanState = .{};
     var prev_tag: std.zig.Token.Tag = .invalid;
-    var prev_is_const_init: bool = false;
 
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
-        switch (t.tag) {
-            .keyword_test => {
-                in_test = true;
-                test_depth = depth + 1;
-            },
-            .keyword_comptime => {
-                in_comptime = true;
-                comptime_depth = depth + 1;
-            },
-            .l_brace => depth += 1,
-            .r_brace => {
-                if (depth > 0) depth -= 1;
-                if (in_test and depth < test_depth) in_test = false;
-                if (in_comptime and depth < comptime_depth) in_comptime = false;
-            },
-            .keyword_const, .keyword_var => prev_is_const_init = true,
-            .equal => prev_is_const_init = false,
-            .number_literal => {
-                if (in_test or in_comptime) continue;
-                if (prev_tag == .equal) continue;
-                if (prev_is_const_init) continue;
-                const text = z[t.loc.start..t.loc.end];
-                if (isAllowed(text)) continue;
-                if (isHexOrOctOrBinary(text)) continue;
-                const line = lineOf(z, t.loc.start);
-                const msg = try std.fmt.allocPrint(
-                    a,
-                    "{s}:{d}: magic number `{s}` (extract a named const)",
-                    .{ ctx.rel_path, line, text },
-                );
-                try ctx.violations.append(a, msg);
-            },
-            else => {},
+        if (t.tag == .number_literal) {
+            if (!state.exemptsNumber(prev_tag)) try recordIfMagic(ctx, z, t);
+        } else {
+            state.update(t.tag, prev_tag);
         }
         prev_tag = t.tag;
     }
+}
+
+// Appends a violation for `t` unless the literal is allowlisted or hex/oct/bin.
+fn recordIfMagic(ctx: *ScanCtx, z: [:0]const u8, t: std.zig.Token) Allocator.Error!void {
+    const text = z[t.loc.start..t.loc.end];
+    if (isAllowed(text)) return;
+    if (isHexOrOctOrBinary(text)) return;
+    const msg = try std.fmt.allocPrint(
+        ctx.allocator,
+        "{s}:{d}: magic number `{s}` (extract a named const)",
+        .{ ctx.rel_path, lineOf(z, t.loc.start), text },
+    );
+    try ctx.violations.append(ctx.allocator, msg);
 }
 
 fn isAllowed(text: []const u8) bool {
@@ -124,14 +164,7 @@ fn isHexOrOctOrBinary(text: []const u8) bool {
     return text[1] == 'x' or text[1] == 'X' or text[1] == 'o' or text[1] == 'b';
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -165,13 +198,15 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+// spec: Tier 2 Anti-patterns - Rejects bare integer literals outside a small allowlist
+
 test "analyzeContent flags magic in expression" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const out = try analyzeContent(arena.allocator(), "src/x.zig",
         \\fn budget(n: u32) u32 { return n * 8675309; }
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows const initializer" {
@@ -181,6 +216,26 @@ test "analyzeContent allows const initializer" {
         \\const max_count: u32 = 8675309;
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "analyzeContent allows a whole const initializer expression" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // The magic number is past the `=`, in a compound expression.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\const budget = base * 8675309;
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "analyzeContent flags magic in a generic (comptime-param) function body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // A `comptime` param modifier must not exempt the whole function.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\fn scale(comptime T: type, n: T) T { return n * 8675309; }
+    );
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows allowlisted values" {

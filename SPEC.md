@@ -9,6 +9,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Loads guardian.toml from target directory
 - Falls back to defaults when no config file exists
 - Supports boundary rules via [[boundary]] sections
+- Parses a top-level disabled list of check names
 
 ## Spec Coverage
 
@@ -17,6 +18,10 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Reports unverified behaviors and unlinked tags
 - Enforces 1:1 mapping between spec behaviors and test tags
 - Fails with clear error when SPEC.md is missing
+- Fails when SPEC.md defines no behaviors
+- Reports near-miss spec tags that miss the exact prefix
+- Reports duplicate spec behavior bullets
+- Requires each spec tag to sit directly on a test
 
 ## Spec Lifecycle
 
@@ -48,6 +53,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - PascalCase pub fn must return type
 - camelCase pub fn must not return type
+- snake_case pub fn is rejected
 - pub const struct/enum/union with fields must be PascalCase
 
 ## Function Size
@@ -73,6 +79,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Hashes the guardian input set into a stable digest
 - Round-trips the digest through the cache file
+- Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
+
+## Run All
+
+- Skips checks whose name appears in the disabled config list
+- Rejects unknown check names in the disabled list
 
 ## Snapshot Lifecycle
 
@@ -118,6 +130,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Anytype Budget
 
 - Caps anytype parameter count per file
+- Skips files matching the exclude patterns
 
 ## Dead Pub
 
@@ -129,7 +142,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Duplicate Const
 
-- Rejects file-scope const string-literal declarations with the same name and value defined in two or more files
+- Rejects duplicate file-scope string-literal consts (same name and value) across files
 
 ## Debug Print Ban
 
@@ -142,7 +155,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Stub Body Ban
 
-- Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
+- Rejects single-statement stub bodies (undefined, placeholder panic, unreachable in value fn)
 
 ## Doc Quality
 
@@ -155,6 +168,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Type Size
 
 - Caps fields per pub struct/enum/union/opaque
+- Skips pub containers in files matching the exclude patterns
 
 ## Function Length
 

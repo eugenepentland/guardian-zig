@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Complexity Bounds - Caps boolean operators per condition
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -87,14 +85,7 @@ fn countOpsUntilMatchingRparen(tok: *std.zig.Tokenizer) u32 {
     }
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -117,6 +108,10 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cap = ctx.cfg.bool_ops.max_ops;
+    if (!ctx.cfg.bool_ops.enabled) {
+        reporter.ok("bool-ops-per-condition disabled by config", .{});
+        return;
+    }
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
@@ -134,6 +129,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: extract the condition into a named bool, or split into nested ifs.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Complexity Bounds - Caps boolean operators per condition
 
 test "analyzeContent flags 4-op condition" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -165,5 +162,5 @@ test "analyzeContent counts ! (negation)" {
         \\    if (!a and !b and !c and !d) {}
         \\}
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }

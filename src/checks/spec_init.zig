@@ -7,16 +7,17 @@ const print = std.debug.print;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Spec Lifecycle - Generates starter SPEC.md from pub fn signatures via spec-init
-
 /// Entry point for the spec-init generator.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const project_dir = ctx.project_dir;
-    const spec_path = try std.fmt.allocPrint(allocator, "{s}/SPEC.md", .{project_dir});
+    // Honor the configured spec file so `spec_file = "docs/SPEC.md"` projects
+    // get the starter file where the coverage check will actually read it.
+    const spec_file = ctx.cfg.spec_file;
+    const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, spec_file });
 
     if (std.fs.cwd().access(spec_path, .{})) |_| {
-        fail("SPEC.md already exists — refusing to overwrite", .{});
+        fail("{s} already exists — refusing to overwrite", .{spec_file});
         print("  Delete it first if you want to regenerate.\n", .{});
         std.process.exit(1);
     } else |_| {}

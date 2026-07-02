@@ -10,19 +10,30 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Type Size - Caps fields per pub struct/enum/union/opaque
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
     cfg: config_mod.TypeSizeCfg,
 };
 
+/// True when `rel_path` matches any exclude pattern (a legitimate flat
+/// aggregation struct exempt from the field cap).
+fn isExcluded(rel_path: []const u8, patterns: []const []const u8) bool {
+    for (patterns) |p| {
+        if (walk.matchGlob(rel_path, p)) return true;
+    }
+    return false;
+}
+
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
+    if (isExcluded(entry.rel_path, ctx.cfg.exclude)) return;
     const a = ctx.allocator;
 
-    const containers = if (entry.tree) |t| try ast.pubContainersFromTree(a, t) else try ast.pubContainers(a, entry.content);
+    const containers = if (entry.tree) |t|
+        try ast.pubContainersFromTree(a, t)
+    else
+        try ast.pubContainers(a, entry.content);
     for (containers) |c| {
         if (c.field_count <= ctx.cfg.max_fields) continue;
         const msg = try std.fmt.allocPrint(
@@ -75,9 +86,12 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("type size FAILED ({d} container(s) over {d} field cap)", .{ violations.items.len, cfg.max_fields });
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: split into smaller types, group related fields into nested structs, or raise [type_size] max_fields.\n", .{});
+    print("  fix: split into smaller types, group related fields into nested structs, " ++
+        "or raise [type_size] max_fields.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Type Size - Caps fields per pub struct/enum/union/opaque
 
 test "visit flags oversized struct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -157,6 +171,24 @@ test "visit flags oversized enum" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+// spec: Type Size - Skips pub containers in files matching the exclude patterns
+test "visit skips excluded files" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{
+        .allocator = a,
+        .violations = &violations,
+        .cfg = .{ .enabled = true, .max_fields = 1, .exclude = &.{"config.zig"} },
+    };
+    const content =
+        \\pub const Big = struct { a: i32, b: i32, c: i32 };
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/config.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }
 
 test "visit doesn't count methods toward the cap" {

@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Rejects @compileError without a non-empty string explanation
-
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
@@ -64,14 +62,7 @@ fn report(ctx: *ScanCtx, z: []const u8, byte: usize, kind: []const u8) Allocator
     try ctx.violations.append(ctx.allocator, msg);
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -104,6 +95,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: pass a string literal explaining why this branch is unreachable.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Rejects @compileError without a non-empty string explanation
 
 test "analyzeContent flags @compileError with no args" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

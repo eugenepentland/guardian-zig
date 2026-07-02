@@ -9,7 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Dead Pub - Flags public declarations referenced only by themselves
 //
 // Known limitation: counts are keyed by name only. Two pub decls in
 // different files sharing a name share a counter — if either is referenced,
@@ -94,7 +93,10 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // Pass 1: collect every pub decl in src/.
     var decls: std.ArrayListUnmanaged(Decl) = .empty;
     var collect_ctx: CollectCtx = .{ .allocator = allocator, .decls = &decls };
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &collect_ctx, .visit = collectVisit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{
+        .ctx = &collect_ctx,
+        .visit = collectVisit,
+    });
 
     if (decls.items.len == 0) {
         ok("no public declarations to check", .{});
@@ -111,7 +113,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // indexed, so it still walks.
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
     const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
+    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, .{ .ctx = &ref_ctx, .visit = refVisit });
     // build.zig is a Zig file at the project root — include its references
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});
@@ -135,6 +137,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+// spec: Dead Pub - Flags public declarations referenced only by themselves
 
 test "findDead flags decl with no callers" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

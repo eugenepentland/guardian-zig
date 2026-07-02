@@ -10,12 +10,33 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Nesting Depth - Caps brace-nesting depth inside fn bodies
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
     cfg: config_mod.NestingDepthCfg,
+};
+
+// Data-literal braces (`.{ ... }`, `Foo{ ... }`, `[_]u8{ ... }`) are not
+// control-flow nesting — counting them punished declarative data. Track,
+// per open brace, whether it counted, so the matching close stays balanced
+// even when literals and blocks nest inside each other.
+const DepthState = struct {
+    counted: std.ArrayListUnmanaged(bool) = .empty,
+    depth: u32 = 0,
+    max_depth: u32 = 0,
+
+    fn openBrace(self: *DepthState, allocator: std.mem.Allocator, prev_tag: std.zig.Token.Tag) !void {
+        const is_literal = prev_tag == .period or prev_tag == .identifier or prev_tag == .r_bracket;
+        try self.counted.append(allocator, !is_literal);
+        if (is_literal) return;
+        self.depth += 1;
+        if (self.depth > self.max_depth) self.max_depth = self.depth;
+    }
+
+    fn closeBrace(self: *DepthState) void {
+        const was_counted = self.counted.pop() orelse return;
+        if (was_counted and self.depth > 0) self.depth -= 1;
+    }
 };
 
 /// Returns the maximum brace depth observed inside `body_text`. The
@@ -29,23 +50,20 @@ fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) u32 {
     const z = allocator.dupeZ(u8, body_text) catch return 0;
     defer allocator.free(z);
     var tok = std.zig.Tokenizer.init(z);
-    var depth: u32 = 0;
-    var max_depth: u32 = 0;
+    var state: DepthState = .{};
+    defer state.counted.deinit(allocator);
+    var prev_tag: std.zig.Token.Tag = .invalid;
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
-            .l_brace => {
-                depth += 1;
-                if (depth > max_depth) max_depth = depth;
-            },
-            .r_brace => if (depth > 0) {
-                depth -= 1;
-            },
+            .l_brace => state.openBrace(allocator, prev_tag) catch break,
+            .r_brace => state.closeBrace(),
             else => {},
         }
+        prev_tag = t.tag;
     }
-    return max_depth;
+    return state.max_depth;
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -105,9 +123,12 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("nesting depth FAILED ({d} fn(s) over depth {d})", .{ violations.items.len, cfg.max_depth });
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: extract nested blocks into helper fns, invert conditions to early-return, or raise [nesting_depth] max_depth.\n", .{});
+    print("  fix: extract nested blocks into helper fns, invert conditions to " ++
+        "early-return, or raise [nesting_depth] max_depth.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Nesting Depth - Caps brace-nesting depth inside fn bodies
 
 test "maxNestingDepth flat body is depth 1" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -120,11 +141,23 @@ test "maxNestingDepth nested if reaches 2" {
     defer arena.deinit();
     try std.testing.expectEqual(@as(u32, 2), maxNestingDepth(arena.allocator(), "{ if (x) { return; } }"));
 }
+test "maxNestingDepth ignores data-literal braces" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A nested anonymous struct literal is data, not control-flow nesting.
+    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(a, "{ const c = .{ .a = .{ .b = 1 } }; }"));
+    // Typed struct/array literals likewise don't add depth.
+    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(a, "{ const c = Foo{ .a = 1 }; }"));
+    // Control-flow still counts through/around a literal.
+    try std.testing.expectEqual(@as(u32, 2), maxNestingDepth(a, "{ if (x) { const c = .{ .a = 1 }; } }"));
+}
 
 test "maxNestingDepth deeply nested reaches 4" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try std.testing.expectEqual(@as(u32, 4), maxNestingDepth(arena.allocator(), "{ if (a) { while (b) { for (c) |_| { return; } } } }"));
+    const body = "{ if (a) { while (b) { for (c) |_| { return; } } } }";
+    try std.testing.expectEqual(@as(u32, 4), maxNestingDepth(arena.allocator(), body));
 }
 
 test "maxNestingDepth ignores braces in strings" {

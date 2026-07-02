@@ -10,9 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Pub Api Surface - Snapshots every public declaration
-// spec: Pub Api Surface - Diff fails on unexpected pub additions or removals
-
 const SNAPSHOT_LEAF = "pub-api.txt";
 const SNAPSHOT_VERSION: u32 = 1;
 
@@ -37,7 +34,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     }
 }
 
-fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8, source_index: ?*const ast_index.Index) ![][]const u8 {
+fn collectLines(
+    allocator: std.mem.Allocator,
+    project_dir: []const u8,
+    source_index: ?*const ast_index.Index,
+) ![][]const u8 {
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
     try ast_index.runSrc(source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -53,7 +54,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const lines = try collectLines(allocator, project_dir, ctx_param.source_index);
 
     const force = snapshot_helper.shouldUpdate(allocator);
-    const outcome = try snapshot_helper.lifecycle(allocator, snap_path, SNAPSHOT_VERSION, lines, force);
+    const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = SNAPSHOT_VERSION };
+    const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force);
     return reportOutcome(outcome);
 }
 
@@ -70,11 +72,17 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
             fail("pub-api FAILED — surface changed", .{});
             for (d.removed) |line| print("  - {s}\n", .{line});
             for (d.added) |line| print("  + {s}\n", .{line});
-            print("  fix: if intentional, re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+            print(
+                "  fix: if intentional, re-run with {s}=1 and commit .guardian/{s}\n",
+                .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF },
+            );
             return error.CheckFailed;
         },
     }
 }
+
+// spec: Pub Api Surface - Snapshots every public declaration
+// spec: Pub Api Surface - Diff fails on unexpected pub additions or removals
 
 test "visit emits fn and struct entries" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

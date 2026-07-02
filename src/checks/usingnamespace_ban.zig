@@ -8,8 +8,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Usingnamespace Ban - Hard-fails any usingnamespace keyword outside test files
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -19,7 +17,8 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     // Tokenizer skips strings and comments correctly, so a token with this
     // text is genuinely in code (not a comment or string body).
-    const z = try ctx.allocator.dupeZ(u8, entry.content);
+    // entry.content is already null-terminated by the walker.
+    const z = entry.content;
     var tok = std.zig.Tokenizer.init(z);
     var line: u32 = 1;
     var last_pos: usize = 0;
@@ -69,6 +68,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  see https://github.com/ziglang/zig/issues/20663\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Usingnamespace Ban - Hard-fails any usingnamespace keyword outside test files
 
 test "visit flags usingnamespace at correct line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

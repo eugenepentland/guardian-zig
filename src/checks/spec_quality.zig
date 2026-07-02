@@ -7,9 +7,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Spec Quality - Flags vague behavior phrases in SPEC.md
-// spec: Spec Quality - Rejects behaviors shorter than the minimum length
-
 const default_forbidden_phrases: []const []const u8 = &.{
     "works correctly",
     "properly",
@@ -26,14 +23,13 @@ const min_behavior_chars: usize = 20;
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     const cfg = ctx.cfg;
-    const project_dir = ctx.project_dir;
 
     if (!cfg.spec_quality.enabled) {
         ok("spec quality skipped (disabled in config)", .{});
         return;
     }
 
-    const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, cfg.spec_file });
+    const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ ctx.project_dir, cfg.spec_file });
     const sections = spec_parser.parseFile(allocator, spec_path) catch {
         // SPEC.md is enforced by the `spec` check; here we silently skip if missing.
         ok("spec quality skipped (no SPEC.md)", .{});
@@ -47,31 +43,63 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
 
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     for (sections) |sec| {
-        for (sec.behaviors) |b| {
-            if (b.statement.len < min_behavior_chars) {
-                const msg = try std.fmt.allocPrint(allocator, "{s} - {s}: behavior shorter than {d} chars", .{ b.section, b.statement, min_behavior_chars });
-                try violations.append(allocator, msg);
-                continue;
-            }
-            const lower = try toLowerOwned(allocator, b.statement);
-            for (phrases) |phrase| {
-                const lower_phrase = try toLowerOwned(allocator, phrase);
-                if (containsWord(lower, lower_phrase)) {
-                    const msg = try std.fmt.allocPrint(allocator, "{s} - {s}: contains vague phrase \"{s}\"", .{ b.section, b.statement, phrase });
-                    try violations.append(allocator, msg);
-                    break;
-                }
-            }
-        }
+        try collectSectionViolations(allocator, sec, phrases, &violations);
     }
 
-    if (violations.items.len == 0) {
+    return report(violations.items);
+}
+
+/// Append quality violations for one section's behaviors to `violations`.
+fn collectSectionViolations(
+    allocator: std.mem.Allocator,
+    sec: spec_parser.Section,
+    phrases: []const []const u8,
+    violations: *std.ArrayListUnmanaged([]const u8),
+) !void {
+    for (sec.behaviors) |b| {
+        if (b.statement.len < min_behavior_chars) {
+            const msg = try std.fmt.allocPrint(
+                allocator,
+                "{s} - {s}: behavior shorter than {d} chars",
+                .{ b.section, b.statement, min_behavior_chars },
+            );
+            try violations.append(allocator, msg);
+            continue;
+        }
+        if (try firstVaguePhrase(allocator, b.statement, phrases)) |phrase| {
+            const msg = try std.fmt.allocPrint(
+                allocator,
+                "{s} - {s}: contains vague phrase \"{s}\"",
+                .{ b.section, b.statement, phrase },
+            );
+            try violations.append(allocator, msg);
+        }
+    }
+}
+
+/// Return the first forbidden phrase appearing as a word in `statement`, else null.
+fn firstVaguePhrase(
+    allocator: std.mem.Allocator,
+    statement: []const u8,
+    phrases: []const []const u8,
+) !?[]const u8 {
+    const lower = try toLowerOwned(allocator, statement);
+    for (phrases) |phrase| {
+        const lower_phrase = try toLowerOwned(allocator, phrase);
+        if (containsWord(lower, lower_phrase)) return phrase;
+    }
+    return null;
+}
+
+/// Print the check result; fails if any violations were collected.
+fn report(violations: []const []const u8) registry.RunError!void {
+    if (violations.len == 0) {
         ok("spec quality passed", .{});
         return;
     }
 
-    fail("spec quality FAILED ({d} issue(s))", .{violations.items.len});
-    for (violations.items) |v| {
+    fail("spec quality FAILED ({d} issue(s))", .{violations.len});
+    for (violations) |v| {
         print("  {s}\n", .{v});
     }
     print("  fix: rewrite each behavior as an observable outcome.\n", .{});
@@ -98,6 +126,9 @@ fn containsWord(text: []const u8, phrase: []const u8) bool {
     }
     return false;
 }
+
+// spec: Spec Quality - Flags vague behavior phrases in SPEC.md
+// spec: Spec Quality - Rejects behaviors shorter than the minimum length
 
 test "containsWord respects word boundaries" {
     try std.testing.expect(containsWord("handles things properly here", "properly"));

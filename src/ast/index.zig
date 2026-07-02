@@ -3,10 +3,6 @@ const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
 const walk = @import("../walk.zig");
 
-// spec: AST Index - Builds a parsed-source index by reading and parsing each file once
-// spec: AST Index - Iterates the index exposing each file's pre-parsed syntax tree to a visitor
-// spec: AST Index - Returns the shared index when present and builds a private one otherwise
-
 /// One source file parsed exactly once: its display path, null-terminated
 /// content, and syntax tree. The index lets every AST-based check in a run
 /// share a single read+parse per file instead of repeating it per check.
@@ -42,9 +38,10 @@ const BuildCtx = struct {
 
 fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *BuildCtx = @ptrCast(@alignCast(raw_ctx));
-    const z = try ctx.arena.dupeZ(u8, entry.content);
-    const tree = try Ast.parse(ctx.arena, z, .zig);
-    try ctx.files.append(ctx.arena, .{ .rel_path = entry.rel_path, .content = z, .tree = tree });
+    // entry.content is already null-terminated by the walker — parse it in
+    // place instead of copying the whole file again for the sentinel.
+    const tree = try Ast.parse(ctx.arena, entry.content, .zig);
+    try ctx.files.append(ctx.arena, .{ .rel_path = entry.rel_path, .content = entry.content, .tree = tree });
 }
 
 /// Walks `<project_dir>/src` once, reading and parsing every `.zig` file
@@ -54,7 +51,7 @@ pub fn build(arena: Allocator, project_dir: []const u8) walk.WalkError!Index {
     var files: std.ArrayListUnmanaged(Entry) = .empty;
     var ctx: BuildCtx = .{ .arena = arena, .files = &files };
     const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(arena, src_path, "src", .{}, .{ .ctx = &ctx, .visit = collect });
+    try walk.walkZigFiles(arena, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = collect });
     return .{ .files = try files.toOwnedSlice(arena) };
 }
 
@@ -100,6 +97,10 @@ fn countVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     if (entry.tree == null) ctx.all_have_tree = false;
 }
 
+// spec: AST Index - Builds a parsed-source index by reading and parsing each file once
+// spec: AST Index - Iterates the index exposing each file's pre-parsed syntax tree to a visitor
+// spec: AST Index - Returns the shared index when present and builds a private one otherwise
+
 test "build reads and parses every src file once" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -127,6 +128,16 @@ test "forEach hands each file's parsed tree to the visitor" {
     var ctx: CountCtx = .{};
     try idx.forEach(.{ .ctx = @ptrCast(&ctx), .visit = countVisit });
     try std.testing.expectEqual(@as(usize, 1), ctx.seen);
+    try std.testing.expect(ctx.all_have_tree);
+}
+
+test "runSrc iterates a freshly built index" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ctx: CountCtx = .{};
+    try runSrc(null, a, "test-project", .{ .ctx = @ptrCast(&ctx), .visit = countVisit });
+    try std.testing.expect(ctx.seen > 0);
     try std.testing.expect(ctx.all_have_tree);
 }
 

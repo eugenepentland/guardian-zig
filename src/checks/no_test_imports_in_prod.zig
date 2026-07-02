@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Test Hygiene - Rejects production code @import-ing test files
-
 const ScanCtx = struct {
     allocator: Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -42,17 +40,15 @@ pub fn analyzeContent(
 }
 
 fn isTestFile(path: []const u8) bool {
-    if (std.mem.endsWith(u8, path, "_test.zig")) return true;
-    if (std.mem.indexOf(u8, path, "/tests/") != null) return true;
-    if (std.mem.startsWith(u8, path, "tests/")) return true;
-    return false;
+    return std.mem.endsWith(u8, path, "_test.zig") or
+        std.mem.indexOf(u8, path, "/tests/") != null or
+        std.mem.startsWith(u8, path, "tests/");
 }
 
 fn looksLikeTest(path: []const u8) bool {
-    if (std.mem.endsWith(u8, path, "_test.zig")) return true;
-    if (std.mem.indexOf(u8, path, "/tests/") != null) return true;
-    if (std.mem.startsWith(u8, path, "tests/")) return true;
-    return false;
+    return std.mem.endsWith(u8, path, "_test.zig") or
+        std.mem.indexOf(u8, path, "/tests/") != null or
+        std.mem.startsWith(u8, path, "tests/");
 }
 
 const FileScanCtx = struct {
@@ -82,6 +78,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: keep test-only utilities under tests/ or *_test.zig and import them only from tests.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Test Hygiene - Rejects production code @import-ing test files
 
 test "analyzeContent flags import of *_test.zig from prod" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

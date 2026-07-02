@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects vague identifier names on public declarations
-
 const blacklist = [_][]const u8{
     "tmp",
     "data",
@@ -48,7 +46,7 @@ fn analyzeWithTree(
     defer arena.deinit();
     const a = arena.allocator();
 
-    const fns = (if (tree) |t| ast.pubFnsFromTree(a, t) else ast.pubFns(a, content)) catch return violations.toOwnedSlice(allocator);
+    const fns = if (tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, content);
     for (fns) |f| {
         if (matches(f.name)) {
             const msg = try std.fmt.allocPrint(
@@ -60,7 +58,7 @@ fn analyzeWithTree(
         }
     }
 
-    const consts = (if (tree) |t| ast.pubConstsFromTree(a, t) else ast.pubConsts(a, content)) catch return violations.toOwnedSlice(allocator);
+    const consts = if (tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, content);
     for (consts) |c| {
         if (matches(c.name)) {
             const msg = try std.fmt.allocPrint(
@@ -110,6 +108,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+// spec: Tier 2 Anti-patterns - Rejects vague identifier names on public declarations
+
 test "analyzeContent flags pub fn named Manager" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -117,7 +117,7 @@ test "analyzeContent flags pub fn named Manager" {
         \\/// Vague name.
         \\pub const Manager = struct { x: u32 };
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows specific names" {

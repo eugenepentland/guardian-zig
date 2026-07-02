@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Caps the percentage of optional fields in a public struct
-
 const min_fields: u32 = 4;
 const max_density_pct: u32 = 50;
 
@@ -54,23 +52,23 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
         const t = tok.next();
         if (t.tag == .eof) break;
         if (t.tag != .keyword_pub) continue;
-        const next = tok.next();
-        if (next.tag != .keyword_const) continue;
-        if (parseHead(&tok, z)) |head| {
-            const stats = collectFieldStats(&tok, z);
-            if (stats.total >= min_fields) {
-                const pct = (stats.optional * 100) / stats.total;
-                if (pct > max_density_pct) {
-                    const msg = try std.fmt.allocPrint(
-                        a,
-                        "{s}:{d}: pub struct '{s}' is {d}% optional ({d}/{d} fields)",
-                        .{ ctx.rel_path, head.line, head.name, pct, stats.optional, stats.total },
-                    );
-                    try ctx.violations.append(a, msg);
-                }
-            }
-        }
+        if (tok.next().tag != .keyword_const) continue;
+        const head = parseHead(&tok, z) orelse continue;
+        const stats = collectFieldStats(&tok);
+        try recordDensity(ctx, head, stats);
     }
+}
+
+fn recordDensity(ctx: *ScanCtx, head: Head, stats: Stats) Allocator.Error!void {
+    if (stats.total < min_fields) return;
+    const pct = (stats.optional * 100) / stats.total;
+    if (pct <= max_density_pct) return;
+    const msg = try std.fmt.allocPrint(
+        ctx.allocator,
+        "{s}:{d}: pub struct '{s}' is {d}% optional ({d}/{d} fields)",
+        .{ ctx.rel_path, head.line, head.name, pct, stats.optional, stats.total },
+    );
+    try ctx.violations.append(ctx.allocator, msg);
 }
 
 const Head = struct { name: []const u8, line: u32 };
@@ -78,15 +76,16 @@ const Head = struct { name: []const u8, line: u32 };
 fn parseHead(tok: *std.zig.Tokenizer, z: []const u8) ?Head {
     const id = tok.next();
     if (id.tag != .identifier) return null;
-    const name = z[id.loc.start..id.loc.end];
-    const eq = tok.next();
-    if (eq.tag != .equal) return null;
+    if (!isStructHead(tok)) return null;
+    return .{ .name = z[id.loc.start..id.loc.end], .line = lineOf(z, id.loc.start) };
+}
+
+fn isStructHead(tok: *std.zig.Tokenizer) bool {
+    if (tok.next().tag != .equal) return false;
     var t = tok.next();
     while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = tok.next();
-    if (t.tag != .keyword_struct) return null;
-    const lbrace = tok.next();
-    if (lbrace.tag != .l_brace) return null;
-    return .{ .name = name, .line = lineOf(z, id.loc.start) };
+    if (t.tag != .keyword_struct) return false;
+    return tok.next().tag == .l_brace;
 }
 
 const Stats = struct {
@@ -94,61 +93,90 @@ const Stats = struct {
     optional: u32 = 0,
 };
 
-fn collectFieldStats(tok: *std.zig.Tokenizer, z: []const u8) Stats {
-    var stats: Stats = .{};
-    var depth: u32 = 1;
-    var prev_was_field_name = false;
-    var saw_decl_kw = false;
+const Tag = std.zig.Token.Tag;
 
-    while (depth > 0) {
-        const t = tok.next();
-        if (t.tag == .eof) return stats;
-        switch (t.tag) {
-            .l_brace, .l_paren => depth += 1,
-            .r_brace, .r_paren => depth -= 1,
-            .keyword_pub, .keyword_fn, .keyword_const, .keyword_var => saw_decl_kw = true,
-            .identifier => {
-                if (isFieldNameStart(depth, saw_decl_kw, prev_was_field_name)) {
-                    prev_was_field_name = true;
-                }
-            },
-            .colon => {
-                if (depth == 1 and prev_was_field_name) {
-                    stats.total += 1;
-                    // Look ahead: next non-whitespace token; if it's `?`, count optional.
-                    const next = tok.next();
-                    if (next.tag == .question_mark) stats.optional += 1;
-                    // Skip past field type until comma at depth 1.
-                    var t2 = next;
-                    while (t2.tag != .eof) {
-                        if (t2.tag == .l_paren or t2.tag == .l_brace or t2.tag == .l_bracket) depth += 1;
-                        if (t2.tag == .r_paren or t2.tag == .r_brace or t2.tag == .r_bracket) {
-                            if (depth > 0) depth -= 1;
-                            if (depth == 0) {
-                                _ = z; // suppress unused
-                                return stats;
-                            }
-                        }
-                        if (t2.tag == .comma and depth == 1) break;
-                        t2 = tok.next();
-                    }
-                    prev_was_field_name = false;
-                    saw_decl_kw = false;
-                }
-            },
-            .semicolon => {
-                prev_was_field_name = false;
-                saw_decl_kw = false;
-            },
-            else => {
-                if (t.tag != .doc_comment and t.tag != .container_doc_comment) {
-                    prev_was_field_name = false;
-                    saw_decl_kw = false;
-                }
-            },
+// Running state while walking a struct body's tokens. `step` consumes one
+// token and returns true once the struct's closing brace is reached.
+const FieldState = struct {
+    stats: Stats = .{},
+    depth: u32 = 1,
+    prev_was_field_name: bool = false,
+    saw_decl_kw: bool = false,
+
+    fn step(self: *FieldState, tok: *std.zig.Tokenizer, tag: Tag) bool {
+        switch (tag) {
+            .l_brace, .l_paren => self.depth += 1,
+            .r_brace, .r_paren => self.depth -= 1,
+            .keyword_pub, .keyword_fn, .keyword_const, .keyword_var => self.saw_decl_kw = true,
+            .identifier => self.markIdentifier(),
+            .colon => return self.handleColon(tok),
+            .semicolon => self.reset(),
+            else => self.handleOther(tag),
+        }
+        return false;
+    }
+
+    fn markIdentifier(self: *FieldState) void {
+        if (isFieldNameStart(self.depth, self.saw_decl_kw, self.prev_was_field_name)) {
+            self.prev_was_field_name = true;
         }
     }
-    return stats;
+
+    fn reset(self: *FieldState) void {
+        self.prev_was_field_name = false;
+        self.saw_decl_kw = false;
+    }
+
+    fn handleOther(self: *FieldState, tag: Tag) void {
+        if (tag != .doc_comment and tag != .container_doc_comment) self.reset();
+    }
+
+    fn handleColon(self: *FieldState, tok: *std.zig.Tokenizer) bool {
+        if (self.depth != 1 or !self.prev_was_field_name) return false;
+        self.stats.total += 1;
+        const closed = self.scanFieldType(tok);
+        self.reset();
+        return closed;
+    }
+
+    // Consumes the field type after a `:`, counting a leading `?` as optional
+    // and stopping at the field-terminating comma. Returns true if the
+    // struct's closing brace is reached mid-type.
+    fn scanFieldType(self: *FieldState, tok: *std.zig.Tokenizer) bool {
+        var t = tok.next();
+        if (t.tag == .question_mark) self.stats.optional += 1;
+        while (t.tag != .eof) {
+            if (self.adjustTypeDepth(t.tag)) return true;
+            if (t.tag == .comma and self.depth == 1) return false;
+            t = tok.next();
+        }
+        return false;
+    }
+
+    fn adjustTypeDepth(self: *FieldState, tag: Tag) bool {
+        if (isOpenBracket(tag)) self.depth += 1;
+        if (!isCloseBracket(tag)) return false;
+        if (self.depth > 0) self.depth -= 1;
+        return self.depth == 0;
+    }
+};
+
+fn collectFieldStats(tok: *std.zig.Tokenizer) Stats {
+    var state: FieldState = .{};
+    while (state.depth > 0) {
+        const t = tok.next();
+        if (t.tag == .eof) return state.stats;
+        if (state.step(tok, t.tag)) return state.stats;
+    }
+    return state.stats;
+}
+
+fn isOpenBracket(tag: Tag) bool {
+    return tag == .l_paren or tag == .l_brace or tag == .l_bracket;
+}
+
+fn isCloseBracket(tag: Tag) bool {
+    return tag == .r_paren or tag == .r_brace or tag == .r_bracket;
 }
 
 fn isFieldNameStart(depth: u32, saw_decl_kw: bool, prev_field_name: bool) bool {
@@ -157,14 +185,7 @@ fn isFieldNameStart(depth: u32, saw_decl_kw: bool, prev_field_name: bool) bool {
     return !prev_field_name;
 }
 
-fn lineOf(source: []const u8, byte_offset: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte_offset and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
-    }
-    return line;
-}
+const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
@@ -197,9 +218,12 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     reporter.fail("optional-density FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| detail("  {s}\n", .{v});
-    detail("  fix: split the type into a 'maybe-built' phase and a 'fully-built' phase, or model the optionality as a tagged union.\n", .{});
+    detail("  fix: split the type into a 'maybe-built' phase and a 'fully-built' phase, " ++
+        "or model the optionality as a tagged union.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Caps the percentage of optional fields in a public struct
 
 test "analyzeContent flags 75% optional" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -212,7 +236,7 @@ test "analyzeContent flags 75% optional" {
         \\    d: u32,
         \\};
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows 25% optional" {

@@ -10,8 +10,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Test Coverage - Requires every pub fn to be referenced from at least one test block
-
 const Decl = struct {
     file: []const u8,
     name: []const u8,
@@ -56,6 +54,25 @@ fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// `keyword_test` we expect an `l_brace` (possibly preceded by a
 /// string_literal); on that brace, push current depth. While the stack
 /// is non-empty, identifier tokens are recorded.
+const ScanState = struct {
+    depth: u32 = 0,
+    test_scopes: std.ArrayListUnmanaged(u32) = .empty,
+    pending_test: bool = false,
+
+    fn onLBrace(self: *ScanState, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
+        self.depth += 1;
+        if (!self.pending_test) return;
+        try self.test_scopes.append(allocator, self.depth);
+        self.pending_test = false;
+    }
+
+    fn onRBrace(self: *ScanState) void {
+        const items = self.test_scopes.items;
+        if (items.len > 0 and items[items.len - 1] == self.depth) _ = self.test_scopes.pop();
+        if (self.depth > 0) self.depth -= 1;
+    }
+};
+
 fn tallyTestRefs(
     allocator: std.mem.Allocator,
     content: []const u8,
@@ -64,31 +81,18 @@ fn tallyTestRefs(
     const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
-    var depth: u32 = 0;
-    var test_scopes: std.ArrayListUnmanaged(u32) = .empty;
-    defer test_scopes.deinit(allocator);
-    var pending_test = false;
+    var state: ScanState = .{};
+    defer state.test_scopes.deinit(allocator);
 
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
-            .keyword_test => pending_test = true,
-            .l_brace => {
-                depth += 1;
-                if (pending_test) {
-                    try test_scopes.append(allocator, depth);
-                    pending_test = false;
-                }
-            },
-            .r_brace => {
-                if (test_scopes.items.len > 0 and test_scopes.items[test_scopes.items.len - 1] == depth) {
-                    _ = test_scopes.pop();
-                }
-                if (depth > 0) depth -= 1;
-            },
+            .keyword_test => state.pending_test = true,
+            .l_brace => try state.onLBrace(allocator),
+            .r_brace => state.onRBrace(),
             .identifier => {
-                if (test_scopes.items.len == 0) continue;
+                if (state.test_scopes.items.len == 0) continue;
                 const name = z[t.loc.start..t.loc.end];
                 if (counts.getPtr(name)) |p| p.* += 1;
             },
@@ -129,7 +133,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .decls = &decls,
         .exempt_names = cfg.exempt_names,
     };
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &collect_ctx, .visit = collectVisit });
+    const collect_walk: walk.Visitor = .{ .ctx = &collect_ctx, .visit = collectVisit };
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, collect_walk);
 
     if (decls.items.len == 0) {
         ok("no public functions to check", .{});
@@ -142,26 +147,35 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var ref_ctx: RefCtx = .{ .allocator = allocator, .counts = &counts };
     // `src` reuses the shared index's cached file contents; `test` is not
     // indexed, so it still walks.
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
+    const ref_walk: walk.Visitor = .{ .ctx = &ref_ctx, .visit = refVisit };
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, ref_walk);
     const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
+    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, ref_walk);
 
     const untested = try findUntested(allocator, decls.items, &counts);
+    return reportCoverage(untested, decls.items.len);
+}
 
+/// Emits the pass/fail summary for the coverage result, returning
+/// `error.CheckFailed` when any pub fn lacks a test reference.
+fn reportCoverage(untested: []const Decl, total: usize) registry.RunError!void {
     if (untested.len == 0) {
-        ok("all {d} pub fn(s) referenced from at least one test", .{decls.items.len});
+        ok("all {d} pub fn(s) referenced from at least one test", .{total});
         return;
     }
 
     fail("test-coverage FAILED ({d} pub fn(s) without a test reference)", .{untested.len});
     for (untested) |d| print("  {s}::{s}: no test references this fn\n", .{ d.file, d.name });
-    print("  fix: add a test that calls (or references) the fn, OR add the name to [test_coverage] exempt_names if it's an entry point.\n", .{});
+    print("  fix: add a test that calls (or references) the fn, OR add the name" ++
+        " to [test_coverage] exempt_names if it's an entry point.\n", .{});
     return error.CheckFailed;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+// spec: Test Coverage - Requires every pub fn to be referenced from at least one test block
 
 test "tallyTestRefs counts only inside test blocks" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

@@ -53,7 +53,7 @@ pub fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const N
     var ctx: CollectCtx = .{ .allocator = allocator, .nodes = &nodes };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = collectVisit });
+    try walk.walkZigFiles(allocator, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = collectVisit });
     return nodes.toOwnedSlice(allocator);
 }
 
@@ -73,6 +73,18 @@ const CycleFinder = struct {
         return null;
     }
 
+    // Records the cycle that closes at `target` (already gray on the stack).
+    fn recordCycle(self: *CycleFinder, target: usize) void {
+        var loop: std.ArrayListUnmanaged(usize) = .empty;
+        var found_start = false;
+        for (self.stack.items) |s| {
+            if (s == target) found_start = true;
+            if (found_start) loop.append(self.allocator, s) catch return;
+        }
+        loop.append(self.allocator, target) catch return;
+        self.cycle = loop.toOwnedSlice(self.allocator) catch null;
+    }
+
     fn dfs(self: *CycleFinder, idx: usize) void {
         if (self.cycle != null) return;
         self.colors[idx] = .gray;
@@ -81,17 +93,7 @@ const CycleFinder = struct {
             const target = self.nodeIndex(edge) orelse continue;
             switch (self.colors[target]) {
                 .white => self.dfs(target),
-                .gray => {
-                    var loop: std.ArrayListUnmanaged(usize) = .empty;
-                    var found_start = false;
-                    for (self.stack.items) |s| {
-                        if (s == target) found_start = true;
-                        if (found_start) loop.append(self.allocator, s) catch return;
-                    }
-                    loop.append(self.allocator, target) catch return;
-                    self.cycle = loop.toOwnedSlice(self.allocator) catch null;
-                    return;
-                },
+                .gray => self.recordCycle(target),
                 .black => {},
             }
             if (self.cycle != null) return;
@@ -104,7 +106,6 @@ const CycleFinder = struct {
 /// Returns the first cycle found in the graph, as an ordered list of node
 /// paths (start == end). Null if the graph is acyclic.
 pub fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8 {
-    if (nodes.len == 0) return null;
     const colors = allocator.alloc(Color, nodes.len) catch return null;
     @memset(colors, .white);
     var finder: CycleFinder = .{
@@ -119,6 +120,15 @@ pub fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8 
         if (finder.cycle != null) break;
     }
     const indices = finder.cycle orelse return null;
+    return indicesToPaths(allocator, nodes, indices);
+}
+
+// Maps a list of node indices to their paths; null on allocation failure.
+fn indicesToPaths(
+    allocator: Allocator,
+    nodes: []const Node,
+    indices: []const usize,
+) ?[]const []const u8 {
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
     for (indices) |idx| out.append(allocator, nodes[idx].path) catch return null;
     return out.toOwnedSlice(allocator) catch null;
@@ -127,32 +137,20 @@ pub fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8 
 /// Returns the set of node paths reachable from any of `roots` via BFS.
 /// Roots that don't exist in the node set are silently skipped. The
 /// returned slice is sorted for stable output.
-pub fn reachableFrom(allocator: Allocator, nodes: []const Node, roots: []const []const u8) Allocator.Error![]const []const u8 {
-    var visited = try allocator.alloc(bool, nodes.len);
+pub fn reachableFrom(
+    allocator: Allocator,
+    nodes: []const Node,
+    roots: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    const visited = try allocator.alloc(bool, nodes.len);
     @memset(visited, false);
 
-    var queue: std.ArrayListUnmanaged(usize) = .empty;
-    for (roots) |r| {
-        for (nodes, 0..) |n, i| {
-            if (std.mem.eql(u8, n.path, r) and !visited[i]) {
-                visited[i] = true;
-                try queue.append(allocator, i);
-                break;
-            }
-        }
-    }
+    var bfs: Bfs = .{ .allocator = allocator, .nodes = nodes, .visited = visited, .queue = .empty };
+    for (roots) |r| try bfs.enqueueByPath(r);
 
-    while (queue.items.len > 0) {
-        const idx = queue.orderedRemove(0);
-        for (nodes[idx].edges) |edge| {
-            for (nodes, 0..) |n, j| {
-                if (std.mem.eql(u8, n.path, edge) and !visited[j]) {
-                    visited[j] = true;
-                    try queue.append(allocator, j);
-                    break;
-                }
-            }
-        }
+    while (bfs.queue.items.len > 0) {
+        const idx = bfs.queue.orderedRemove(0);
+        for (nodes[idx].edges) |edge| try bfs.enqueueByPath(edge);
     }
 
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -163,6 +161,24 @@ pub fn reachableFrom(allocator: Allocator, nodes: []const Node, roots: []const [
     std.mem.sort([]const u8, slice, {}, lessThan);
     return slice;
 }
+
+// Mutable BFS traversal state for reachableFrom.
+const Bfs = struct {
+    allocator: Allocator,
+    nodes: []const Node,
+    visited: []bool,
+    queue: std.ArrayListUnmanaged(usize),
+
+    // Marks and enqueues the first unvisited node whose path equals `path`.
+    fn enqueueByPath(self: *Bfs, path: []const u8) Allocator.Error!void {
+        for (self.nodes, 0..) |n, i| {
+            if (!std.mem.eql(u8, n.path, path) or self.visited[i]) continue;
+            self.visited[i] = true;
+            try self.queue.append(self.allocator, i);
+            return;
+        }
+    }
+};
 
 fn lessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
@@ -180,6 +196,7 @@ test "findCycle returns null for acyclic graph" {
     try std.testing.expect(findCycle(a, nodes) == null);
 }
 
+// spec: Imports - Detects cycles in the @import graph
 test "findCycle detects two-node cycle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

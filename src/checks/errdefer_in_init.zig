@@ -8,8 +8,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Constructor Hygiene - Requires init bodies with multiple try calls to use errdefer
-
 const init_names = [_][]const u8{ "init", "create", "make" };
 
 /// Pure-function entry: scans `content` for init-shaped fns whose body
@@ -32,7 +30,7 @@ fn analyzeWithTree(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const fns = (if (tree) |t| ast.fnDeclInfosFromTree(a, t) else ast.fnDeclInfos(a, content)) catch return violations.toOwnedSlice(allocator);
+    const fns = if (tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, content);
 
     for (fns) |fn_info| {
         if (!isInitName(fn_info.name)) continue;
@@ -99,6 +97,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: add `errdefer` after each allocating `try` so a later failure cleans up.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Constructor Hygiene - Requires init bodies with multiple try calls to use errdefer
 
 test "analyzeContent flags init with two trys and no errdefer" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

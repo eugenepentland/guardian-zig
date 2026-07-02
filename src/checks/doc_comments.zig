@@ -9,9 +9,6 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-// spec: Doc Comments - Requires /// on every pub fn
-// spec: Doc Comments - Requires /// on every pub struct/enum/union/opaque
-
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -33,7 +30,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
         switch (c.kind) {
             .struct_, .enum_, .union_, .opaque_ => {
                 if (c.has_doc_comment) continue;
-                const msg = try std.fmt.allocPrint(a, "{s}: pub const {s} ({s}) has no /// doc comment", .{ entry.rel_path, c.name, @tagName(c.kind) });
+                const msg = try std.fmt.allocPrint(
+                    a,
+                    "{s}: pub const {s} ({s}) has no /// doc comment",
+                    .{ entry.rel_path, c.name, @tagName(c.kind) },
+                );
                 try ctx.violations.append(a, msg);
             },
             else => {},
@@ -63,6 +64,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     print("  fix: add a /// doc comment line above each public declaration.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Doc Comments - Requires /// on every pub fn
+// spec: Doc Comments - Requires /// on every pub struct/enum/union/opaque
 
 test "visit flags missing doc comment" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

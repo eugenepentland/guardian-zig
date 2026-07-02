@@ -7,8 +7,6 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-// spec: Tier 2 Anti-patterns - Rejects identical string literals appearing 3 or more times in a single file
-
 const min_occurrences: u32 = 3;
 // Length threshold tuned above 7 chars to skip common short identifiers
 // ("init", "time", "enabled") that happen to recur as token literals in
@@ -28,7 +26,6 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -37,43 +34,78 @@ pub fn analyzeContent(
     var counts: std.StringHashMapUnmanaged(u32) = .empty;
     defer counts.deinit(a);
 
-    var tok = std.zig.Tokenizer.init(z);
-    var depth: u32 = 0;
-    var in_test = false;
-    var test_depth: u32 = 0;
-    var pending_test = false;
+    try countLiterals(a, z, &counts);
+    return collectViolations(allocator, rel_path, &counts);
+}
 
+/// Tokenizes `z` and tallies every non-test string literal at or above the
+/// minimum length into `counts`.
+fn countLiterals(
+    a: Allocator,
+    z: [:0]const u8,
+    counts: *std.StringHashMapUnmanaged(u32),
+) Allocator.Error!void {
+    var tok = std.zig.Tokenizer.init(z);
+    var scan: ScanState = .{};
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
+        const inner = scan.step(z, t) orelse continue;
+        if (inner.len < min_length) continue;
+        const gop = try counts.getOrPut(a, inner);
+        if (!gop.found_existing) gop.value_ptr.* = 0;
+        gop.value_ptr.* += 1;
+    }
+}
+
+/// Brace/test tracking used while walking tokens.
+const ScanState = struct {
+    depth: u32 = 0,
+    in_test: bool = false,
+    test_depth: u32 = 0,
+    pending_test: bool = false,
+
+    /// Updates state for `t` and returns the inner text of a countable
+    /// string literal, or null when the token is not one to count.
+    fn step(self: *ScanState, z: [:0]const u8, t: std.zig.Token) ?[]const u8 {
         switch (t.tag) {
-            .keyword_test => pending_test = true,
-            .l_brace => {
-                depth += 1;
-                if (pending_test) {
-                    in_test = true;
-                    test_depth = depth;
-                    pending_test = false;
-                }
-            },
-            .r_brace => {
-                if (depth > 0) depth -= 1;
-                if (in_test and depth < test_depth) in_test = false;
-            },
-            .string_literal => {
-                if (in_test) continue;
-                const raw = z[t.loc.start..t.loc.end];
-                if (raw.len < min_length + 2) continue;
-                const inner = raw[1 .. raw.len - 1];
-                if (inner.len < min_length) continue;
-                const gop = try counts.getOrPut(a, inner);
-                if (!gop.found_existing) gop.value_ptr.* = 0;
-                gop.value_ptr.* += 1;
-            },
+            .keyword_test => self.pending_test = true,
+            .l_brace => self.openBrace(),
+            .r_brace => self.closeBrace(),
+            .string_literal => return self.literalInner(z, t),
             else => {},
         }
+        return null;
     }
 
+    fn openBrace(self: *ScanState) void {
+        self.depth += 1;
+        if (!self.pending_test) return;
+        self.in_test = true;
+        self.test_depth = self.depth;
+        self.pending_test = false;
+    }
+
+    fn closeBrace(self: *ScanState) void {
+        if (self.depth > 0) self.depth -= 1;
+        if (self.in_test and self.depth < self.test_depth) self.in_test = false;
+    }
+
+    fn literalInner(self: *ScanState, z: [:0]const u8, t: std.zig.Token) ?[]const u8 {
+        if (self.in_test) return null;
+        const raw = z[t.loc.start..t.loc.end];
+        if (raw.len < min_length + 2) return null;
+        return raw[1 .. raw.len - 1];
+    }
+};
+
+/// Builds a violation message for every literal seen `min_occurrences`+ times.
+fn collectViolations(
+    allocator: Allocator,
+    rel_path: []const u8,
+    counts: *std.StringHashMapUnmanaged(u32),
+) Allocator.Error![]const []const u8 {
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var iter = counts.iterator();
     while (iter.next()) |e| {
         if (e.value_ptr.* < min_occurrences) continue;
@@ -115,6 +147,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  fix: extract the literal to a file-scope `const NAME = \"...\";`.\n", .{});
     return error.CheckFailed;
 }
+
+// spec: Tier 2 Anti-patterns - Rejects identical string literals appearing 3 or more times in a single file
 
 test "analyzeContent flags 3 copies of the same literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

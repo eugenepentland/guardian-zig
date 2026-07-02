@@ -2,8 +2,6 @@ const std = @import("std");
 const helper = @import("banned_symbol_helper.zig");
 const registry = @import("../cli/types.zig");
 
-// spec: Hidden Dependency Bans - Rejects environment-variable reads outside config or main
-
 const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "process", "getEnvVarOwned" }, .display = "std.process.getEnvVarOwned" },
     .{ .chain = &.{ "std", "process", "getEnvMap" }, .display = "std.process.getEnvMap" },
@@ -36,6 +34,8 @@ pub fn analyzeContent(
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return helper.scan(ctx, "ban-env", opts);
 }
+
+// spec: Hidden Dependency Bans - Rejects environment-variable reads outside config or main
 
 test "analyzeContent flags getEnvVarOwned outside config" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
