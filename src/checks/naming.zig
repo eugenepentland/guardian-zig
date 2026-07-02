@@ -11,6 +11,7 @@ const fail = reporter.fail;
 
 // spec: Naming - PascalCase pub fn must return type
 // spec: Naming - camelCase pub fn must not return type
+// spec: Naming - snake_case pub fn is rejected
 // spec: Naming - pub const struct/enum/union with fields must be PascalCase
 
 const ScanCtx = struct {
@@ -47,6 +48,10 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
             else => {
                 if (kind == .pascal) {
                     const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} is PascalCase but does not return `type`", .{ entry.rel_path, f.name });
+                    try ctx.violations.append(a, msg);
+                } else if (kind == .snake) {
+                    // Zig fns are camelCase; snake_case is a Rust/Python bleed.
+                    const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} is snake_case (Zig fns are camelCase)", .{ entry.rel_path, f.name });
                     try ctx.violations.append(a, msg);
                 }
             },
@@ -105,6 +110,17 @@ test "visit catches pascal fn that does not return type" {
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn DoThing() void {}\n";
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "visit catches snake_case pub fn" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    const content = "pub fn do_the_thing() void {}\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
