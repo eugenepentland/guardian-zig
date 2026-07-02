@@ -182,6 +182,7 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
     var result: std.ArrayListUnmanaged(FnDeclInfo) = .empty;
 
     const tags = tree.tokens.items(.tag);
+    const newlines = try newlineOffsets(arena, tree.source); // O(log n) line lookups
 
     for (try collectDecls(arena, &tree)) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;
@@ -220,8 +221,8 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
         const body_text = tree.source[start..end_pos];
 
         const fn_kw_byte = tree.tokenStart(proto.ast.fn_token);
-        const start_line = lineOfByte(tree.source, fn_kw_byte);
-        const end_line = lineOfByte(tree.source, end_pos -| 1);
+        const start_line = lineFromOffsets(newlines, fn_kw_byte);
+        const end_line = lineFromOffsets(newlines, end_pos -| 1);
         const line_count = end_line - start_line + 1;
 
         try result.append(arena, .{
@@ -236,13 +237,26 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
     return result.toOwnedSlice(arena);
 }
 
-fn lineOfByte(source: []const u8, byte: usize) u32 {
-    var line: u32 = 1;
-    var i: usize = 0;
-    while (i < byte and i < source.len) : (i += 1) {
-        if (source[i] == '\n') line += 1;
+/// Ascending byte offsets of every `\n` in `source`. Built once per file so
+/// line lookups can binary-search instead of rescanning from byte 0.
+fn newlineOffsets(arena: Allocator, source: []const u8) AstError![]const usize {
+    var offs: std.ArrayListUnmanaged(usize) = .empty;
+    for (source, 0..) |c, idx| {
+        if (c == '\n') try offs.append(arena, idx);
     }
-    return line;
+    return offs.toOwnedSlice(arena);
+}
+
+/// 1-indexed source line for `byte`: 1 + the number of newline offsets before
+/// it, found by binary search over the precomputed `newlines` table.
+fn lineFromOffsets(newlines: []const usize, byte: usize) u32 {
+    var lo: usize = 0;
+    var hi: usize = newlines.len;
+    while (lo < hi) {
+        const mid = lo + (hi - lo) / 2;
+        if (newlines[mid] < byte) lo = mid + 1 else hi = mid;
+    }
+    return @intCast(lo + 1);
 }
 
 test "pubContainers counts struct fields and enum variants" {
