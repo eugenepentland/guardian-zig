@@ -19,6 +19,8 @@ const check_unwrap_discipline = @import("../checks/unwrap_discipline.zig");
 const check_error_discipline = @import("../checks/error_discipline.zig");
 const check_cognitive_complexity = @import("../checks/cognitive_complexity.zig");
 const check_anytype_budget = @import("../checks/anytype_budget.zig");
+const check_escape_discipline = @import("../checks/escape_discipline.zig");
+const check_oom_discipline = @import("../checks/oom_discipline.zig");
 const check_dead_pub = @import("../checks/dead_pub.zig");
 const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
 const check_dup_const = @import("../checks/dup_const.zig");
@@ -334,6 +336,18 @@ pub const all: []const Command = &.{
         .name = "repeated-switch-on-enum",
         .summary = "Flag the same enum dot-prong set switched in 2+ files",
         .run = check_repeated_switch_on_enum.run,
+    },
+    .{
+        .name = "escape-discipline",
+        .summary = "Flag raw {s} interpolation into HTML/SVG markup (opt-in)",
+        .needs_ast = .yes,
+        .run = check_escape_discipline.run,
+    },
+    .{
+        .name = "oom-discipline",
+        .summary = "Flag allocation errors conflated with domain absence (opt-in)",
+        .needs_ast = .yes,
+        .run = check_oom_discipline.run,
     },
 };
 

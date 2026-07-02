@@ -115,6 +115,20 @@ pub const ReturnsPerFnCfg = struct {
     max_returns: u32 = 5,
 };
 
+/// Per-check config for escape-discipline (raw interpolation into markup).
+/// Opt-in: heuristic, most valuable for projects that render HTML/SVG from
+/// attacker-influenced text (servers, doc generators).
+pub const EscapeDisciplineCfg = struct {
+    enabled: bool = false,
+};
+
+/// Per-check config for oom-discipline (allocation errors silently conflated
+/// with domain absence). Opt-in: strict, catches `catch return null`/
+/// `catch continue` on allocating calls that drop data on OOM.
+pub const OomDisciplineCfg = struct {
+    enabled: bool = false,
+};
+
 /// Per-check config for the test-coverage check (per-pub-fn).
 pub const TestCoverageCfg = struct {
     /// Off by default: the check is intentionally strict (every pub fn
@@ -154,4 +168,6 @@ pub const Config = struct {
     returns_per_fn: ReturnsPerFnCfg = .{},
     line_length: LineLengthCfg = .{},
     baseline: BaselineCfg = .{},
+    escape_discipline: EscapeDisciplineCfg = .{},
+    oom_discipline: OomDisciplineCfg = .{},
 };

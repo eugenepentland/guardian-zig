@@ -139,6 +139,8 @@ test {
     _ = @import("checks/dup_const.zig");
     _ = @import("checks/errdefer_in_init.zig");
     _ = @import("checks/error_discipline.zig");
+    _ = @import("checks/escape_discipline.zig");
+    _ = @import("checks/oom_discipline.zig");
     _ = @import("checks/file_size.zig");
     _ = @import("checks/function_length.zig");
     _ = @import("checks/function_size.zig");

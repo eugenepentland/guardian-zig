@@ -225,6 +225,14 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects if/while/switch and extra for loops at the top level of a test body
 - Rejects production code @import-ing test files
 
+## Escape Discipline
+
+- Flags raw {s} interpolation into HTML/SVG markup
+
+## Oom Discipline
+
+- Flags allocation errors dropped by a swallowing catch
+
 ## Hidden Dependency Bans
 
 - Rejects std.time wall-clock reads outside infra/clock

@@ -1,6 +1,5 @@
-//! guardian.toml parser. Config types live in config.zig; this module reads a
-//! guardian.toml file (or string) into a Config, preserving defaults for any
-//! field not set and silently ignoring unknown sections / malformed values.
+//! guardian.toml parser (types live in config.zig). Preserves defaults for
+//! unset fields; silently ignores unknown sections and malformed values.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -8,8 +7,7 @@ const config = @import("config.zig");
 const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 
-/// Reads guardian.toml from `dir` and returns parsed config; defaults if the
-/// file is missing, unreadable, or fails to parse.
+/// Reads guardian.toml from `dir`; returns defaults if missing/unreadable.
 pub fn load(allocator: Allocator, dir: []const u8) Config {
     return loadInner(allocator, dir) catch .{};
 }
@@ -36,11 +34,12 @@ const Section = enum {
     returns_per_fn,
     line_length,
     baseline,
+    escape_discipline,
+    oom_discipline,
     unknown,
 };
 
-/// A trimmed `key = value` pair from a config line (value already stripped of
-/// any trailing inline comment).
+/// A trimmed `key = value` pair (value stripped of any inline comment).
 const KeyVal = struct {
     key: []const u8,
     val: []const u8,
@@ -52,8 +51,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-/// Mutable state carried across lines while parsing: the current [section] and
-/// the in-progress [[boundary]] table.
+/// Parse state across lines: the current [section] and in-progress boundary.
 const ParseState = struct {
     section: Section = .top,
     in_boundary: bool = false,
@@ -61,8 +59,7 @@ const ParseState = struct {
     cur_forbidden: std.ArrayListUnmanaged([]const u8) = .empty,
     boundaries: std.ArrayListUnmanaged(BoundaryRule) = .empty,
 
-    /// Flushes the in-progress [[boundary]] (if any, and if it named a module)
-    /// into the accumulated boundary rules.
+    /// Flushes the in-progress [[boundary]] (if it named a module) into rules.
     fn flush(self: *ParseState, allocator: Allocator) Allocator.Error!void {
         if (!self.in_boundary) return;
         const m = self.cur_module orelse return;
@@ -98,9 +95,8 @@ const ParseState = struct {
     }
 };
 
-/// Parses guardian.toml content. Unknown sections and malformed values are
-/// silently ignored; defaults are preserved for any field not set. Errors
-/// only on allocator failure; `load` swallows those into defaults.
+/// Parses guardian.toml content; errors only on allocator failure (`load`
+/// swallows those into defaults).
 pub fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config {
     var cfg = Config{};
     var st: ParseState = .{};
@@ -158,7 +154,9 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .line_length => applyU32Cfg("line_length", "max_len", ctx, kv),
         .anytype_budget => try applyAnytypeBudgetKey(ctx, kv),
         .type_size => try applyTypeSizeKey(ctx, kv),
-        .baseline => applyBaselineKey(ctx, kv),
+        .baseline => applyEnabledCfg("baseline", ctx, kv),
+        .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
+        .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .unknown => {},
     }
 }
@@ -180,6 +178,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "returns_per_fn", Section.returns_per_fn },
         .{ "line_length", Section.line_length },
         .{ "baseline", Section.baseline },
+        .{ "escape_discipline", Section.escape_discipline },
+        .{ "oom_discipline", Section.oom_discipline },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -198,8 +198,7 @@ fn toStrings(allocator: Allocator, val: []const u8) Allocator.Error![]const []co
     return list.toOwnedSlice(allocator);
 }
 
-/// Applies `enabled` + a single u32 cap (`cap_key`) to `cfg.<group>` — the
-/// shape shared by every numeric-limit section.
+/// Applies `enabled` + a single u32 cap (`cap_key`) to `cfg.<group>`.
 fn applyU32Cfg(comptime group: []const u8, comptime cap_key: []const u8, ctx: ApplyCtx, kv: KeyVal) void {
     const g = &@field(ctx.cfg, group);
     if (std.mem.eql(u8, kv.key, "enabled")) {
@@ -261,9 +260,11 @@ fn applyTypeSizeKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     }
 }
 
-fn applyBaselineKey(ctx: ApplyCtx, kv: KeyVal) void {
+/// Applies an `enabled` toggle to an enabled-only cfg group.
+fn applyEnabledCfg(comptime group: []const u8, ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &@field(ctx.cfg, group);
     if (std.mem.eql(u8, kv.key, "enabled")) {
-        ctx.cfg.baseline.enabled = parseBool(kv.val) orelse ctx.cfg.baseline.enabled;
+        g.enabled = parseBool(kv.val) orelse g.enabled;
     }
 }
 
@@ -294,8 +295,7 @@ fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.A
     return list;
 }
 
-/// Removes a trailing `# comment` from a TOML value, ignoring `#` inside a
-/// double-quoted string. Returns the value with trailing whitespace trimmed.
+/// Removes a trailing `# comment` (ignoring `#` inside a quoted string).
 fn stripInlineComment(val: []const u8) []const u8 {
     var in_str = false;
     var i: usize = 0;

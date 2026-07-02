@@ -104,6 +104,8 @@ src/checks/dup_const.zig::run fn
 src/checks/errdefer_in_init.zig::analyzeContent fn
 src/checks/errdefer_in_init.zig::run fn
 src/checks/error_discipline.zig::run fn
+src/checks/escape_discipline.zig::analyzeContent fn
+src/checks/escape_discipline.zig::run fn
 src/checks/file_size.zig::run fn
 src/checks/function_length.zig::analyzeContent fn
 src/checks/function_length.zig::run fn
@@ -123,6 +125,8 @@ src/checks/nesting_depth.zig::analyzeContent fn
 src/checks/nesting_depth.zig::run fn
 src/checks/no_test_imports_in_prod.zig::analyzeContent fn
 src/checks/no_test_imports_in_prod.zig::run fn
+src/checks/oom_discipline.zig::analyzeContent fn
+src/checks/oom_discipline.zig::run fn
 src/checks/optional_density.zig::analyzeContent fn
 src/checks/optional_density.zig::run fn
 src/checks/orphan_files.zig::findOrphans fn
@@ -179,10 +183,12 @@ src/config.zig::BoundaryRule struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::Config struct_
 src/config.zig::DocQualityCfg struct_
+src/config.zig::EscapeDisciplineCfg struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::NestingDepthCfg struct_
+src/config.zig::OomDisciplineCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::ReturnsPerFnCfg struct_
 src/config.zig::SpecQualityCfg struct_
