@@ -107,12 +107,19 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-58 checks (most hard-block; test-coverage/escape-discipline/oom-discipline
+54 checks (most hard-block; test-coverage/escape-discipline/oom-discipline
 opt-in) plus `zig fmt --check`. Full table in README.md;
 the categories are: spec workflow, structural, public API, code style,
-error handling, and allocation. Four checks are snapshot-based
-(pub-api-surface, panic-budget, spec-drift, comptime-quota) — refresh
+error handling, and allocation. Three checks are snapshot-based
+(pub-api-surface, panic-budget, int-from-float-budget) — refresh
 with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit `.guardian/`.
+
+Some checks were folded into a related one to cut overlap
+(spec-drift→pub-api-surface, comptime-quota→panic-budget,
+doc-quality→doc-comments, dup-const→repeated-string-literal,
+vague-name-blacklist→naming); the retired names are still tolerated in a
+`disabled` list. Per-check path exemptions live in guardian.toml `[[allow]]`
+entries (check + paths), not compiled into the checks.
 
 `all` runs are cached: when the hashed input set (src/test/build/spec/
 guardian.toml/.guardian) is unchanged since the last green run, checks are

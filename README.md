@@ -35,20 +35,19 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-58 checks ship today, gating Guardian's own self-build. Most are hard-block; `test-coverage`, `escape-discipline`, and `oom-discipline` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
+54 checks gate Guardian's own self-build (plus the `spec-init` generator). Most are hard-block; `test-coverage`, `escape-discipline`, and `oom-discipline` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`); their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
 |---|---|
 | **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
 | **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
-| **spec-drift** | A `pub fn` signature changed without updating its snapshot |
 
 ### Structural
 | Check | Blocks on |
 |---|---|
 | **file-size** | Any .zig file exceeding `max_file_lines` (default 500) |
-| **function-size** | Any function with more than `max_params` parameters (default 4) |
+| **function-size** | Any function with more than `max_params` parameters (default 6) |
 | **function-length** | Any fn over `max_lines` source lines (default 60) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 4) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
@@ -60,15 +59,14 @@ zig build  # guardian gates every build
 ### Public API
 | Check | Blocks on |
 |---|---|
-| **pub-api-surface** | Unintended additions/removals to the public API (snapshot diff) |
-| **dead-pub** | A `pub fn` / `pub const` referenced nowhere in the project |
+| **pub-api-surface** | Unintended additions/removals to the public API, or a changed `pub fn` signature (snapshot diff) |
+| **dead-pub** | A `pub fn` / `pub const` referenced nowhere in the project (optionally ignoring test-only references) |
 
 ### Code style
 | Check | Blocks on |
 |---|---|
-| **naming** | PascalCase fns that don't return `type`; lowercase types |
-| **doc-comments** | `pub fn` or `pub struct/enum/union` without a `///` doc comment |
-| **doc-quality** | Empty / placeholder / sub-`min_chars` `///` comments (default 12) |
+| **naming** | PascalCase fns that don't return `type`; lowercase types; vague public identifiers (`tmp` / `data` / `Manager` / `Util` etc.) |
+| **doc-comments** | `pub fn` or `pub struct/enum/union` missing a `///` doc comment, or one that's empty / placeholder / under `min_chars` (default 12) |
 | **cognitive-complexity** | Per-function complexity score (default 15) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
@@ -81,14 +79,15 @@ zig build  # guardian gates every build
 | **catch-discipline** | `catch unreachable` and `catch {}` (silent error swallow) |
 | **unwrap-discipline** | `orelse unreachable` / `orelse undefined` (crash/UB on null) |
 | **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
-| **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts (snapshot) |
-| **comptime-quota** | Increase in `@setEvalBranchQuota` call count or max literal (snapshot) |
+| **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts, or `@setEvalBranchQuota` call count / max literal (snapshot) |
+| **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |
 
 ### Allocation
 | Check | Blocks on |
 |---|---|
-| **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests |
-| **dup-const** | Same `pub const NAME = "literal"` declared in 2+ files |
+| **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests (suppress a deliberate site with a `// allocator-ok:` comment) |
+| **escape-discipline** *(opt-in)* | Raw `{s}` interpolation into HTML/SVG markup without an escape helper (XSS sink) |
+| **oom-discipline** *(opt-in)* | A swallowing `catch` on an allocating call that conflates `OutOfMemory` with "not found" |
 
 ### Hidden Dependency Bans (Tier 1)
 Every nondeterminism source must be injected, not acquired. Each check ships with the FRAMEWORK.md symbol list baked in.
@@ -125,16 +124,15 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | Check | Blocks on |
 |---|---|
 | **bool-ops-per-condition** | More than `max_ops` (default 3) `and`/`or`/`!` per condition |
-| **returns-per-function** | More than `max_returns` (default 3) `return` keywords per fn body |
+| **returns-per-function** | More than `max_returns` (default 5) `return` keywords per fn body (`orelse`/`catch` guard returns excluded) |
 
 ### Tier 2 Anti-patterns
 | Check | Blocks on |
 |---|---|
-| **line-length** | Source line over `max_len` codepoints (default 120) |
-| **vague-name-blacklist** | Public identifiers named `tmp` / `data` / `Manager` / `Util` / `Helper` etc. |
+| **line-length** | Source line over `max_len` codepoints (default 120; `\\` multiline-string lines skipped) |
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
-| **magic-number** | Bare integer literals outside the small allowlist |
-| **repeated-string-literal** | The same string literal appearing 3+ times in a single file |
+| **magic-number** | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
+| **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
 | **stringly-typed-switches** | `switch` whose case keys are string literals |
@@ -172,7 +170,7 @@ Guardian enforces **1:1 mapping**: every spec behavior needs exactly one test ta
 
 ## Snapshot-based checks
 
-`pub-api-surface`, `panic-budget`, `spec-drift`, and `comptime-quota` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
+`pub-api-surface`, `panic-budget`, and `int-from-float-budget` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
 
 ```bash
 GUARDIAN_UPDATE_SNAPSHOT=1 zig build
@@ -240,7 +238,7 @@ module = "src/core/*"
 forbidden = ["utils"]
 
 [function_size]
-max_params = 4
+max_params = 6
 
 [complexity]
 max_score = 15
@@ -266,6 +264,20 @@ exclude = ["config.zig"]   # flat aggregation structs are exempt
 [test_coverage]
 enabled = true
 exempt_names = ["main", "build"]
+
+# Opt-in: references from inside test blocks don't count toward liveness,
+# so production-dead code kept alive only by its own test is flagged.
+[dead_pub]
+ignore_test_refs = true
+
+# Per-check allowed-path exemptions. Each ban-family / path-scoped check keeps
+# its architectural defaults (infra/clock, adapters/http, config, main, …);
+# [[allow]] grants extra paths on top, merged by check name. This is where a
+# project (Guardian included) records its own self-hosting carve-outs instead of
+# compiling them into the check — so a downstream repo never inherits them.
+[[allow]]
+check = "ban-fs"
+paths = ["src/infra/persistence/*"]
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
