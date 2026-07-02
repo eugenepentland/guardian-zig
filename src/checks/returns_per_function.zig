@@ -23,7 +23,7 @@ pub fn analyzeContentWithLimit(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const fns = (if (tree) |t| ast.fnDeclInfosFromTree(a, t) else ast.fnDeclInfos(a, content)) catch return violations.toOwnedSlice(allocator);
+    const fns = if (tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, content);
 
     for (fns) |fn_info| {
         const count = try countReturns(a, fn_info.body_text);

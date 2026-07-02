@@ -32,7 +32,9 @@ pub const ReadError = error{
 pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot {
     const content = std.fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return error.Missing,
-        else => return error.BadFormat,
+        // Pass through real I/O / OOM errors — only a bad header is BadFormat,
+        // so "your snapshot is corrupt" isn't reported for a permission error.
+        else => |err| return err,
     };
 
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
