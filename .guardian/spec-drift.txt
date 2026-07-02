@@ -8,6 +8,7 @@ src/ast/index.zig::resolve | fn resolve( shared: ?*const Index, arena: Allocator
 src/ast/index.zig::runSrc | fn runSrc( shared: ?*const Index, arena: Allocator, project_dir: []const u8, visitor: walk.Visitor, ) walk.WalkError!void
 src/ast/parser.zig::allFns | fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo
 src/ast/parser.zig::allFnsFromTree | fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnInfo
+src/ast/parser.zig::collectDecls | fn collectDecls(arena: Allocator, tree: *const Ast) AstError![]const Ast.Node.Index
 src/ast/parser.zig::fnDeclInfos | fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo
 src/ast/parser.zig::fnDeclInfosFromTree | fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnDeclInfo
 src/ast/parser.zig::imports | fn imports(arena: Allocator, source: []const u8) []const Import

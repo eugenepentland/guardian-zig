@@ -21,6 +21,7 @@ src/ast/parser.zig::PubFn struct_
 src/ast/parser.zig::ReturnKind enum_
 src/ast/parser.zig::allFns fn
 src/ast/parser.zig::allFnsFromTree fn
+src/ast/parser.zig::collectDecls fn
 src/ast/parser.zig::fnDeclInfos fn
 src/ast/parser.zig::fnDeclInfosFromTree fn
 src/ast/parser.zig::imports fn

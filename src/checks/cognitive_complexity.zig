@@ -3,6 +3,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
+const ast = @import("../ast/parser.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -44,13 +45,15 @@ fn scoreTokens(tags: []const std.zig.Token.Tag) u32 {
     return score;
 }
 
-fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) !void {
+fn scoreTree(ctx: *ScanCtx, rel_path: []const u8, tree_ptr: *const std.zig.Ast) !void {
     const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(a, z, .zig);
+    var tree = tree_ptr.*;
     const all_tags = tree.tokens.items(.tag);
 
-    for (tree.rootDecls()) |decl| {
+    // collectDecls descends into container members, so methods nested in
+    // structs are scored too (fixes the same rootDecls-only blind spot P0-2
+    // fixed for the other checks).
+    for (try ast.collectDecls(a, &tree)) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;
         var buf: [1]std.zig.Ast.Node.Index = undefined;
         const proto = tree.fullFnProto(&buf, decl) orelse continue;
@@ -70,7 +73,13 @@ fn visitFile(ctx: *ScanCtx, rel_path: []const u8, content: []const u8) !void {
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    try visitFile(ctx, entry.rel_path, entry.content);
+    // Reuse the shared parse when the index provides it; only parse standalone.
+    if (entry.tree) |t| {
+        try scoreTree(ctx, entry.rel_path, t);
+    } else {
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
+        try scoreTree(ctx, entry.rel_path, &tree);
+    }
 }
 
 /// Entry point for the cognitive-complexity check.
@@ -161,7 +170,7 @@ test "scoreTokens counts every branch keyword once" {
     try testing.expectEqual(@as(u32, 4), try scoreSource(a, body));
 }
 
-test "visitFile uses single tokenization for all functions in a file" {
+test "visit scores every function in a file" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -172,6 +181,20 @@ test "visitFile uses single tokenization for all functions in a file" {
         \\fn big() void { if (a) {} if (b) {} if (c) {} }
         \\fn empty() void {}
     ;
-    try visitFile(&ctx, "src/x.zig", content);
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+test "visit scores methods nested inside a struct" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .threshold = 1, .violations = &violations };
+    const content =
+        \\pub const S = struct {
+        \\    pub fn big(self: S) void { _ = self; if (a) {} if (b) {} if (c) {} }
+        \\};
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try testing.expectEqual(@as(usize, 1), violations.items.len);
 }

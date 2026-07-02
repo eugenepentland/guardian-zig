@@ -121,7 +121,7 @@ fn isContainerNode(tree: *const Ast, node: Ast.Node.Index) bool {
 /// declarations, so an agent could dodge every AST check by wrapping code in a
 /// struct. Containers returned from a function body (generic type
 /// constructors) are not reached — those live inside expressions, not decls.
-fn collectDecls(arena: Allocator, tree: *const Ast) AstError![]const Ast.Node.Index {
+pub fn collectDecls(arena: Allocator, tree: *const Ast) AstError![]const Ast.Node.Index {
     var out: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
     try collectDeclsInto(arena, tree, tree.rootDecls(), &out);
     return out.toOwnedSlice(arena);
