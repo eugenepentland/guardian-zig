@@ -131,6 +131,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Caps anytype parameter count per file
 - Skips files matching the exclude patterns
+- Excludes writer-typed anytype parameters
 
 ## Dead Pub
 
@@ -167,7 +168,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Type Size
 
-- Caps fields per pub struct/enum/union/opaque
+- Caps fields per pub struct/union/opaque
+- Exempts enums from the field cap
 - Skips pub containers in files matching the exclude patterns
 
 ## Function Length

@@ -35,6 +35,10 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     else
         try ast.pubContainers(a, entry.content);
     for (containers) |c| {
+        // Enums are closed vocabularies (error kinds, token tags, form names);
+        // a high variant count is domain size, not a god-struct smell, and
+        // splitting them is semantically wrong. Only struct/union/opaque count.
+        if (c.kind == .enum_) continue;
         if (c.field_count <= ctx.cfg.max_fields) continue;
         const msg = try std.fmt.allocPrint(
             a,
@@ -91,8 +95,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
-// spec: Type Size - Caps fields per pub struct/enum/union/opaque
-
+// spec: Type Size - Caps fields per pub struct/union/opaque
 test "visit flags oversized struct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -156,7 +159,8 @@ test "visit ignores private structs" {
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }
 
-test "visit flags oversized enum" {
+// spec: Type Size - Exempts enums from the field cap
+test "visit exempts enums regardless of variant count" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -170,7 +174,7 @@ test "visit flags oversized enum" {
         \\pub const Color = enum { red, green, blue, yellow };
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
-    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }
 
 // spec: Type Size - Skips pub containers in files matching the exclude patterns
