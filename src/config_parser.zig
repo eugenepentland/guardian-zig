@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const config = @import("config.zig");
 const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
+const AllowRule = config.AllowRule;
 
 /// Reads guardian.toml from `dir`; returns defaults if missing/unreadable.
 pub fn load(allocator: Allocator, dir: []const u8) Config {
@@ -51,41 +52,68 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-/// Parse state across lines: the current [section] and in-progress boundary.
+/// Which `[[array]]` table (if any) the parser is currently inside.
+const ArrayKind = enum { none, boundary, allow };
+
+/// Parse state across lines: the current [section] and in-progress array table.
 const ParseState = struct {
     section: Section = .top,
-    in_boundary: bool = false,
+    array_kind: ArrayKind = .none,
     cur_module: ?[]const u8 = null,
     cur_forbidden: std.ArrayListUnmanaged([]const u8) = .empty,
     boundaries: std.ArrayListUnmanaged(BoundaryRule) = .empty,
+    cur_check: ?[]const u8 = null,
+    cur_paths: std.ArrayListUnmanaged([]const u8) = .empty,
+    allows: std.ArrayListUnmanaged(AllowRule) = .empty,
 
-    /// Flushes the in-progress [[boundary]] (if it named a module) into rules.
+    /// Flushes the in-progress array-of-tables entry (if complete) into its list.
     fn flush(self: *ParseState, allocator: Allocator) Allocator.Error!void {
-        if (!self.in_boundary) return;
-        const m = self.cur_module orelse return;
-        try self.boundaries.append(allocator, .{
-            .module_pattern = m,
-            .forbidden_imports = try self.cur_forbidden.toOwnedSlice(allocator),
-        });
+        switch (self.array_kind) {
+            .boundary => {
+                const m = self.cur_module orelse return;
+                try self.boundaries.append(allocator, .{
+                    .module_pattern = m,
+                    .forbidden_imports = try self.cur_forbidden.toOwnedSlice(allocator),
+                });
+            },
+            .allow => {
+                const c = self.cur_check orelse return;
+                try self.allows.append(allocator, .{
+                    .check = c,
+                    .paths = try self.cur_paths.toOwnedSlice(allocator),
+                });
+            },
+            .none => {},
+        }
     }
 
-    /// Starts a `[[name]]` array-of-tables entry, flushing any prior boundary.
+    /// Starts a `[[name]]` array-of-tables entry, flushing any prior one.
     fn beginArrayTable(self: *ParseState, allocator: Allocator, name: []const u8) Allocator.Error!void {
         try self.flush(allocator);
-        self.in_boundary = std.mem.eql(u8, name, "boundary");
+        self.array_kind = arrayKindFor(name);
         self.cur_module = null;
         self.cur_forbidden = .empty;
+        self.cur_check = null;
+        self.cur_paths = .empty;
         self.section = .top;
     }
 
-    /// Starts a `[name]` table, flushing any prior boundary.
+    /// Starts a `[name]` table, flushing any prior array entry.
     fn beginTable(self: *ParseState, allocator: Allocator, name: []const u8) Allocator.Error!void {
         try self.flush(allocator);
-        self.in_boundary = false;
+        self.array_kind = .none;
         self.section = sectionFor(name);
     }
 
-    /// Applies a key/value inside an open [[boundary]] table.
+    /// Applies a key/value inside an open array-of-tables entry.
+    fn setArrayKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        switch (self.array_kind) {
+            .boundary => try self.setBoundaryKey(allocator, kv),
+            .allow => try self.setAllowKey(allocator, kv),
+            .none => {},
+        }
+    }
+
     fn setBoundaryKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
         if (std.mem.eql(u8, kv.key, "module")) {
             self.cur_module = parseString(kv.val);
@@ -93,7 +121,22 @@ const ParseState = struct {
             self.cur_forbidden = try parseStringArray(allocator, kv.val);
         }
     }
+
+    fn setAllowKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "check")) {
+            self.cur_check = parseString(kv.val);
+        } else if (std.mem.eql(u8, kv.key, "paths")) {
+            self.cur_paths = try parseStringArray(allocator, kv.val);
+        }
+    }
 };
+
+/// Maps a `[[name]]` header to the array kind it opens.
+fn arrayKindFor(name: []const u8) ArrayKind {
+    if (std.mem.eql(u8, name, "boundary")) return .boundary;
+    if (std.mem.eql(u8, name, "allow")) return .allow;
+    return .none;
+}
 
 /// Parses guardian.toml content; errors only on allocator failure (`load`
 /// swallows those into defaults).
@@ -108,6 +151,7 @@ pub fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config {
     }
     try st.flush(allocator);
     cfg.boundary_rules = try st.boundaries.toOwnedSlice(allocator);
+    cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     return cfg;
 }
 
@@ -134,7 +178,7 @@ fn applyKeyValueLine(allocator: Allocator, cfg: *Config, st: *ParseState, line: 
     const key = std.mem.trim(u8, line[0..eq_idx], &std.ascii.whitespace);
     const raw = std.mem.trim(u8, line[eq_idx + 1 ..], &std.ascii.whitespace);
     const kv: KeyVal = .{ .key = key, .val = stripInlineComment(raw) };
-    if (st.in_boundary) return st.setBoundaryKey(allocator, kv);
+    if (st.array_kind != .none) return st.setArrayKey(allocator, kv);
     try applySectionKey(.{ .allocator = allocator, .cfg = cfg }, st.section, kv);
 }
 
@@ -422,6 +466,27 @@ test "parse disabled check list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
     try std.testing.expectEqualStrings("spec-drift", cfg.disabled[0]);
     try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
+}
+
+// spec: Configuration - Parses per-check allowed-path overrides via [[allow]] sections
+test "parse [[allow]] per-check path overrides" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[[allow]]
+        \\check = "ban-fs"
+        \\paths = ["src/walk*", "src/cache*"]
+        \\
+        \\[[allow]]
+        \\check = "debug-print-ban"
+        \\paths = ["src/reporter.zig"]
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    const fs = cfg.extraAllowed("ban-fs");
+    try std.testing.expectEqual(@as(usize, 2), fs.len);
+    try std.testing.expectEqualStrings("src/walk*", fs[0]);
+    try std.testing.expectEqualStrings("src/reporter.zig", cfg.extraAllowed("debug-print-ban")[0]);
+    try std.testing.expectEqual(@as(usize, 0), cfg.extraAllowed("nonexistent").len);
 }
 
 test "parse per-check exclude arrays" {

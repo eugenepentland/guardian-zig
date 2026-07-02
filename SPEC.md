@@ -10,6 +10,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Falls back to defaults when no config file exists
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
+- Parses per-check allowed-path overrides via [[allow]] sections
 
 ## Spec Coverage
 

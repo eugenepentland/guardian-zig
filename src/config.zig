@@ -1,11 +1,23 @@
 //! guardian.toml configuration types. The parser lives in config_parser.zig
-//! (kept separate so this stays a dependency-free type-definition leaf and
-//! both files stay under the file-size cap).
+//! (kept separate so this stays a std-only type-definition leaf and both files
+//! stay under the file-size cap).
+
+const std = @import("std");
 
 /// One [[boundary]] entry — a module glob and the import substrings forbidden inside it.
 pub const BoundaryRule = struct {
     module_pattern: []const u8,
     forbidden_imports: []const []const u8,
+};
+
+/// One [[allow]] entry — extra allowed-path globs for a named check, merged with
+/// that check's compiled architectural defaults. Lets a project (Guardian
+/// included) grant path-scoped exemptions in guardian.toml instead of hardcoding
+/// its own filenames into check source, which would silently punch the same
+/// holes in every downstream repo that happens to share those paths.
+pub const AllowRule = struct {
+    check: []const u8,
+    paths: []const []const u8 = &.{},
 };
 
 /// Per-check config for the spec-quality lint.
@@ -170,4 +182,15 @@ pub const Config = struct {
     baseline: BaselineCfg = .{},
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
+    /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
+    allow_rules: []const AllowRule = &.{},
+
+    /// Extra allowed-path globs configured for `check_name` via [[allow]]
+    /// (empty when none). Checks merge these with their compiled defaults.
+    pub fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8 {
+        for (self.allow_rules) |r| {
+            if (std.mem.eql(u8, r.check, check_name)) return r.paths;
+        }
+        return &.{};
+    }
 };

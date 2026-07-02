@@ -134,6 +134,7 @@ src/checks/vague_name_blacklist.zig::run | fn run(ctx: *registry.RunCtx) registr
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
 src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config
 src/reporter.zig::deinit | fn deinit(self: *Capture) void

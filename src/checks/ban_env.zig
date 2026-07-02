@@ -9,15 +9,12 @@ const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "os", "getenv" }, .display = "std.os.getenv" },
 };
 
+// Architectural default: env reads live in config/ (or main). Guardian's own
+// env-reading infrastructure (snapshot_helper, the golden test runner) is
+// exempted via [[allow]] in Guardian's guardian.toml.
 const opts: helper.ScanOpts = .{
     .rules = &rules,
-    .allowed_paths = &.{
-        "src/config*",
-        "config/*",
-        "src/snapshot_helper*",
-        // Guardian-internal: golden test runner reads GUARDIAN_UPDATE_GOLDEN.
-        "src/testing/*",
-    },
+    .allowed_paths = &.{ "src/config*", "config/*" },
     .fix_hint = "read env vars in config/ or main, then pass values down as plain parameters.",
 };
 

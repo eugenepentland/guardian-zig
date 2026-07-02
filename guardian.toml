@@ -21,6 +21,43 @@ exclude = ["reporter.zig", "testing/golden_runner.zig"]
 [type_size]
 exclude = ["config.zig"]
 
+# Guardian's own self-hosting exemptions. These used to be compiled into each
+# check's source, which silently punched the same holes into any downstream repo
+# sharing those paths. Moving them here keeps the checks honest for consumers and
+# makes the count of exemptions a visible FP-rate / refactor-debt signal.
+
+# Guardian is a static analyzer: it walks the filesystem and reads env by design.
+[[allow]]
+check = "ban-fs"
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/testing/*", "src/baseline.zig"]
+
+[[allow]]
+check = "ban-env"
+paths = ["src/snapshot_helper*", "src/testing/*"]
+
+# reporter is Guardian's logging boundary; it legitimately owns a global + prints.
+[[allow]]
+check = "ban-globals"
+paths = ["src/reporter.zig"]
+
+[[allow]]
+check = "debug-print-ban"
+paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/reporter.zig"]
+
+# This check's own file: its pattern strings look like the paths it flags.
+[[allow]]
+check = "ban-hardcoded-paths"
+paths = ["src/checks/ban_hardcoded_paths*"]
+
+[[allow]]
+check = "static-factory-ban"
+paths = ["src/build_helper.zig", "src/reporter.zig"]
+
+# Refactor debt: many token-walk files dispatch the same internal enums.
+[[allow]]
+check = "repeated-switch-on-enum"
+paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/snapshot_helper.zig"]
+
 # Self-hosting: enforce that every pub fn is referenced from a test. Entry
 # points (main), CLI/build integration (printHelp, addAllChecks), env/IO
 # wrappers around already-tested pure logic (parseFile, scanDir,

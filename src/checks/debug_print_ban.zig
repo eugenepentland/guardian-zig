@@ -13,17 +13,11 @@ const rules = [_]helper.Rule{
 
 const opts: helper.ScanOpts = .{
     .rules = &rules,
-    .allowed_paths = &.{
-        // Guardian-internal: legitimate diagnostic warnings (parse failures,
-        // snapshot read failures, test-cleanup notices, capture-write OOM).
-        // Downstream consumers should leave this empty and route logging
-        // through their adapter.
-        "src/ast/parser*",
-        "src/snapshot.zig",
-        "src/snapshot_helper*",
-        "src/baseline.zig",
-        "src/reporter.zig",
-    },
+    // Default: nothing allowed — downstream consumers route logging through
+    // their adapter. Guardian's own diagnostic-warning sites (parse failures,
+    // snapshot read failures, test-cleanup notices) are exempted via [[allow]]
+    // in Guardian's guardian.toml.
+    .allowed_paths = &.{},
     .fix_hint = "route through reporter.print/detail, or alias once at file scope and use the alias.",
 };
 
@@ -40,7 +34,7 @@ pub fn analyzeContent(
 
 /// Entry point for the debug-print-ban check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
-    return helper.scan(ctx_param, "debug print ban", opts);
+    return helper.scan(ctx_param, "debug-print-ban", opts);
 }
 
 // spec: Debug Print Ban - Rejects std.debug.print call expressions outside test blocks and pub fn main

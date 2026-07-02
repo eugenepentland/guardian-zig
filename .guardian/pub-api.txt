@@ -177,6 +177,7 @@ src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_
 src/cli/types.zig::RunError value
+src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
 src/config.zig::BaselineCfg struct_
 src/config.zig::BoolOpsCfg struct_
@@ -195,6 +196,7 @@ src/config.zig::ReturnsPerFnCfg struct_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
+src/config.zig::extraAllowed fn
 src/config_parser.zig::load fn
 src/config_parser.zig::parse fn
 src/reporter.zig::Capture struct_

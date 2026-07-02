@@ -239,6 +239,21 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     try scanFile(&local, entry.content);
 }
 
+/// Concatenates a check's compiled allowed paths with any configured via
+/// [[allow]] in guardian.toml. Returns `base` unchanged when there are no
+/// extras, so the common (no-config) path allocates nothing.
+fn mergeAllowed(
+    allocator: Allocator,
+    base: []const []const u8,
+    extra: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    if (extra.len == 0) return base;
+    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    try list.appendSlice(allocator, base);
+    try list.appendSlice(allocator, extra);
+    return list.toOwnedSlice(allocator);
+}
+
 /// Run the banned-symbol scan against the project's `src/` tree and
 /// emit a Guardian-style ok/fail report.
 pub fn scan(
@@ -249,11 +264,17 @@ pub fn scan(
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
+    // Merge the check's compiled architectural defaults with any [[allow]]
+    // entries from guardian.toml, so self-hosting exemptions live in config
+    // rather than punching holes into every downstream repo.
+    var merged = opts;
+    merged.allowed_paths = try mergeAllowed(allocator, opts.allowed_paths, ctx_param.cfg.extraAllowed(check_name));
+
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
-        .opts = opts,
+        .opts = merged,
     };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
