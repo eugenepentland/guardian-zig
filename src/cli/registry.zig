@@ -29,6 +29,7 @@ const check_orphan_files = @import("../checks/orphan_files.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
 const check_doc_quality = @import("../checks/doc_quality.zig");
 const check_comptime_quota = @import("../checks/comptime_quota.zig");
+const check_int_from_float_budget = @import("../checks/int_from_float_budget.zig");
 const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
@@ -189,6 +190,11 @@ pub const all: []const Command = &.{
         .name = "comptime-quota",
         .summary = "Track @setEvalBranchQuota call count and max value via snapshot",
         .run = check_comptime_quota.run,
+    },
+    .{
+        .name = "int-from-float-budget",
+        .summary = "Track @intFromFloat call count via snapshot (new sites need a guard review)",
+        .run = check_int_from_float_budget.run,
     },
     .{
         .name = "type-size",

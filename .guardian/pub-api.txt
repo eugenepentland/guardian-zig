@@ -115,6 +115,7 @@ src/checks/init_deinit_symmetry.zig::analyzeContent fn
 src/checks/init_deinit_symmetry.zig::run fn
 src/checks/init_hygiene.zig::analyzeContent fn
 src/checks/init_hygiene.zig::run fn
+src/checks/int_from_float_budget.zig::run fn
 src/checks/line_length.zig::analyzeContent fn
 src/checks/line_length.zig::analyzeContentWithLimit fn
 src/checks/line_length.zig::run fn

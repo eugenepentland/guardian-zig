@@ -82,6 +82,7 @@ src/checks/init_deinit_symmetry.zig::analyzeContent | fn analyzeContent( allocat
 src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/init_hygiene.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/init_hygiene.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/int_from_float_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/line_length.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_len: u32, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
