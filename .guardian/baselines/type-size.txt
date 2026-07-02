@@ -1,0 +1,2 @@
+# guardian-snapshot v1
+src/config.zig: pub const Config (struct_) has 20 fields (cap 7)

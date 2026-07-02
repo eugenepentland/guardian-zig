@@ -1,0 +1,8 @@
+# guardian-snapshot v1
+src/checks/catch_discipline.zig: fn appendAt has 5 params (limit: 4)
+src/checks/returns_per_function.zig: fn analyzeContentWithLimit has 5 params (limit: 4)
+src/checks/test_no_conditional.zig: fn report has 5 params (limit: 4)
+src/checks/unwrap_discipline.zig: fn appendAt has 5 params (limit: 4)
+src/snapshot_helper.zig: fn lifecycle has 5 params (limit: 4)
+src/walk.zig: fn walkRecursive has 5 params (limit: 4)
+src/walk.zig: fn walkZigFiles has 5 params (limit: 4)

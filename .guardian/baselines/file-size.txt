@@ -1,0 +1,3 @@
+# guardian-snapshot v1
+src/ast/parser.zig: 743 lines (limit: 500)
+src/config.zig: 624 lines (limit: 500)

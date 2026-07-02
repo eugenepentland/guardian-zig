@@ -1,71 +1,19 @@
 spec_file = "SPEC.md"
-# ast/parser.zig (~715 lines) hosts the AST primitives — six query families,
-# each with a source-parsing wrapper plus a tree-reusing `*FromTree` variant
-# for the shared AST index, the shared container-recursion collector, and
-# their tests. That split is what lets every AST check parse each file once and
-# see declarations nested inside structs. New consumers should keep the
-# framework default 500.
-max_file_lines = 760
 file_size_exclude = []
+
+# Baseline mode: instead of raising thresholds project-wide (which removes
+# protection from ALL new code), run every check at its framework default and
+# freeze Guardian's current offenders in .guardian/baselines/. New code is held
+# to the strict default; the frozen set is a ratchet to shrink over time
+# (refactor a state machine, run GUARDIAN_UPDATE_SNAPSHOT=1, commit the smaller
+# baseline). Downstream consumers get the same clean default thresholds.
+[baseline]
+enabled = true
 
 # Spec modules must not depend on config or analysis — only check.zig bridges them
 [[boundary]]
 module = "src/spec/*"
 forbidden = ["config"]
-
-# Cognitive-complexity is intentionally lenient for Guardian's own source —
-# the parse/analyze/parseContent functions are state machines whose
-# refactor is queued separately. Ratcheted to just above the current worst
-# case (config.parse at 71); shrink further as those functions are split.
-# New consumers should use the default 15.
-[complexity]
-max_score = 75
-
-# Nesting-depth is also lenient here for the same reason: the
-# allocator-hygiene + debug-print-ban token-chain state machines
-# reach depth 7-8 inside their switch-on-token-tag dispatch.
-# New consumers should keep the default 4.
-[nesting_depth]
-max_depth = 8
-
-# Reporter has 6 anytype params (the format-string `args: anytype`
-# pattern in ok/fail/detail). New consumers should keep the default 2.
-[anytype_budget]
-max_per_file = 7
-
-# config.parse is a ~219-line state-machine TOML reader. Refactor (a
-# table-driven Section->field map) is queued separately; ratcheted to just
-# above it. New consumers should keep the default 60.
-[function_length]
-max_lines = 220
-
-# walk.walkZigFiles / walkRecursive and snapshot_helper.lifecycle each
-# take 5 params (allocator + 3 inputs + opts/visitor). Bundling into
-# context structs is queued separately — would touch 35 call sites
-# across every check. New consumers should keep the default 4.
-[function_size]
-max_params = 5
-
-# The Config aggregator holds one field per per-check config struct
-# (~20 fields today, climbing as new checks land). Splitting into
-# nested category structs would force `cfg.x.y` everywhere, churning
-# every check. Ratcheted to 22 (just above current). New consumers
-# should keep the default 7.
-[type_size]
-max_fields = 22
-
-# Pattern-matching / dispatch fns (e.g. `suspicious` in ban-hardcoded-paths,
-# `classify` in stub-body-ban) idiomatically have many early returns.
-# Refactoring them to a single tail return adds nesting without changing
-# behavior. New consumers should keep the framework default 3.
-[returns_per_fn]
-max_returns = 10
-
-# Guardian's registry holds one-line check definitions whose summaries
-# reach ~199 chars. Wrapping them multi-line would let this ratchet toward
-# 140; until then it's snug at 200. New consumers should keep 100-120.
-[line_length]
-max_len = 200
 
 # Self-hosting: enforce that every pub fn is referenced from a test. Entry
 # points (main), CLI/build integration (printHelp, addAllChecks), env/IO
