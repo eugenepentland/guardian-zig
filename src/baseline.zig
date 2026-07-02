@@ -27,22 +27,33 @@ pub const Outcome = union(enum) {
 
 /// Pulls violation lines out of a check's captured stdout.
 ///
-/// A "violation line" is any line that:
-///   - is indented (starts with two spaces or a tab), AND
-///   - isn't a fix hint (starts with `  fix:` or `    fix:`), AND
-///   - isn't a continuation of a fix hint.
+/// A check's failing output is `[header] [violation lines…] [trailing hint /
+/// suggestion block]`. Only the middle is real violations. A violation line is
+/// indented (two spaces or a tab); the trailing block is everything from the
+/// first hint marker (`fix:` / `add:`) or the first blank line after violations
+/// began — whichever comes first. This excludes multi-line `fix:` continuations
+/// (e.g. `       or re-run …`) and the spec check's `add:` suggestion block,
+/// which earlier only-`fix:`-prefixed skipping miscounted as violations.
 ///
 /// The returned lines are dedented (leading whitespace stripped) and
 /// allocator-owned.
 pub fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8 {
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
     var iter = std.mem.splitScalar(u8, output, '\n');
+    var collected_any = false;
     while (iter.next()) |raw| {
-        if (raw.len == 0) continue;
+        if (raw.len == 0) {
+            // A blank line after violations began ends the violation block;
+            // the trailing hint/suggestion prose follows (spec prints exactly
+            // one such blank before its `add:` block).
+            if (collected_any) break;
+            continue;
+        }
         if (!isIndented(raw)) continue;
         const trimmed = leftTrim(raw);
-        if (isFixLine(trimmed)) continue;
+        if (isHintStart(trimmed)) break;
         try out.append(arena, try arena.dupe(u8, trimmed));
+        collected_any = true;
     }
     return out.toOwnedSlice(arena);
 }
@@ -58,8 +69,11 @@ fn leftTrim(line: []const u8) []const u8 {
     return line[i..];
 }
 
-fn isFixLine(trimmed: []const u8) bool {
-    return std.mem.startsWith(u8, trimmed, "fix:");
+/// The first line of a check's trailing hint/suggestion block: a `fix:` hint or
+/// the spec check's `add:` suggestions. Everything from here on is prose, not
+/// violations.
+fn isHintStart(trimmed: []const u8) bool {
+    return std.mem.startsWith(u8, trimmed, "fix:") or std.mem.startsWith(u8, trimmed, "add:");
 }
 
 /// Blanks the source-line position in a violation line so baseline matching is
@@ -309,6 +323,43 @@ test "extract pulls violation lines and skips headers and fix hints" {
     try std.testing.expectEqual(@as(usize, 3), lines.len);
     try std.testing.expectEqualStrings("src/x.zig:5: std.fs.cwd reference outside allowed paths", lines[0]);
     try std.testing.expectEqualStrings("src/z.zig:12: std.fs.cwd reference outside allowed paths", lines[2]);
+}
+
+test "extract ignores multi-line fix-hint continuations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sample =
+        \\guardian: int-from-float budget FAILED (casts: 1 found, 0 budgeted)
+        \\  src/x.zig:5: unguarded @intFromFloat
+        \\  fix: guard the new @intFromFloat (isFinite + range check),
+        \\       or re-run with GUARDIAN_UPDATE_SNAPSHOT=1 and commit .guardian/x.txt
+    ;
+    const lines = try extract(a, sample);
+    // Only the violation; both hint lines (incl. the non-`fix:` continuation)
+    // are excluded.
+    try std.testing.expectEqual(@as(usize, 1), lines.len);
+    try std.testing.expectEqualStrings("src/x.zig:5: unguarded @intFromFloat", lines[0]);
+}
+
+test "extract stops at the spec add: suggestion block" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sample =
+        \\guardian: spec coverage FAILED (2 unverified)
+        \\  unverified: Auth - Validates tokens
+        \\  unverified: Auth - Rejects expired tokens
+        \\
+        \\  add: // spec: Auth - Validates tokens
+        \\  add: // spec: Auth - Rejects expired tokens
+        \\  Each spec behavior must have exactly one // spec: tag (1:1 mapping).
+    ;
+    const lines = try extract(a, sample);
+    // The two unverified behaviors, not the add: block or the trailing prose.
+    try std.testing.expectEqual(@as(usize, 2), lines.len);
+    try std.testing.expectEqualStrings("unverified: Auth - Validates tokens", lines[0]);
+    try std.testing.expectEqualStrings("unverified: Auth - Rejects expired tokens", lines[1]);
 }
 
 test "extract handles empty output" {
