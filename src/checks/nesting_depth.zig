@@ -16,19 +16,29 @@ const ScanCtx = struct {
     cfg: config_mod.NestingDepthCfg,
 };
 
-// Data-literal braces (`.{ ... }`, `Foo{ ... }`, `[_]u8{ ... }`) are not
-// control-flow nesting — counting them punished declarative data. Track,
-// per open brace, whether it counted, so the matching close stays balanced
-// even when literals and blocks nest inside each other.
+// A `{` that does NOT add a control-flow nesting level:
+//  - data literals (`.{…}`, `Foo{…}`, `[_]u8{…}`) — declarative data, prev is
+//    `.`/identifier/`]`;
+//  - switch-prong bodies (`=> {…}`) — the prong inherits the switch's level, so
+//    `switch { .a => { … } }` costs one level, not two (Sonar-style).
+fn braceAddsNoDepth(prev_tag: std.zig.Token.Tag) bool {
+    return switch (prev_tag) {
+        .period, .identifier, .r_bracket, .equal_angle_bracket_right => true,
+        else => false,
+    };
+}
+
+// Track, per open brace, whether it counted, so the matching close stays
+// balanced even when non-counting braces and real blocks nest inside each other.
 const DepthState = struct {
     counted: std.ArrayListUnmanaged(bool) = .empty,
     depth: u32 = 0,
     max_depth: u32 = 0,
 
     fn openBrace(self: *DepthState, allocator: std.mem.Allocator, prev_tag: std.zig.Token.Tag) !void {
-        const is_literal = prev_tag == .period or prev_tag == .identifier or prev_tag == .r_bracket;
-        try self.counted.append(allocator, !is_literal);
-        if (is_literal) return;
+        const skip = braceAddsNoDepth(prev_tag);
+        try self.counted.append(allocator, !skip);
+        if (skip) return;
         self.depth += 1;
         if (self.depth > self.max_depth) self.max_depth = self.depth;
     }
@@ -158,6 +168,16 @@ test "maxNestingDepth deeply nested reaches 4" {
     defer arena.deinit();
     const body = "{ if (a) { while (b) { for (c) |_| { return; } } } }";
     try std.testing.expectEqual(@as(u32, 4), maxNestingDepth(arena.allocator(), body));
+}
+
+test "maxNestingDepth: switch-prong body inherits the switch level" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // body(1) -> switch(2) -> prong `{` inherits 2 -> inner if(3). Without the
+    // prong discount this would read as depth 4.
+    const body = "{ switch (x) { .a => { if (y) { z(); } }, else => {} } }";
+    try std.testing.expectEqual(@as(u32, 3), maxNestingDepth(a, body));
 }
 
 test "maxNestingDepth ignores braces in strings" {

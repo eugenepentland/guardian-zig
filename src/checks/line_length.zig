@@ -19,6 +19,10 @@ pub fn analyzeContentWithLimit(
     var line_num: u32 = 1;
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| : (line_num += 1) {
+        // A multiline-string (`\\...`) line is emitted verbatim — its length is
+        // template data (HTML/SVG/KiCad), not code, and it cannot be wrapped
+        // without changing the output bytes. Skip it.
+        if (std.mem.startsWith(u8, std.mem.trimLeft(u8, line, &std.ascii.whitespace), "\\\\")) continue;
         const codepoint_len = std.unicode.utf8CountCodepoints(line) catch line.len;
         if (codepoint_len > max_len) {
             const msg = try std.fmt.allocPrint(
@@ -97,5 +101,16 @@ test "analyzeContent allows short lines" {
         \\const x = 1;
         \\const y = 2;
     );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Tier 2 Anti-patterns - Skips multiline-string literal lines from the length cap
+test "analyzeContent skips overlong multiline-string lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const long = "x" ** 130;
+    // A `\\`-prefixed template line over the cap; the code lines are short.
+    const content = "const s =\n    \\\\" ++ long ++ "\n;\n";
+    const out = try analyzeContent(arena.allocator(), "src/x.zig", content);
     try std.testing.expectEqual(@as(usize, 0), out.len);
 }

@@ -195,6 +195,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Tier 2 Anti-patterns
 
 - Caps source line length
+- Skips multiline-string literal lines from the length cap
 - Rejects vague identifier names on public declarations
 - Rejects bool parameters in public functions
 - Rejects bare integer literals outside a small allowlist
