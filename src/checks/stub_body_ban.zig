@@ -44,28 +44,38 @@ const StubKind = enum {
 
 fn classify(body_text: []const u8, return_type_text: ?[]const u8) StubKind {
     const inner = stripBraces(body_text) orelse return .none;
+    return classifyInner(inner, return_type_text);
+}
 
+/// Classifies an already-brace-stripped body: `return undefined;`, a
+/// placeholder `@panic(...)`, or a bare `unreachable;` in a value fn. Split
+/// from `classify` so each fn's return-statement count stays within cap.
+fn classifyInner(inner: []const u8, return_type_text: ?[]const u8) StubKind {
     if (std.mem.eql(u8, inner, "return undefined;")) return .return_undefined;
+    if (isPlaceholderPanic(inner)) return .placeholder_panic;
+    return classifyUnreachable(inner, return_type_text);
+}
 
-    if (std.mem.startsWith(u8, inner, "@panic(") and std.mem.endsWith(u8, inner, ");")) {
-        // Pull the argument out: between the parens, looking only at the
-        // outer call (no nested parens expected for a literal stub).
-        const arg = inner["@panic(".len .. inner.len - ");".len];
-        for (placeholder_phrases) |phr| {
-            if (std.mem.indexOf(u8, arg, phr) != null) return .placeholder_panic;
-        }
+/// True when `inner` is a bare `@panic("…");` whose argument contains one of
+/// `placeholder_phrases` (unimplemented/stub markers). Only the outer call is
+/// inspected — no nested parens are expected for a literal stub.
+fn isPlaceholderPanic(inner: []const u8) bool {
+    if (!std.mem.startsWith(u8, inner, "@panic(") or !std.mem.endsWith(u8, inner, ");")) return false;
+    const arg = inner["@panic(".len .. inner.len - ");".len];
+    for (placeholder_phrases) |phr| {
+        if (std.mem.indexOf(u8, arg, phr) != null) return true;
     }
+    return false;
+}
 
-    if (std.mem.eql(u8, inner, "unreachable;")) {
-        // unreachable; is idiomatic in fn x() noreturn — only flag elsewhere.
-        const rt = return_type_text orelse return .unreachable_in_value_fn;
-        if (std.mem.eql(u8, std.mem.trim(u8, rt, &std.ascii.whitespace), "noreturn")) {
-            return .none;
-        }
-        return .unreachable_in_value_fn;
-    }
-
-    return .none;
+/// Classifies a bare `unreachable;` body. It is idiomatic in `fn x() noreturn`,
+/// so only flag it when the return type is absent or something other than
+/// `noreturn`. Any body that isn't exactly `unreachable;` is `.none`.
+fn classifyUnreachable(inner: []const u8, return_type_text: ?[]const u8) StubKind {
+    if (!std.mem.eql(u8, inner, "unreachable;")) return .none;
+    const rt = return_type_text orelse return .unreachable_in_value_fn;
+    const is_noreturn = std.mem.eql(u8, std.mem.trim(u8, rt, &std.ascii.whitespace), "noreturn");
+    return if (is_noreturn) .none else .unreachable_in_value_fn;
 }
 
 fn kindLabel(kind: StubKind) []const u8 {

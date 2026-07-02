@@ -41,51 +41,66 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
         if (t.tag != .keyword_test) continue;
         const test_byte = t.loc.start;
 
-        // Anonymous tests (`test { ... }`) are typically test aggregators
-        // (`_ = @import(...)`) — exempt them. A decltest (`test foo { ... }`)
-        // has an identifier name and IS a real test, so it must not be exempt.
-        var lbrace: std.zig.Token = undefined;
-        var has_name = false;
-        while (true) {
-            lbrace = tok.next();
-            if (lbrace.tag == .string_literal or lbrace.tag == .identifier) has_name = true;
-            if (lbrace.tag == .l_brace or lbrace.tag == .eof) break;
-        }
-        if (lbrace.tag != .l_brace) continue;
+        const header = scanTestHeader(&tok);
+        if (!header.reached_lbrace) continue;
 
-        // Scan the body token-by-token (never a raw substring, which matched a
-        // variable named `expected` or a comment and missed try-based/custom
-        // assertions). An assertion is a `try` (error-propagation counts), an
-        // `expect*`/`assert*` call, or `std.debug.assert`.
-        var depth: u32 = 1;
-        var has_assertion = false;
-        while (true) {
-            const inner = tok.next();
-            if (inner.tag == .eof) break;
-            switch (inner.tag) {
-                .l_brace => depth += 1,
-                .r_brace => {
-                    depth -= 1;
-                    if (depth == 0) break;
-                },
-                .keyword_try => has_assertion = true,
-                .identifier => {
-                    if (isAssertionName(z[inner.loc.start..inner.loc.end])) has_assertion = true;
-                },
-                else => {},
-            }
-        }
-
-        if (has_name and !has_assertion) {
-            const line = lineOf(z, test_byte);
-            const msg = try std.fmt.allocPrint(
-                a,
-                "{s}:{d}: test has no assertion (expect*/assert*/try)",
-                .{ ctx.rel_path, line },
-            );
-            try ctx.violations.append(a, msg);
+        // A named test (`test "..."` or decltest `test foo`) with no assertion
+        // in its body is a violation. Anonymous tests (`test { ... }`) are
+        // typically aggregators (`_ = @import(...)`) and are exempt.
+        if (header.has_name and !bodyHasAssertion(&tok, z)) {
+            try appendMissingAssertion(ctx, lineOf(z, test_byte));
         }
     }
+}
+
+const TestHeader = struct { has_name: bool, reached_lbrace: bool };
+
+/// Consumes tokens from just after `test` up to and including the opening
+/// `{`. Reports whether a name (string literal or identifier) preceded it —
+/// a decltest `test foo` has an identifier name and IS a real test.
+fn scanTestHeader(tok: *std.zig.Tokenizer) TestHeader {
+    var has_name = false;
+    while (true) {
+        const t = tok.next();
+        if (t.tag == .string_literal or t.tag == .identifier) has_name = true;
+        if (t.tag == .l_brace) return .{ .has_name = has_name, .reached_lbrace = true };
+        if (t.tag == .eof) return .{ .has_name = has_name, .reached_lbrace = false };
+    }
+}
+
+/// Scans a test body token-by-token (never a raw substring, which matched a
+/// variable named `expected` or a comment and missed try-based/custom
+/// assertions). An assertion is a `try` (error-propagation counts) or an
+/// `expect*`/`assert*` call. Consumes through the body's closing `}`.
+fn bodyHasAssertion(tok: *std.zig.Tokenizer, z: [:0]const u8) bool {
+    var depth: u32 = 1;
+    var has_assertion = false;
+    while (true) {
+        const inner = tok.next();
+        switch (inner.tag) {
+            .eof => break,
+            .l_brace => depth += 1,
+            .r_brace => {
+                depth -= 1;
+                if (depth == 0) break;
+            },
+            .keyword_try => has_assertion = true,
+            .identifier => has_assertion = has_assertion or
+                isAssertionName(z[inner.loc.start..inner.loc.end]),
+            else => {},
+        }
+    }
+    return has_assertion;
+}
+
+fn appendMissingAssertion(ctx: *ScanCtx, line: u32) Allocator.Error!void {
+    const a = ctx.allocator;
+    const msg = try std.fmt.allocPrint(
+        a,
+        "{s}:{d}: test has no assertion (expect*/assert*/try)",
+        .{ ctx.rel_path, line },
+    );
+    try ctx.violations.append(a, msg);
 }
 
 /// True for std.testing / std.debug assertion call names: exactly `expect` or

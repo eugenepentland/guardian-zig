@@ -36,7 +36,12 @@ fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     });
 }
 
-fn readSingle(arena: Allocator, items: *std.ArrayListUnmanaged(Item), project_dir: []const u8, leaf: []const u8) Error!void {
+fn readSingle(
+    arena: Allocator,
+    items: *std.ArrayListUnmanaged(Item),
+    project_dir: []const u8,
+    leaf: []const u8,
+) Error!void {
     const p = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, leaf });
     const content = std.fs.cwd().readFileAlloc(arena, p, MAX_FILE_BYTES) catch return;
     try items.append(arena, .{ .path = try arena.dupe(u8, leaf), .content = content });
@@ -71,7 +76,12 @@ pub fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const
 
 /// Testable core of `inputDigest`: takes the guardian binary identity as an
 /// explicit argument instead of reading the running executable's.
-fn digestWithBinaryId(arena: Allocator, project_dir: []const u8, spec_file: []const u8, binary_id: []const u8) Error!Digest {
+fn digestWithBinaryId(
+    arena: Allocator,
+    project_dir: []const u8,
+    spec_file: []const u8,
+    binary_id: []const u8,
+) Error!Digest {
     var items: std.ArrayListUnmanaged(Item) = .empty;
     var ctx: Collector = .{ .arena = arena, .items = &items };
     const v: walk.Visitor = .{ .ctx = @ptrCast(&ctx), .visit = collect };
@@ -113,28 +123,39 @@ pub fn eql(a: Digest, b: Digest) bool {
     return std.mem.eql(u8, &a, &b);
 }
 
-/// Digest recorded by the last all-green run, or null when none exists or
-/// the cache file is unreadable/malformed.
-pub fn readStored(arena: Allocator, project_dir: []const u8) ?Digest {
-    const path = std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF }) catch return null;
-    const raw = std.fs.cwd().readFileAlloc(arena, path, STORED_MAX_BYTES) catch return null;
-    const hex = std.mem.trim(u8, raw, &std.ascii.whitespace);
+/// Parses a trimmed hex string into a digest, or null when it is the wrong
+/// length or contains non-hex bytes.
+fn parseHexDigest(hex: []const u8) ?Digest {
     if (hex.len != HEX_LEN) return null;
     var out: Digest = undefined;
     _ = std.fmt.hexToBytes(&out, hex) catch return null;
     return out;
 }
 
+/// Digest recorded by the last all-green run, or null when none exists or
+/// the cache file is unreadable/malformed.
+pub fn readStored(arena: Allocator, project_dir: []const u8) ?Digest {
+    const path = std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF }) catch return null;
+    const raw = std.fs.cwd().readFileAlloc(arena, path, STORED_MAX_BYTES) catch return null;
+    return parseHexDigest(std.mem.trim(u8, raw, &std.ascii.whitespace));
+}
+
+/// Creates the cache dir and writes the digest as lowercase hex. Any failure
+/// propagates to the best-effort caller, which swallows it.
+fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest) !void {
+    const dir = try std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir});
+    try std.fs.cwd().makePath(dir);
+    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF });
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    const f = try std.fs.cwd().createFile(path, .{});
+    defer f.close();
+    try f.writeAll(&hex);
+}
+
 /// Records `digest` as the last all-green input state. Best-effort: write
 /// failures are swallowed so the cache can never fail the build.
 pub fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void {
-    const dir = std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir}) catch return;
-    std.fs.cwd().makePath(dir) catch return;
-    const path = std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF }) catch return;
-    const hex = std.fmt.bytesToHex(digest, .lower);
-    const f = std.fs.cwd().createFile(path, .{}) catch return;
-    defer f.close();
-    f.writeAll(&hex) catch return;
+    writeStoredInner(arena, project_dir, digest) catch return;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

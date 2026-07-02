@@ -137,70 +137,128 @@ fn linesToCounts(lines: []const []const u8) Counts {
     return c;
 }
 
-/// Entry point for the panic-budget check.
-pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
-    const allocator = ctx_param.allocator;
-    const project_dir = ctx_param.project_dir;
+const Metric = struct {
+    name: []const u8,
+    found: u32,
+    budget: u32,
+};
 
+fn metrics(totals: Counts, budget: Counts) [4]Metric {
+    return .{
+        .{ .name = "panics", .found = totals.panics, .budget = budget.panics },
+        .{ .name = "unreachables", .found = totals.unreachables, .budget = budget.unreachables },
+        .{ .name = "todos", .found = totals.todos, .budget = budget.todos },
+        .{ .name = "fixmes", .found = totals.fixmes, .budget = budget.fixmes },
+    };
+}
+
+fn collectFailures(
+    allocator: std.mem.Allocator,
+    totals: Counts,
+    budget: Counts,
+) ![]const []const u8 {
+    var failures: std.ArrayListUnmanaged([]const u8) = .empty;
+    for (metrics(totals, budget)) |m| {
+        if (m.found <= m.budget) continue;
+        const line = try std.fmt.allocPrint(
+            allocator,
+            "{s}: {d} found, {d} budgeted",
+            .{ m.name, m.found, m.budget },
+        );
+        try failures.append(allocator, line);
+    }
+    return failures.toOwnedSlice(allocator);
+}
+
+fn reportFailures(failures: []const []const u8) registry.RunError!void {
+    fail("panic budget FAILED", .{});
+    for (failures) |line| print("  {s}\n", .{line});
+    print(
+        "  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n",
+        .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF },
+    );
+}
+
+fn scanTotals(ctx_param: *registry.RunCtx) registry.RunError!Counts {
+    const allocator = ctx_param.allocator;
     var totals: Counts = .{};
     var scan_ctx: ScanCtx = .{ .allocator = allocator, .totals = &totals };
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &scan_ctx, .visit = visit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, ctx_param.project_dir, .{
+        .ctx = &scan_ctx,
+        .visit = visit,
+    });
+    return totals;
+}
 
-    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
-    const new_lines = try countsToLines(allocator, totals);
+fn okCounts(comptime msg: []const u8, totals: Counts) void {
+    ok(msg, .{ totals.panics, totals.unreachables, totals.todos, totals.fixmes });
+}
 
+/// Loads the budget snapshot. Returns the parsed budget, or null when the
+/// snapshot was just (re)written — meaning the caller should report success and
+/// stop.
+fn loadBudget(
+    allocator: std.mem.Allocator,
+    snap_path: []const u8,
+    totals: Counts,
+    new_lines: [][]const u8,
+) registry.RunError!?Counts {
     if (snapshot_helper.shouldUpdate(allocator)) {
         try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
-        ok("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", .{
-            totals.panics, totals.unreachables, totals.todos, totals.fixmes,
-        });
-        return;
+        okCounts("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
+        return null;
     }
+    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| {
+        return handleReadError(e, snap_path, totals, new_lines);
+    };
+    return linesToCounts(old.lines);
+}
 
-    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| switch (e) {
+fn handleReadError(
+    e: anyerror,
+    snap_path: []const u8,
+    totals: Counts,
+    new_lines: [][]const u8,
+) registry.RunError!?Counts {
+    switch (e) {
         error.Missing => {
             try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
-            ok("panic budget created (panics={d}, unreachables={d}, todos={d}, fixmes={d})", .{
-                totals.panics, totals.unreachables, totals.todos, totals.fixmes,
-            });
-            return;
+            okCounts("panic budget created (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
+            return null;
         },
         error.VersionMismatch => {
             fail("panic budget version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.UPDATE_ENV});
             return error.CheckFailed;
         },
         else => return e,
-    };
+    }
+}
 
-    const budget = linesToCounts(old.lines);
+fn okWithinLimits(totals: Counts, budget: Counts) void {
+    ok("panic budget within limits (panics={d}/{d}, unreachables={d}/{d}, todos={d}/{d}, fixmes={d}/{d})", .{
+        totals.panics,       budget.panics,
+        totals.unreachables, budget.unreachables,
+        totals.todos,        budget.todos,
+        totals.fixmes,       budget.fixmes,
+    });
+}
 
-    var failures: std.ArrayListUnmanaged([]const u8) = .empty;
-    if (totals.panics > budget.panics) {
-        try failures.append(allocator, try std.fmt.allocPrint(allocator, "panics: {d} found, {d} budgeted", .{ totals.panics, budget.panics }));
-    }
-    if (totals.unreachables > budget.unreachables) {
-        try failures.append(allocator, try std.fmt.allocPrint(allocator, "unreachables: {d} found, {d} budgeted", .{ totals.unreachables, budget.unreachables }));
-    }
-    if (totals.todos > budget.todos) {
-        try failures.append(allocator, try std.fmt.allocPrint(allocator, "todos: {d} found, {d} budgeted", .{ totals.todos, budget.todos }));
-    }
-    if (totals.fixmes > budget.fixmes) {
-        try failures.append(allocator, try std.fmt.allocPrint(allocator, "fixmes: {d} found, {d} budgeted", .{ totals.fixmes, budget.fixmes }));
-    }
+/// Entry point for the panic-budget check.
+pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
+    const allocator = ctx_param.allocator;
+    const totals = try scanTotals(ctx_param);
 
-    if (failures.items.len == 0) {
-        ok("panic budget within limits (panics={d}/{d}, unreachables={d}/{d}, todos={d}/{d}, fixmes={d}/{d})", .{
-            totals.panics,       budget.panics,
-            totals.unreachables, budget.unreachables,
-            totals.todos,        budget.todos,
-            totals.fixmes,       budget.fixmes,
-        });
+    const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, SNAPSHOT_LEAF);
+    const new_lines = try countsToLines(allocator, totals);
+
+    const budget = try loadBudget(allocator, snap_path, totals, new_lines) orelse return;
+
+    const failures = try collectFailures(allocator, totals, budget);
+    if (failures.len == 0) {
+        okWithinLimits(totals, budget);
         return;
     }
-
-    fail("panic budget FAILED", .{});
-    for (failures.items) |line| print("  {s}\n", .{line});
-    print("  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+    try reportFailures(failures);
     return error.CheckFailed;
 }
 

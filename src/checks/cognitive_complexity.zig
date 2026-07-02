@@ -63,7 +63,11 @@ fn scoreTree(ctx: *ScanCtx, rel_path: []const u8, tree_ptr: *const std.zig.Ast) 
         const score = scoreTokens(all_tags[first .. last + 1]);
 
         if (score > ctx.threshold) {
-            const msg = try std.fmt.allocPrint(a, "{s}: fn {s} cognitive complexity {d} (limit: {d})", .{ rel_path, name, score, ctx.threshold });
+            const msg = try std.fmt.allocPrint(
+                a,
+                "{s}: fn {s} cognitive complexity {d} (limit: {d})",
+                .{ rel_path, name, score, ctx.threshold },
+            );
             try ctx.violations.append(a, msg);
         }
     }

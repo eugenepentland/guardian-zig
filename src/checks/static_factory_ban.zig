@@ -52,44 +52,55 @@ pub fn analyzeContent(
     return violations.toOwnedSlice(allocator);
 }
 
+fn matchFactory(text: []const u8) ?[]const u8 {
+    for (factory_names) |fn_name| {
+        if (std.mem.eql(u8, text, fn_name)) return fn_name;
+    }
+    return null;
+}
+
+const ScanState = struct {
+    prev_was_period: bool = false,
+    pending_factory: ?[]const u8 = null,
+    pending_byte: usize = 0,
+};
+
+fn onIdentifier(state: *ScanState, text: []const u8, start: usize) void {
+    if (state.prev_was_period) {
+        if (matchFactory(text)) |fn_name| {
+            state.pending_factory = fn_name;
+            state.pending_byte = start;
+        }
+    }
+    state.prev_was_period = false;
+}
+
+fn onLParen(ctx: *ScanCtx, z: []const u8, state: *ScanState) Allocator.Error!void {
+    if (state.pending_factory) |fn_name| {
+        try report(ctx, z, state.pending_byte, fn_name);
+    }
+    state.pending_factory = null;
+    state.prev_was_period = false;
+}
+
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
     const z = try ctx.allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
-    var prev_was_period = false;
-    var pending_factory: ?[]const u8 = null;
-    var pending_byte: usize = 0;
+    var state: ScanState = .{};
 
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
             .period => {
-                prev_was_period = true;
-                pending_factory = null;
+                state.prev_was_period = true;
+                state.pending_factory = null;
             },
-            .identifier => {
-                if (prev_was_period) {
-                    const text = z[t.loc.start..t.loc.end];
-                    for (factory_names) |fn_name| {
-                        if (std.mem.eql(u8, text, fn_name)) {
-                            pending_factory = fn_name;
-                            pending_byte = t.loc.start;
-                            break;
-                        }
-                    }
-                }
-                prev_was_period = false;
-            },
-            .l_paren => {
-                if (pending_factory) |fn_name| {
-                    try report(ctx, z, pending_byte, fn_name);
-                }
-                pending_factory = null;
-                prev_was_period = false;
-            },
+            .identifier => onIdentifier(&state, z[t.loc.start..t.loc.end], t.loc.start),
+            .l_paren => try onLParen(ctx, z, &state),
             else => {
-                pending_factory = null;
-                prev_was_period = false;
+                state.pending_factory = null;
+                state.prev_was_period = false;
             },
         }
     }

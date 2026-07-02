@@ -34,7 +34,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     }
 }
 
-fn collectLines(allocator: std.mem.Allocator, project_dir: []const u8, source_index: ?*const ast_index.Index) ![][]const u8 {
+fn collectLines(
+    allocator: std.mem.Allocator,
+    project_dir: []const u8,
+    source_index: ?*const ast_index.Index,
+) ![][]const u8 {
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
     try ast_index.runSrc(source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -67,7 +71,10 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
             fail("pub-api FAILED — surface changed", .{});
             for (d.removed) |line| print("  - {s}\n", .{line});
             for (d.added) |line| print("  + {s}\n", .{line});
-            print("  fix: if intentional, re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+            print(
+                "  fix: if intentional, re-run with {s}=1 and commit .guardian/{s}\n",
+                .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF },
+            );
             return error.CheckFailed;
         },
     }

@@ -32,8 +32,7 @@ pub fn analyzeContent(
 }
 
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
-    const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
+    const z = try ctx.allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
     while (true) {
@@ -42,53 +41,85 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
         if (t.tag != .keyword_switch) continue;
         const switch_byte = t.loc.start;
         // Skip the switch's expression: walk to matching r_paren after l_paren.
-        const lparen = tok.next();
-        if (lparen.tag != .l_paren) continue;
-        var paren_depth: u32 = 1;
-        while (paren_depth > 0) {
-            const ti = tok.next();
-            if (ti.tag == .eof) return;
-            if (ti.tag == .l_paren) paren_depth += 1;
-            if (ti.tag == .r_paren) paren_depth -= 1;
-        }
-        const lbrace = tok.next();
-        if (lbrace.tag != .l_brace) continue;
-
+        if (tok.next().tag != .l_paren) continue;
+        if (skipParenExpr(&tok)) return;
+        if (tok.next().tag != .l_brace) continue;
         // Now scan case prongs; flag if any case key is a string literal.
-        var brace_depth: u32 = 1;
-        var case_start = true;
-        var flagged = false;
-        while (brace_depth > 0) {
-            const ti = tok.next();
-            if (ti.tag == .eof) return;
-            switch (ti.tag) {
-                .l_brace, .l_paren, .l_bracket => brace_depth += 1,
-                .r_brace, .r_paren, .r_bracket => {
-                    brace_depth -= 1;
-                    if (brace_depth == 0) break;
-                },
-                .comma => if (brace_depth == 1) {
-                    case_start = true;
-                },
-                .equal_angle_bracket_right => case_start = false,
-                .string_literal => {
-                    if (case_start and brace_depth == 1 and !flagged) {
-                        const line = lineOf(z, switch_byte);
-                        const msg = try std.fmt.allocPrint(
-                            a,
-                            "{s}:{d}: switch on string literals (use an enum / tagged union instead)",
-                            .{ ctx.rel_path, line },
-                        );
-                        try ctx.violations.append(a, msg);
-                        flagged = true;
-                    }
-                },
-                else => {
-                    if (ti.tag != .doc_comment) case_start = false;
-                },
-            }
-        }
+        if (try scanProngs(ctx, z, switch_byte, &tok)) return;
     }
+}
+
+/// Consumes tokens up to and including the `r_paren` matching an already-seen
+/// `l_paren`. Returns true if the tokenizer hit eof first (caller should stop).
+fn skipParenExpr(tok: *std.zig.Tokenizer) bool {
+    var paren_depth: u32 = 1;
+    while (paren_depth > 0) {
+        const ti = tok.next();
+        if (ti.tag == .eof) return true;
+        if (ti.tag == .l_paren) paren_depth += 1;
+        if (ti.tag == .r_paren) paren_depth -= 1;
+    }
+    return false;
+}
+
+/// Running state while scanning a switch body's case prongs.
+const ProngState = struct {
+    brace_depth: u32 = 1,
+    case_start: bool = true,
+    flagged: bool = false,
+
+    /// True while the tokenizer is at a top-level (unnested) case key.
+    fn atTopLevelCase(self: ProngState) bool {
+        return self.case_start and self.brace_depth == 1 and !self.flagged;
+    }
+};
+
+/// Scans the case prongs of a switch body (after its opening `l_brace`).
+/// Flags a single violation if any top-level case key is a string literal.
+/// Returns true if the tokenizer hit eof first (caller should stop).
+fn scanProngs(
+    ctx: *ScanCtx,
+    z: [:0]const u8,
+    switch_byte: usize,
+    tok: *std.zig.Tokenizer,
+) Allocator.Error!bool {
+    var state: ProngState = .{};
+    while (state.brace_depth > 0) {
+        const ti = tok.next();
+        if (ti.tag == .eof) return true;
+        if (ti.tag == .string_literal and state.atTopLevelCase()) {
+            try flagStringCase(ctx, z, switch_byte);
+            state.flagged = true;
+            continue;
+        }
+        updateProngState(&state, ti.tag);
+    }
+    return false;
+}
+
+/// Advances the prong-scan `state` for one token tag (non-flagging tokens).
+fn updateProngState(state: *ProngState, tag: std.zig.Token.Tag) void {
+    switch (tag) {
+        .l_brace, .l_paren, .l_bracket => state.brace_depth += 1,
+        .r_brace, .r_paren, .r_bracket => state.brace_depth -= 1,
+        .comma => if (state.brace_depth == 1) {
+            state.case_start = true;
+        },
+        .equal_angle_bracket_right => state.case_start = false,
+        .string_literal, .doc_comment => {},
+        else => state.case_start = false,
+    }
+}
+
+/// Appends the stringly-typed-switch violation for the switch at `switch_byte`.
+fn flagStringCase(ctx: *ScanCtx, z: [:0]const u8, switch_byte: usize) Allocator.Error!void {
+    const line = lineOf(z, switch_byte);
+    const msg = try std.fmt.allocPrint(
+        ctx.allocator,
+        "{s}:{d}: switch on string literals (use an enum / tagged union instead)",
+        .{ ctx.rel_path, line },
+    );
+    try ctx.violations.append(ctx.allocator, msg);
 }
 
 const lineOf = @import("../text.zig").lineOf;

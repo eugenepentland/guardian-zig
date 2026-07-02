@@ -20,7 +20,10 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
-    const containers = if (entry.tree) |t| try ast.pubContainersFromTree(a, t) else try ast.pubContainers(a, entry.content);
+    const containers = if (entry.tree) |t|
+        try ast.pubContainersFromTree(a, t)
+    else
+        try ast.pubContainers(a, entry.content);
     for (containers) |c| {
         if (c.field_count <= ctx.cfg.max_fields) continue;
         const msg = try std.fmt.allocPrint(
@@ -73,7 +76,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("type size FAILED ({d} container(s) over {d} field cap)", .{ violations.items.len, cfg.max_fields });
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: split into smaller types, group related fields into nested structs, or raise [type_size] max_fields.\n", .{});
+    print("  fix: split into smaller types, group related fields into nested structs, " ++
+        "or raise [type_size] max_fields.\n", .{});
     return error.CheckFailed;
 }
 

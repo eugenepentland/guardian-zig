@@ -21,13 +21,25 @@ fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const imports = try extractImports(ctx.allocator, entry.content, entry.rel_path);
     for (ctx.rules) |rule| {
         if (!walk.matchGlob(entry.rel_path, rule.module_pattern)) continue;
-        for (imports) |imp| {
-            for (rule.forbidden_imports) |f| {
-                if (std.mem.indexOf(u8, imp, f) != null) {
-                    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: forbidden import '{s}' (rule: {s})", .{ entry.rel_path, imp, rule.module_pattern });
-                    try ctx.violations.append(ctx.allocator, msg);
-                }
-            }
+        try recordRuleViolations(ctx, entry.rel_path, imports, rule);
+    }
+}
+
+fn recordRuleViolations(
+    ctx: *BoundaryCtx,
+    rel_path: []const u8,
+    imports: []const []const u8,
+    rule: config_mod.BoundaryRule,
+) anyerror!void {
+    for (imports) |imp| {
+        for (rule.forbidden_imports) |f| {
+            if (std.mem.indexOf(u8, imp, f) == null) continue;
+            const msg = try std.fmt.allocPrint(
+                ctx.allocator,
+                "{s}: forbidden import '{s}' (rule: {s})",
+                .{ rel_path, imp, rule.module_pattern },
+            );
+            try ctx.violations.append(ctx.allocator, msg);
         }
     }
 }

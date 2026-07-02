@@ -72,7 +72,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("function length FAILED ({d} fn(s) over {d} line cap)", .{ violations.items.len, cfg.max_lines });
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: extract helpers to break the function into focused units, or raise [function_length] max_lines.\n", .{});
+    print("  fix: extract helpers to break the function into focused units, " ++
+        "or raise [function_length] max_lines.\n", .{});
     return error.CheckFailed;
 }
 

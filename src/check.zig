@@ -21,54 +21,65 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    var command: ?[]const u8 = null;
-    var project_dir: []const u8 = ".";
-    var quiet_mode: bool = false;
-    for (args[1..]) |arg| {
-        if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
-            quiet_mode = true;
-        } else if (command == null) {
-            command = arg;
-        } else {
-            project_dir = arg;
-        }
-    }
-    reporter.init(quiet_mode);
-    if (command == null) {
+    const parsed = parseArgs(args[1..]);
+    reporter.init(parsed.quiet);
+    const command = parsed.command orelse {
         registry.printHelp();
         std.process.exit(1);
-    }
+    };
 
-    const cfg = config_mod.load(allocator, project_dir);
+    const cfg = config_mod.load(allocator, parsed.project_dir);
     var ctx: registry.RunCtx = .{
         .allocator = allocator,
-        .project_dir = project_dir,
+        .project_dir = parsed.project_dir,
         .cfg = &cfg,
-        .quiet = quiet_mode,
+        .quiet = parsed.quiet,
     };
 
-    if (std.mem.eql(u8, command.?, run_all.COMMAND_NAME)) {
-        run_all.run(&ctx) catch |e| switch (e) {
-            error.CheckFailed => std.process.exit(1),
-            else => return e,
-        };
-        return;
-    }
-
-    const cmd = registry.find(command.?) orelse {
-        registry.printHelp();
-        std.process.exit(1);
-    };
-    const outcome = if (cfg.baseline.enabled)
-        baseline.runWithBaseline(&ctx, cmd)
-    else
-        cmd.run(&ctx);
-    outcome catch |e| switch (e) {
+    dispatch(&ctx, &cfg, command) catch |e| switch (e) {
         // CheckFailed means the check already printed its own diagnostic.
         // Exit non-zero without surfacing a Zig stack trace.
         error.CheckFailed => std.process.exit(1),
         else => return e,
     };
+}
+
+const ParsedArgs = struct {
+    command: ?[]const u8 = null,
+    project_dir: []const u8 = ".",
+    quiet: bool = false,
+};
+
+// Scans argv (sans program name): first non-flag token is the command, the
+// next is the project dir; `--quiet`/`-q` toggles quiet mode.
+fn parseArgs(args: [][:0]u8) ParsedArgs {
+    var parsed: ParsedArgs = .{};
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
+            parsed.quiet = true;
+        } else if (parsed.command == null) {
+            parsed.command = arg;
+        } else {
+            parsed.project_dir = arg;
+        }
+    }
+    return parsed;
+}
+
+// Routes the parsed command to `all`, or to a registered command (optionally
+// wrapped in baseline mode). Propagates error.CheckFailed to the caller.
+fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []const u8) !void {
+    if (std.mem.eql(u8, command, run_all.COMMAND_NAME)) {
+        return run_all.run(ctx);
+    }
+    const cmd = registry.find(command) orelse {
+        registry.printHelp();
+        std.process.exit(1);
+    };
+    if (cfg.baseline.enabled) {
+        return baseline.runWithBaseline(ctx, cmd);
+    }
+    return cmd.run(ctx);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

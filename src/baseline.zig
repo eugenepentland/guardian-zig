@@ -143,36 +143,59 @@ pub fn lifecycle(
         return .{ .refreshed = current.len };
     }
 
-    const old = snapshot.read(arena, baseline_path, VERSION) catch |e| switch (e) {
-        error.Missing => {
-            try snapshot.write(baseline_path, VERSION, current);
-            return .{ .created = current.len };
-        },
-        // Stale version: treat as "no baseline" so we re-record cleanly.
-        error.VersionMismatch => {
-            try snapshot.write(baseline_path, VERSION, current);
-            return .{ .refreshed = current.len };
-        },
-        else => return e,
+    const loaded = try readOrInit(arena, baseline_path, current);
+    const old = switch (loaded) {
+        .initialized => |outcome| return outcome,
+        .existing => |snap| snap,
     };
 
     std.mem.sort([]const u8, current, {}, lessThan);
     // Match ignoring source-line position so an unrelated edit that merely shifts a
     // legacy violation's line number isn't reported as a new violation (see positionKey).
     const d = try diffByPosition(arena, old, current);
+    return classify(d, old.lines.len, current.len);
+}
+
+/// Result of loading (and possibly initializing) a baseline before diffing.
+const Loaded = union(enum) {
+    /// No usable baseline existed; `current` was written and this is the
+    /// final outcome (`created` when absent, `refreshed` when stale).
+    initialized: Outcome,
+    /// A usable baseline was loaded.
+    existing: snapshot.Snapshot,
+};
+
+/// Read the baseline, initializing it when absent or stale. Both init
+/// paths write `current` as the new baseline before returning.
+fn readOrInit(
+    arena: Allocator,
+    baseline_path: []const u8,
+    current: [][]const u8,
+) (snapshot.WriteError || snapshot.ReadError)!Loaded {
+    const snap = snapshot.read(arena, baseline_path, VERSION) catch |e| {
+        // Missing → fresh `created`; stale version → re-record as `refreshed`.
+        // Both write `current` as the new baseline; any other error propagates.
+        const outcome: Outcome = switch (e) {
+            error.Missing => .{ .created = current.len },
+            error.VersionMismatch => .{ .refreshed = current.len },
+            else => return e,
+        };
+        try snapshot.write(baseline_path, VERSION, current);
+        return .{ .initialized = outcome };
+    };
+    return .{ .existing = snap };
+}
+
+/// Turn a position-insensitive diff into a lifecycle outcome:
+/// `grown` on additions, `shrunk` on removals, else `matched`.
+fn classify(d: snapshot.Diff, baseline_len: usize, current_len: usize) Outcome {
     if (d.added.len > 0) {
-        return .{ .grown = .{
-            .new_lines = d.added,
-            .baseline_size = old.lines.len,
-        } };
+        return .{ .grown = .{ .new_lines = d.added, .baseline_size = baseline_len } };
     }
     if (d.removed.len > 0) {
-        return .{ .shrunk = .{
-            .remaining = current.len,
-            .removed = d.removed.len,
-        } };
+        return .{ .shrunk = .{ .remaining = current_len, .removed = d.removed.len } };
     }
-    return .{ .matched = current.len };
+    return .{ .matched = current_len };
 }
 
 /// Build the per-check baseline file path: `<project_dir>/.guardian/baselines/<check>.txt`.
@@ -231,10 +254,17 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
     switch (outcome) {
         .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
         .matched => |n| reporter.ok("{s}: baseline matches ({d} violation(s))", .{ check_name, n }),
-        .shrunk => |s| reporter.ok("{s}: {d} violation(s) resolved (now {d}) — re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune", .{ check_name, s.removed, s.remaining }),
+        .shrunk => |s| reporter.ok(
+            "{s}: {d} violation(s) resolved (now {d}) — " ++
+                "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune",
+            .{ check_name, s.removed, s.remaining },
+        ),
         .refreshed => |n| reporter.ok("{s}: baseline refreshed ({d} violation(s))", .{ check_name, n }),
         .grown => |g| {
-            reporter.fail("{s}: {d} new violation(s) above baseline of {d}", .{ check_name, g.new_lines.len, g.baseline_size });
+            reporter.fail(
+                "{s}: {d} new violation(s) above baseline of {d}",
+                .{ check_name, g.new_lines.len, g.baseline_size },
+            );
             for (g.new_lines) |line| reporter.detail("  {s}\n", .{line});
             return error.CheckFailed;
         },
@@ -419,7 +449,10 @@ test "diffByPosition still flags a genuinely new violation amid shifts" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const old: snapshot.Snapshot = .{ .version = 1, .lines = &.{"src/x.zig:10: fn foo reaches nesting depth 7 (cap 6)"} };
+    const old: snapshot.Snapshot = .{
+        .version = 1,
+        .lines = &.{"src/x.zig:10: fn foo reaches nesting depth 7 (cap 6)"},
+    };
     const new_lines = [_][]const u8{
         "src/x.zig:14: fn foo reaches nesting depth 7 (cap 6)", // same violation, only moved
         "src/y.zig:99: fn bar reaches nesting depth 8 (cap 6)", // genuinely new

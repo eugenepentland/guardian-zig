@@ -14,16 +14,65 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn caseKind(name: []const u8) enum { pascal, camel, snake, other } {
+const CaseKind = enum { pascal, camel, snake, other };
+
+fn lowerLeadCase(name: []const u8) CaseKind {
+    // Precondition: name[0] is a lower-case ASCII letter. snake_case iff it
+    // contains an underscore, otherwise camelCase.
+    return if (std.mem.indexOfScalar(u8, name, '_') != null) .snake else .camel;
+}
+
+fn caseKind(name: []const u8) CaseKind {
     if (name.len == 0) return .other;
     const first = name[0];
     if (std.ascii.isUpper(first)) return .pascal;
-    if (std.ascii.isLower(first)) {
-        // Distinguish camelCase from snake_case by presence of underscore.
-        if (std.mem.indexOfScalar(u8, name, '_') != null) return .snake;
-        return .camel;
+    return if (std.ascii.isLower(first)) lowerLeadCase(name) else .other;
+}
+
+fn checkFn(ctx: *ScanCtx, rel_path: []const u8, f: ast.PubFn) anyerror!void {
+    const a = ctx.allocator;
+    const kind = caseKind(f.name);
+    if (f.return_kind == .type_kw) {
+        if (kind == .pascal) return;
+        const msg = try std.fmt.allocPrint(
+            a,
+            "{s}: pub fn {s} returns `type` but is not PascalCase",
+            .{ rel_path, f.name },
+        );
+        try ctx.violations.append(a, msg);
+        return;
     }
-    return .other;
+    if (kind == .pascal) {
+        const msg = try std.fmt.allocPrint(
+            a,
+            "{s}: pub fn {s} is PascalCase but does not return `type`",
+            .{ rel_path, f.name },
+        );
+        try ctx.violations.append(a, msg);
+    } else if (kind == .snake) {
+        // Zig fns are camelCase; snake_case is a Rust/Python bleed.
+        const msg = try std.fmt.allocPrint(
+            a,
+            "{s}: pub fn {s} is snake_case (Zig fns are camelCase)",
+            .{ rel_path, f.name },
+        );
+        try ctx.violations.append(a, msg);
+    }
+}
+
+fn checkConst(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubConst) anyerror!void {
+    const a = ctx.allocator;
+    switch (c.kind) {
+        .struct_, .enum_, .union_, .opaque_ => {},
+        else => return,
+    }
+    if (caseKind(c.name) == .pascal) return;
+    const msg = try std.fmt.allocPrint(
+        a,
+        "{s}: pub const {s} is a {s} type but is not PascalCase",
+        .{ rel_path, c.name, @tagName(c.kind) },
+    );
+    try ctx.violations.append(a, msg);
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -32,39 +81,12 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
     const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
-        const kind = caseKind(f.name);
-        switch (f.return_kind) {
-            .type_kw => {
-                if (kind != .pascal) {
-                    const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} returns `type` but is not PascalCase", .{ entry.rel_path, f.name });
-                    try ctx.violations.append(a, msg);
-                }
-            },
-            else => {
-                if (kind == .pascal) {
-                    const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} is PascalCase but does not return `type`", .{ entry.rel_path, f.name });
-                    try ctx.violations.append(a, msg);
-                } else if (kind == .snake) {
-                    // Zig fns are camelCase; snake_case is a Rust/Python bleed.
-                    const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} is snake_case (Zig fns are camelCase)", .{ entry.rel_path, f.name });
-                    try ctx.violations.append(a, msg);
-                }
-            },
-        }
+        try checkFn(ctx, entry.rel_path, f);
     }
 
     const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
     for (consts) |c| {
-        switch (c.kind) {
-            .struct_, .enum_, .union_, .opaque_ => {
-                const kind = caseKind(c.name);
-                if (kind != .pascal) {
-                    const msg = try std.fmt.allocPrint(a, "{s}: pub const {s} is a {s} type but is not PascalCase", .{ entry.rel_path, c.name, @tagName(c.kind) });
-                    try ctx.violations.append(a, msg);
-                }
-            },
-            else => {},
-        }
+        try checkConst(ctx, entry.rel_path, c);
     }
 }
 

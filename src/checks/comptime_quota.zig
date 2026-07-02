@@ -64,17 +64,35 @@ fn stripUnderscores(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
     return out.toOwnedSlice(allocator);
 }
 
+const Radix = struct {
+    prefix: []const u8,
+    base: u8,
+};
+
+const radix_prefixes = [_]Radix{
+    .{ .prefix = "0x", .base = 16 },
+    .{ .prefix = "0b", .base = 2 },
+    .{ .prefix = "0o", .base = 8 },
+};
+
 fn parseUint(s: []const u8) !u64 {
-    if (std.mem.startsWith(u8, s, "0x") or std.mem.startsWith(u8, s, "0X")) {
-        return std.fmt.parseInt(u64, s[2..], 16);
+    var digits = s;
+    var base: u8 = 10;
+    for (radix_prefixes) |r| {
+        if (startsWithPrefixCaseInsensitive(s, r.prefix)) {
+            digits = s[2..];
+            base = r.base;
+        }
     }
-    if (std.mem.startsWith(u8, s, "0b") or std.mem.startsWith(u8, s, "0B")) {
-        return std.fmt.parseInt(u64, s[2..], 2);
+    return std.fmt.parseInt(u64, digits, base);
+}
+
+fn startsWithPrefixCaseInsensitive(s: []const u8, prefix: []const u8) bool {
+    if (s.len < prefix.len) return false;
+    for (prefix, s[0..prefix.len]) |p, c| {
+        if (std.ascii.toLower(c) != std.ascii.toLower(p)) return false;
     }
-    if (std.mem.startsWith(u8, s, "0o") or std.mem.startsWith(u8, s, "0O")) {
-        return std.fmt.parseInt(u64, s[2..], 8);
-    }
-    return std.fmt.parseInt(u64, s, 10);
+    return true;
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -111,7 +129,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     var totals: Counts = .{};
     var scan_ctx: ScanCtx = .{ .allocator = allocator, .totals = &totals };
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &scan_ctx, .visit = visit });
+    const opts: walk.Visitor = .{ .ctx = &scan_ctx, .visit = visit };
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, opts);
 
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
     const new_lines = try countsToLines(allocator, totals);
@@ -122,27 +141,48 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| switch (e) {
-        error.Missing => {
+    const budget = try readBudget(allocator, snap_path, new_lines, totals) orelse return;
+    return compareAndReport(allocator, totals, budget);
+}
+
+/// Loads the budget snapshot. Returns `null` when the snapshot was just
+/// created (a success path that needs no further comparison).
+fn readBudget(
+    allocator: std.mem.Allocator,
+    snap_path: []const u8,
+    new_lines: [][]const u8,
+    totals: Counts,
+) registry.RunError!?Counts {
+    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| {
+        if (e == error.Missing) {
             try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
             ok("comptime quota created (calls={d}, max_value={d})", .{ totals.calls, totals.max_value });
-            return;
-        },
-        error.VersionMismatch => {
+            return null;
+        }
+        if (e == error.VersionMismatch) {
             fail("comptime quota version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.UPDATE_ENV});
-            return error.CheckFailed;
-        },
-        else => return e,
+        }
+        return remapReadError(e);
     };
+    return linesToCounts(old.lines);
+}
 
-    const budget = linesToCounts(old.lines);
+fn remapReadError(e: anyerror) anyerror {
+    if (e == error.VersionMismatch) return error.CheckFailed;
+    return e;
+}
 
+fn compareAndReport(allocator: std.mem.Allocator, totals: Counts, budget: Counts) registry.RunError!void {
     var failures: std.ArrayListUnmanaged([]const u8) = .empty;
     if (totals.calls > budget.calls) {
-        try failures.append(allocator, try std.fmt.allocPrint(allocator, "calls: {d} found, {d} budgeted", .{ totals.calls, budget.calls }));
+        const args = .{ totals.calls, budget.calls };
+        const msg = try std.fmt.allocPrint(allocator, "calls: {d} found, {d} budgeted", args);
+        try failures.append(allocator, msg);
     }
     if (totals.max_value > budget.max_value) {
-        try failures.append(allocator, try std.fmt.allocPrint(allocator, "max_value: {d} found, {d} budgeted", .{ totals.max_value, budget.max_value }));
+        const args = .{ totals.max_value, budget.max_value };
+        const msg = try std.fmt.allocPrint(allocator, "max_value: {d} found, {d} budgeted", args);
+        try failures.append(allocator, msg);
     }
 
     if (failures.items.len == 0) {
@@ -155,7 +195,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("comptime quota FAILED", .{});
     for (failures.items) |line| print("  {s}\n", .{line});
-    print("  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+    const env = snapshot_helper.UPDATE_ENV;
+    print("  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n", .{ env, SNAPSHOT_LEAF });
     return error.CheckFailed;
 }
 

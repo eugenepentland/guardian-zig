@@ -21,7 +21,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const fns = if (entry.tree) |t| try ast.allFnsFromTree(a, t) else try ast.allFns(a, entry.content);
     for (fns) |f| {
         if (f.param_count <= ctx.max_params) continue;
-        const msg = try std.fmt.allocPrint(a, "{s}: fn {s} has {d} params (limit: {d})", .{ entry.rel_path, f.name, f.param_count, ctx.max_params });
+        const msg = try std.fmt.allocPrint(
+            a,
+            "{s}: fn {s} has {d} params (limit: {d})",
+            .{ entry.rel_path, f.name, f.param_count, ctx.max_params },
+        );
         try ctx.violations.append(a, msg);
     }
 }

@@ -64,13 +64,14 @@ fn scanBody(arena: Allocator, body: []const u8) Allocator.Error!?[]const u8 {
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
-        switch (t.tag) {
-            .keyword_if => return "if",
-            .keyword_while => return "while",
-            .keyword_for => return "for",
-            .keyword_switch => return "switch",
-            else => {},
-        }
+        const keyword: ?[]const u8 = switch (t.tag) {
+            .keyword_if => "if",
+            .keyword_while => "while",
+            .keyword_for => "for",
+            .keyword_switch => "switch",
+            else => null,
+        };
+        if (keyword) |k| return k;
     }
     return null;
 }

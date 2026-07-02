@@ -24,11 +24,19 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
         if (std.mem.eql(u8, f.name, "main")) continue;
         switch (f.return_kind) {
             .err_union_inferred => {
-                const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} uses inferred error set `!T` (use `MyErr!T`)", .{ entry.rel_path, f.name });
+                const msg = try std.fmt.allocPrint(
+                    a,
+                    "{s}: pub fn {s} uses inferred error set `!T` (use `MyErr!T`)",
+                    .{ entry.rel_path, f.name },
+                );
                 try ctx.violations.append(a, msg);
             },
             .anyerror_union => {
-                const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s} uses anyerror (declare a specific error set)", .{ entry.rel_path, f.name });
+                const msg = try std.fmt.allocPrint(
+                    a,
+                    "{s}: pub fn {s} uses anyerror (declare a specific error set)",
+                    .{ entry.rel_path, f.name },
+                );
                 try ctx.violations.append(a, msg);
             },
             else => {},

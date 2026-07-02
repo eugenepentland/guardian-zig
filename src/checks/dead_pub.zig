@@ -93,7 +93,10 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // Pass 1: collect every pub decl in src/.
     var decls: std.ArrayListUnmanaged(Decl) = .empty;
     var collect_ctx: CollectCtx = .{ .allocator = allocator, .decls = &decls };
-    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &collect_ctx, .visit = collectVisit });
+    try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{
+        .ctx = &collect_ctx,
+        .visit = collectVisit,
+    });
 
     if (decls.items.len == 0) {
         ok("no public declarations to check", .{});

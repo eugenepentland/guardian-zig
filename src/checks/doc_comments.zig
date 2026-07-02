@@ -30,7 +30,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
         switch (c.kind) {
             .struct_, .enum_, .union_, .opaque_ => {
                 if (c.has_doc_comment) continue;
-                const msg = try std.fmt.allocPrint(a, "{s}: pub const {s} ({s}) has no /// doc comment", .{ entry.rel_path, c.name, @tagName(c.kind) });
+                const msg = try std.fmt.allocPrint(
+                    a,
+                    "{s}: pub const {s} ({s}) has no /// doc comment",
+                    .{ entry.rel_path, c.name, @tagName(c.kind) },
+                );
                 try ctx.violations.append(a, msg);
             },
             else => {},

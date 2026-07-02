@@ -72,54 +72,85 @@ fn collectSwitchSignatures(arena: Allocator, content: []const u8) Allocator.Erro
 }
 
 fn collectOneSwitch(arena: Allocator, tok: *std.zig.Tokenizer, z: []const u8) Allocator.Error!?[]const u8 {
-    const lparen = tok.next();
-    if (lparen.tag != .l_paren) return null;
+    const prongs = (try collectProngs(arena, tok, z)) orelse return null;
+    if (prongs.len < min_prong_count) return null;
+    return try joinSorted(arena, prongs);
+}
+
+/// Advances `tok` through one switch's subject and body, returning the
+/// ordered enum dot-prong names. Returns null if the header (`(...)` then
+/// `{`) is malformed or EOF is hit before the body closes.
+fn collectProngs(
+    arena: Allocator,
+    tok: *std.zig.Tokenizer,
+    z: []const u8,
+) Allocator.Error!?[]const []const u8 {
+    if (!skipParenGroup(tok)) return null;
+    if (tok.next().tag != .l_brace) return null;
+    return scanProngs(arena, tok, z);
+}
+
+/// Skips the `(...)` subject of a switch, starting at the token after
+/// `switch`. Returns false if the first token is not `(` or on EOF.
+fn skipParenGroup(tok: *std.zig.Tokenizer) bool {
+    if (tok.next().tag != .l_paren) return false;
     var paren_depth: u32 = 1;
     while (paren_depth > 0) {
         const ti = tok.next();
-        if (ti.tag == .eof) return null;
+        if (ti.tag == .eof) return false;
         if (ti.tag == .l_paren) paren_depth += 1;
         if (ti.tag == .r_paren) paren_depth -= 1;
     }
-    const lbrace = tok.next();
-    if (lbrace.tag != .l_brace) return null;
+    return true;
+}
 
-    var prongs: std.ArrayListUnmanaged([]const u8) = .empty;
-    var depth: u32 = 1;
-    var case_start = true;
-    var expecting_ident = false;
-    while (depth > 0) {
-        const ti = tok.next();
-        if (ti.tag == .eof) return null;
+const ProngScan = struct {
+    prongs: std.ArrayListUnmanaged([]const u8) = .empty,
+    depth: u32 = 1,
+    case_start: bool = true,
+    expecting_ident: bool = false,
+
+    fn step(self: *ProngScan, arena: Allocator, ti: std.zig.Token, z: []const u8) Allocator.Error!void {
         switch (ti.tag) {
-            .l_brace, .l_paren, .l_bracket => depth += 1,
-            .r_brace, .r_paren, .r_bracket => {
-                depth -= 1;
-                if (depth == 0) break;
-            },
-            .comma => if (depth == 1) {
-                case_start = true;
-                expecting_ident = false;
+            .l_brace, .l_paren, .l_bracket => self.depth += 1,
+            .r_brace, .r_paren, .r_bracket => self.depth -= 1,
+            .comma => if (self.depth == 1) {
+                self.case_start = true;
+                self.expecting_ident = false;
             },
             .equal_angle_bracket_right => {
-                case_start = false;
-                expecting_ident = false;
+                self.case_start = false;
+                self.expecting_ident = false;
             },
-            .period => {
-                if (case_start and depth == 1) expecting_ident = true;
+            .period => if (self.case_start and self.depth == 1) {
+                self.expecting_ident = true;
             },
-            .identifier => {
-                if (expecting_ident) {
-                    const name = z[ti.loc.start..ti.loc.end];
-                    try prongs.append(arena, name);
-                    expecting_ident = false;
-                }
-            },
+            .identifier => try self.takeIdent(arena, ti, z),
             else => {},
         }
     }
-    if (prongs.items.len < min_prong_count) return null;
-    return try joinSorted(arena, prongs.items);
+
+    fn takeIdent(self: *ProngScan, arena: Allocator, ti: std.zig.Token, z: []const u8) Allocator.Error!void {
+        if (!self.expecting_ident) return;
+        try self.prongs.append(arena, z[ti.loc.start..ti.loc.end]);
+        self.expecting_ident = false;
+    }
+};
+
+/// Scans the switch body (starting after `{`) accumulating leading enum
+/// dot-prong identifiers. Returns null on EOF before the body closes.
+fn scanProngs(
+    arena: Allocator,
+    tok: *std.zig.Tokenizer,
+    z: []const u8,
+) Allocator.Error!?[]const []const u8 {
+    var scan: ProngScan = .{};
+    while (scan.depth > 0) {
+        const ti = tok.next();
+        if (ti.tag == .eof) return null;
+        try scan.step(arena, ti, z);
+    }
+    return scan.prongs.items;
 }
 
 fn joinSorted(arena: Allocator, items: []const []const u8) Allocator.Error![]const u8 {

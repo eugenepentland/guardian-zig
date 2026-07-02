@@ -55,77 +55,100 @@ pub fn analyzeContent(
     return violations.toOwnedSlice(allocator);
 }
 
+// Mutable tokenizer bookkeeping for a single `scan` pass. `saw_const_decl`
+// is true between `const`/`var` and its `=` (the name/type portion, e.g. the
+// `1024` in `[1024]u8`); `in_const_init` is true between that `=` and the `;`
+// (the whole initializer, so `const t = base * 30_000;` is exempt, not just
+// the first token after `=`).
+const ScanState = struct {
+    in_test: bool = false,
+    in_comptime: bool = false,
+    depth: u32 = 0,
+    test_depth: u32 = 0,
+    comptime_depth: u32 = 0,
+    saw_const_decl: bool = false,
+    in_const_init: bool = false,
+
+    // Advances scope/decl tracking for one non-number token.
+    fn update(self: *ScanState, tag: std.zig.Token.Tag, prev_tag: std.zig.Token.Tag) void {
+        switch (tag) {
+            .keyword_test => {
+                self.in_test = true;
+                self.test_depth = self.depth + 1;
+            },
+            .l_brace => self.enterBrace(prev_tag),
+            .r_brace => self.leaveBrace(),
+            .keyword_const, .keyword_var => self.saw_const_decl = true,
+            .equal => {
+                if (self.saw_const_decl) {
+                    self.in_const_init = true;
+                    self.saw_const_decl = false;
+                }
+            },
+            .semicolon => {
+                self.saw_const_decl = false;
+                self.in_const_init = false;
+            },
+            else => {},
+        }
+    }
+
+    fn enterBrace(self: *ScanState, prev_tag: std.zig.Token.Tag) void {
+        self.depth += 1;
+        // Only a real `comptime { ... }` block exempts its body. A bare
+        // `comptime` param modifier or expression prefix has no block —
+        // treating it as one exempted every generic function entirely.
+        if (prev_tag == .keyword_comptime) {
+            self.in_comptime = true;
+            self.comptime_depth = self.depth;
+        }
+    }
+
+    fn leaveBrace(self: *ScanState) void {
+        if (self.depth > 0) self.depth -= 1;
+        if (self.in_test and self.depth < self.test_depth) self.in_test = false;
+        if (self.in_comptime and self.depth < self.comptime_depth) self.in_comptime = false;
+    }
+
+    // A number literal is exempt inside test/comptime bodies and const decls,
+    // or right after `=` (struct-field defaults, assignments).
+    fn exemptsNumber(self: *const ScanState, prev_tag: std.zig.Token.Tag) bool {
+        if (self.in_test or self.in_comptime) return true;
+        if (self.saw_const_decl or self.in_const_init) return true;
+        return prev_tag == .equal;
+    }
+};
+
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
-    const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
+    const z = try ctx.allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
-    var in_test = false;
-    var in_comptime = false;
-    var depth: u32 = 0;
-    var test_depth: u32 = 0;
-    var comptime_depth: u32 = 0;
+    var state: ScanState = .{};
     var prev_tag: std.zig.Token.Tag = .invalid;
-    // saw_const_decl: between `const`/`var` and its `=` (the name/type portion,
-    // e.g. the `1024` in `[1024]u8`). in_const_init: between that `=` and the
-    // `;` (the whole initializer, so `const t = base * 30_000;` is exempt, not
-    // just the first token after `=`).
-    var saw_const_decl: bool = false;
-    var in_const_init: bool = false;
 
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
-        switch (t.tag) {
-            .keyword_test => {
-                in_test = true;
-                test_depth = depth + 1;
-            },
-            .l_brace => {
-                depth += 1;
-                // Only a real `comptime { ... }` block exempts its body. A bare
-                // `comptime` param modifier or expression prefix has no block —
-                // treating it as one exempted every generic function entirely.
-                if (prev_tag == .keyword_comptime) {
-                    in_comptime = true;
-                    comptime_depth = depth;
-                }
-            },
-            .r_brace => {
-                if (depth > 0) depth -= 1;
-                if (in_test and depth < test_depth) in_test = false;
-                if (in_comptime and depth < comptime_depth) in_comptime = false;
-            },
-            .keyword_const, .keyword_var => saw_const_decl = true,
-            .equal => {
-                if (saw_const_decl) {
-                    in_const_init = true;
-                    saw_const_decl = false;
-                }
-            },
-            .semicolon => {
-                saw_const_decl = false;
-                in_const_init = false;
-            },
-            .number_literal => {
-                if (in_test or in_comptime) continue;
-                if (saw_const_decl or in_const_init) continue;
-                if (prev_tag == .equal) continue; // struct-field defaults, assignments
-                const text = z[t.loc.start..t.loc.end];
-                if (isAllowed(text)) continue;
-                if (isHexOrOctOrBinary(text)) continue;
-                const line = lineOf(z, t.loc.start);
-                const msg = try std.fmt.allocPrint(
-                    a,
-                    "{s}:{d}: magic number `{s}` (extract a named const)",
-                    .{ ctx.rel_path, line, text },
-                );
-                try ctx.violations.append(a, msg);
-            },
-            else => {},
+        if (t.tag == .number_literal) {
+            if (!state.exemptsNumber(prev_tag)) try recordIfMagic(ctx, z, t);
+        } else {
+            state.update(t.tag, prev_tag);
         }
         prev_tag = t.tag;
     }
+}
+
+// Appends a violation for `t` unless the literal is allowlisted or hex/oct/bin.
+fn recordIfMagic(ctx: *ScanCtx, z: [:0]const u8, t: std.zig.Token) Allocator.Error!void {
+    const text = z[t.loc.start..t.loc.end];
+    if (isAllowed(text)) return;
+    if (isHexOrOctOrBinary(text)) return;
+    const msg = try std.fmt.allocPrint(
+        ctx.allocator,
+        "{s}:{d}: magic number `{s}` (extract a named const)",
+        .{ ctx.rel_path, lineOf(z, t.loc.start), text },
+    );
+    try ctx.violations.append(ctx.allocator, msg);
 }
 
 fn isAllowed(text: []const u8) bool {

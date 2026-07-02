@@ -119,6 +119,7 @@ src/checks/repeated_string_literal.zig::analyzeContent fn
 src/checks/repeated_string_literal.zig::run fn
 src/checks/repeated_switch_on_enum.zig::analyzeContent fn
 src/checks/repeated_switch_on_enum.zig::run fn
+src/checks/returns_per_function.zig::ScanInput struct_
 src/checks/returns_per_function.zig::analyzeContent fn
 src/checks/returns_per_function.zig::analyzeContentWithLimit fn
 src/checks/returns_per_function.zig::run fn

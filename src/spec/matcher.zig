@@ -146,43 +146,68 @@ fn tagPrecedesTest(lines: []const []const u8, i: usize) bool {
     return false;
 }
 
-/// Cross-references behaviors and tags; returns covered count plus
-/// unverified behaviors, unlinked tags, and duplicate tags.
-pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag) std.mem.Allocator.Error!CoverageResult {
+/// Flattens every behavior across all sections into one owned slice.
+fn flattenBehaviors(
+    allocator: Allocator,
+    sections: []const parser.Section,
+) Allocator.Error![]parser.Behavior {
     var all_behaviors: std.ArrayListUnmanaged(parser.Behavior) = .empty;
     for (sections) |s| {
         for (s.behaviors) |b| {
             try all_behaviors.append(allocator, b);
         }
     }
-    const behaviors = all_behaviors.items;
+    return all_behaviors.toOwnedSlice(allocator);
+}
 
+/// True when some tag's key equals `key` — i.e. the behavior is verified.
+fn tagCoversKey(tags: []const SpecTag, key: []const u8) bool {
+    for (tags) |t| {
+        if (std.mem.eql(u8, key, t.key)) return true;
+    }
+    return false;
+}
+
+/// Behaviors with no matching tag — the unverified set.
+fn collectUnverified(
+    allocator: Allocator,
+    behaviors: []const parser.Behavior,
+    tags: []const SpecTag,
+) Allocator.Error![]parser.Behavior {
     var unverified: std.ArrayListUnmanaged(parser.Behavior) = .empty;
     for (behaviors) |b| {
-        var found = false;
-        for (tags) |t| {
-            if (std.mem.eql(u8, b.key, t.key)) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) try unverified.append(allocator, b);
+        if (!tagCoversKey(tags, b.key)) try unverified.append(allocator, b);
     }
+    return unverified.toOwnedSlice(allocator);
+}
 
+/// True when some behavior's key equals `key` — i.e. the tag is linked.
+fn behaviorHasKey(behaviors: []const parser.Behavior, key: []const u8) bool {
+    for (behaviors) |b| {
+        if (std.mem.eql(u8, key, b.key)) return true;
+    }
+    return false;
+}
+
+/// Tags with no matching behavior — the unlinked set.
+fn collectUnlinked(
+    allocator: Allocator,
+    behaviors: []const parser.Behavior,
+    tags: []const SpecTag,
+) Allocator.Error![]SpecTag {
     var unlinked: std.ArrayListUnmanaged(SpecTag) = .empty;
     for (tags) |t| {
-        var found = false;
-        for (behaviors) |b| {
-            if (std.mem.eql(u8, t.key, b.key)) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) try unlinked.append(allocator, t);
+        if (!behaviorHasKey(behaviors, t.key)) try unlinked.append(allocator, t);
     }
+    return unlinked.toOwnedSlice(allocator);
+}
 
-    // Group tags by key in one pass so duplicate detection is O(n) instead
-    // of O(n²). Insertion order of keys is preserved for stable output.
+/// Keys carried by more than one tag. Groups tags by key in one pass so
+/// detection is O(n) instead of O(n²); insertion order is preserved.
+fn collectDuplicateTags(
+    allocator: Allocator,
+    tags: []const SpecTag,
+) Allocator.Error![]DuplicateTag {
     var by_key = std.StringArrayHashMap(std.ArrayListUnmanaged([]const u8)).init(allocator);
     for (tags) |t| {
         const gop = try by_key.getOrPut(t.key);
@@ -200,29 +225,47 @@ pub fn analyze(allocator: Allocator, sections: []const parser.Section, tags: []c
             .files = try allocator.dupe([]const u8, files),
         });
     }
+    return duplicates.toOwnedSlice(allocator);
+}
 
-    // Duplicate detection on the behavior side: two identical bullets would
-    // both be "covered" by one tag, silently breaking the 1:1 guarantee.
-    var behavior_counts = std.StringArrayHashMap(usize).init(allocator);
+/// Behavior keys appearing on more than one bullet. Two identical bullets
+/// would both be "covered" by one tag, silently breaking the 1:1 guarantee.
+fn collectDuplicateBehaviors(
+    allocator: Allocator,
+    behaviors: []const parser.Behavior,
+) Allocator.Error![]DuplicateBehavior {
+    var counts = std.StringArrayHashMap(usize).init(allocator);
     for (behaviors) |b| {
-        const gop = try behavior_counts.getOrPut(b.key);
+        const gop = try counts.getOrPut(b.key);
         if (!gop.found_existing) gop.value_ptr.* = 0;
         gop.value_ptr.* += 1;
     }
+
     var dup_behaviors: std.ArrayListUnmanaged(DuplicateBehavior) = .empty;
-    var bit = behavior_counts.iterator();
-    while (bit.next()) |e| {
+    var it = counts.iterator();
+    while (it.next()) |e| {
         if (e.value_ptr.* <= 1) continue;
         try dup_behaviors.append(allocator, .{ .key = e.key_ptr.*, .count = e.value_ptr.* });
     }
+    return dup_behaviors.toOwnedSlice(allocator);
+}
 
+/// Cross-references behaviors and tags; returns covered count plus
+/// unverified behaviors, unlinked tags, and duplicate tags.
+pub fn analyze(
+    allocator: Allocator,
+    sections: []const parser.Section,
+    tags: []const SpecTag,
+) std.mem.Allocator.Error!CoverageResult {
+    const behaviors = try flattenBehaviors(allocator, sections);
+    const unverified = try collectUnverified(allocator, behaviors, tags);
     return .{
         .total_behaviors = behaviors.len,
-        .covered_behaviors = behaviors.len - unverified.items.len,
-        .unverified_behaviors = try unverified.toOwnedSlice(allocator),
-        .unlinked_tags = try unlinked.toOwnedSlice(allocator),
-        .duplicate_tags = try duplicates.toOwnedSlice(allocator),
-        .duplicate_behaviors = try dup_behaviors.toOwnedSlice(allocator),
+        .covered_behaviors = behaviors.len - unverified.len,
+        .unverified_behaviors = unverified,
+        .unlinked_tags = try collectUnlinked(allocator, behaviors, tags),
+        .duplicate_tags = try collectDuplicateTags(allocator, tags),
+        .duplicate_behaviors = try collectDuplicateBehaviors(allocator, behaviors),
     };
 }
 

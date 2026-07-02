@@ -1,13 +1,2 @@
 # guardian-snapshot v1
-src/check.zig:9: fn main is 64 lines (cap 60)
-src/checks/allocator_hygiene.zig:37: fn visit is 123 lines (cap 60)
-src/checks/catch_discipline.zig:16: fn visit is 70 lines (cap 60)
-src/checks/dup_const.zig:25: fn extractFileScopeStringConsts is 83 lines (cap 60)
-src/checks/magic_number.zig:58: fn scan is 72 lines (cap 60)
-src/checks/panic_budget.zig:141: fn run is 65 lines (cap 60)
-src/checks/repeated_string_literal.zig:24: fn analyzeContent is 63 lines (cap 60)
-src/checks/spec.zig:12: fn run is 101 lines (cap 60)
-src/cli/run_all.zig:27: fn run is 61 lines (cap 60)
 src/config.zig:191: fn parse is 219 lines (cap 60)
-src/spec/matcher.zig:151: fn analyze is 77 lines (cap 60)
-src/spec/parser.zig:29: fn parseContent is 82 lines (cap 60)

@@ -47,62 +47,73 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
         }
         if (lbrace.tag != .l_brace) continue;
 
-        try scanBody(ctx, a, z, &tok);
+        try scanBody(ctx, z, &tok);
     }
 }
 
-fn scanBody(ctx: *ScanCtx, a: Allocator, z: []const u8, tok: *std.zig.Tokenizer) Allocator.Error!void {
-    var depth: u32 = 1;
-    var top_loop_count: u32 = 0;
-    while (depth > 0) {
+/// Mutable state and shared inputs threaded through the per-keyword handlers
+/// while scanning a single test body. `depth` starts at 1 (the body itself).
+const BodyScan = struct {
+    ctx: *ScanCtx,
+    z: []const u8,
+    tok: *std.zig.Tokenizer,
+    depth: u32 = 1,
+    top_loop_count: u32 = 0,
+};
+
+fn scanBody(ctx: *ScanCtx, z: []const u8, tok: *std.zig.Tokenizer) Allocator.Error!void {
+    var bs: BodyScan = .{ .ctx = ctx, .z = z, .tok = tok };
+    while (bs.depth > 0) {
         const t = tok.next();
         if (t.tag == .eof) return;
         switch (t.tag) {
-            .l_brace => depth += 1,
-            .r_brace => depth -= 1,
-            .keyword_for => {
-                if (depth == 1) {
-                    top_loop_count += 1;
-                    if (top_loop_count > 1) {
-                        try report(ctx, a, z, t.loc.start, "more than one top-level loop");
-                    }
-                }
-            },
-            .keyword_while => {
-                if (depth == 1) {
-                    // A capturing `while (it.next()) |x|` is an iterator loop —
-                    // functionally the allowed table-driven `for`, not a
-                    // conditional. Only a plain conditional while is flagged.
-                    if (whileIsCapturing(tok, &depth)) {
-                        top_loop_count += 1;
-                        if (top_loop_count > 1) {
-                            try report(ctx, a, z, t.loc.start, "more than one top-level loop");
-                        }
-                    } else {
-                        try report(ctx, a, z, t.loc.start, "while at top level of test body");
-                    }
-                }
-            },
-            .keyword_if => {
-                if (depth == 1) {
-                    // Allow the standard skip idiom `if (cond) return
-                    // error.SkipZigTest;` — it's how a test opts out, not logic.
-                    consumeParenGroup(tok);
-                    const nxt = tok.next();
-                    if (nxt.tag == .keyword_return and thenClauseIsSkip(tok, z)) {
-                        // allowed
-                    } else {
-                        if (nxt.tag == .l_brace) depth += 1;
-                        try report(ctx, a, z, t.loc.start, "if at top level of test body");
-                    }
-                }
-            },
-            .keyword_switch => {
-                if (depth == 1) try report(ctx, a, z, t.loc.start, "switch at top level of test body");
-            },
+            .l_brace => bs.depth += 1,
+            .r_brace => bs.depth -= 1,
+            .keyword_for => try handleLoop(&bs, t.loc.start),
+            .keyword_while => try handleWhile(&bs, t.loc.start),
+            .keyword_if => try handleIf(&bs, t.loc.start),
+            .keyword_switch => try handleSwitch(&bs, t.loc.start),
             else => {},
         }
     }
+}
+
+/// Counts a top-level loop and flags the second (and later) one.
+fn handleLoop(bs: *BodyScan, byte: usize) Allocator.Error!void {
+    if (bs.depth != 1) return;
+    bs.top_loop_count += 1;
+    if (bs.top_loop_count > 1) {
+        try report(bs.ctx, bs.z, byte, "more than one top-level loop");
+    }
+}
+
+/// Flags a `switch` at the top level of a test body.
+fn handleSwitch(bs: *BodyScan, byte: usize) Allocator.Error!void {
+    if (bs.depth != 1) return;
+    try report(bs.ctx, bs.z, byte, "switch at top level of test body");
+}
+
+/// A capturing `while (it.next()) |x|` is an iterator loop — functionally the
+/// allowed table-driven `for`, not a conditional. Only a plain conditional
+/// while is flagged.
+fn handleWhile(bs: *BodyScan, byte: usize) Allocator.Error!void {
+    if (bs.depth != 1) return;
+    if (whileIsCapturing(bs.tok, &bs.depth)) {
+        try handleLoop(bs, byte);
+    } else {
+        try report(bs.ctx, bs.z, byte, "while at top level of test body");
+    }
+}
+
+/// Allow the standard skip idiom `if (cond) return error.SkipZigTest;` — it's
+/// how a test opts out, not logic. Any other top-level `if` is flagged.
+fn handleIf(bs: *BodyScan, byte: usize) Allocator.Error!void {
+    if (bs.depth != 1) return;
+    consumeParenGroup(bs.tok);
+    const nxt = bs.tok.next();
+    if (nxt.tag == .keyword_return and thenClauseIsSkip(bs.tok, bs.z)) return;
+    if (nxt.tag == .l_brace) bs.depth += 1;
+    try report(bs.ctx, bs.z, byte, "if at top level of test body");
 }
 
 /// Consumes a `( ... )` group from the current position (the next token is
@@ -159,13 +170,8 @@ fn thenClauseIsSkip(tok: *std.zig.Tokenizer, z: []const u8) bool {
     }
 }
 
-fn report(
-    ctx: *ScanCtx,
-    a: Allocator,
-    z: []const u8,
-    byte: usize,
-    reason: []const u8,
-) Allocator.Error!void {
+fn report(ctx: *ScanCtx, z: []const u8, byte: usize, reason: []const u8) Allocator.Error!void {
+    const a = ctx.allocator;
     const line = lineOf(z, byte);
     const msg = try std.fmt.allocPrint(a, "{s}:{d}: {s}", .{ ctx.rel_path, line, reason });
     try ctx.violations.append(a, msg);

@@ -33,7 +33,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const a = ctx.allocator;
     const count = countAnytype(a, entry.content);
     if (count > ctx.max_per_file) {
-        const msg = try std.fmt.allocPrint(a, "{s}: {d} `anytype` parameters (limit: {d})", .{ entry.rel_path, count, ctx.max_per_file });
+        const msg = try std.fmt.allocPrint(
+            a,
+            "{s}: {d} `anytype` parameters (limit: {d})",
+            .{ entry.rel_path, count, ctx.max_per_file },
+        );
         try ctx.violations.append(a, msg);
     }
 }

@@ -104,65 +104,77 @@ fn parseStructHead(ts: *TokenStream) ?StructHead {
     if (id.tag != .identifier) return null;
     const name = ts.peekText(id);
 
-    const eq = ts.next();
-    if (eq.tag != .equal) return null;
-
-    var t = ts.next();
-    while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = ts.next();
-    if (t.tag != .keyword_struct) return null;
-
-    const lbrace = ts.next();
-    if (lbrace.tag != .l_brace) return null;
+    if (!consumeStructOpen(ts)) return null;
 
     return .{ .name = name, .line = lineOf(ts.z, id.loc.start) };
 }
 
+// Consumes `= struct {` (allowing extern/packed before struct) starting
+// right after the type name. Returns false at the first token that breaks
+// the shape, matching the original short-circuit consumption order.
+fn consumeStructOpen(ts: *TokenStream) bool {
+    if (ts.next().tag != .equal) return false;
+
+    var t = ts.next();
+    while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = ts.next();
+    if (t.tag != .keyword_struct) return false;
+
+    return ts.next().tag == .l_brace;
+}
+
+// Running parser state while walking a single struct body.
+const BodyState = struct {
+    depth: u32 = 1,
+    paren_depth: u32 = 0,
+    prev_pub: bool = false,
+    prev_was_fn: bool = false,
+};
+
 fn collectStructBody(z: []const u8, ts: *TokenStream, head: StructHead) StructInfo {
     var info: StructInfo = .{ .name = head.name, .line = head.line };
-    var depth: u32 = 1;
-    var paren_depth: u32 = 0;
-    var prev_pub = false;
-    var prev_was_fn = false;
+    var st: BodyState = .{};
 
-    while (depth > 0) {
+    while (st.depth > 0) {
         const t = ts.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
-            .l_brace => depth += 1,
-            .r_brace => depth -= 1,
-            .l_paren => paren_depth += 1,
-            .r_paren => if (paren_depth > 0) {
-                paren_depth -= 1;
-            },
+            .l_brace => st.depth += 1,
+            .r_brace => st.depth -= 1,
+            .l_paren => st.paren_depth += 1,
+            .r_paren => st.paren_depth -|= 1,
             .keyword_pub => {
-                prev_pub = true;
-                prev_was_fn = false;
+                st.prev_pub = true;
+                st.prev_was_fn = false;
             },
-            .keyword_fn => {
-                prev_was_fn = true;
-            },
-            .identifier => {
-                const text = z[t.loc.start..t.loc.end];
-                if (prev_was_fn and prev_pub and std.mem.eql(u8, text, "deinit")) {
-                    info.has_pub_deinit = true;
-                }
-                // Only a real field counts — an `allocator`/`gpa` inside a
-                // method's parameter list (paren_depth > 0) is a per-call
-                // allocator, not an owned field.
-                if (depth == 1 and paren_depth == 0 and (std.mem.eql(u8, text, "allocator") or std.mem.eql(u8, text, "gpa"))) {
-                    info.has_allocator_field = true;
-                }
-                prev_was_fn = false;
-                prev_pub = false;
-            },
+            .keyword_fn => st.prev_was_fn = true,
+            .identifier => classifyIdentifier(&info, &st, z[t.loc.start..t.loc.end]),
             .colon, .comma, .equal, .semicolon => {},
             else => {
-                prev_was_fn = false;
-                prev_pub = false;
+                st.prev_was_fn = false;
+                st.prev_pub = false;
             },
         }
     }
     return info;
+}
+
+// Updates struct flags for one identifier token and clears the pub/fn markers.
+fn classifyIdentifier(info: *StructInfo, st: *BodyState, text: []const u8) void {
+    if (st.prev_was_fn and st.prev_pub and std.mem.eql(u8, text, "deinit")) {
+        info.has_pub_deinit = true;
+    }
+    // Only a real field counts — an `allocator`/`gpa` inside a method's
+    // parameter list (paren_depth > 0) is a per-call allocator, not an
+    // owned field.
+    if (st.depth == 1 and st.paren_depth == 0 and isAllocatorName(text)) {
+        info.has_allocator_field = true;
+    }
+    st.prev_was_fn = false;
+    st.prev_pub = false;
+}
+
+fn isAllocatorName(text: []const u8) bool {
+    return std.mem.eql(u8, text, "allocator") or std.mem.eql(u8, text, "gpa");
 }
 
 const lineOf = @import("../text.zig").lineOf;

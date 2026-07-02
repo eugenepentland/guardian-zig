@@ -34,6 +34,105 @@ fn isForbiddenHeap(name: []const u8) bool {
     return false;
 }
 
+// Loop-local mutable state for the token scan in `visit`. Bundled so the
+// per-tag handlers can be private helpers instead of nested blocks.
+const ScanState = struct {
+    depth: u32 = 0,
+    permissive: std.ArrayListUnmanaged(u32) = .empty,
+    pending_permissive: bool = false,
+    saw_fn: bool = false,
+    // Previous token, so an `error{...}` set in `pub fn main()`'s return type
+    // doesn't steal the permissive scope from the actual body brace.
+    prev_tag: std.zig.Token.Tag = .invalid,
+    chain: ChainState = .none,
+    chain_start: usize = 0,
+};
+
+fn handleLBrace(a: std.mem.Allocator, state: *ScanState) !void {
+    state.depth += 1;
+    // Skip an `error{...}` return-set brace so the permissive scope
+    // latches onto the real body brace instead.
+    if (state.pending_permissive and state.prev_tag != .keyword_error) {
+        try state.permissive.append(a, state.depth);
+        state.pending_permissive = false;
+    }
+    state.chain = .none;
+}
+
+fn handleRBrace(state: *ScanState) void {
+    const items = state.permissive.items;
+    if (items.len > 0 and items[items.len - 1] == state.depth) {
+        _ = state.permissive.pop();
+    }
+    if (state.depth > 0) state.depth -= 1;
+    state.chain = .none;
+}
+
+// Advance the `std`-chain state machine for an identifier and, when a
+// forbidden chain completes outside a permissive scope, record a violation.
+fn handleIdentifier(ctx: *ScanCtx, entry: walk.FileEntry, state: *ScanState, loc: std.zig.Token.Loc) !void {
+    const text = entry.content[loc.start..loc.end];
+    if (state.saw_fn) {
+        if (std.mem.eql(u8, text, "main")) state.pending_permissive = true;
+        state.saw_fn = false;
+    }
+    const in_permissive = state.permissive.items.len > 0;
+    switch (state.chain) {
+        .none, .saw_std, .saw_std_heap, .saw_std_testing => {
+            if (std.mem.eql(u8, text, "std")) {
+                state.chain_start = loc.start;
+                state.chain = .saw_std;
+            } else state.chain = .none;
+        },
+        .after_std_dot => state.chain = afterStdDot(text),
+        .after_std_heap_dot => {
+            if (!in_permissive and isForbiddenHeap(text)) try appendHeap(ctx, entry, state, text);
+            state.chain = .none;
+        },
+        .after_std_testing_dot => {
+            if (!in_permissive and std.mem.eql(u8, text, "allocator")) try appendTesting(ctx, entry, state);
+            state.chain = .none;
+        },
+    }
+}
+
+fn afterStdDot(text: []const u8) ChainState {
+    if (std.mem.eql(u8, text, "heap")) return .saw_std_heap;
+    if (std.mem.eql(u8, text, "testing")) return .saw_std_testing;
+    return .none;
+}
+
+fn appendHeap(ctx: *ScanCtx, entry: walk.FileEntry, state: *ScanState, text: []const u8) !void {
+    const a = ctx.allocator;
+    const line = lineOf(entry.content, state.chain_start);
+    const msg = try std.fmt.allocPrint(
+        a,
+        "{s}:{d}: hardcoded std.heap.{s} outside main/test",
+        .{ entry.rel_path, line, text },
+    );
+    try ctx.violations.append(a, msg);
+}
+
+fn appendTesting(ctx: *ScanCtx, entry: walk.FileEntry, state: *ScanState) !void {
+    const a = ctx.allocator;
+    const line = lineOf(entry.content, state.chain_start);
+    const msg = try std.fmt.allocPrint(
+        a,
+        "{s}:{d}: hardcoded std.testing.allocator outside test block",
+        .{ entry.rel_path, line },
+    );
+    try ctx.violations.append(a, msg);
+}
+
+fn advanceOnPeriod(chain: ChainState) ChainState {
+    return switch (chain) {
+        .saw_std => .after_std_dot,
+        .saw_std_heap => .after_std_heap_dot,
+        .saw_std_testing => .after_std_testing_dot,
+        else => .none,
+    };
+}
+
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
@@ -47,112 +146,35 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     // stack is non-empty, the file is exempt. The Zig tokenizer skips
     // string literals and comments, so forbidden text inside strings or
     // doc-comments never reaches us.
-    var depth: u32 = 0;
-    var permissive: std.ArrayListUnmanaged(u32) = .empty;
-    defer permissive.deinit(a);
-
-    var pending_permissive = false;
-    var saw_fn = false;
-    // Previous token, so an `error{...}` set in `pub fn main()`'s return type
-    // doesn't steal the permissive scope from the actual body brace.
-    var prev_tag: std.zig.Token.Tag = .invalid;
-
-    var chain: ChainState = .none;
-    var chain_start: usize = 0;
+    var state: ScanState = .{};
+    defer state.permissive.deinit(a);
 
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
-        defer prev_tag = t.tag;
+        defer state.prev_tag = t.tag;
 
         switch (t.tag) {
             .keyword_test => {
-                pending_permissive = true;
-                saw_fn = false;
-                chain = .none;
+                state.pending_permissive = true;
+                state.saw_fn = false;
+                state.chain = .none;
             },
             .keyword_fn => {
-                saw_fn = true;
-                chain = .none;
+                state.saw_fn = true;
+                state.chain = .none;
             },
-            .l_brace => {
-                depth += 1;
-                // Skip an `error{...}` return-set brace so the permissive scope
-                // latches onto the real body brace instead.
-                if (pending_permissive and prev_tag != .keyword_error) {
-                    try permissive.append(a, depth);
-                    pending_permissive = false;
-                }
-                chain = .none;
-            },
-            .r_brace => {
-                if (permissive.items.len > 0 and permissive.items[permissive.items.len - 1] == depth) {
-                    _ = permissive.pop();
-                }
-                if (depth > 0) depth -= 1;
-                chain = .none;
-            },
-            .identifier => {
-                const text = z[t.loc.start..t.loc.end];
-                if (saw_fn) {
-                    if (std.mem.eql(u8, text, "main")) pending_permissive = true;
-                    saw_fn = false;
-                }
-                const in_permissive = permissive.items.len > 0;
-                chain = switch (chain) {
-                    .none, .saw_std, .saw_std_heap, .saw_std_testing => blk: {
-                        if (std.mem.eql(u8, text, "std")) {
-                            chain_start = t.loc.start;
-                            break :blk .saw_std;
-                        }
-                        break :blk .none;
-                    },
-                    .after_std_dot => blk: {
-                        if (std.mem.eql(u8, text, "heap")) break :blk .saw_std_heap;
-                        if (std.mem.eql(u8, text, "testing")) break :blk .saw_std_testing;
-                        break :blk .none;
-                    },
-                    .after_std_heap_dot => blk: {
-                        if (!in_permissive and isForbiddenHeap(text)) {
-                            const line = lineOf(z, chain_start);
-                            const msg = try std.fmt.allocPrint(
-                                a,
-                                "{s}:{d}: hardcoded std.heap.{s} outside main/test",
-                                .{ entry.rel_path, line, text },
-                            );
-                            try ctx.violations.append(a, msg);
-                        }
-                        break :blk .none;
-                    },
-                    .after_std_testing_dot => blk: {
-                        if (!in_permissive and std.mem.eql(u8, text, "allocator")) {
-                            const line = lineOf(z, chain_start);
-                            const msg = try std.fmt.allocPrint(
-                                a,
-                                "{s}:{d}: hardcoded std.testing.allocator outside test block",
-                                .{ entry.rel_path, line },
-                            );
-                            try ctx.violations.append(a, msg);
-                        }
-                        break :blk .none;
-                    },
-                };
-            },
-            .period => {
-                chain = switch (chain) {
-                    .saw_std => .after_std_dot,
-                    .saw_std_heap => .after_std_heap_dot,
-                    .saw_std_testing => .after_std_testing_dot,
-                    else => .none,
-                };
-            },
+            .l_brace => try handleLBrace(a, &state),
+            .r_brace => handleRBrace(&state),
+            .identifier => try handleIdentifier(ctx, entry, &state, t.loc),
+            .period => state.chain = advanceOnPeriod(state.chain),
             else => {
                 // Don't clear `pending_permissive` here — it must survive
                 // intermediate tokens (paren list, return type, the string
                 // literal after `test`) and only get consumed by the next
                 // `l_brace`.
-                chain = .none;
-                saw_fn = false;
+                state.chain = .none;
+                state.saw_fn = false;
             },
         }
     }

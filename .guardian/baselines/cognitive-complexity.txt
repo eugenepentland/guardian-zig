@@ -1,10 +1,2 @@
 # guardian-snapshot v1
-src/checks/allocator_hygiene.zig: fn visit cognitive complexity 19 (limit: 15)
-src/checks/magic_number.zig: fn scan cognitive complexity 17 (limit: 15)
-src/checks/optional_density.zig: fn collectFieldStats cognitive complexity 20 (limit: 15)
-src/checks/spec.zig: fn run cognitive complexity 23 (limit: 15)
-src/checks/stringly_typed_switches.zig: fn scan cognitive complexity 18 (limit: 15)
-src/checks/test_has_assertion.zig: fn scan cognitive complexity 16 (limit: 15)
 src/config.zig: fn parse cognitive complexity 71 (limit: 15)
-src/spec/matcher.zig: fn analyze cognitive complexity 18 (limit: 15)
-src/spec/parser.zig: fn parseContent cognitive complexity 18 (limit: 15)

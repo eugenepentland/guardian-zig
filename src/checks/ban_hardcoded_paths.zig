@@ -74,24 +74,33 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
     }
 }
 
+const PrefixKind = struct { prefix: []const u8, kind: []const u8 };
+
+const suspicious_prefixes = [_]PrefixKind{
+    .{ .prefix = "/etc/", .kind = "absolute /etc path" },
+    .{ .prefix = "/usr/", .kind = "absolute /usr path" },
+    .{ .prefix = "/var/", .kind = "absolute /var path" },
+    .{ .prefix = "/opt/", .kind = "absolute /opt path" },
+    .{ .prefix = "/home/", .kind = "absolute /home path" },
+    .{ .prefix = "/tmp/", .kind = "absolute /tmp path" },
+    .{ .prefix = "http://", .kind = "hardcoded http URL" },
+    .{ .prefix = "https://", .kind = "hardcoded https URL" },
+};
+
 fn suspicious(s: []const u8) ?[]const u8 {
-    if (std.mem.startsWith(u8, s, "/etc/")) return "absolute /etc path";
-    if (std.mem.startsWith(u8, s, "/usr/")) return "absolute /usr path";
-    if (std.mem.startsWith(u8, s, "/var/")) return "absolute /var path";
-    if (std.mem.startsWith(u8, s, "/opt/")) return "absolute /opt path";
-    if (std.mem.startsWith(u8, s, "/home/")) return "absolute /home path";
-    if (std.mem.startsWith(u8, s, "/tmp/")) return "absolute /tmp path";
+    for (suspicious_prefixes) |entry| {
+        if (std.mem.startsWith(u8, s, entry.prefix)) return entry.kind;
+    }
     if (looksLikeWindowsAbsolute(s)) return "absolute Windows path";
-    if (std.mem.startsWith(u8, s, "http://")) return "hardcoded http URL";
-    if (std.mem.startsWith(u8, s, "https://")) return "hardcoded https URL";
     return null;
 }
 
 fn looksLikeWindowsAbsolute(s: []const u8) bool {
     if (s.len < 3) return false;
-    if (!std.ascii.isAlphabetic(s[0])) return false;
-    if (s[1] != ':') return false;
-    return s[2] == '\\' or s[2] == '/';
+    const drive_letter = std.ascii.isAlphabetic(s[0]);
+    const has_colon = s[1] == ':';
+    const has_sep = s[2] == '\\' or s[2] == '/';
+    return drive_letter and has_colon and has_sep;
 }
 
 fn report(ctx: *ScanCtx, z: []const u8, byte: usize, kind: []const u8) Allocator.Error!void {

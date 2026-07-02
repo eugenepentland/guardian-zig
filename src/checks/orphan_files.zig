@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const config = @import("../config.zig");
 const import_graph = @import("../ast/import_graph.zig");
 
 const print = reporter.detail;
@@ -52,27 +53,34 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
-/// Entry point for the orphan-files check.
-pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
-    const allocator = ctx_param.allocator;
-    const project_dir = ctx_param.project_dir;
-    const cfg = ctx_param.cfg.orphan_files;
+fn reportNoRoots() void {
+    fail("orphan-files FAILED — no roots discovered (no top-level src/*.zig files)", .{});
+    print("  fix: set [orphan_files] roots = [\"src/main.zig\"] in guardian.toml.\n", .{});
+}
 
-    if (!cfg.enabled) {
-        ok("orphan-files disabled by config", .{});
-        return;
-    }
+fn reportOrphans(orphans: []const []const u8) void {
+    fail("orphan-files FAILED ({d} unreachable file(s))", .{orphans.len});
+    for (orphans) |p| print("  {s}\n", .{p});
+    print("  fix: import the file from a reachable module, or add it to " ++
+        "[orphan_files] roots in guardian.toml.\n", .{});
+}
 
-    const nodes = try import_graph.build(allocator, project_dir);
-    if (nodes.len == 0) {
-        ok("no source files to scan", .{});
-        return;
-    }
+fn resolveRoots(
+    allocator: Allocator,
+    cfg: config.OrphanFilesCfg,
+    nodes: []const import_graph.Node,
+) Allocator.Error![]const []const u8 {
+    if (cfg.roots.len > 0) return cfg.roots;
+    return defaultRoots(allocator, nodes);
+}
 
-    const roots = if (cfg.roots.len > 0) cfg.roots else try defaultRoots(allocator, nodes);
+fn scanReachability(
+    allocator: Allocator,
+    nodes: []const import_graph.Node,
+    roots: []const []const u8,
+) registry.RunError!void {
     if (roots.len == 0) {
-        fail("orphan-files FAILED — no roots discovered (no top-level src/*.zig files)", .{});
-        print("  fix: set [orphan_files] roots = [\"src/main.zig\"] in guardian.toml.\n", .{});
+        reportNoRoots();
         return error.CheckFailed;
     }
 
@@ -82,10 +90,28 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    fail("orphan-files FAILED ({d} unreachable file(s))", .{orphans.len});
-    for (orphans) |p| print("  {s}\n", .{p});
-    print("  fix: import the file from a reachable module, or add it to [orphan_files] roots in guardian.toml.\n", .{});
+    reportOrphans(orphans);
     return error.CheckFailed;
+}
+
+/// Entry point for the orphan-files check.
+pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
+    const allocator = ctx_param.allocator;
+    const cfg = ctx_param.cfg.orphan_files;
+
+    if (!cfg.enabled) {
+        ok("orphan-files disabled by config", .{});
+        return;
+    }
+
+    const nodes = try import_graph.build(allocator, ctx_param.project_dir);
+    if (nodes.len == 0) {
+        ok("no source files to scan", .{});
+        return;
+    }
+
+    const roots = try resolveRoots(allocator, cfg, nodes);
+    return scanReachability(allocator, nodes, roots);
 }
 
 // spec: Orphan Files - Reports .zig files under src/ unreachable from any configured root via @import

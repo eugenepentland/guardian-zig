@@ -13,6 +13,15 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
+// Per-file destination for reported violations. `z` and `rel_path` are constant
+// for the duration of one `visit`, so bundling them keeps `appendAt` to a small
+// parameter list.
+const Sink = struct {
+    ctx: *ScanCtx,
+    z: []const u8,
+    rel_path: []const u8,
+};
+
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
 
@@ -23,6 +32,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     // common a (usually safe) idiom for a hard block to read soundly.
     // entry.content is already null-terminated by the walker.
     const z = entry.content;
+    var sink = Sink{ .ctx = ctx, .z = z, .rel_path = entry.rel_path };
     var tok = std.zig.Tokenizer.init(z);
     var after_orelse = false;
     var orelse_pos: usize = 0;
@@ -35,9 +45,9 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
         scope.update(t.tag);
         if (after_orelse and !scope.in_test) {
             if (t.tag == .keyword_unreachable) {
-                try appendAt(ctx, z, entry.rel_path, orelse_pos, "orelse unreachable crashes on null");
+                try appendAt(&sink, orelse_pos, "orelse unreachable crashes on null");
             } else if (t.tag == .identifier and std.mem.eql(u8, z[t.loc.start..t.loc.end], "undefined")) {
-                try appendAt(ctx, z, entry.rel_path, orelse_pos, "orelse undefined assigns undefined on null");
+                try appendAt(&sink, orelse_pos, "orelse undefined assigns undefined on null");
             }
         }
         after_orelse = t.tag == .keyword_orelse;
@@ -47,8 +57,9 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
 const TestScope = @import("../text.zig").TestScope;
 
-fn appendAt(ctx: *ScanCtx, z: []const u8, rel_path: []const u8, pos: usize, comptime what: []const u8) !void {
-    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}:{d}: " ++ what, .{ rel_path, lineOf(z, pos) });
+fn appendAt(sink: *Sink, pos: usize, comptime what: []const u8) !void {
+    const ctx = sink.ctx;
+    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}:{d}: " ++ what, .{ sink.rel_path, lineOf(sink.z, pos) });
     try ctx.violations.append(ctx.allocator, msg);
 }
 

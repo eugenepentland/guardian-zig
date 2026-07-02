@@ -93,20 +93,22 @@ fn checkParams(ctx: *ScanCtx, tok: *std.zig.Tokenizer, z: []const u8, fn_byte: u
                 // Only a bare `name: bool` / `name: ?bool` flag param — not
                 // `[]const bool`, `*bool`, or other bool-typed data.
                 const is_flag_param = prev_tag == .colon or prev_tag == .question_mark;
-                if (is_flag_param and std.mem.eql(u8, text, "bool")) {
-                    const line = lineOf(z, fn_byte);
-                    const msg = try std.fmt.allocPrint(
-                        ctx.allocator,
-                        "{s}:{d}: pub fn has a `bool` parameter (replace with two named methods or an enum)",
-                        .{ ctx.rel_path, line },
-                    );
-                    try ctx.violations.append(ctx.allocator, msg);
-                    return;
-                }
+                if (!is_flag_param or !std.mem.eql(u8, text, "bool")) continue;
+                try recordBoolParam(ctx, lineOf(z, fn_byte));
+                return;
             },
             else => {},
         }
     }
+}
+
+fn recordBoolParam(ctx: *ScanCtx, line: usize) Allocator.Error!void {
+    const msg = try std.fmt.allocPrint(
+        ctx.allocator,
+        "{s}:{d}: pub fn has a `bool` parameter (replace with two named methods or an enum)",
+        .{ ctx.rel_path, line },
+    );
+    try ctx.violations.append(ctx.allocator, msg);
 }
 
 const lineOf = @import("../text.zig").lineOf;

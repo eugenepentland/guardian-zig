@@ -25,14 +25,74 @@ pub fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Sect
     return parseContent(allocator, content);
 }
 
+/// Mutable state threaded through parseContent while it walks SPEC.md lines.
+const ParseState = struct {
+    allocator: Allocator,
+    sections: std.ArrayListUnmanaged(Section) = .empty,
+    current_section: ?[]const u8 = null,
+    current_behaviors: std.ArrayListUnmanaged(Behavior) = .empty,
+    skipping: bool = false, // inside a skipped ## Overview / ## Planned section
+
+    // Flush the section we were building so its bullets can't leak into a
+    // later section.
+    fn flushSection(self: *ParseState) ParseError!void {
+        if (self.current_section) |sec| {
+            try self.sections.append(self.allocator, .{
+                .name = sec,
+                .behaviors = try self.current_behaviors.toOwnedSlice(self.allocator),
+            });
+        }
+    }
+
+    fn handleHeading(self: *ParseState, line: []const u8) ParseError!void {
+        const name = std.mem.trim(u8, line[3..], &std.ascii.whitespace);
+        try self.flushSection();
+        self.current_section = null;
+        self.current_behaviors = .empty;
+
+        if (std.ascii.eqlIgnoreCase(name, "overview") or std.ascii.eqlIgnoreCase(name, "planned")) {
+            self.skipping = true;
+            return;
+        }
+        self.skipping = false;
+        self.current_section = name;
+    }
+
+    fn handleSubheading(self: *ParseState, line: []const u8) ParseError!void {
+        const sub = std.mem.trim(u8, line[4..], &std.ascii.whitespace);
+        if (self.current_section) |sec| {
+            if (self.current_behaviors.items.len > 0) {
+                try self.sections.append(self.allocator, .{
+                    .name = sec,
+                    .behaviors = try self.current_behaviors.toOwnedSlice(self.allocator),
+                });
+            }
+            const base = if (std.mem.indexOf(u8, sec, " - ")) |idx| sec[0..idx] else sec;
+            self.current_section = try std.fmt.allocPrint(self.allocator, "{s} - {s}", .{ base, sub });
+        } else {
+            self.current_section = sub;
+        }
+        self.current_behaviors = .empty;
+    }
+
+    fn handleBullet(self: *ParseState, line: []const u8) ParseError!void {
+        const sec = self.current_section orelse return;
+        const statement = std.mem.trim(u8, line[2..], &std.ascii.whitespace);
+        const raw_key = try std.fmt.allocPrint(self.allocator, "{s} - {s}", .{ sec, statement });
+        const key = try normalizeKey(self.allocator, raw_key);
+        try self.current_behaviors.append(self.allocator, .{
+            .section = sec,
+            .statement = statement,
+            .key = key,
+        });
+    }
+};
+
 /// Parses SPEC.md text into sections + behaviors. Skips Overview/Planned.
 pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section {
-    var sections: std.ArrayListUnmanaged(Section) = .empty;
-    var current_section: ?[]const u8 = null;
-    var current_behaviors: std.ArrayListUnmanaged(Behavior) = .empty;
+    var state: ParseState = .{ .allocator = allocator };
 
     var in_fence = false;
-    var skipping = false; // inside a skipped ## Overview / ## Planned section
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
@@ -46,67 +106,18 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
         if (in_fence) continue;
 
         if (std.mem.startsWith(u8, line, "## ")) {
-            const name = std.mem.trim(u8, line[3..], &std.ascii.whitespace);
-
-            // Flush the section we were building before starting or skipping a
-            // new one, so a mid-file ## Planned can't leak its bullets into the
-            // previous section.
-            if (current_section) |sec| {
-                try sections.append(allocator, .{
-                    .name = sec,
-                    .behaviors = try current_behaviors.toOwnedSlice(allocator),
-                });
-            }
-            current_section = null;
-            current_behaviors = .empty;
-
-            if (std.ascii.eqlIgnoreCase(name, "overview") or std.ascii.eqlIgnoreCase(name, "planned")) {
-                skipping = true;
-                continue;
-            }
-            skipping = false;
-            current_section = name;
+            try state.handleHeading(line);
         } else if (std.mem.startsWith(u8, line, "### ")) {
-            if (skipping) continue;
-            const sub = std.mem.trim(u8, line[4..], &std.ascii.whitespace);
-            if (current_section) |sec| {
-                if (current_behaviors.items.len > 0) {
-                    try sections.append(allocator, .{
-                        .name = sec,
-                        .behaviors = try current_behaviors.toOwnedSlice(allocator),
-                    });
-                }
-            }
-            if (current_section) |sec| {
-                const base = if (std.mem.indexOf(u8, sec, " - ")) |idx| sec[0..idx] else sec;
-                current_section = try std.fmt.allocPrint(allocator, "{s} - {s}", .{ base, sub });
-            } else {
-                current_section = sub;
-            }
-            current_behaviors = .empty;
+            if (state.skipping) continue;
+            try state.handleSubheading(line);
         } else if (std.mem.startsWith(u8, line, "- ")) {
-            if (skipping) continue;
-            if (current_section) |sec| {
-                const statement = std.mem.trim(u8, line[2..], &std.ascii.whitespace);
-                const raw_key = try std.fmt.allocPrint(allocator, "{s} - {s}", .{ sec, statement });
-                const key = try normalizeKey(allocator, raw_key);
-                try current_behaviors.append(allocator, .{
-                    .section = sec,
-                    .statement = statement,
-                    .key = key,
-                });
-            }
+            if (state.skipping) continue;
+            try state.handleBullet(line);
         }
     }
 
-    if (current_section) |sec| {
-        try sections.append(allocator, .{
-            .name = sec,
-            .behaviors = try current_behaviors.toOwnedSlice(allocator),
-        });
-    }
-
-    return sections.toOwnedSlice(allocator);
+    try state.flushSection();
+    return state.sections.toOwnedSlice(allocator);
 }
 
 /// Lowercases and collapses whitespace for whitespace-insensitive comparison.

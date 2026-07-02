@@ -64,30 +64,33 @@ const Head = struct {
 
 fn parseHead(tok: *std.zig.Tokenizer, z: []const u8) ?Head {
     const id = tok.next();
-    if (id.tag != .identifier) return null;
-    const name = z[id.loc.start..id.loc.end];
-
     const eq = tok.next();
-    if (eq.tag != .equal) return null;
+    if (id.tag != .identifier or eq.tag != .equal) return null;
+    const name = z[id.loc.start..id.loc.end];
 
     var t = tok.next();
     while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = tok.next();
     const is_container = t.tag == .keyword_struct or t.tag == .keyword_enum or t.tag == .keyword_union;
-    if (!is_container) return null;
-    // Skip optional `(tag_type)` for tagged unions / enums.
+    if (!is_container or !skipToBrace(tok)) return null;
+    return .{ .name = name, .line = lineOf(z, id.loc.start) };
+}
+
+// Consumes tokens up to and including the container body's opening `{`, skipping
+// an optional `(tag_type)` for tagged unions / enums. Returns false if the
+// stream ends or the next significant token isn't `(` or `{`.
+fn skipToBrace(tok: *std.zig.Tokenizer) bool {
     var nxt = tok.next();
     if (nxt.tag == .l_paren) {
         var d: u32 = 1;
         while (d > 0) {
             const inner = tok.next();
-            if (inner.tag == .eof) return null;
+            if (inner.tag == .eof) return false;
             if (inner.tag == .l_paren) d += 1;
             if (inner.tag == .r_paren) d -= 1;
         }
         nxt = tok.next();
     }
-    if (nxt.tag != .l_brace) return null;
-    return .{ .name = name, .line = lineOf(z, id.loc.start) };
+    return nxt.tag == .l_brace;
 }
 
 fn countPubFns(tok: *std.zig.Tokenizer) u32 {

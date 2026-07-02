@@ -27,7 +27,11 @@ fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     else
         newlines;
     if (lines > ctx.max_lines) {
-        const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: {d} lines (limit: {d})", .{ entry.rel_path, lines, ctx.max_lines });
+        const msg = try std.fmt.allocPrint(
+            ctx.allocator,
+            "{s}: {d} lines (limit: {d})",
+            .{ entry.rel_path, lines, ctx.max_lines },
+        );
         try ctx.violations.append(ctx.allocator, msg);
     }
 }
@@ -48,7 +52,13 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const dirs_to_check = [_][]const u8{ "src", "test" };
     for (&dirs_to_check) |dir_name| {
         const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir_name });
-        try walk.walkZigFiles(allocator, dir_path, dir_name, .{ .excludes = cfg.file_size_exclude }, .{ .ctx = &ctx, .visit = fileSizeVisit });
+        try walk.walkZigFiles(
+            allocator,
+            dir_path,
+            dir_name,
+            .{ .excludes = cfg.file_size_exclude },
+            .{ .ctx = &ctx, .visit = fileSizeVisit },
+        );
     }
 
     if (violations.items.len == 0) {

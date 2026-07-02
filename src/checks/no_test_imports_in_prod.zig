@@ -40,17 +40,15 @@ pub fn analyzeContent(
 }
 
 fn isTestFile(path: []const u8) bool {
-    if (std.mem.endsWith(u8, path, "_test.zig")) return true;
-    if (std.mem.indexOf(u8, path, "/tests/") != null) return true;
-    if (std.mem.startsWith(u8, path, "tests/")) return true;
-    return false;
+    return std.mem.endsWith(u8, path, "_test.zig") or
+        std.mem.indexOf(u8, path, "/tests/") != null or
+        std.mem.startsWith(u8, path, "tests/");
 }
 
 fn looksLikeTest(path: []const u8) bool {
-    if (std.mem.endsWith(u8, path, "_test.zig")) return true;
-    if (std.mem.indexOf(u8, path, "/tests/") != null) return true;
-    if (std.mem.startsWith(u8, path, "tests/")) return true;
-    return false;
+    return std.mem.endsWith(u8, path, "_test.zig") or
+        std.mem.indexOf(u8, path, "/tests/") != null or
+        std.mem.startsWith(u8, path, "tests/");
 }
 
 const FileScanCtx = struct {
