@@ -32,6 +32,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Checks source files against configurable line limit
 - Respects file_size_exclude patterns
+- Excludes test-block lines from the line count
 
 ## Boundaries
 

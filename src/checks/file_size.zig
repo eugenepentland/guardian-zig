@@ -7,29 +7,94 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
+const lineOf = @import("../text.zig").lineOf;
+
 const FileSizeCtx = struct {
     allocator: std.mem.Allocator,
     max_lines: u32,
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
-    const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
-    // Count newlines, then add 1 only for a final unterminated line. `zig fmt`
-    // always emits a trailing newline, so counting 1 + newlines would report
-    // an off-by-one (an N-line file as N+1) and fail files exactly at the cap.
+/// Total source lines. Counts newlines, adding 1 only for a final unterminated
+/// line. `zig fmt` always emits a trailing newline, so counting 1 + newlines
+/// would report an N-line file as N+1 and fail files exactly at the cap.
+fn totalLines(content: []const u8) u32 {
     var newlines: u32 = 0;
-    for (entry.content) |c| {
+    for (content) |c| {
         if (c == '\n') newlines += 1;
     }
-    const lines: u32 = if (entry.content.len > 0 and entry.content[entry.content.len - 1] != '\n')
-        newlines + 1
-    else
-        newlines;
+    if (content.len > 0 and content[content.len - 1] != '\n') return newlines + 1;
+    return newlines;
+}
+
+/// Running state for the test-block line scan.
+const TestLineScan = struct {
+    depth: u32 = 0,
+    test_depth: u32 = 0,
+    in_test: bool = false,
+    pending: bool = false,
+    start_byte: usize = 0,
+    total: u32 = 0,
+};
+
+/// Number of source lines occupied by top-level `test {...}` blocks. The
+/// file-size cap measures production code, so a heavily-tested module isn't
+/// forced over the same limit as a genuine god-file by its own test suite
+/// (audit: erc.zig was 62% test code). Tokenizer skips strings/comments, so a
+/// `test` word inside a literal never opens a phantom block.
+fn testBlockLines(allocator: std.mem.Allocator, content: []const u8) u32 {
+    const z = allocator.dupeZ(u8, content) catch return 0;
+    var tok = std.zig.Tokenizer.init(z);
+    var s: TestLineScan = .{};
+    while (true) {
+        const t = tok.next();
+        if (t.tag == .eof) break;
+        stepTestScan(&s, t, z);
+    }
+    return s.total;
+}
+
+fn stepTestScan(s: *TestLineScan, t: std.zig.Token, z: [:0]const u8) void {
+    switch (t.tag) {
+        .keyword_test => {
+            s.pending = true;
+            s.start_byte = t.loc.start;
+        },
+        .l_brace => {
+            s.depth += 1;
+            if (s.pending) {
+                s.in_test = true;
+                s.test_depth = s.depth;
+                s.pending = false;
+            }
+        },
+        .r_brace => closeBrace(s, z, t.loc.start),
+        else => {},
+    }
+}
+
+fn closeBrace(s: *TestLineScan, z: [:0]const u8, byte: usize) void {
+    if (s.in_test and s.depth == s.test_depth) {
+        s.total += lineOf(z, byte) - lineOf(z, s.start_byte) + 1;
+        s.in_test = false;
+    }
+    if (s.depth > 0) s.depth -= 1;
+}
+
+/// Production line count: total lines minus lines inside `test {...}` blocks.
+fn codeLines(allocator: std.mem.Allocator, content: []const u8) u32 {
+    const total = totalLines(content);
+    const test_lines = testBlockLines(allocator, content);
+    return if (test_lines <= total) total - test_lines else total;
+}
+
+fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+    const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
+    const lines = codeLines(ctx.allocator, entry.content);
     if (lines > ctx.max_lines) {
         const msg = try std.fmt.allocPrint(
             ctx.allocator,
-            "{s}: {d} lines (limit: {d})",
+            "{s}: {d} code lines (limit: {d})",
             .{ entry.rel_path, lines, ctx.max_lines },
         );
         try ctx.violations.append(ctx.allocator, msg);
@@ -61,11 +126,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     if (violations.items.len == 0) {
-        ok("all files within {d} line limit", .{cfg.max_file_lines});
+        ok("all files within {d} code-line limit", .{cfg.max_file_lines});
         return;
     }
 
-    fail("file size FAILED ({d} file(s) over {d} line limit)", .{ violations.items.len, cfg.max_file_lines });
+    fail("file size FAILED ({d} file(s) over {d} code-line limit)", .{ violations.items.len, cfg.max_file_lines });
     for (violations.items) |v| {
         print("  {s}\n", .{v});
     }
@@ -74,6 +139,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 // spec: File Size - Checks source files against configurable line limit
 // spec: File Size - Respects file_size_exclude patterns
+// spec: File Size - Excludes test-block lines from the line count
 
 test "fileSizeVisit is not off-by-one on the trailing newline" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -97,4 +163,21 @@ test "fileSizeVisit accumulates violations" {
     var ctx: FileSizeCtx = .{ .allocator = a, .max_lines = 10, .violations = &violations };
     try walk.walkZigFiles(a, "test-project/src", .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = fileSizeVisit });
     try std.testing.expect(violations.items.len >= 3);
+}
+
+test "testBlockLines excludes test bodies from the count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\const x = 1;
+        \\fn f() void {}
+        \\test "t" {
+        \\    const y = 2;
+        \\    _ = y;
+        \\}
+    ;
+    // 6 total lines; the test block spans lines 3-6 (4 lines) → 2 code lines.
+    try std.testing.expectEqual(@as(u32, 4), testBlockLines(a, content));
+    try std.testing.expectEqual(@as(u32, 2), codeLines(a, content));
 }
