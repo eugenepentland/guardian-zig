@@ -68,7 +68,12 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
     var test_depth: u32 = 0;
     var comptime_depth: u32 = 0;
     var prev_tag: std.zig.Token.Tag = .invalid;
-    var prev_is_const_init: bool = false;
+    // saw_const_decl: between `const`/`var` and its `=` (the name/type portion,
+    // e.g. the `1024` in `[1024]u8`). in_const_init: between that `=` and the
+    // `;` (the whole initializer, so `const t = base * 30_000;` is exempt, not
+    // just the first token after `=`).
+    var saw_const_decl: bool = false;
+    var in_const_init: bool = false;
 
     while (true) {
         const t = tok.next();
@@ -78,22 +83,36 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
                 in_test = true;
                 test_depth = depth + 1;
             },
-            .keyword_comptime => {
-                in_comptime = true;
-                comptime_depth = depth + 1;
+            .l_brace => {
+                depth += 1;
+                // Only a real `comptime { ... }` block exempts its body. A bare
+                // `comptime` param modifier or expression prefix has no block —
+                // treating it as one exempted every generic function entirely.
+                if (prev_tag == .keyword_comptime) {
+                    in_comptime = true;
+                    comptime_depth = depth;
+                }
             },
-            .l_brace => depth += 1,
             .r_brace => {
                 if (depth > 0) depth -= 1;
                 if (in_test and depth < test_depth) in_test = false;
                 if (in_comptime and depth < comptime_depth) in_comptime = false;
             },
-            .keyword_const, .keyword_var => prev_is_const_init = true,
-            .equal => prev_is_const_init = false,
+            .keyword_const, .keyword_var => saw_const_decl = true,
+            .equal => {
+                if (saw_const_decl) {
+                    in_const_init = true;
+                    saw_const_decl = false;
+                }
+            },
+            .semicolon => {
+                saw_const_decl = false;
+                in_const_init = false;
+            },
             .number_literal => {
                 if (in_test or in_comptime) continue;
-                if (prev_tag == .equal) continue;
-                if (prev_is_const_init) continue;
+                if (saw_const_decl or in_const_init) continue;
+                if (prev_tag == .equal) continue; // struct-field defaults, assignments
                 const text = z[t.loc.start..t.loc.end];
                 if (isAllowed(text)) continue;
                 if (isHexOrOctOrBinary(text)) continue;
@@ -181,6 +200,26 @@ test "analyzeContent allows const initializer" {
         \\const max_count: u32 = 8675309;
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "analyzeContent allows a whole const initializer expression" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // The magic number is past the `=`, in a compound expression.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\const budget = base * 8675309;
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "analyzeContent flags magic in a generic (comptime-param) function body" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // A `comptime` param modifier must not exempt the whole function.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\fn scale(comptime T: type, n: T) T { return n * 8675309; }
+    );
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows allowlisted values" {
