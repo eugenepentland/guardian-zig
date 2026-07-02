@@ -275,7 +275,9 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
         // Key = value
         if (std.mem.indexOfScalar(u8, line, '=')) |eq_idx| {
             const key = std.mem.trim(u8, line[0..eq_idx], &std.ascii.whitespace);
-            const val_raw = std.mem.trim(u8, line[eq_idx + 1 ..], &std.ascii.whitespace);
+            // Strip a trailing `# comment` (valid TOML) before parsing, so
+            // `max_file_lines = 300 # why` doesn't silently fall back to default.
+            const val_raw = stripInlineComment(std.mem.trim(u8, line[eq_idx + 1 ..], &std.ascii.whitespace));
 
             if (in_boundary) {
                 if (std.mem.eql(u8, key, "module")) {
@@ -406,6 +408,21 @@ pub fn parse(allocator: Allocator, content: []const u8) std.mem.Allocator.Error!
     return cfg;
 }
 
+/// Removes a trailing `# comment` from a TOML value, ignoring `#` inside a
+/// double-quoted string. Returns the value with trailing whitespace trimmed.
+fn stripInlineComment(val: []const u8) []const u8 {
+    var in_str = false;
+    var i: usize = 0;
+    while (i < val.len) : (i += 1) {
+        switch (val[i]) {
+            '"' => in_str = !in_str,
+            '#' => if (!in_str) return std.mem.trimRight(u8, val[0..i], &std.ascii.whitespace),
+            else => {},
+        }
+    }
+    return val;
+}
+
 fn parseBool(val: []const u8) ?bool {
     if (std.mem.eql(u8, val, "true")) return true;
     if (std.mem.eql(u8, val, "false")) return false;
@@ -520,6 +537,18 @@ test "parse empty array" {
     ;
     const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(usize, 0), cfg.file_size_exclude.len);
+}
+
+test "parse strips inline comments from values" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\max_file_lines = 300 # keep files small
+        \\spec_file = "docs/SPEC.md"  # not the root
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(u32, 300), cfg.max_file_lines);
+    try std.testing.expectEqualStrings("docs/SPEC.md", cfg.spec_file);
 }
 
 // spec: Configuration - Parses a top-level disabled list of check names

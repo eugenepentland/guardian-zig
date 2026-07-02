@@ -29,6 +29,15 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var ran: u32 = 0;
     const baseline_on = ctx.cfg.baseline.enabled;
 
+    // Validate the disabled list up front: a typo like "magic-numbers" would
+    // otherwise silently disable nothing while the user believes it's off.
+    for (ctx.cfg.disabled) |name| {
+        if (registry.find(name) == null) {
+            fail("unknown check name in `disabled`: {s}", .{name});
+            return error.CheckFailed;
+        }
+    }
+
     // Skip the whole run when guardian's hashed input set is unchanged since
     // the last all-green run. GUARDIAN_UPDATE_SNAPSHOT forces a full run.
     const force_update = snapshot_helper.shouldUpdate(ctx.allocator);
@@ -98,4 +107,11 @@ test "shouldSkip honors the disabled list and built-in skips" {
     try std.testing.expect(shouldSkip("magic-number", &.{"magic-number"}));
     try std.testing.expect(shouldSkip("spec-init", &.{}));
     try std.testing.expect(!shouldSkip("spec", &.{"magic-number"}));
+}
+
+// spec: Run All - Rejects unknown check names in the disabled list
+test "disabled list entries must be real check names" {
+    // A real check resolves; a typo does not.
+    try std.testing.expect(registry.find("magic-number") != null);
+    try std.testing.expect(registry.find("magic-numbers") == null);
 }
