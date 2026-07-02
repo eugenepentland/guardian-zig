@@ -93,6 +93,57 @@ fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
 /// Errors that AST primitives may propagate.
 pub const AstError = std.mem.Allocator.Error;
 
+/// True when `node` is a container definition (struct/enum/union/opaque,
+/// including tagged unions) — i.e. something with a `{ members }` body.
+fn isContainerNode(tree: *const Ast, node: Ast.Node.Index) bool {
+    return switch (tree.nodeTag(node)) {
+        .container_decl,
+        .container_decl_trailing,
+        .container_decl_two,
+        .container_decl_two_trailing,
+        .container_decl_arg,
+        .container_decl_arg_trailing,
+        .tagged_union,
+        .tagged_union_trailing,
+        .tagged_union_two,
+        .tagged_union_two_trailing,
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_trailing,
+        => true,
+        else => false,
+    };
+}
+
+/// Flattens every declaration reachable from the root, descending into the
+/// members of any container that initializes a const/var decl. Idiomatic Zig
+/// puts methods and nested types inside `pub const T = struct { ... }`; without
+/// this recursion the per-decl queries below would only ever see top-level
+/// declarations, so an agent could dodge every AST check by wrapping code in a
+/// struct. Containers returned from a function body (generic type
+/// constructors) are not reached — those live inside expressions, not decls.
+fn collectDecls(arena: Allocator, tree: *const Ast) AstError![]const Ast.Node.Index {
+    var out: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
+    try collectDeclsInto(arena, tree, tree.rootDecls(), &out);
+    return out.toOwnedSlice(arena);
+}
+
+fn collectDeclsInto(
+    arena: Allocator,
+    tree: *const Ast,
+    members: []const Ast.Node.Index,
+    out: *std.ArrayListUnmanaged(Ast.Node.Index),
+) AstError!void {
+    for (members) |decl| {
+        try out.append(arena, decl);
+        const var_decl = tree.fullVarDecl(decl) orelse continue;
+        const init_node = var_decl.ast.init_node.unwrap() orelse continue;
+        if (!isContainerNode(tree, init_node)) continue;
+        var buf: [2]Ast.Node.Index = undefined;
+        const cdecl = tree.fullContainerDecl(&buf, init_node) orelse continue;
+        try collectDeclsInto(arena, tree, cdecl.ast.members, out);
+    }
+}
+
 /// AST-based public function discovery.
 pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
     const z = try arena.dupeZ(u8, source);
@@ -107,7 +158,7 @@ pub fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const P
     var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(PubFn) = .empty;
 
-    for (tree.rootDecls()) |decl| {
+    for (try collectDecls(arena, &tree)) |decl| {
         var buf: [1]Ast.Node.Index = undefined;
         const proto = tree.fullFnProto(&buf, decl) orelse continue;
         if (proto.visib_token == null) continue;
@@ -189,7 +240,7 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
 
     const tags = tree.tokens.items(.tag);
 
-    for (tree.rootDecls()) |decl| {
+    for (try collectDecls(arena, &tree)) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;
         var buf: [1]Ast.Node.Index = undefined;
         const proto = tree.fullFnProto(&buf, decl) orelse continue;
@@ -264,7 +315,7 @@ pub fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const F
     var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(FnInfo) = .empty;
 
-    for (tree.rootDecls()) |decl| {
+    for (try collectDecls(arena, &tree)) |decl| {
         var buf: [1]Ast.Node.Index = undefined;
         const proto = tree.fullFnProto(&buf, decl) orelse continue;
         const name_tok = proto.name_token orelse continue;
@@ -309,7 +360,7 @@ pub fn pubContainersFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]
     var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(PubContainerInfo) = .empty;
 
-    for (tree.rootDecls()) |decl| {
+    for (try collectDecls(arena, &tree)) |decl| {
         const var_decl = tree.fullVarDecl(decl) orelse continue;
         if (var_decl.visib_token == null) continue;
         const name_tok = var_decl.ast.mut_token + 1;
@@ -369,7 +420,7 @@ pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]cons
     var tree = tree_ptr.*;
     var result: std.ArrayListUnmanaged(PubConst) = .empty;
 
-    for (tree.rootDecls()) |decl| {
+    for (try collectDecls(arena, &tree)) |decl| {
         const var_decl = tree.fullVarDecl(decl) orelse continue;
         if (var_decl.visib_token == null) continue;
         const name_tok = var_decl.ast.mut_token + 1;
@@ -536,6 +587,37 @@ test "pubFns classifies return type=type" {
     try std.testing.expectEqual(@as(usize, 2), fns.len);
     try std.testing.expectEqual(ReturnKind.type_kw, fns[0].return_kind);
     try std.testing.expectEqual(ReturnKind.other, fns[1].return_kind);
+}
+
+test "queries descend into methods and types nested in containers" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source: [:0]const u8 =
+        \\pub const Server = struct {
+        \\    port: u16,
+        \\    pub fn start(self: Server) !void { _ = self; }
+        \\    fn helper(self: Server) void { _ = self; }
+        \\    pub const Inner = struct { a: i32, b: i32 };
+        \\};
+        \\pub fn topLevel() void {}
+    ;
+
+    // pubFns sees the nested pub method and the top-level fn (not the private one).
+    const pf = try pubFns(a, source);
+    try std.testing.expectEqual(@as(usize, 2), pf.len);
+
+    // allFns sees the nested private method too.
+    const af = try allFns(a, source);
+    try std.testing.expectEqual(@as(usize, 3), af.len);
+
+    // fnDeclInfos sees both nested methods plus the top-level fn.
+    const fd = try fnDeclInfos(a, source);
+    try std.testing.expectEqual(@as(usize, 3), fd.len);
+
+    // pubContainers sees the outer struct AND the nested Inner struct.
+    const pc = try pubContainers(a, source);
+    try std.testing.expectEqual(@as(usize, 2), pc.len);
 }
 
 test "allFns returns all functions with params and visibility" {

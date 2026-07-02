@@ -14,6 +14,7 @@ pub const Diff = struct {
     added: []const []const u8,
     removed: []const []const u8,
 
+    /// True when nothing was added or removed — the snapshot is unchanged.
     pub fn isEmpty(self: Diff) bool {
         return self.added.len == 0 and self.removed.len == 0;
     }

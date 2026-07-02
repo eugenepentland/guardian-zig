@@ -1,10 +1,11 @@
 spec_file = "SPEC.md"
-# ast/parser.zig (631 lines) hosts the AST primitives — six query families,
-# each now with a source-parsing wrapper plus a tree-reusing `*FromTree`
-# variant for the shared AST index, alongside their tests. That split is what
-# lets every AST check parse each file once. New consumers should keep the
+# ast/parser.zig (~715 lines) hosts the AST primitives — six query families,
+# each with a source-parsing wrapper plus a tree-reusing `*FromTree` variant
+# for the shared AST index, the shared container-recursion collector, and
+# their tests. That split is what lets every AST check parse each file once and
+# see declarations nested inside structs. New consumers should keep the
 # framework default 500.
-max_file_lines = 650
+max_file_lines = 730
 file_size_exclude = []
 
 # Spec modules must not depend on config or analysis — only check.zig bridges them
