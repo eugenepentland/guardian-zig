@@ -98,7 +98,6 @@ src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: s
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.DocQualityCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/checks/dup_const.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/errdefer_in_init.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

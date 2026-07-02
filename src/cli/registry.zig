@@ -23,7 +23,6 @@ const check_escape_discipline = @import("../checks/escape_discipline.zig");
 const check_oom_discipline = @import("../checks/oom_discipline.zig");
 const check_dead_pub = @import("../checks/dead_pub.zig");
 const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
-const check_dup_const = @import("../checks/dup_const.zig");
 const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
 const check_orphan_files = @import("../checks/orphan_files.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
@@ -148,11 +147,6 @@ pub const all: []const Command = &.{
         .name = "allocator-hygiene",
         .summary = "Reject hardcoded global allocators outside main/test",
         .run = check_allocator_hygiene.run,
-    },
-    .{
-        .name = "dup-const",
-        .summary = "Reject duplicate file-scope string-literal consts across files",
-        .run = check_dup_const.run,
     },
     .{
         .name = "debug-print-ban",
@@ -294,7 +288,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "repeated-string-literal",
-        .summary = "Reject identical string literals appearing 3+ times in a single file",
+        .summary = "Reject 3+ repeats of a literal in a file and duplicate consts across files",
         .run = check_repeated_string_literal.run,
     },
     .{
