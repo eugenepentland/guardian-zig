@@ -39,19 +39,47 @@ fn countTokens(allocator: std.mem.Allocator, content: []const u8) Counts {
     var c: Counts = .{};
     const z = allocator.dupeZ(u8, content) catch return c;
     var tok = std.zig.Tokenizer.init(z);
+    // Chain state for `std . debug . panic`: 0=none, 1=std, 2=std., 3=std.debug,
+    // 4=std.debug. — so std.debug.panic doesn't escape the budget by not being
+    // the @panic builtin.
+    var chain: u8 = 0;
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
+        chain = advancePanicChain(chain, t.tag, z[t.loc.start..t.loc.end], &c);
         switch (t.tag) {
             .keyword_unreachable => c.unreachables += 1,
             .builtin => {
-                const text = z[t.loc.start..t.loc.end];
-                if (std.mem.eql(u8, text, "@panic")) c.panics += 1;
+                if (std.mem.eql(u8, z[t.loc.start..t.loc.end], "@panic")) c.panics += 1;
             },
             else => {},
         }
     }
     return c;
+}
+
+/// Advances the `std.debug.panic` recognizer and increments the panic count on
+/// a full match. Returns the next chain state.
+fn advancePanicChain(chain: u8, tag: std.zig.Token.Tag, text: []const u8, c: *Counts) u8 {
+    const is = struct {
+        fn ident(tg: std.zig.Token.Tag, txt: []const u8, want: []const u8) bool {
+            return tg == .identifier and std.mem.eql(u8, txt, want);
+        }
+    };
+    return switch (chain) {
+        1 => if (tag == .period) 2 else start(tag, text),
+        2 => if (is.ident(tag, text, "debug")) 3 else start(tag, text),
+        3 => if (tag == .period) 4 else start(tag, text),
+        4 => blk: {
+            if (is.ident(tag, text, "panic")) c.panics += 1;
+            break :blk start(tag, text);
+        },
+        else => start(tag, text),
+    };
+}
+
+fn start(tag: std.zig.Token.Tag, text: []const u8) u8 {
+    return if (tag == .identifier and std.mem.eql(u8, text, "std")) 1 else 0;
 }
 
 fn countCommentMarkers(content: []const u8) struct { todos: u32, fixmes: u32 } {
@@ -192,6 +220,16 @@ test "countTokens counts panics and unreachables" {
     const c = countTokens(a, content);
     try std.testing.expectEqual(@as(u32, 1), c.panics);
     try std.testing.expectEqual(@as(u32, 2), c.unreachables);
+}
+test "countTokens counts std.debug.panic toward the panic budget" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const c = countTokens(arena.allocator(),
+        \\fn a() void { @panic("x"); }
+        \\fn b() void { std.debug.panic("y {d}", .{1}); }
+    );
+    // Both the @panic builtin and std.debug.panic count.
+    try std.testing.expectEqual(@as(u32, 2), c.panics);
 }
 
 test "countCommentMarkers finds TODO/FIXME in comments" {
