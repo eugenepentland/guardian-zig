@@ -117,7 +117,7 @@ test "analyzeContent flags pub fn named Manager" {
         \\/// Vague name.
         \\pub const Manager = struct { x: u32 };
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows specific names" {

@@ -171,7 +171,7 @@ test "analyzeContent flags magic in expression" {
     const out = try analyzeContent(arena.allocator(), "src/x.zig",
         \\fn budget(n: u32) u32 { return n * 8675309; }
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows const initializer" {

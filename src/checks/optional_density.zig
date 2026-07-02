@@ -212,7 +212,7 @@ test "analyzeContent flags 75% optional" {
         \\    d: u32,
         \\};
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows 25% optional" {

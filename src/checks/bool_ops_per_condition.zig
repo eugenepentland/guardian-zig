@@ -165,5 +165,5 @@ test "analyzeContent counts ! (negation)" {
         \\    if (!a and !b and !c and !d) {}
         \\}
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }

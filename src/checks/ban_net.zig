@@ -40,7 +40,7 @@ test "analyzeContent flags std.net.Address outside adapters" {
     const out = try analyzeContent(arena.allocator(), "src/domain/foo.zig",
         \\fn ip() void { _ = std.net.Address.parseIp("1.1.1.1", 80); }
     );
-    try std.testing.expectGreaterThanOrEqual(@as(usize, 1), out.len);
+    try std.testing.expect(out.len >= 1);
 }
 
 test "analyzeContent allows std.http inside adapters/http" {
