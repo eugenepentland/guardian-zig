@@ -107,11 +107,17 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-23 hard-block checks plus `zig fmt --check`. Full table in README.md;
+56 hard-block checks plus `zig fmt --check`. Full table in README.md;
 the categories are: spec workflow, structural, public API, code style,
-error handling, and allocation. Three checks are snapshot-based
+error handling, and allocation. Four checks are snapshot-based
 (pub-api-surface, panic-budget, spec-drift, comptime-quota) — refresh
 with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit `.guardian/`.
+
+`all` runs are cached: when the hashed input set (src/test/build/spec/
+guardian.toml/.guardian) is unchanged since the last green run, checks are
+skipped. Disable with `cache_enabled = false`. Turn off individual checks
+with a top-level `disabled = ["check-name", ...]` list (not a per-check
+`enabled` flag).
 
 ## Project Structure
 
@@ -126,6 +132,9 @@ src/
   reporter.zig         # ok / fail printing + Violation type
   snapshot.zig         # Read/write/diff for snapshot-based checks
   snapshot_helper.zig  # Lifecycle helper used by all snapshot checks
+  baseline.zig         # Baseline/ratchet mode for legacy violations
+  cache.zig            # Skip-when-unchanged input digest for `all`
   config.zig           # guardian.toml parser
   build_helper.zig     # addAllChecks for downstream consumers
+  testing/             # Golden-file test harness
 ```

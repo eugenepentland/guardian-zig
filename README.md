@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-55 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
+56 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -79,6 +79,7 @@ zig build  # guardian gates every build
 |---|---|
 | **error-discipline** | Inferred `!T` or `anyerror!T` on `pub fn` (require explicit error sets) |
 | **catch-discipline** | `catch unreachable` and `catch {}` (silent error swallow) |
+| **unwrap-discipline** | `orelse unreachable` / `orelse undefined` (crash/UB on null) |
 | **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
 | **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts (snapshot) |
 | **comptime-quota** | Increase in `@setEvalBranchQuota` call count or max literal (snapshot) |
@@ -171,7 +172,7 @@ Guardian enforces **1:1 mapping**: every spec behavior needs exactly one test ta
 
 ## Snapshot-based checks
 
-`pub-api-surface`, `panic-budget`, and `spec-drift` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
+`pub-api-surface`, `panic-budget`, `spec-drift`, and `comptime-quota` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
 
 ```bash
 GUARDIAN_UPDATE_SNAPSHOT=1 zig build
@@ -209,22 +210,21 @@ The baseline files are plain text and sorted, so they diff cleanly in code revie
 
 ### Tier-by-tier rollout
 
-If you'd rather adopt one rule family at a time, every check has an `enabled` flag in its config struct. Start with all of Tier 1 disabled, turn one check on, fix violations (or baseline them), commit, move on:
+If you'd rather adopt one rule family at a time, list the checks you're not ready for in the top-level `disabled` array (by their kebab-case names — see the tables above). Delete a name to turn that check on, fix its violations (or baseline them), commit, move on:
 
 ```toml
 [baseline]
 enabled = true       # always-on safety net while you work through the tiers
 
-[ban_time]
-enabled = false      # Tier 1 — turn on once Clock port exists
-
-[ban_fs]
-enabled = false      # Tier 1 — turn on once Filesystem port exists
-
-# ... and so on for Tier 2 + Tier 3 checks
+# Top-level list of checks to skip entirely, by name.
+disabled = [
+    "ban-time",      # Tier 1 — enable once a Clock port exists
+    "ban-fs",        # Tier 1 — enable once a Filesystem port exists
+    # ... and so on for the Tier 2 + Tier 3 checks you're deferring
+]
 ```
 
-A common combination: baseline mode + threshold relaxation. Set `[function_length] max_lines = 200` to your current worst case, ship Guardian, ratchet the cap down 10–20 lines per release, fix the few new violations each step.
+Unknown names in `disabled` fail the build, so a typo can't silently leave a check off. A common combination: baseline mode + threshold relaxation. Set `[function_length] max_lines = 200` to your current worst case, ship Guardian, ratchet the cap down 10–20 lines per release, fix the few new violations each step.
 
 ## Config (guardian.toml)
 
