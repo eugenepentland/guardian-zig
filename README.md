@@ -232,6 +232,7 @@ Optional — sensible defaults work out of the box. Each check has its own secti
 spec_file = "SPEC.md"
 max_file_lines = 500
 file_size_exclude = ["generated/*"]
+parallel = true    # run checks across cores (default); false forces sequential
 
 [[boundary]]
 module = "src/core/*"

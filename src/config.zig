@@ -170,6 +170,10 @@ pub const Config = struct {
     /// When true, `all` skips the whole run when its hashed input set is
     /// unchanged since the last all-green run (see cache.zig).
     cache_enabled: bool = true,
+    /// When true, `all` runs checks across worker threads (one per core),
+    /// replaying captured output in registry order so results stay
+    /// deterministic. Set false to force the sequential path.
+    parallel: bool = true,
     file_size_exclude: []const []const u8 = &.{},
     /// Registry names of checks to skip entirely in `all` runs (e.g.
     /// "magic-number"). Lets a project disable individual checks that have no

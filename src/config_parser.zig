@@ -278,6 +278,8 @@ fn applyTopLevelKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         cfg.max_file_lines = parseU32(kv.val, cfg.max_file_lines);
     } else if (std.mem.eql(u8, kv.key, "cache_enabled")) {
         cfg.cache_enabled = parseBool(kv.val) orelse cfg.cache_enabled;
+    } else if (std.mem.eql(u8, kv.key, "parallel")) {
+        cfg.parallel = parseBool(kv.val) orelse cfg.parallel;
     } else if (std.mem.eql(u8, kv.key, "file_size_exclude")) {
         cfg.file_size_exclude = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, "disabled")) {
