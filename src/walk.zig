@@ -16,6 +16,8 @@ pub const FileEntry = struct {
 
 /// Options controlling which files the walker yields.
 pub const WalkOpts = struct {
+    /// Prefix prepended to each yielded file's relative path (e.g. "src").
+    display_root: []const u8 = "",
     excludes: []const []const u8 = &.{},
     max_file_bytes: usize = 10 * 1024 * 1024,
     extension: []const u8 = ".zig",
@@ -35,12 +37,19 @@ pub const Visitor = struct {
 /// callback may itself fail with arbitrary errors (OOM, format errors, etc.).
 pub const WalkError = anyerror;
 
+/// Immutable state threaded through the recursive walk (everything except the
+/// current directory + path prefix, which change per level).
+const WalkState = struct {
+    allocator: Allocator,
+    opts: WalkOpts,
+    visitor: Visitor,
+};
+
 /// Recursively walks `fs_root`, invoking `visitor` for every matching file.
-/// `display_root` is prepended to each file's relative path in the entry.
+/// `opts.display_root` is prepended to each file's relative path in the entry.
 pub fn walkZigFiles(
     allocator: Allocator,
     fs_root: []const u8,
-    display_root: []const u8,
     opts: WalkOpts,
     visitor: Visitor,
 ) WalkError!void {
@@ -52,46 +61,53 @@ pub fn walkZigFiles(
         else => |err| return err,
     };
     defer dir.close();
-    try walkRecursive(allocator, dir, display_root, opts, visitor);
+    const state: WalkState = .{ .allocator = allocator, .opts = opts, .visitor = visitor };
+    try walkRecursive(state, dir, opts.display_root);
 }
 
-fn walkRecursive(
-    allocator: Allocator,
-    dir: std.fs.Dir,
-    prefix: []const u8,
-    opts: WalkOpts,
-    visitor: Visitor,
-) !void {
+fn walkRecursive(state: WalkState, dir: std.fs.Dir, prefix: []const u8) !void {
     var iter = dir.iterate();
     while (try iter.next()) |entry| {
         const rel = if (prefix.len > 0)
-            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, entry.name })
+            try std.fmt.allocPrint(state.allocator, "{s}/{s}", .{ prefix, entry.name })
         else
-            try std.fmt.allocPrint(allocator, "{s}", .{entry.name});
+            try std.fmt.allocPrint(state.allocator, "{s}", .{entry.name});
 
         switch (entry.kind) {
             .directory => {
                 var sub = try dir.openDir(entry.name, .{ .iterate = true });
                 defer sub.close();
-                try walkRecursive(allocator, sub, rel, opts, visitor);
+                try walkRecursive(state, sub, rel);
             },
-            .file => {
-                if (!std.mem.endsWith(u8, entry.name, opts.extension)) continue;
-                const excluded = blk: {
-                    for (opts.excludes) |pat| {
-                        if (matchGlob(rel, pat)) break :blk true;
-                    }
-                    break :blk false;
-                };
-                if (excluded) continue;
-                // Fail loud on read errors (permissions, > max_file_bytes): a
-                // silently skipped file would be exempt from every check.
-                const content = try dir.readFileAllocOptions(allocator, entry.name, opts.max_file_bytes, null, .of(u8), 0);
-                try visitor.visit(visitor.ctx, .{ .rel_path = rel, .content = content });
-            },
+            .file => try maybeVisitFile(state, dir, entry.name, rel),
             else => {},
         }
     }
+}
+
+/// Reads and yields one file to the visitor if it matches the configured
+/// extension and isn't excluded. Fails loud on read errors (permissions,
+/// > max_file_bytes): a silently skipped file would be exempt from every check.
+fn maybeVisitFile(state: WalkState, dir: std.fs.Dir, name: []const u8, rel: []const u8) !void {
+    const opts = state.opts;
+    if (!std.mem.endsWith(u8, name, opts.extension)) return;
+    if (isExcluded(rel, opts.excludes)) return;
+    const content = try dir.readFileAllocOptions(
+        state.allocator,
+        name,
+        opts.max_file_bytes,
+        null,
+        .of(u8),
+        0,
+    );
+    try state.visitor.visit(state.visitor.ctx, .{ .rel_path = rel, .content = content });
+}
+
+fn isExcluded(rel: []const u8, excludes: []const []const u8) bool {
+    for (excludes) |pat| {
+        if (matchGlob(rel, pat)) return true;
+    }
+    return false;
 }
 
 /// Returns true if `text` matches `pattern`. `*` is a wildcard matching any
@@ -100,6 +116,13 @@ pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
     if (std.mem.indexOfScalar(u8, pattern, '*') == null) {
         return std.mem.indexOf(u8, text, pattern) != null;
     }
+    return matchWildcard(text, pattern);
+}
+
+/// How a literal segment between `*`s must line up with the text.
+const Anchor = enum { start, end, any };
+
+fn matchWildcard(text: []const u8, pattern: []const u8) bool {
     var ti: usize = 0;
     var parts = std.mem.splitScalar(u8, pattern, '*');
     var first = true;
@@ -110,26 +133,23 @@ pub fn matchGlob(text: []const u8, pattern: []const u8) bool {
             continue;
         }
         const is_last = parts.peek() == null;
-        if (first) {
-            if (!std.mem.startsWith(u8, text[ti..], part)) return false;
-            ti += part.len;
-            first = false;
-        } else if (is_last and !ends_with_star) {
-            // Anchor the final literal segment to the end of the text so a
-            // repeated substring can't consume it early (e.g. "*.zig" must
-            // match "a.zig.zig"). endsWith also confirms nothing trails it.
-            if (!std.mem.endsWith(u8, text[ti..], part)) return false;
-            ti = text.len;
-        } else {
-            if (std.mem.indexOf(u8, text[ti..], part)) |idx| {
-                ti += idx + part.len;
-            } else {
-                return false;
-            }
-        }
+        const anchor: Anchor = if (first) .start else if (is_last and !ends_with_star) .end else .any;
+        ti = matchSegment(text, ti, part, anchor) orelse return false;
+        first = false;
     }
-    if (ends_with_star) return true;
-    return ti == text.len;
+    return ends_with_star or ti == text.len;
+}
+
+/// Advances the match cursor past `part` from `ti`, honoring `anchor`, or
+/// returns null when `part` doesn't match. `.end` anchors the final literal
+/// to the end of the text so a repeated substring can't consume it early
+/// (e.g. "*.zig" must match "a.zig.zig", not stop at the first ".zig").
+fn matchSegment(text: []const u8, ti: usize, part: []const u8, anchor: Anchor) ?usize {
+    return switch (anchor) {
+        .start => if (std.mem.startsWith(u8, text[ti..], part)) ti + part.len else null,
+        .end => if (std.mem.endsWith(u8, text[ti..], part)) text.len else null,
+        .any => if (std.mem.indexOf(u8, text[ti..], part)) |idx| ti + idx + part.len else null,
+    };
 }
 
 /// Resolves `..` and `.` segments in a forward-slash path.

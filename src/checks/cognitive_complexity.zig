@@ -106,7 +106,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // indexed, so it still walks.
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
     const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ctx, .visit = visit });
+    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
         ok("all functions within complexity {d}", .{ctx.threshold});

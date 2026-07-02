@@ -120,6 +120,6 @@ test "boundaryVisit detects violation" {
     };
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: BoundaryCtx = .{ .allocator = a, .rules = rules, .violations = &violations };
-    try walk.walkZigFiles(a, "test-project/src", "src", .{}, .{ .ctx = &ctx, .visit = boundaryVisit });
+    try walk.walkZigFiles(a, "test-project/src", .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = boundaryVisit });
     try std.testing.expect(violations.items.len > 0);
 }

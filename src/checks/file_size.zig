@@ -55,8 +55,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         try walk.walkZigFiles(
             allocator,
             dir_path,
-            dir_name,
-            .{ .excludes = cfg.file_size_exclude },
+            .{ .display_root = dir_name, .excludes = cfg.file_size_exclude },
             .{ .ctx = &ctx, .visit = fileSizeVisit },
         );
     }
@@ -96,6 +95,6 @@ test "fileSizeVisit accumulates violations" {
     const a = arena.allocator();
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: FileSizeCtx = .{ .allocator = a, .max_lines = 10, .violations = &violations };
-    try walk.walkZigFiles(a, "test-project/src", "src", .{}, .{ .ctx = &ctx, .visit = fileSizeVisit });
+    try walk.walkZigFiles(a, "test-project/src", .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = fileSizeVisit });
     try std.testing.expect(violations.items.len >= 3);
 }

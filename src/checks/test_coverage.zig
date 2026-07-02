@@ -150,7 +150,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const ref_walk: walk.Visitor = .{ .ctx = &ref_ctx, .visit = refVisit };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, ref_walk);
     const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, "test", .{}, ref_walk);
+    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, ref_walk);
 
     const untested = try findUntested(allocator, decls.items, &counts);
     return reportCoverage(untested, decls.items.len);

@@ -37,6 +37,12 @@ pub fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const
     return std.fmt.allocPrint(allocator, "{s}/.guardian/{s}", .{ project_dir, leaf });
 }
 
+/// Identifies a snapshot file: its path and format version.
+pub const SnapSpec = struct {
+    path: []const u8,
+    version: u32,
+};
+
 /// Runs the standard snapshot lifecycle for set-diff style checks
 /// (pub-api-surface, spec-drift): if no snapshot exists OR `force_update` is
 /// set, write the current `new_lines` and report created/updated. Otherwise
@@ -46,25 +52,34 @@ pub fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const
 /// retained by the returned Outcome.
 pub fn lifecycle(
     allocator: Allocator,
-    snap_path: []const u8,
-    version: u32,
+    spec: SnapSpec,
     new_lines: [][]const u8,
     force_update: bool,
 ) LifecycleError!Outcome {
     if (force_update) {
-        try snapshot.write(snap_path, version, new_lines);
+        try snapshot.write(spec.path, spec.version, new_lines);
         return .{ .updated = new_lines.len };
     }
+    const old = snapshot.read(allocator, spec.path, spec.version) catch |e|
+        return onReadError(e, spec, new_lines);
+    return finishDiff(allocator, old, new_lines);
+}
 
-    const old = snapshot.read(allocator, snap_path, version) catch |e| switch (e) {
+/// Handles a failed snapshot read: a missing file is written fresh (created),
+/// a stale version is surfaced, and any other error propagates.
+fn onReadError(e: snapshot.ReadError, spec: SnapSpec, new_lines: [][]const u8) LifecycleError!Outcome {
+    switch (e) {
         error.Missing => {
-            try snapshot.write(snap_path, version, new_lines);
+            try snapshot.write(spec.path, spec.version, new_lines);
             return .{ .created = new_lines.len };
         },
         error.VersionMismatch => return .version_mismatch,
         else => return e,
-    };
+    }
+}
 
+/// Sorts `new_lines` in place and diffs it against the prior snapshot.
+fn finishDiff(allocator: Allocator, old: snapshot.Snapshot, new_lines: [][]const u8) LifecycleError!Outcome {
     std.mem.sort([]const u8, new_lines, {}, lessThan);
     const diff = try snapshot.diff(allocator, old, new_lines);
     if (diff.isEmpty()) return .{ .unchanged = new_lines.len };
@@ -108,13 +123,13 @@ test "lifecycle creates snapshot when missing" {
     defer deleteIfExists(path);
 
     var lines = [_][]const u8{ "alpha", "beta" };
-    const out = try lifecycle(a, path, 1, &lines, false);
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false);
     try testing.expect(out == .created);
     try testing.expectEqual(@as(usize, 2), out.created);
 
     // Re-running with no change should return .unchanged.
     var lines2 = [_][]const u8{ "alpha", "beta" };
-    const out2 = try lifecycle(a, path, 1, &lines2, false);
+    const out2 = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false);
     try testing.expect(out2 == .unchanged);
 }
 
@@ -128,10 +143,10 @@ test "lifecycle reports drift when changed" {
     defer deleteIfExists(path);
 
     var lines = [_][]const u8{ "alpha", "beta" };
-    _ = try lifecycle(a, path, 1, &lines, false);
+    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false);
 
     var lines2 = [_][]const u8{ "alpha", "gamma" };
-    const out = try lifecycle(a, path, 1, &lines2, false);
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false);
     try testing.expect(out == .drift);
     try testing.expectEqual(@as(usize, 1), out.drift.added.len);
     try testing.expectEqualStrings("gamma", out.drift.added[0]);
@@ -149,15 +164,15 @@ test "lifecycle force_update overwrites existing snapshot" {
     defer deleteIfExists(path);
 
     var lines = [_][]const u8{ "alpha", "beta" };
-    _ = try lifecycle(a, path, 1, &lines, false);
+    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false);
 
     var lines2 = [_][]const u8{ "alpha", "gamma" };
-    const out = try lifecycle(a, path, 1, &lines2, true);
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, true);
     try testing.expect(out == .updated);
 
     // After force-update, the new state is now the baseline.
     var lines3 = [_][]const u8{ "alpha", "gamma" };
-    const out2 = try lifecycle(a, path, 1, &lines3, false);
+    const out2 = try lifecycle(a, .{ .path = path, .version = 1 }, &lines3, false);
     try testing.expect(out2 == .unchanged);
 }
 
@@ -174,6 +189,6 @@ test "lifecycle reports version_mismatch on stale snapshot" {
     try snapshot.write(path, 1, &lines);
 
     var lines2 = [_][]const u8{"x"};
-    const out = try lifecycle(a, path, 2, &lines2, false);
+    const out = try lifecycle(a, .{ .path = path, .version = 2 }, &lines2, false);
     try testing.expect(out == .version_mismatch);
 }

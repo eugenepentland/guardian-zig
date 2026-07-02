@@ -53,7 +53,7 @@ pub fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const N
     var ctx: CollectCtx = .{ .allocator = allocator, .nodes = &nodes };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, "src", .{}, .{ .ctx = &ctx, .visit = collectVisit });
+    try walk.walkZigFiles(allocator, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = collectVisit });
     return nodes.toOwnedSlice(allocator);
 }
 

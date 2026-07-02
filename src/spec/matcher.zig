@@ -76,7 +76,7 @@ pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult 
     var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
     var unattached: std.ArrayListUnmanaged(MalformedTag) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
-    try walk.walkZigFiles(allocator, dir_path, dir_path, .{}, .{ .ctx = &ctx, .visit = scanVisit });
+    try walk.walkZigFiles(allocator, dir_path, .{ .display_root = dir_path }, .{ .ctx = &ctx, .visit = scanVisit });
     return .{
         .tags = try tags.toOwnedSlice(allocator),
         .malformed = try malformed.toOwnedSlice(allocator),

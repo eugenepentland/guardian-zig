@@ -87,11 +87,11 @@ fn digestWithBinaryId(
     const v: walk.Visitor = .{ .ctx = @ptrCast(&ctx), .visit = collect };
 
     const src = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(arena, src, "src", .{}, v);
+    try walk.walkZigFiles(arena, src, .{ .display_root = "src" }, v);
     const tst = try std.fmt.allocPrint(arena, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(arena, tst, "test", .{}, v);
+    try walk.walkZigFiles(arena, tst, .{ .display_root = "test" }, v);
     const grd = try std.fmt.allocPrint(arena, "{s}/.guardian", .{project_dir});
-    try walk.walkZigFiles(arena, grd, ".guardian", .{ .extension = "", .excludes = &.{"cache"} }, v);
+    try walk.walkZigFiles(arena, grd, .{ .display_root = ".guardian", .extension = "", .excludes = &.{"cache"} }, v);
 
     try readSingle(arena, &items, project_dir, "build.zig");
     try readSingle(arena, &items, project_dir, spec_file);

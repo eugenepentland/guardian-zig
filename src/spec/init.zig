@@ -38,7 +38,7 @@ pub fn collectModules(
     modules: *std.ArrayListUnmanaged(ModuleInfo),
 ) InitError!void {
     var ctx: CollectCtx = .{ .allocator = allocator, .modules = modules };
-    try walk.walkZigFiles(allocator, dir_path, prefix, .{}, .{ .ctx = &ctx, .visit = collectVisit });
+    try walk.walkZigFiles(allocator, dir_path, .{ .display_root = prefix }, .{ .ctx = &ctx, .visit = collectVisit });
 }
 
 /// Returns the names of every `pub fn` in `content`, excluding main/build.

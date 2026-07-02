@@ -113,7 +113,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // indexed, so it still walks.
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ref_ctx, .visit = refVisit });
     const test_path = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    try walk.walkZigFiles(allocator, test_path, "test", .{}, .{ .ctx = &ref_ctx, .visit = refVisit });
+    try walk.walkZigFiles(allocator, test_path, .{ .display_root = "test" }, .{ .ctx = &ref_ctx, .visit = refVisit });
     // build.zig is a Zig file at the project root — include its references
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});

@@ -51,7 +51,7 @@ pub fn build(arena: Allocator, project_dir: []const u8) walk.WalkError!Index {
     var files: std.ArrayListUnmanaged(Entry) = .empty;
     var ctx: BuildCtx = .{ .arena = arena, .files = &files };
     const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(arena, src_path, "src", .{}, .{ .ctx = &ctx, .visit = collect });
+    try walk.walkZigFiles(arena, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = collect });
     return .{ .files = try files.toOwnedSlice(arena) };
 }
 

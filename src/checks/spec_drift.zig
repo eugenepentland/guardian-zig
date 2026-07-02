@@ -48,7 +48,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const lines = try collectLines(allocator, project_dir, ctx_param.source_index);
 
     const force = snapshot_helper.shouldUpdate(allocator);
-    const outcome = try snapshot_helper.lifecycle(allocator, snap_path, SNAPSHOT_VERSION, lines, force);
+    const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = SNAPSHOT_VERSION };
+    const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force);
     return reportOutcome(outcome);
 }
 
