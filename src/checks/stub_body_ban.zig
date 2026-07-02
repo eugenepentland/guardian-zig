@@ -145,7 +145,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
-// spec: Stub Body Ban - Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
+// spec: Stub Body Ban - Rejects single-statement stub bodies (undefined, placeholder panic, unreachable in value fn)
 
 test "classify flags return undefined" {
     try std.testing.expectEqual(StubKind.return_undefined, classify("{ return undefined; }", "i32"));

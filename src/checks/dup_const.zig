@@ -194,7 +194,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 const testing = std.testing;
 
-// spec: Duplicate Const - Rejects file-scope const string-literal declarations with the same name and value defined in two or more files
+// spec: Duplicate Const - Rejects duplicate file-scope string-literal consts (same name and value) across files
 
 test "extractFileScopeStringConsts finds top-level pub and private consts" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

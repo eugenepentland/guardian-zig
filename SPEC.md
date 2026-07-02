@@ -141,7 +141,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Duplicate Const
 
-- Rejects file-scope const string-literal declarations with the same name and value defined in two or more files
+- Rejects duplicate file-scope string-literal consts (same name and value) across files
 
 ## Debug Print Ban
 
@@ -154,7 +154,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Stub Body Ban
 
-- Rejects single-statement function bodies that are stub forms (return undefined, panic with placeholder phrase, or unreachable in non-noreturn fns)
+- Rejects single-statement stub bodies (undefined, placeholder panic, unreachable in value fn)
 
 ## Doc Quality
 
