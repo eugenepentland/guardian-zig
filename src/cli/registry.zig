@@ -27,7 +27,6 @@ const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
 const check_orphan_files = @import("../checks/orphan_files.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
 const check_doc_quality = @import("../checks/doc_quality.zig");
-const check_comptime_quota = @import("../checks/comptime_quota.zig");
 const check_int_from_float_budget = @import("../checks/int_from_float_budget.zig");
 const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
@@ -178,11 +177,6 @@ pub const all: []const Command = &.{
         .summary = "Reject empty or stub /// doc comments on public declarations",
         .needs_ast = .yes,
         .run = check_doc_quality.run,
-    },
-    .{
-        .name = "comptime-quota",
-        .summary = "Track @setEvalBranchQuota call count and max value via snapshot",
-        .run = check_comptime_quota.run,
     },
     .{
         .name = "int-from-float-budget",

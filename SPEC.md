@@ -105,6 +105,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Tracks panic and unreachable token counts against a snapshot
 - Tracks TODO and FIXME comment counts against a snapshot
+- Tracks @setEvalBranchQuota call count and max value against a snapshot
 
 ## Catch Discipline
 
@@ -162,10 +163,6 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Doc Quality
 
 - Rejects empty or stub doc comments on public declarations
-
-## Comptime Quota
-
-- Tracks @setEvalBranchQuota call count and max value against a snapshot
 
 ## Int From Float Budget
 

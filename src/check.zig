@@ -131,7 +131,6 @@ test {
     _ = @import("checks/catch_discipline.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/compile_error_explanation.zig");
-    _ = @import("checks/comptime_quota.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/doc_comments.zig");
