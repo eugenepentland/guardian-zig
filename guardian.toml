@@ -15,9 +15,11 @@ forbidden = ["config"]
 
 # Cognitive-complexity is intentionally lenient for Guardian's own source —
 # the parse/analyze/parseContent functions are state machines whose
-# refactor is queued separately. New consumers should use the default 15.
+# refactor is queued separately. Ratcheted to just above the current worst
+# case (config.parse at 71); shrink further as those functions are split.
+# New consumers should use the default 15.
 [complexity]
-max_score = 80
+max_score = 75
 
 # Nesting-depth is also lenient here for the same reason: the
 # allocator-hygiene + debug-print-ban token-chain state machines
@@ -31,12 +33,11 @@ max_depth = 8
 [anytype_budget]
 max_per_file = 7
 
-# config.parse is a ~175-line state-machine TOML reader, and the
-# allocator-hygiene + debug-print-ban visitors are ~115-line token
-# state machines. Refactor of all three is queued separately. New
-# consumers should keep the default 60.
+# config.parse is a ~219-line state-machine TOML reader. Refactor (a
+# table-driven Section->field map) is queued separately; ratcheted to just
+# above it. New consumers should keep the default 60.
 [function_length]
-max_lines = 230
+max_lines = 220
 
 # walk.walkZigFiles / walkRecursive and snapshot_helper.lifecycle each
 # take 5 params (allocator + 3 inputs + opts/visitor). Bundling into
@@ -46,11 +47,12 @@ max_lines = 230
 max_params = 5
 
 # The Config aggregator holds one field per per-check config struct
-# (14 fields today, climbing as new checks land). Splitting into
+# (~20 fields today, climbing as new checks land). Splitting into
 # nested category structs would force `cfg.x.y` everywhere, churning
-# every check. New consumers should keep the default 7.
+# every check. Ratcheted to 22 (just above current). New consumers
+# should keep the default 7.
 [type_size]
-max_fields = 30
+max_fields = 22
 
 # Pattern-matching / dispatch fns (e.g. `suspicious` in ban-hardcoded-paths,
 # `classify` in stub-body-ban) idiomatically have many early returns.
@@ -60,7 +62,7 @@ max_fields = 30
 max_returns = 10
 
 # Guardian's registry holds one-line check definitions whose summaries
-# add up to ~150 chars each. Several internal helpers also exceed 140.
-# New consumers should keep the framework recommendation 100-120.
+# reach ~199 chars. Wrapping them multi-line would let this ratchet toward
+# 140; until then it's snug at 200. New consumers should keep 100-120.
 [line_length]
-max_len = 220
+max_len = 200
