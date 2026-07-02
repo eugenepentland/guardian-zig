@@ -171,7 +171,6 @@ test {
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unwrap_discipline.zig");
     _ = @import("checks/usingnamespace_ban.zig");
-    _ = @import("checks/vague_name_blacklist.zig");
 }
 
 // Meta-guard: the block above is hand-maintained, and the whole reason ~78

@@ -51,7 +51,6 @@ const check_prod_imports_no_test = @import("../checks/no_test_imports_in_prod.zi
 const check_bool_ops_per_condition = @import("../checks/bool_ops_per_condition.zig");
 const check_returns_per_function = @import("../checks/returns_per_function.zig");
 const check_line_length = @import("../checks/line_length.zig");
-const check_vague_name_blacklist = @import("../checks/vague_name_blacklist.zig");
 const check_boolean_param_ban = @import("../checks/boolean_param_ban.zig");
 const check_magic_number = @import("../checks/magic_number.zig");
 const check_repeated_string_literal = @import("../checks/repeated_string_literal.zig");
@@ -283,12 +282,6 @@ pub const all: []const Command = &.{
         .run = check_returns_per_function.run,
     },
     .{ .name = "line-length", .summary = "Cap source line length", .run = check_line_length.run },
-    .{
-        .name = "vague-name-blacklist",
-        .summary = "Reject vague identifier names on public declarations",
-        .needs_ast = .yes,
-        .run = check_vague_name_blacklist.run,
-    },
     .{
         .name = "boolean-param-ban",
         .summary = "Reject bool parameters in public functions",

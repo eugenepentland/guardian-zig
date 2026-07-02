@@ -14,6 +14,25 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
+// Vague public identifiers (folded in from vague-name-blacklist). Exact match
+// only — `ConfigManager` / `tmpBuf` pass; these bare names name nothing concrete.
+const vague_names = [_][]const u8{
+    "tmp",     "data",      "info",    "obj",     "foo",
+    "bar",     "baz",       "mgr",     "Helper",  "Util",
+    "Manager", "Processor", "Handler", "Wrapper",
+};
+
+fn isVague(name: []const u8) bool {
+    for (vague_names) |b| if (std.mem.eql(u8, name, b)) return true;
+    return false;
+}
+
+fn checkVagueName(ctx: *ScanCtx, rel_path: []const u8, kind: []const u8, name: []const u8) anyerror!void {
+    if (!isVague(name)) return;
+    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: {s} '{s}' uses a vague name", .{ rel_path, kind, name });
+    try ctx.violations.append(ctx.allocator, msg);
+}
+
 const CaseKind = enum { pascal, camel, snake, other };
 
 fn lowerLeadCase(name: []const u8) CaseKind {
@@ -82,11 +101,13 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
         try checkFn(ctx, entry.rel_path, f);
+        try checkVagueName(ctx, entry.rel_path, "pub fn", f.name);
     }
 
     const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
     for (consts) |c| {
         try checkConst(ctx, entry.rel_path, c);
+        try checkVagueName(ctx, entry.rel_path, "pub const", c.name);
     }
 }
 
@@ -117,6 +138,19 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 // spec: Naming - camelCase pub fn must not return type
 // spec: Naming - snake_case pub fn is rejected
 // spec: Naming - pub const struct/enum/union with fields must be PascalCase
+// spec: Tier 2 Anti-patterns - Rejects vague identifier names on public declarations
+
+test "visit flags a vague public name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    // PascalCase (naming OK) but a blacklisted vague name → flagged once.
+    const content = "pub const Manager = struct { x: i32 };\n";
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
 
 test "caseKind classifies common cases" {
     try std.testing.expectEqual(@as(@TypeOf(caseKind("Foo")), .pascal), caseKind("Foo"));
