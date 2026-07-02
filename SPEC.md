@@ -79,6 +79,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Hashes the guardian input set into a stable digest
 - Round-trips the digest through the cache file
+- Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
 
 ## Run All
 

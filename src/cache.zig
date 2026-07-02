@@ -11,7 +11,7 @@ pub const Error = walk.WalkError;
 
 // Bump when the hashed input set below changes, so a stale cache written by
 // an older guardian can never produce a wrong skip.
-const VERSION = "guardian-cache-v1";
+const VERSION = "guardian-cache-v2";
 const CACHE_LEAF = ".guardian/cache/inputs.sha256";
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const STORED_MAX_BYTES = 128;
@@ -42,16 +42,36 @@ fn readSingle(arena: Allocator, items: *std.ArrayListUnmanaged(Item), project_di
     try items.append(arena, .{ .path = try arena.dupe(u8, leaf), .content = content });
 }
 
+/// Identity of the running guardian-check binary: absolute path, size, and
+/// mtime. Run via `zig build`, the binary lives in a content-addressed
+/// `o/<hash>/` artifact dir, so any guardian source or config change lands
+/// at a new path with a fresh mtime — the same invalidation guarantee as
+/// hashing the binary's bytes without paying a content hash of a multi-MB
+/// executable on every run. Errors propagate: no identity means no skip.
+fn selfBinaryId(arena: Allocator) ![]const u8 {
+    const exe_path = try std.fs.selfExePathAlloc(arena);
+    const st = try std.fs.cwd().statFile(exe_path);
+    return std.fmt.allocPrint(arena, "{s}\x00{d}\x00{d}", .{ exe_path, st.size, st.mtime });
+}
+
 /// Digest over every file guardian reads as a check input: the `.zig` files
 /// under src/ and test/, the root build.zig, the spec file, guardian.toml,
 /// and the `.guardian/` tree (baselines + snapshots, minus the cache
-/// itself). Files outside this set — e.g. design sources — never affect it,
-/// which is what lets an unrelated edit skip the whole run.
+/// itself) — plus the identity of the guardian binary itself, so upgrading
+/// guardian (new or changed checks) re-scans even when the project's own
+/// files are untouched. Files outside this set — e.g. design sources —
+/// never affect it, which is what lets an unrelated edit skip the whole run.
 ///
 /// Keep this in sync with what the checks actually read: if a new check
 /// reads a new path, add it here and bump VERSION, or the cache could
 /// wrongly skip a real change.
 pub fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest {
+    return digestWithBinaryId(arena, project_dir, spec_file, try selfBinaryId(arena));
+}
+
+/// Testable core of `inputDigest`: takes the guardian binary identity as an
+/// explicit argument instead of reading the running executable's.
+fn digestWithBinaryId(arena: Allocator, project_dir: []const u8, spec_file: []const u8, binary_id: []const u8) Error!Digest {
     var items: std.ArrayListUnmanaged(Item) = .empty;
     var ctx: Collector = .{ .arena = arena, .items = &items };
     const v: walk.Visitor = .{ .ctx = @ptrCast(&ctx), .visit = collect };
@@ -72,6 +92,9 @@ pub fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const
     var h = Sha256.init(.{});
     h.update(VERSION);
     var len_buf: [@sizeOf(usize)]u8 = undefined;
+    std.mem.writeInt(usize, &len_buf, binary_id.len, .little);
+    h.update(&len_buf);
+    h.update(binary_id);
     for (items.items) |it| {
         std.mem.writeInt(usize, &len_buf, it.path.len, .little);
         h.update(&len_buf);
@@ -126,6 +149,18 @@ test "inputDigest is deterministic for an unchanged input set" {
     const d1 = try inputDigest(a, "test-project", "SPEC.md");
     const d2 = try inputDigest(a, "test-project", "SPEC.md");
     try std.testing.expect(eql(d1, d2));
+}
+
+// spec: Skip Cache - Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
+test "a different guardian binary identity changes the digest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const d1 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-1");
+    const d2 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-2");
+    const d3 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-1");
+    try std.testing.expect(!eql(d1, d2));
+    try std.testing.expect(eql(d1, d3));
 }
 
 test "writeStored then readStored round-trips the digest" {
