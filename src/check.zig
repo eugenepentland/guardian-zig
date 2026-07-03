@@ -169,6 +169,7 @@ test {
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
     _ = @import("checks/type_size.zig");
+    _ = @import("checks/unsafe_ops_budget.zig");
     _ = @import("checks/unwrap_discipline.zig");
     _ = @import("checks/usingnamespace_ban.zig");
 }

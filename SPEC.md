@@ -172,6 +172,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Tracks @intFromFloat call count against a snapshot
 
+## Unsafe Ops Budget
+
+- Tracks unsafe-cast builtin counts against a snapshot
+- Tracks undefined re-assignment count against a snapshot
+- Excludes declaration-init undefined and test blocks from counts
+
 ## Type Size
 
 - Caps fields per pub struct/union/opaque
