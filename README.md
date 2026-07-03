@@ -102,6 +102,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **ban-sleep** | `std.Thread.sleep` / `std.time.sleep` outside test infrastructure |
 | **ban-globals** | top-level `pub var` outside `wiring` / `main` |
 | **ban-hardcoded-paths** | absolute `/etc`, `/usr`, Windows `C:\`, `http://`, `https://` literals |
+| **ban-secrets** | hardcoded credentials — known vendor token formats (AWS/GitHub/Slack/Google/OpenAI/Stripe-live/JWT), PEM private-key headers, and entropy-gated `password`/`token`/`secret`-named assignments (precision-first: publishable/test keys and placeholders are ignored) |
 | **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests / CLI command modules (`cli/*`, `commands*`) |
 
 ### Constructor & DI Hygiene (Tier 1)

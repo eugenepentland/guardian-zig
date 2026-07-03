@@ -123,6 +123,7 @@ test {
     _ = @import("checks/banned_symbol_helper.zig");
     _ = @import("checks/ban_net.zig");
     _ = @import("checks/ban_rng.zig");
+    _ = @import("checks/ban_secrets.zig");
     _ = @import("checks/ban_sleep.zig");
     _ = @import("checks/ban_time.zig");
     _ = @import("checks/boolean_param_ban.zig");

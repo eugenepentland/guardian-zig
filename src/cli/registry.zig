@@ -39,6 +39,7 @@ const check_ban_env = @import("../checks/ban_env.zig");
 const check_ban_sleep = @import("../checks/ban_sleep.zig");
 const check_ban_globals = @import("../checks/ban_globals.zig");
 const check_ban_hardcoded_paths = @import("../checks/ban_hardcoded_paths.zig");
+const check_ban_secrets = @import("../checks/ban_secrets.zig");
 const check_compile_error_explanation = @import("../checks/compile_error_explanation.zig");
 const check_init_hygiene = @import("../checks/init_hygiene.zig");
 const check_static_factory_ban = @import("../checks/static_factory_ban.zig");
@@ -220,6 +221,12 @@ pub const all: []const Command = &.{
         .name = "ban-hardcoded-paths",
         .summary = "Reject hardcoded absolute paths and URLs in string literals",
         .run = check_ban_hardcoded_paths.run,
+    },
+    .{
+        .name = "ban-secrets",
+        .summary = "Reject hardcoded credentials " ++
+            "(known token formats + entropy-gated secret assignments)",
+        .run = check_ban_secrets.run,
     },
     .{
         .name = "compile-error-explanation",

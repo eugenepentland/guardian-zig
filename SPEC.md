@@ -247,3 +247,13 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects sleep calls outside test infrastructure
 - Rejects mutable pub var globals outside wiring/main
 - Rejects hardcoded absolute paths and URLs in string literals
+
+## Ban Secrets
+
+- Flags known-format vendor tokens like AWS and GitHub keys
+- Flags PEM private-key headers even inside test and fixture paths
+- Flags high-entropy secret-named assignments outside tests
+- Ignores placeholder and env-var-name secret assignments
+- Ignores publishable and test vendor keys
+- Skips the entropy heuristic in test blocks and fixture paths
+- Redacts the matched secret in the violation message

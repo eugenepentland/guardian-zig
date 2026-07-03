@@ -75,6 +75,8 @@ src/checks/ban_net.zig::analyzeContent | fn analyzeContent( allocator: std.mem.A
 src/checks/ban_net.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/ban_rng.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/ban_rng.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/ban_secrets.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/ban_secrets.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/ban_sleep.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/ban_sleep.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/ban_time.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
