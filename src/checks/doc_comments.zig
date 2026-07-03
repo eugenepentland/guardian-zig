@@ -20,6 +20,22 @@ const placeholder_phrases = [_][]const u8{
     "Fill in",
 };
 
+// Protocol/trivial method names exempt from the doc-comment *presence* rule by
+// default: their contract is conventional (deinit frees, format writes, next
+// advances an iterator, reset restores initial state), so a mandatory `///`
+// there is boilerplate. A downstream project extends this via
+// [doc_quality] exempt_names; the doc *quality* rule still applies when a doc
+// is present.
+const default_exempt_names = [_][]const u8{ "deinit", "format", "next", "reset" };
+
+/// True when `name` is in the compiled protocol defaults or the caller's extra
+/// exempt list — i.e. the presence rule should not fire for this decl.
+fn isPresenceExempt(name: []const u8, extra: []const []const u8) bool {
+    for (default_exempt_names) |n| if (std.mem.eql(u8, name, n)) return true;
+    for (extra) |n| if (std.mem.eql(u8, name, n)) return true;
+    return false;
+}
+
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
@@ -56,9 +72,10 @@ fn lengthVerdict(trimmed: []const u8, min_chars: u32) Verdict {
 }
 
 /// The single per-decl issue phrase (or null when the decl is fine): missing
-/// presence always fails; the quality verdicts apply only when enabled.
-fn declIssue(has_doc: bool, doc_text: ?[]const u8, cfg: config_mod.DocQualityCfg) ?[]const u8 {
-    if (!has_doc) return "has no /// doc comment";
+/// presence fails unless `name` is exempt; the quality verdicts apply only
+/// when enabled and are never suppressed by the presence exemption.
+fn declIssue(name: []const u8, has_doc: bool, doc_text: ?[]const u8, cfg: config_mod.DocQualityCfg) ?[]const u8 {
+    if (!has_doc) return if (isPresenceExempt(name, cfg.exempt_names)) null else "has no /// doc comment";
     if (!cfg.enabled) return null;
     return switch (judge(doc_text, cfg.min_chars)) {
         .ok => null,
@@ -74,7 +91,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
     const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
     for (fns) |f| {
-        const issue = declIssue(f.has_doc_comment, f.doc_text, ctx.cfg) orelse continue;
+        const issue = declIssue(f.name, f.has_doc_comment, f.doc_text, ctx.cfg) orelse continue;
         const msg = try std.fmt.allocPrint(a, "{s}: pub fn {s}: {s}", .{ entry.rel_path, f.name, issue });
         try ctx.violations.append(a, msg);
     }
@@ -85,7 +102,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
             .struct_, .enum_, .union_, .opaque_ => {},
             else => continue,
         }
-        const issue = declIssue(c.has_doc_comment, c.doc_text, ctx.cfg) orelse continue;
+        const issue = declIssue(c.name, c.has_doc_comment, c.doc_text, ctx.cfg) orelse continue;
         const msg = try std.fmt.allocPrint(
             a,
             "{s}: pub const {s} ({s}): {s}",
@@ -148,6 +165,21 @@ test "judge classifies doc bodies" {
     try std.testing.expectEqual(Verdict.empty, judge("   \n  \t", 12));
     try std.testing.expectEqual(Verdict.placeholder, judge("TODO", 12));
     try std.testing.expectEqual(Verdict.too_short, judge("hi", 12));
+}
+
+// spec: Doc Comments - Exempts protocol and trivial method names from the presence requirement
+test "presence exemption spares protocol names but quality still applies" {
+    // Undocumented protocol names are exempt from the presence rule; a real
+    // name still fails; a present-but-too-short doc still fails on quality.
+    const cfg: config_mod.DocQualityCfg = .{ .enabled = true, .min_chars = 12 };
+    try std.testing.expect(declIssue("deinit", false, null, cfg) == null);
+    try std.testing.expect(declIssue("next", false, null, cfg) == null);
+    try std.testing.expect(declIssue("compute", false, null, cfg) != null);
+    // A documented `deinit` with a too-short body still trips the quality rule.
+    try std.testing.expect(declIssue("deinit", true, "x", cfg) != null);
+    // An extra configured exempt name is honored.
+    const with_extra: config_mod.DocQualityCfg = .{ .enabled = true, .exempt_names = &.{"drain"} };
+    try std.testing.expect(declIssue("drain", false, null, with_extra) == null);
 }
 
 test "visit flags missing doc comment" {

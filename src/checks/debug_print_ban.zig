@@ -13,11 +13,12 @@ const rules = [_]helper.Rule{
 
 const opts: helper.ScanOpts = .{
     .rules = &rules,
-    // Default: nothing allowed — downstream consumers route logging through
-    // their adapter. Guardian's own diagnostic-warning sites (parse failures,
-    // snapshot read failures, test-cleanup notices) are exempted via [[allow]]
-    // in Guardian's guardian.toml.
-    .allowed_paths = &.{},
+    // CLI command modules are exempt by default: a command-line tool printing
+    // to stdout is the program doing its job, not a stray debug trace. The
+    // globs cover the conventional `cli/` and `commands`/`commands/` layouts
+    // (top-level or nested). Downstream consumers route non-CLI logging through
+    // their adapter; extra self-hosting exemptions merge in via [[allow]].
+    .allowed_paths = &.{ "cli/*", "*/cli/*", "commands*", "*/commands*" },
     .fix_hint = "route through reporter.print/detail, or alias once at file scope and use the alias.",
 };
 
@@ -51,6 +52,25 @@ test "analyzeContent flags std.debug.print call outside main" {
     ;
     const out = try analyzeContent(a, "src/x.zig", content);
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+// spec: Debug Print Ban - Exempts CLI command modules where printing to stdout is the program working
+test "analyzeContent exempts CLI command modules" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\fn handle() void {
+        \\    std.debug.print("result\n", .{});
+        \\}
+    ;
+    // The same print flags in a normal module but is allowed in cli/ and
+    // commands/ modules (top-level or nested).
+    try std.testing.expectEqual(@as(usize, 1), (try analyzeContent(a, "src/x.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "src/cli/run.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "app/cli/run.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "commands/build.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "src/commands/build.zig", content)).len);
 }
 
 test "analyzeContent allows std.debug.print inside pub fn main" {

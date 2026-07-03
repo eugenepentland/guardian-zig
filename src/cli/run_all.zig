@@ -73,6 +73,9 @@ const retired = [_]RetiredCheck{
     .{ .name = "doc-quality", .folded_into = "doc-comments" },
     .{ .name = "vague-name-blacklist", .folded_into = "naming" },
     .{ .name = "dup-const", .folded_into = "repeated-string-literal" },
+    // Retired as purely stylistic: it punished idiomatic early-return dispatch
+    // and duplicated what cognitive-complexity already scores.
+    .{ .name = "returns-per-function", .folded_into = "cognitive-complexity" },
 };
 
 fn retiredInfo(name: []const u8) ?RetiredCheck {

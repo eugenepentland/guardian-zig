@@ -164,3 +164,15 @@ test "analyzeContent counts ! (negation)" {
     );
     try std.testing.expect(out.len >= 1);
 }
+
+test "analyzeContentWithLimit honors a custom cap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Two ops: under the default 3, but over a tightened cap of 1.
+    const out = try analyzeContentWithLimit(arena.allocator(), "src/x.zig",
+        \\fn x(a: bool, b: bool, c: bool) void {
+        \\    if (a and b or c) {}
+        \\}
+    , 1);
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}

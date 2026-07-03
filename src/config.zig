@@ -39,7 +39,11 @@ pub const FunctionSizeCfg = struct {
 /// Per-check config for cognitive-complexity scoring.
 pub const ComplexityCfg = struct {
     enabled: bool = true,
-    max_score: u32 = 15,
+    /// Cognitive-complexity cap. Default 25 (not 15): the fixed low caps in
+    /// the FRAMEWORK have no research basis, and a real production codebase
+    /// relaxed every shape threshold — 25 flags genuinely tangled control
+    /// flow while sparing idiomatic dispatch/parser functions.
+    max_score: u32 = 25,
 };
 
 /// Per-check config for the anytype-budget cap.
@@ -66,6 +70,11 @@ pub const DocQualityCfg = struct {
     enabled: bool = true,
     /// Minimum non-whitespace character count after the `///` prefix.
     min_chars: u32 = 12,
+    /// Extra decl names exempt from the doc-comment *presence* requirement,
+    /// merged with the compiled protocol/trivial defaults (deinit, format,
+    /// next, reset). Matched on the bare fn/type name. The doc *quality*
+    /// check still applies to any doc that is present.
+    exempt_names: []const []const u8 = &.{},
 };
 
 /// Per-check config for the type-size cap on pub containers.
@@ -84,16 +93,18 @@ pub const TypeSizeCfg = struct {
 pub const FunctionLengthCfg = struct {
     enabled: bool = true,
     /// Max source lines per fn decl, counted from the `fn` keyword line
-    /// through the closing `}` line.
-    max_lines: u32 = 60,
+    /// through the closing `}` line. Default 120 (not 60): the low cap has no
+    /// research basis and forced artificial splits; a real codebase relaxed it.
+    max_lines: u32 = 120,
 };
 
 /// Per-check config for the nesting-depth cap.
 pub const NestingDepthCfg = struct {
     enabled: bool = true,
     /// Max brace-nesting depth inside a function body. Body itself
-    /// counts as depth 1; nested blocks each add 1.
-    max_depth: u32 = 4,
+    /// counts as depth 1; nested blocks each add 1. Default 5 (not 4): the
+    /// low cap has no research basis and a real codebase relaxed it.
+    max_depth: u32 = 5,
 };
 
 /// Project-wide baseline mode. When enabled, every check's current
@@ -118,15 +129,6 @@ pub const BoolOpsCfg = struct {
     max_ops: u32 = 3,
 };
 
-/// Per-check config for the returns-per-function cap.
-pub const ReturnsPerFnCfg = struct {
-    enabled: bool = true,
-    /// Max `return` keywords per fn body (excludes nested fn defs and
-    /// `orelse`/`catch` guard-clause returns, which are Zig's error-model
-    /// idiom rather than control-flow branching).
-    max_returns: u32 = 5,
-};
-
 /// Per-check config for escape-discipline (raw interpolation into markup).
 /// Opt-in: heuristic, most valuable for projects that render HTML/SVG from
 /// attacker-influenced text (servers, doc generators).
@@ -138,6 +140,14 @@ pub const EscapeDisciplineCfg = struct {
 /// with domain absence). Opt-in: strict, catches `catch return null`/
 /// `catch continue` on allocating calls that drop data on OOM.
 pub const OomDisciplineCfg = struct {
+    enabled: bool = false,
+};
+
+/// Per-check config for the magic-number check. Opt-in (default off): in
+/// literal-heavy domains (geometry, electrical constants) the bare-integer
+/// rule is pure noise, so a production user disabled it wholesale. Projects
+/// that want it opt in via `[magic_number] enabled = true`.
+pub const MagicNumberCfg = struct {
     enabled: bool = false,
 };
 
@@ -166,7 +176,9 @@ pub const TestCoverageCfg = struct {
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
-    max_file_lines: u32 = 500,
+    /// Max lines per .zig file. Default 1000 (not 500): the low cap has no
+    /// research basis and a real production codebase relaxed it.
+    max_file_lines: u32 = 1000,
     /// When true, `all` skips the whole run when its hashed input set is
     /// unchanged since the last all-green run (see cache.zig).
     cache_enabled: bool = true,
@@ -198,11 +210,11 @@ pub const Config = struct {
     nesting_depth: NestingDepthCfg = .{},
     test_coverage: TestCoverageCfg = .{},
     bool_ops: BoolOpsCfg = .{},
-    returns_per_fn: ReturnsPerFnCfg = .{},
     line_length: LineLengthCfg = .{},
     baseline: BaselineCfg = .{},
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
+    magic_number: MagicNumberCfg = .{},
     dead_pub: DeadPubCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},

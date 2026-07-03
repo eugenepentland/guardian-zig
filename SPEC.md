@@ -12,6 +12,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses a top-level disabled list of check names
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
+- Defaults magic-number off and enables it via [magic_number] enabled
 
 ## Spec Coverage
 
@@ -29,6 +30,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Generates starter SPEC.md from pub fn signatures via spec-init
 - Normalizes spec keys for whitespace-insensitive comparison
+- Strips trailing sentence punctuation when normalizing spec keys
 
 ## File Size
 
@@ -68,6 +70,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Requires /// on every pub fn
 - Requires /// on every pub struct/enum/union/opaque
 - Rejects empty or stub doc comments on public declarations
+- Exempts protocol and trivial method names from the presence requirement
 
 ## Imports
 
@@ -155,6 +158,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects std.debug.print call expressions outside test blocks and pub fn main
 - Rejects std.log.* call expressions outside test blocks and pub fn main
+- Exempts CLI command modules where printing to stdout is the program working
 
 ## Orphan Files
 
@@ -218,8 +222,6 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Complexity Bounds
 
 - Caps boolean operators per condition
-- Caps return statements per function body
-- Excludes orelse/catch guard-clause returns from the count
 
 ## Test Hygiene
 

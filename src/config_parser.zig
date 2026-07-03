@@ -32,11 +32,11 @@ const Section = enum {
     nesting_depth,
     test_coverage,
     bool_ops,
-    returns_per_fn,
     line_length,
     baseline,
     escape_discipline,
     oom_discipline,
+    magic_number,
     dead_pub,
     unknown,
 };
@@ -191,17 +191,17 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .test_coverage => try applyArrayCfg("test_coverage", "exempt_names", ctx, kv),
         .function_size => applyU32Cfg("function_size", "max_params", ctx, kv),
         .complexity => applyU32Cfg("complexity", "max_score", ctx, kv),
-        .doc_quality => applyU32Cfg("doc_quality", "min_chars", ctx, kv),
+        .doc_quality => try applyDocQualityKey(ctx, kv),
         .function_length => applyU32Cfg("function_length", "max_lines", ctx, kv),
         .nesting_depth => applyU32Cfg("nesting_depth", "max_depth", ctx, kv),
         .bool_ops => applyU32Cfg("bool_ops", "max_ops", ctx, kv),
-        .returns_per_fn => applyU32Cfg("returns_per_fn", "max_returns", ctx, kv),
         .line_length => applyU32Cfg("line_length", "max_len", ctx, kv),
         .anytype_budget => try applyAnytypeBudgetKey(ctx, kv),
         .type_size => try applyTypeSizeKey(ctx, kv),
         .baseline => applyEnabledCfg("baseline", ctx, kv),
         .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
+        .magic_number => applyEnabledCfg("magic_number", ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .unknown => {},
     }
@@ -221,11 +221,11 @@ fn sectionFor(name: []const u8) Section {
         .{ "nesting_depth", Section.nesting_depth },
         .{ "test_coverage", Section.test_coverage },
         .{ "bool_ops", Section.bool_ops },
-        .{ "returns_per_fn", Section.returns_per_fn },
         .{ "line_length", Section.line_length },
         .{ "baseline", Section.baseline },
         .{ "escape_discipline", Section.escape_discipline },
         .{ "oom_discipline", Section.oom_discipline },
+        .{ "magic_number", Section.magic_number },
         .{ "dead_pub", Section.dead_pub },
     };
     inline for (map) |entry| {
@@ -311,6 +311,17 @@ fn applyTypeSizeKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     }
 }
 
+fn applyDocQualityKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.doc_quality;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "min_chars")) {
+        g.min_chars = parseU32(kv.val, g.min_chars);
+    } else if (std.mem.eql(u8, kv.key, "exempt_names")) {
+        g.exempt_names = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
 /// Applies an `enabled` toggle to an enabled-only cfg group.
 fn applyEnabledCfg(comptime group: []const u8, ctx: ApplyCtx, kv: KeyVal) void {
     const g = &@field(ctx.cfg, group);
@@ -376,7 +387,7 @@ test "parse default config" {
     defer arena.deinit();
     const cfg = try parse(arena.allocator(), "");
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
-    try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
+    try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
 }
 
 test "parse config with values" {
@@ -423,7 +434,7 @@ test "parse malformed values fall back to defaults" {
     ;
     const cfg = try parse(arena.allocator(), content);
     // All should fall back to defaults
-    try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
+    try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
 }
 
@@ -515,6 +526,21 @@ test "parse [[allow]] per-check path overrides" {
     try std.testing.expectEqual(@as(usize, 0), cfg.extraAllowed("nonexistent").len);
 }
 
+// spec: Configuration - Defaults magic-number off and enables it via [magic_number] enabled
+test "magic-number defaults off and opts in via config" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: off.
+    const default_cfg = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(false, default_cfg.magic_number.enabled);
+    // Opt in via section.
+    const opted = try parse(arena.allocator(),
+        \\[magic_number]
+        \\enabled = true
+    );
+    try std.testing.expectEqual(true, opted.magic_number.enabled);
+}
+
 test "parse per-check exclude arrays" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -562,7 +588,7 @@ test "parse unknown section silently ignored" {
     try std.testing.expectEqualStrings("S.md", cfg.spec_file);
     // max_file_lines comes after [future_check]; section stays .unknown so it
     // does not apply — accept the default.
-    try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
+    try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
 }
 
 test "parse named section then boundary" {
@@ -587,5 +613,5 @@ test "load falls back to defaults when guardian.toml is absent" {
     defer arena.deinit();
     const cfg = load(arena.allocator(), "definitely/not/a/real/dir");
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
-    try std.testing.expectEqual(@as(u32, 500), cfg.max_file_lines);
+    try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
 }

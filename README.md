@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-54 checks gate Guardian's own self-build (plus the `spec-init` generator). Most are hard-block; `test-coverage`, `escape-discipline`, and `oom-discipline` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`); their old names are still tolerated in a `disabled` list.
+54 checks gate Guardian's own self-build (plus the `spec-init` generator). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, and `magic-number` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -46,10 +46,10 @@ zig build  # guardian gates every build
 ### Structural
 | Check | Blocks on |
 |---|---|
-| **file-size** | Any .zig file exceeding `max_file_lines` (default 500) |
+| **file-size** | Any .zig file exceeding `max_file_lines` (default 1000) |
 | **function-size** | Any function with more than `max_params` parameters (default 6) |
-| **function-length** | Any fn over `max_lines` source lines (default 60) |
-| **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 4) |
+| **function-length** | Any fn over `max_lines` source lines (default 120) |
+| **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
@@ -66,11 +66,11 @@ zig build  # guardian gates every build
 | Check | Blocks on |
 |---|---|
 | **naming** | PascalCase fns that don't return `type`; lowercase types; vague public identifiers (`tmp` / `data` / `Manager` / `Util` etc.) |
-| **doc-comments** | `pub fn` or `pub struct/enum/union` missing a `///` doc comment, or one that's empty / placeholder / under `min_chars` (default 12) |
-| **cognitive-complexity** | Per-function complexity score (default 15) |
+| **doc-comments** | `pub fn` or `pub struct/enum/union` missing a `///` doc comment (protocol names `deinit`/`format`/`next`/`reset` exempt, extend via `doc_quality.exempt_names`), or one that's empty / placeholder / under `min_chars` (default 12) |
+| **cognitive-complexity** | Per-function complexity score (default 25) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
-| **debug-print-ban** | `std.debug.print(...)` calls outside `pub fn main` / test blocks |
+| **debug-print-ban** | `std.debug.print(...)` calls outside `pub fn main` / test blocks / CLI command modules (`cli/*`, `commands*`) |
 
 ### Error handling
 | Check | Blocks on |
@@ -102,7 +102,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **ban-sleep** | `std.Thread.sleep` / `std.time.sleep` outside test infrastructure |
 | **ban-globals** | top-level `pub var` outside `wiring` / `main` |
 | **ban-hardcoded-paths** | absolute `/etc`, `/usr`, Windows `C:\`, `http://`, `https://` literals |
-| **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests |
+| **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests / CLI command modules (`cli/*`, `commands*`) |
 
 ### Constructor & DI Hygiene (Tier 1)
 | Check | Blocks on |
@@ -124,14 +124,13 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | Check | Blocks on |
 |---|---|
 | **bool-ops-per-condition** | More than `max_ops` (default 3) `and`/`or`/`!` per condition |
-| **returns-per-function** | More than `max_returns` (default 5) `return` keywords per fn body (`orelse`/`catch` guard returns excluded) |
 
 ### Tier 2 Anti-patterns
 | Check | Blocks on |
 |---|---|
 | **line-length** | Source line over `max_len` codepoints (default 120; `\\` multiline-string lines skipped) |
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
-| **magic-number** | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
+| **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
@@ -230,7 +229,7 @@ Optional — sensible defaults work out of the box. Each check has its own secti
 
 ```toml
 spec_file = "SPEC.md"
-max_file_lines = 500
+max_file_lines = 1000
 file_size_exclude = ["generated/*"]
 parallel = true    # run checks across cores (default); false forces sequential
 
@@ -242,7 +241,7 @@ forbidden = ["utils"]
 max_params = 6
 
 [complexity]
-max_score = 15
+max_score = 25
 
 [anytype_budget]
 max_per_file = 2
@@ -252,10 +251,10 @@ exclude = ["reporter.zig"]   # variadic/formatting boundaries are exempt
 forbidden_phrases = ["properly", "as needed"]
 
 [function_length]
-max_lines = 60
+max_lines = 120
 
 [nesting_depth]
-max_depth = 4
+max_depth = 5
 
 [type_size]
 max_fields = 7

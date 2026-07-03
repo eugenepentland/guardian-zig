@@ -94,6 +94,16 @@ test "analyzeContent flags overlong line" {
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }
 
+test "analyzeContentWithLimit honors a custom cap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var buf: [200]u8 = undefined;
+    @memset(&buf, 'x');
+    // 50 chars: under the default 120, but over a tightened cap of 40.
+    const out = try analyzeContentWithLimit(arena.allocator(), "src/x.zig", buf[0..50], 40);
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
 test "analyzeContent allows short lines" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

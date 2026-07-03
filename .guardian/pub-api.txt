@@ -135,10 +135,6 @@ src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allo
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_switch_on_enum.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/returns_per_function.zig::ScanInput struct_
-src/checks/returns_per_function.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
-src/checks/returns_per_function.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, input: ScanInput, ) Allocator.Error![]const []const u8
-src/checks/returns_per_function.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -184,10 +180,10 @@ src/config.zig::EscapeDisciplineCfg struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
 src/config.zig::LineLengthCfg struct_
+src/config.zig::MagicNumberCfg struct_
 src/config.zig::NestingDepthCfg struct_
 src/config.zig::OomDisciplineCfg struct_
 src/config.zig::OrphanFilesCfg struct_
-src/config.zig::ReturnsPerFnCfg struct_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_

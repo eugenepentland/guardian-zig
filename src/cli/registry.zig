@@ -48,7 +48,6 @@ const check_test_has_assertion = @import("../checks/test_has_assertion.zig");
 const check_test_no_conditional = @import("../checks/test_no_conditional.zig");
 const check_prod_imports_no_test = @import("../checks/no_test_imports_in_prod.zig");
 const check_bool_ops_per_condition = @import("../checks/bool_ops_per_condition.zig");
-const check_returns_per_function = @import("../checks/returns_per_function.zig");
 const check_line_length = @import("../checks/line_length.zig");
 const check_boolean_param_ban = @import("../checks/boolean_param_ban.zig");
 const check_magic_number = @import("../checks/magic_number.zig");
@@ -268,12 +267,6 @@ pub const all: []const Command = &.{
         .name = "bool-ops-per-condition",
         .summary = "Cap boolean operators per condition",
         .run = check_bool_ops_per_condition.run,
-    },
-    .{
-        .name = "returns-per-function",
-        .summary = "Cap return statements per function body",
-        .needs_ast = .yes,
-        .run = check_returns_per_function.run,
     },
     .{ .name = "line-length", .summary = "Cap source line length", .run = check_line_length.run },
     .{

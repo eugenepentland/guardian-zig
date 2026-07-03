@@ -24,13 +24,26 @@ fn isExcluded(rel_path: []const u8, patterns: []const []const u8) bool {
     return false;
 }
 
-/// True for a `writer`/`w`/`*_writer` parameter name — the idiomatic Zig
-/// generic format-target, which is polymorphism (many concrete Writer types)
-/// rather than the untyped-generics smell the budget targets.
+// Exact format-target param names (case-insensitive) — the idiomatic Zig
+// generic sinks. The old list matched only `writer`/`w`/`*_writer`, so a
+// codebase using `out`/`stream`/`sink` (or a camelCase `htmlWriter`) still
+// tripped the budget despite writing to a format target; these broaden it.
+const writer_names = [_][]const u8{ "writer", "w", "out", "out_stream", "stream", "sink" };
+
+/// True for a generic format-target parameter name — an exact match against
+/// the known sink names, or any name ending in `writer` (case-insensitive, so
+/// `html_writer`, `htmlWriter`, and `bufWriter` all qualify). Such params are
+/// polymorphism over concrete Writer types, not the untyped-generics smell the
+/// budget targets.
 fn isWriterName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "w") or
-        std.mem.eql(u8, name, "writer") or
-        std.mem.endsWith(u8, name, "_writer");
+    for (writer_names) |n| if (std.ascii.eqlIgnoreCase(name, n)) return true;
+    return endsWithIgnoreCase(name, "writer");
+}
+
+/// Case-insensitive `endsWith`.
+fn endsWithIgnoreCase(haystack: []const u8, suffix: []const u8) bool {
+    if (haystack.len < suffix.len) return false;
+    return std.ascii.eqlIgnoreCase(haystack[haystack.len - suffix.len ..], suffix);
 }
 
 /// Counts `anytype` parameter tokens in a pre-parsed tree, excluding
@@ -137,6 +150,19 @@ test "countAnytype skips writer-typed params" {
     ;
     // 4 anytype params, 3 are writer-typed → only `x: anytype` counts.
     try std.testing.expectEqual(@as(u32, 1), countAnytype(a, content));
+
+    // The broadened format-target idiom: exact sink names plus a
+    // case-insensitive `writer` suffix. None of these count.
+    const sinks =
+        \\pub fn render0(w: anytype) void {}
+        \\pub fn render1(out: anytype) void {}
+        \\pub fn render2(stream: anytype) void {}
+        \\pub fn render3(sink: anytype) void {}
+        \\pub fn render4(out_stream: anytype) void {}
+        \\pub fn render5(html_writer: anytype) void {}
+        \\pub fn render6(htmlWriter: anytype) void {}
+    ;
+    try std.testing.expectEqual(@as(u32, 0), countAnytype(a, sinks));
 }
 
 // spec: Anytype Budget - Skips files matching the exclude patterns
