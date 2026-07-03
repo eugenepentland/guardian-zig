@@ -186,6 +186,20 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Caps brace-nesting depth inside fn bodies
 
+## Stack Escape
+
+- Flags returning the address of a stack local variable
+- Flags returning a slice of a stack array local
+- Flags returning the address of a field of a stack local
+- Flags returning a const alias bound directly to a stack local address
+- Allows returning the address of a parameter owned by the caller
+- Allows returning a pointer derived from a parameter field
+- Allows returning a local whose initializer calls a function
+- Allows returning a local that is itself a pointer or slice
+- Allows returning the address of a comptime local
+- Handles returned stack addresses through an error union return type
+- Skips returns that appear inside a test block
+
 ## Test Coverage
 
 - Requires every pub fn to be referenced from at least one test block

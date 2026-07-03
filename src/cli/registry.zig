@@ -57,6 +57,7 @@ const check_struct_method_cap = @import("../checks/struct_method_cap.zig");
 const check_optional_density = @import("../checks/optional_density.zig");
 const check_stringly_typed_switches = @import("../checks/stringly_typed_switches.zig");
 const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum.zig");
+const check_stack_escape = @import("../checks/stack_escape.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -310,6 +311,12 @@ pub const all: []const Command = &.{
         .name = "repeated-switch-on-enum",
         .summary = "Flag the same enum dot-prong set switched in 2+ files",
         .run = check_repeated_switch_on_enum.run,
+    },
+    .{
+        .name = "stack-escape",
+        .summary = "Reject returning the address of a stack local (dangling pointer)",
+        .needs_ast = .yes,
+        .run = check_stack_escape.run,
     },
     .{
         .name = "escape-discipline",

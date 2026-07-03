@@ -78,6 +78,7 @@ zig build  # guardian gates every build
 | **error-discipline** | Inferred `!T` or `anyerror!T` on `pub fn` (require explicit error sets) |
 | **catch-discipline** | `catch unreachable` and `catch {}` (silent error swallow) |
 | **unwrap-discipline** | `orelse unreachable` / `orelse undefined` (crash/UB on null) |
+| **stack-escape** | Returning `&local` / a slice of a stack array / `&local.field` / a `const` alias of `&local` — a dangling pointer into the dead frame |
 | **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
 | **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts, or `@setEvalBranchQuota` call count / max literal (snapshot) |
 | **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |

@@ -140,6 +140,8 @@ src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) regi
 src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/stack_escape.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/stack_escape.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/static_factory_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/static_factory_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/stringly_typed_switches.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8

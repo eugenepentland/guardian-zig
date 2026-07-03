@@ -164,6 +164,7 @@ test {
     _ = @import("checks/stringly_typed_switches.zig");
     _ = @import("checks/struct_method_cap.zig");
     _ = @import("checks/stub_body_ban.zig");
+    _ = @import("checks/stack_escape.zig");
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
