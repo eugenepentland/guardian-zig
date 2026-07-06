@@ -32,13 +32,16 @@ enabled = true
 # makes the count of exemptions a visible FP-rate / refactor-debt signal.
 
 # Guardian is a static analyzer: it walks the filesystem and reads env by design.
+# The mutation runner additionally splices/restores source files in place.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/testing/*", "src/baseline.zig"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/testing/*", "src/baseline.zig", "src/mutation/*"]
 
+# check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST in main; the
+# mutation runner clones the env to inject the child-build skip flag.
 [[allow]]
 check = "ban-env"
-paths = ["src/snapshot_helper*", "src/testing/*"]
+paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*"]
 
 # reporter is Guardian's logging boundary; it legitimately owns a global + prints.
 [[allow]]
@@ -67,8 +70,9 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # points (main), CLI/build integration (printHelp, addAllChecks), env/IO
 # wrappers around already-tested pure logic (parseFile, scanDir,
 # collectModules, shouldUpdate), the ban-family orchestration shell (scan),
-# baseline orchestration (runWithBaseline), and reporter output (fail,
-# detail, emit) are exempt.
+# baseline orchestration (runWithBaseline), reporter output (fail,
+# detail, emit), and the git/mutation process shells (diffAgainst,
+# untrackedFiles, runOne — their pure cores are tested) are exempt.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "runOne"]

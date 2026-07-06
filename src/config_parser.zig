@@ -38,6 +38,8 @@ const Section = enum {
     oom_discipline,
     magic_number,
     dead_pub,
+    change_classification,
+    mutation,
     unknown,
 };
 
@@ -203,6 +205,8 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .magic_number => applyEnabledCfg("magic_number", ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
+        .change_classification => applyChangeClassificationKey(ctx, kv),
+        .mutation => applyMutationKey(ctx, kv),
         .unknown => {},
     }
 }
@@ -227,6 +231,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "oom_discipline", Section.oom_discipline },
         .{ "magic_number", Section.magic_number },
         .{ "dead_pub", Section.dead_pub },
+        .{ "change_classification", Section.change_classification },
+        .{ "mutation", Section.mutation },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -319,6 +325,26 @@ fn applyDocQualityKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.min_chars = parseU32(kv.val, g.min_chars);
     } else if (std.mem.eql(u8, kv.key, "exempt_names")) {
         g.exempt_names = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+fn applyChangeClassificationKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.change_classification;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "against")) {
+        if (parseString(kv.val)) |v| g.against = v;
+    }
+}
+
+fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.mutation;
+    if (std.mem.eql(u8, kv.key, "min_score_pct")) {
+        g.min_score_pct = parseU32(kv.val, g.min_score_pct);
+    } else if (std.mem.eql(u8, kv.key, "max_mutants")) {
+        g.max_mutants = parseU32(kv.val, g.max_mutants);
+    } else if (std.mem.eql(u8, kv.key, "timeout_secs")) {
+        g.timeout_secs = parseU32(kv.val, g.timeout_secs);
     }
 }
 
@@ -466,6 +492,42 @@ test "parse empty array" {
     ;
     const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(usize, 0), cfg.file_size_exclude.len);
+}
+
+// spec: Configuration - Parses the mutation section score and budget settings
+
+test "parse reads [mutation] score minimum and run budgets" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[mutation]
+        \\min_score_pct = 90
+        \\max_mutants = 25
+        \\timeout_secs = 60
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(u32, 90), cfg.mutation.min_score_pct);
+    try std.testing.expectEqual(@as(u32, 25), cfg.mutation.max_mutants);
+    try std.testing.expectEqual(@as(u32, 60), cfg.mutation.timeout_secs);
+}
+
+// spec: Configuration - Parses the change classification toggle and against ref
+
+test "parse reads [change_classification] enabled and against" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[change_classification]
+        \\enabled = false
+        \\against = "origin/main"
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expect(!cfg.change_classification.enabled);
+    try std.testing.expectEqualStrings("origin/main", cfg.change_classification.against);
+    // Defaults: enabled, diffing against HEAD.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.change_classification.enabled);
+    try std.testing.expectEqualStrings("HEAD", defaults.change_classification.against);
 }
 
 test "parse strips inline comments from values" {

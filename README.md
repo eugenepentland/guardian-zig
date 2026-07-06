@@ -35,13 +35,18 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-56 checks gate Guardian's own self-build (plus the `spec-init` generator). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, and `magic-number` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+57 checks gate Guardian's own self-build (plus the `spec-init` generator and the `mutate` command, which are explicit steps rather than gates). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, and `magic-number` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
 |---|---|
 | **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
 | **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
+
+### Process gates (git-aware)
+| Check | Blocks on |
+|---|---|
+| **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or SPEC.md changes in the same diff — the "quick fix with no regression test" pattern. Skips silently outside a git repo. |
 
 ### Structural
 | Check | Blocks on |
@@ -145,6 +150,43 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **repeated-switch-on-enum** | The same enum prong-set switched in 2+ files (move dispatch onto the type) |
 
 Plus `zig fmt --check` and the `spec-init` generator.
+
+## Mutation testing (`mutate`)
+
+Static checks prove tests *exist*; `mutate` proves they *bite*. Each mutant is
+one small deliberate bug spliced into production code (comparison flips
+`==`/`!=`/`<`/`<=`/`>`/`>=`, binary `+`/`-` and `+=`/`-=` swaps, `and`/`or`
+swaps, `true`/`false` flips — test blocks are never mutated). The suite runs
+against each mutant; a mutant every test passes **survived**, and survivors
+are the gaps where your tests weren't constraining behavior.
+
+```bash
+zig build mutate        # fast tier: mutate only lines changed vs HEAD
+zig build mutate-full   # nightly tier: whole tree + score ratchet
+```
+
+Two tiers:
+- **Fast** (default): mutants are restricted to lines changed vs the diff
+  base (`--against <ref>` / `GUARDIAN_AGAINST` / config, default HEAD), plus
+  all of any untracked new file. Cheap enough to run on every PR.
+- **Full** (`--full`): the whole tree, sampled down to `max_mutants`. The
+  score is ratcheted in `.guardian/mutation.txt` — it can never drop without
+  `GUARDIAN_UPDATE_SNAPSHOT=1`.
+
+Both tiers fail below `min_score_pct` (default 80). Scoring: timeouts count
+as kills (the mutant made the suite hang — it was caught); compile-error
+mutants are *unviable* and excluded. During mutant runs guardian sets
+`GUARDIAN_MUTATION_RUN=1` on child builds, and every guardian command no-ops
+under it — so the deliberately-broken tree isn't gated against itself.
+
+`mutate` is an explicit step, never part of `all`: each mutant costs a build
++ test cycle. Wire it in `build.zig` like `spec-init`:
+
+```zig
+const mutate_run = b.addRunArtifact(check_exe);
+mutate_run.addArgs(&.{ "mutate", "." });
+b.step("mutate", "Mutation-test changed lines").dependOn(&mutate_run.step);
+```
 
 ### Future work (not yet shipped)
 The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
@@ -273,6 +315,18 @@ exempt_names = ["main", "build"]
 [dead_pub]
 ignore_test_refs = true
 
+# Diff-scoped process gate: behavioral src changes need a test/spec change.
+# `against` is the default diff base (--against / GUARDIAN_AGAINST override).
+[change_classification]
+enabled = true
+against = "HEAD"
+
+# The mutate command's budgets (explicit step, not part of `all`).
+[mutation]
+min_score_pct = 80   # fail below this kill rate
+max_mutants = 100    # deterministic sampling cap per run
+timeout_secs = 300   # per-phase child build timeout (timeout = killed)
+
 # Per-check allowed-path exemptions. Each ban-family / path-scoped check keeps
 # its architectural defaults (infra/clock, adapters/http, config, main, …);
 # [[allow]] grants extra paths on top, merged by check name. This is where a
@@ -289,7 +343,10 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
 ```bash
 zig build spec-init                  # Generate starter SPEC.md
+zig build mutate                     # Mutation-test changed lines (fast tier)
+zig build mutate-full                # Mutation-test the whole tree + ratchet
 GUARDIAN_UPDATE_SNAPSHOT=1 zig build # Refresh snapshot baselines
+GUARDIAN_AGAINST=origin/main ...     # Diff base for change-classification / mutate
 ```
 
 ## Principles

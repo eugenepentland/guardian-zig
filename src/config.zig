@@ -161,6 +161,29 @@ pub const DeadPubCfg = struct {
     ignore_test_refs: bool = false,
 };
 
+/// Per-check config for change-classification: the diff-scoped process
+/// gate requiring behavioral src changes to arrive with a test or spec
+/// change. On by default — the check skips itself outside a git repo.
+pub const ChangeClassificationCfg = struct {
+    enabled: bool = true,
+    /// Git ref the working tree is diffed against when neither the
+    /// `--against` flag nor the GUARDIAN_AGAINST env var names one.
+    against: []const u8 = "HEAD",
+};
+
+/// Config for the `mutate` command (an explicit step, never part of `all` —
+/// each mutant costs a full build + test cycle; see cli/mutate.zig).
+pub const MutationCfg = struct {
+    /// Minimum percent of viable mutants the test suite must kill.
+    min_score_pct: u32 = 80,
+    /// Cap on mutants exercised per run; larger candidate sets are sampled
+    /// deterministically (every k-th mutant) down to this budget.
+    max_mutants: u32 = 100,
+    /// Per-phase child build timeout. A timed-out mutant counts as killed:
+    /// the mutation made the suite hang, so it was caught.
+    timeout_secs: u32 = 300,
+};
+
 /// Per-check config for the test-coverage check (per-pub-fn).
 pub const TestCoverageCfg = struct {
     /// Off by default: the check is intentionally strict (every pub fn
@@ -216,6 +239,8 @@ pub const Config = struct {
     oom_discipline: OomDisciplineCfg = .{},
     magic_number: MagicNumberCfg = .{},
     dead_pub: DeadPubCfg = .{},
+    change_classification: ChangeClassificationCfg = .{},
+    mutation: MutationCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 

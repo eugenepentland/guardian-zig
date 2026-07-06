@@ -59,6 +59,8 @@ const check_optional_density = @import("../checks/optional_density.zig");
 const check_stringly_typed_switches = @import("../checks/stringly_typed_switches.zig");
 const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum.zig");
 const check_stack_escape = @import("../checks/stack_escape.zig");
+const check_change_classification = @import("../checks/change_classification.zig");
+const cmd_mutate = @import("mutate.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -70,6 +72,11 @@ pub const all: []const Command = &.{
         .name = "spec-init",
         .summary = "Generate starter SPEC.md from pub fn signatures",
         .run = check_spec_init.run,
+    },
+    .{
+        .name = "mutate",
+        .summary = "Mutation-test the suite (fast tier: changed lines; --full: whole tree)",
+        .run = cmd_mutate.run,
     },
     .{ .name = "file-size", .summary = "Enforce per-file line limit", .run = check_file_size.run },
     .{ .name = "boundaries", .summary = "Enforce @import boundary rules", .run = check_boundaries.run },
@@ -323,6 +330,12 @@ pub const all: []const Command = &.{
         .summary = "Reject returning the address of a stack local (dangling pointer)",
         .needs_ast = .yes,
         .run = check_stack_escape.run,
+    },
+    .{
+        .name = "change-classification",
+        .summary = "Require a test or spec change alongside behavioral src changes (vs git ref)",
+        .needs_ast = .yes,
+        .run = check_change_classification.run,
     },
     .{
         .name = "escape-discipline",

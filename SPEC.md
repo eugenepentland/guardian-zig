@@ -13,6 +13,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
 - Defaults magic-number off and enables it via [magic_number] enabled
+- Parses the mutation section score and budget settings
+- Parses the change classification toggle and against ref
+- Parses the against and full command-line flags
 
 ## Spec Coverage
 
@@ -238,6 +241,37 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Captures each check's current violations on first run and only fails on additions
 - Wraps a single check run with capture, diff, and outcome reporting
+
+## Git Diff
+
+- Parses unified diff hunk headers into added line spans
+- Groups unified diff output into per-file added spans
+- Returns no spans for deletion-only hunks and deleted files
+
+## Change Classification
+
+- Counts added lines inside test blocks as test changes
+- Counts added spec-tag comment lines as test changes
+- Ignores added blank and comment-only lines
+- Counts remaining added source lines as behavioral changes
+- Passes when behavioral changes are accompanied by test changes
+- Fails when behavioral changes have no test or spec change
+
+## Mutation Testing
+
+- Generates mutants by flipping comparison operators outside test blocks
+- Generates mutants by swapping binary plus and minus operators
+- Skips unary minus when generating arithmetic mutants
+- Generates mutants by swapping boolean and/or keywords
+- Generates mutants by flipping true and false literals
+- Restricts fast-tier mutants to added line spans
+- Samples mutants deterministically down to the configured cap
+- Applies a mutant by splicing the replacement into the source
+- Classifies mutant outcomes from the build and test phases
+- Scores a run as kills over viable mutants counting timeouts as kills
+- Fails a run whose score drops below the configured minimum
+- Ratchets the full-run mutation score against a snapshot
+- Skips every check while a mutation test run is in progress
 
 ## Complexity Bounds
 

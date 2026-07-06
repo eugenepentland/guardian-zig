@@ -20,6 +20,12 @@ pub const RunCtx = struct {
     /// to-run check declares `needs_ast = .yes`. Null for standalone
     /// single-check runs, which build a private index on demand.
     source_index: ?*const ast_index.Index = null,
+    /// Git ref for diff-scoped checks (--against flag or GUARDIAN_AGAINST
+    /// env var). Null falls back to config, then HEAD.
+    against: ?[]const u8 = null,
+    /// True when `--full` was passed: `mutate` covers the whole tree
+    /// (nightly tier) instead of only diff-touched lines.
+    full: bool = false,
 };
 
 /// Whether a check needs the AST index built before invocation.

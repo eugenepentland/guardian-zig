@@ -11,7 +11,9 @@ const print = std.debug.print;
 const fail = reporter.fail;
 
 pub const COMMAND_NAME = "all";
-const SKIP = [_][]const u8{"spec-init"};
+// spec-init is a generator; mutate rebuilds and re-tests the project per
+// mutant, so both are explicit commands rather than build gates.
+const SKIP = [_][]const u8{ "spec-init", "mutate" };
 
 /// Runs every registered hard-block check in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the

@@ -2,6 +2,7 @@ const std = @import("std");
 const registry = @import("cli/registry.zig");
 
 const GENERATOR_NAME = "spec-init"; // generator, not a gate
+const MUTATE_NAME = "mutate"; // explicit step, not a gate
 const RUN_ALL_NAME = "all";
 
 // Comptime branch budget for the registry-iteration loop in
@@ -17,6 +18,7 @@ pub const all_check_names: []const []const u8 = blk: {
     var names: []const []const u8 = &.{};
     for (registry.all) |cmd| {
         if (std.mem.eql(u8, cmd.name, GENERATOR_NAME)) continue;
+        if (std.mem.eql(u8, cmd.name, MUTATE_NAME)) continue;
         if (std.mem.eql(u8, cmd.name, RUN_ALL_NAME)) continue;
         names = names ++ [_][]const u8{cmd.name};
     }
