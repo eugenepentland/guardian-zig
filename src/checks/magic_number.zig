@@ -143,6 +143,7 @@ fn recordIfMagic(ctx: *ScanCtx, z: [:0]const u8, t: std.zig.Token) Allocator.Err
     const text = z[t.loc.start..t.loc.end];
     if (isAllowed(text)) return;
     if (isHexOrOctOrBinary(text)) return;
+    if (isFloatIdiom(text)) return;
     const msg = try std.fmt.allocPrint(
         ctx.allocator,
         "{s}:{d}: magic number `{s}` (extract a named const)",
@@ -162,6 +163,20 @@ fn isHexOrOctOrBinary(text: []const u8) bool {
     if (text.len < 2) return false;
     if (text[0] != '0') return false;
     return text[1] == 'x' or text[1] == 'X' or text[1] == 'o' or text[1] == 'b';
+}
+
+/// Self-documenting float idioms that aren't "magic": `0.5`, an allowlisted
+/// int written as a float (`1.0`, `2.0`, `10.0`), and pure power-of-ten
+/// scientific notation (`1e9`, `1e-9`, `1.0e-6` — SI scales name themselves).
+/// Geometry/EE codebases are saturated with these, which is why the check is
+/// pure noise there without this exemption.
+fn isFloatIdiom(text: []const u8) bool {
+    if (std.mem.eql(u8, text, "0.5")) return true;
+    if (std.mem.endsWith(u8, text, ".0") and isAllowed(text[0 .. text.len - 2])) return true;
+    const e = std.mem.indexOfScalar(u8, text, 'e') orelse
+        std.mem.indexOfScalar(u8, text, 'E') orelse return false;
+    const mant = text[0..e];
+    return std.mem.eql(u8, mant, "1") or std.mem.eql(u8, mant, "1.0");
 }
 
 const lineOf = @import("../text.zig").lineOf;
@@ -184,6 +199,10 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// Entry point for the magic-number check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
+    if (!ctx.cfg.magic_number.enabled) {
+        reporter.ok("magic-number disabled by config (opt-in via [magic_number] enabled = true)", .{});
+        return;
+    }
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
@@ -245,4 +264,20 @@ test "analyzeContent allows allowlisted values" {
         \\fn pick(items: []u32) u32 { return items[0] + 1; }
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "analyzeContent allows float idioms but flags other floats" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 1.0 / 1e-9 / 0.5 / 10.0 are self-documenting idioms → no violation.
+    const ok_out = try analyzeContent(a, "src/x.zig",
+        \\fn f(x: f64) f64 { return x * 1.0 + 1e-9 - 0.5 + 10.0; }
+    );
+    try std.testing.expectEqual(@as(usize, 0), ok_out.len);
+    // A genuine magic float still flags.
+    const bad_out = try analyzeContent(a, "src/x.zig",
+        \\fn g(x: f64) f64 { return x * 3.7; }
+    );
+    try std.testing.expectEqual(@as(usize, 1), bad_out.len);
 }

@@ -48,4 +48,17 @@ pub fn build(b: *std.Build) void {
     spec_init_run.addArgs(&.{ "spec-init", "." });
     const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
     spec_init_step.dependOn(&spec_init_run.step);
+
+    // mutate: mutation-test the suite (explicit steps, not gates — each
+    // mutant costs a build + test cycle). Fast tier covers lines changed
+    // vs HEAD/GUARDIAN_AGAINST; mutate-full ratchets the whole-tree score.
+    const mutate_run = b.addRunArtifact(check_exe);
+    mutate_run.addArgs(&.{ "mutate", "." });
+    const mutate_step = b.step("mutate", "Mutation-test changed lines (fast tier)");
+    mutate_step.dependOn(&mutate_run.step);
+
+    const mutate_full_run = b.addRunArtifact(check_exe);
+    mutate_full_run.addArgs(&.{ "mutate", ".", "--full" });
+    const mutate_full_step = b.step("mutate-full", "Mutation-test the whole tree and ratchet the score (nightly)");
+    mutate_full_step.dependOn(&mutate_full_run.step);
 }

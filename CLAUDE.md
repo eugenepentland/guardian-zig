@@ -33,6 +33,8 @@ zig build          # compiles AND runs all guardian checks
 zig build test     # tests AND runs all guardian checks
 zig build run      # runs AND runs all guardian checks
 zig build spec-init  # generate starter SPEC.md from pub fn signatures
+zig build mutate     # mutation-test lines changed vs HEAD (fast tier)
+zig build mutate-full  # mutation-test the whole tree + score ratchet
 ```
 
 Guardian is invisible — it gates every build automatically.
@@ -107,11 +109,31 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-56 hard-block checks plus `zig fmt --check`. Full table in README.md;
-the categories are: spec workflow, structural, public API, code style,
-error handling, and allocation. Four checks are snapshot-based
-(pub-api-surface, panic-budget, spec-drift, comptime-quota) — refresh
-with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit `.guardian/`.
+57 checks (most hard-block; test-coverage/escape-discipline/oom-discipline/
+magic-number opt-in) plus `zig fmt --check`. Full table in README.md;
+the categories are: spec workflow, git-aware process gates, structural,
+public API, code style, error handling, and allocation. Four checks are
+snapshot-based (pub-api-surface, panic-budget, int-from-float-budget,
+unsafe-ops-budget) — refresh with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build`
+and commit `.guardian/`.
+
+Two features diff the working tree against a git ref (`--against` flag,
+`GUARDIAN_AGAINST` env var, or `[change_classification] against`; default
+HEAD): the `change-classification` check fails behavioral src changes that
+ship with no test or spec change (skips outside a git repo), and the
+`mutate` command (explicit step, never part of `all`) mutation-tests the
+suite — the fast tier mutates only changed lines, `--full` ratchets a
+whole-tree kill score in `.guardian/mutation.txt` and both gate on
+`[mutation] min_score_pct` (default 80). Child builds during mutation run
+with `GUARDIAN_MUTATION_RUN=1`, which makes every guardian command no-op.
+
+Some checks were folded into a related one to cut overlap
+(spec-drift→pub-api-surface, comptime-quota→panic-budget,
+doc-quality→doc-comments, dup-const→repeated-string-literal,
+vague-name-blacklist→naming), and returns-per-function was retired as
+redundant with cognitive-complexity; the retired names are still tolerated
+in a `disabled` list. Per-check path exemptions live in guardian.toml `[[allow]]`
+entries (check + paths), not compiled into the checks.
 
 `all` runs are cached: when the hashed input set (src/test/build/spec/
 guardian.toml/.guardian) is unchanged since the last green run, checks are
@@ -124,10 +146,12 @@ with a top-level `disabled = ["check-name", ...]` list (not a per-check
 ```
 src/
   check.zig            # CLI entry / dispatch
-  cli/                 # Command registry + shared types
+  cli/                 # Command registry + shared types + mutate command
   checks/              # One file per check
   spec/                # SPEC.md parser, // spec: matcher, spec-init
   ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)
+  git.zig              # git diff parsing/shell-outs for diff-scoped features
+  mutation/            # Mutant generator + in-place splice/test runner
   walk.zig             # Recursive .zig file walker (visitor pattern)
   reporter.zig         # ok / fail printing + Violation type
   snapshot.zig         # Read/write/diff for snapshot-based checks

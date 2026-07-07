@@ -22,6 +22,10 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     for (fns) |f| {
         // `main` is conventionally exempt; its inferred error set is idiomatic.
         if (std.mem.eql(u8, f.name, "main")) continue;
+        // A generic `fn (w: anytype) !T` CANNOT name a concrete error set — it
+        // inherits the caller's (e.g. the writer's), so the inferred-set rule
+        // is unimplementable here. Skip fns whose prototype takes an anytype.
+        if (std.mem.indexOf(u8, f.proto_span, "anytype") != null) continue;
         switch (f.return_kind) {
             .err_union_inferred => {
                 const msg = try std.fmt.allocPrint(
@@ -105,4 +109,16 @@ test "visit catches anyerror on pub fn" {
     const content = "pub fn dynamic() anyerror!void {}\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "visit skips anytype-param fns (writer pattern)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    // Inferred `!void` but the writer's error set can't be named — exempt.
+    const content = "pub fn writeXml(w: anytype, s: []const u8) !void { _ = s; _ = w; }\n";
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
 }

@@ -25,10 +25,10 @@ fn isBranchTag(tag: std.zig.Token.Tag) bool {
         .keyword_while,
         .keyword_for,
         .keyword_switch,
-        .keyword_catch,
-        .keyword_and,
-        .keyword_or,
         => true,
+        // `and`/`or` are already counted by bool-ops-per-condition (double
+        // taxing), and `catch` penalizes the explicit error handling
+        // catch-discipline mandates — so neither counts toward complexity.
         else => false,
     };
 }

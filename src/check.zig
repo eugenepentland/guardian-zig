@@ -5,6 +5,11 @@ const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
 const baseline = @import("baseline.zig");
+const mutation_runner = @import("mutation/runner.zig");
+
+/// Env var naming a git ref for diff-scoped checks; the --against flag
+/// takes precedence, guardian.toml's [change_classification] follows.
+const AGAINST_ENV = "GUARDIAN_AGAINST";
 
 /// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
@@ -14,6 +19,15 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+
+    // A mutation run's child builds re-invoke guardian; gating the
+    // deliberately-mutated tree would deadlock the tier on itself, so
+    // every command no-ops until the mutant is restored.
+    if (envFlagActive(readEnv(allocator, mutation_runner.MUTATION_ENV))) {
+        reporter.init(false);
+        reporter.ok("checks skipped (mutation test run in progress)", .{});
+        return;
+    }
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
@@ -35,6 +49,8 @@ pub fn main() !void {
         .project_dir = parsed.project_dir,
         .cfg = &cfg,
         .quiet = parsed.quiet,
+        .against = parsed.against orelse nonEmpty(readEnv(allocator, AGAINST_ENV)),
+        .full = parsed.full,
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
@@ -49,15 +65,25 @@ const ParsedArgs = struct {
     command: ?[]const u8 = null,
     project_dir: []const u8 = ".",
     quiet: bool = false,
+    full: bool = false,
+    against: ?[]const u8 = null,
 };
 
 // Scans argv (sans program name): first non-flag token is the command, the
-// next is the project dir; `--quiet`/`-q` toggles quiet mode.
-fn parseArgs(args: [][:0]u8) ParsedArgs {
+// next is the project dir; `--quiet`/`-q` toggles quiet mode, `--full`
+// selects mutate's whole-tree tier, `--against <ref>` sets the diff base.
+fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
-    for (args) |arg| {
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
             parsed.quiet = true;
+        } else if (std.mem.eql(u8, arg, "--full")) {
+            parsed.full = true;
+        } else if (std.mem.eql(u8, arg, "--against")) {
+            i += 1;
+            if (i < args.len) parsed.against = args[i];
         } else if (parsed.command == null) {
             parsed.command = arg;
         } else {
@@ -65,6 +91,24 @@ fn parseArgs(args: [][:0]u8) ParsedArgs {
         }
     }
     return parsed;
+}
+
+/// Reads an env var; null when unset (arena-owned when present).
+fn readEnv(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    return std.process.getEnvVarOwned(allocator, name) catch null;
+}
+
+/// Truthy-flag semantics shared with GUARDIAN_UPDATE_SNAPSHOT: set and
+/// neither empty nor "0".
+fn envFlagActive(value: ?[]const u8) bool {
+    const v = value orelse return false;
+    return v.len > 0 and !std.mem.eql(u8, v, "0");
+}
+
+/// Collapses an empty env value to null so it can't shadow config.
+fn nonEmpty(value: ?[]const u8) ?[]const u8 {
+    const v = value orelse return null;
+    return if (v.len == 0) null else v;
 }
 
 // Routes the parsed command to `all`, or to a registered command (optionally
@@ -98,6 +142,10 @@ test {
     _ = @import("spec/init.zig");
     _ = @import("walk.zig");
     _ = @import("text.zig");
+    _ = @import("git.zig");
+    _ = @import("mutation/gen.zig");
+    _ = @import("mutation/runner.zig");
+    _ = @import("cli/mutate.zig");
     _ = @import("reporter.zig");
     _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
@@ -123,26 +171,28 @@ test {
     _ = @import("checks/banned_symbol_helper.zig");
     _ = @import("checks/ban_net.zig");
     _ = @import("checks/ban_rng.zig");
+    _ = @import("checks/ban_secrets.zig");
     _ = @import("checks/ban_sleep.zig");
     _ = @import("checks/ban_time.zig");
     _ = @import("checks/boolean_param_ban.zig");
     _ = @import("checks/bool_ops_per_condition.zig");
     _ = @import("checks/boundaries.zig");
     _ = @import("checks/catch_discipline.zig");
+    _ = @import("checks/change_classification.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/compile_error_explanation.zig");
-    _ = @import("checks/comptime_quota.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/doc_comments.zig");
-    _ = @import("checks/doc_quality.zig");
-    _ = @import("checks/dup_const.zig");
     _ = @import("checks/errdefer_in_init.zig");
     _ = @import("checks/error_discipline.zig");
+    _ = @import("checks/escape_discipline.zig");
+    _ = @import("checks/oom_discipline.zig");
     _ = @import("checks/file_size.zig");
     _ = @import("checks/function_length.zig");
     _ = @import("checks/function_size.zig");
     _ = @import("checks/imports.zig");
+    _ = @import("checks/int_from_float_budget.zig");
     _ = @import("checks/init_deinit_symmetry.zig");
     _ = @import("checks/init_hygiene.zig");
     _ = @import("checks/line_length.zig");
@@ -156,8 +206,6 @@ test {
     _ = @import("checks/pub_api_surface.zig");
     _ = @import("checks/repeated_string_literal.zig");
     _ = @import("checks/repeated_switch_on_enum.zig");
-    _ = @import("checks/returns_per_function.zig");
-    _ = @import("checks/spec_drift.zig");
     _ = @import("checks/spec_init.zig");
     _ = @import("checks/spec_quality.zig");
     _ = @import("checks/spec.zig");
@@ -165,13 +213,47 @@ test {
     _ = @import("checks/stringly_typed_switches.zig");
     _ = @import("checks/struct_method_cap.zig");
     _ = @import("checks/stub_body_ban.zig");
+    _ = @import("checks/stack_escape.zig");
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
     _ = @import("checks/type_size.zig");
+    _ = @import("checks/unsafe_ops_budget.zig");
     _ = @import("checks/unwrap_discipline.zig");
     _ = @import("checks/usingnamespace_ban.zig");
-    _ = @import("checks/vague_name_blacklist.zig");
+}
+
+// spec: Configuration - Parses the against and full command-line flags
+
+test "parseArgs reads --against ref and --full alongside command and dir" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 5);
+    args[0] = try a.dupeZ(u8, "mutate");
+    args[1] = try a.dupeZ(u8, ".");
+    args[2] = try a.dupeZ(u8, "--against");
+    args[3] = try a.dupeZ(u8, "origin/main");
+    args[4] = try a.dupeZ(u8, "--full");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("mutate", parsed.command.?);
+    try std.testing.expectEqualStrings(".", parsed.project_dir);
+    try std.testing.expectEqualStrings("origin/main", parsed.against.?);
+    try std.testing.expect(parsed.full);
+    try std.testing.expect(!parsed.quiet);
+}
+
+// spec: Mutation Testing - Skips every check while a mutation test run is in progress
+
+test "envFlagActive gates the mutation-run check skip" {
+    // The main() short-circuit fires exactly when GUARDIAN_MUTATION_RUN is
+    // set to a non-empty value other than "0" (same semantics as
+    // GUARDIAN_UPDATE_SNAPSHOT).
+    try std.testing.expect(envFlagActive("1"));
+    try std.testing.expect(envFlagActive("yes"));
+    try std.testing.expect(!envFlagActive("0"));
+    try std.testing.expect(!envFlagActive(""));
+    try std.testing.expect(!envFlagActive(null));
 }
 
 // Meta-guard: the block above is hand-maintained, and the whole reason ~78

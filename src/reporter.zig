@@ -109,7 +109,11 @@ fn emitDirect(v: Violation) void {
     if (v.fix_hint) |h| print("    fix: {s}\n", .{h});
 }
 
-pub var default: Reporter = .{};
+// Thread-local so the parallel `all` runner can give each worker thread its own
+// capture buffer without a shared-state race: every check's ok/fail/detail call
+// resolves to the running thread's Reporter. The main thread's instance drives
+// live (non-captured) output and the final summary.
+pub threadlocal var default: Reporter = .{};
 
 /// Initializes the module-level default Reporter (TTY-detected color).
 pub fn init(quiet: bool) void {

@@ -10,6 +10,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Falls back to defaults when no config file exists
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
+- Parses per-check allowed-path overrides via [[allow]] sections
+- Parses a top-level exclude list of path globs dropped from the scan
+- Defaults magic-number off and enables it via [magic_number] enabled
+- Parses the mutation section score and budget settings
+- Parses the change classification toggle and against ref
+- Parses the against and full command-line flags
 
 ## Spec Coverage
 
@@ -27,11 +33,13 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Generates starter SPEC.md from pub fn signatures via spec-init
 - Normalizes spec keys for whitespace-insensitive comparison
+- Strips trailing sentence punctuation when normalizing spec keys
 
 ## File Size
 
 - Checks source files against configurable line limit
 - Respects file_size_exclude patterns
+- Excludes test-block lines from the line count
 
 ## Boundaries
 
@@ -64,6 +72,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Requires /// on every pub fn
 - Requires /// on every pub struct/enum/union/opaque
+- Rejects empty or stub doc comments on public declarations
+- Exempts protocol and trivial method names from the presence requirement
 
 ## Imports
 
@@ -74,6 +84,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Builds a parsed-source index by reading and parsing each file once
 - Iterates the index exposing each file's pre-parsed syntax tree to a visitor
 - Returns the shared index when present and builds a private one otherwise
+- Drops files matching a config exclude glob from the built index
 
 ## Skip Cache
 
@@ -85,6 +96,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Skips checks whose name appears in the disabled config list
 - Rejects unknown check names in the disabled list
+- Tolerates retired check names in the disabled list
+- Emits a captured check's output only when not quiet or it failed
 
 ## Snapshot Lifecycle
 
@@ -96,16 +109,13 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Snapshots every public declaration
 - Diff fails on unexpected pub additions or removals
+- Diff fails when an existing pub fn signature changes
 
 ## Panic Budget
 
 - Tracks panic and unreachable token counts against a snapshot
 - Tracks TODO and FIXME comment counts against a snapshot
-
-## Spec Drift
-
-- Snapshots pub fn prototypes
-- Diff fails when an existing pub fn signature changes
+- Tracks @setEvalBranchQuota call count and max value against a snapshot
 
 ## Catch Discipline
 
@@ -131,14 +141,17 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Caps anytype parameter count per file
 - Skips files matching the exclude patterns
+- Excludes writer-typed anytype parameters
 
 ## Dead Pub
 
 - Flags public declarations referenced only by themselves
+- Skips test-block references toward liveness when configured
 
 ## Allocator Hygiene
 
 - Rejects hardcoded global allocators outside test blocks and pub fn main
+- Honors a // allocator-ok justification comment to suppress a site
 
 ## Duplicate Const
 
@@ -148,6 +161,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects std.debug.print call expressions outside test blocks and pub fn main
 - Rejects std.log.* call expressions outside test blocks and pub fn main
+- Exempts CLI command modules where printing to stdout is the program working
 
 ## Orphan Files
 
@@ -157,17 +171,20 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects single-statement stub bodies (undefined, placeholder panic, unreachable in value fn)
 
-## Doc Quality
+## Int From Float Budget
 
-- Rejects empty or stub doc comments on public declarations
+- Tracks @intFromFloat call count against a snapshot
 
-## Comptime Quota
+## Unsafe Ops Budget
 
-- Tracks @setEvalBranchQuota call count and max value against a snapshot
+- Tracks unsafe-cast builtin counts against a snapshot
+- Tracks undefined re-assignment count against a snapshot
+- Excludes declaration-init undefined and test blocks from counts
 
 ## Type Size
 
-- Caps fields per pub struct/enum/union/opaque
+- Caps fields per pub struct/union/opaque
+- Exempts enums from the field cap
 - Skips pub containers in files matching the exclude patterns
 
 ## Function Length
@@ -177,6 +194,20 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Nesting Depth
 
 - Caps brace-nesting depth inside fn bodies
+
+## Stack Escape
+
+- Flags returning the address of a stack local variable
+- Flags returning a slice of a stack array local
+- Flags returning the address of a field of a stack local
+- Flags returning a const alias bound directly to a stack local address
+- Allows returning the address of a parameter owned by the caller
+- Allows returning a pointer derived from a parameter field
+- Allows returning a local whose initializer calls a function
+- Allows returning a local that is itself a pointer or slice
+- Allows returning the address of a comptime local
+- Handles returned stack addresses through an error union return type
+- Skips returns that appear inside a test block
 
 ## Test Coverage
 
@@ -193,6 +224,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Tier 2 Anti-patterns
 
 - Caps source line length
+- Skips multiline-string literal lines from the length cap
 - Rejects vague identifier names on public declarations
 - Rejects bool parameters in public functions
 - Rejects bare integer literals outside a small allowlist
@@ -210,16 +242,54 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Captures each check's current violations on first run and only fails on additions
 - Wraps a single check run with capture, diff, and outcome reporting
 
+## Git Diff
+
+- Parses unified diff hunk headers into added line spans
+- Groups unified diff output into per-file added spans
+- Returns no spans for deletion-only hunks and deleted files
+
+## Change Classification
+
+- Counts added lines inside test blocks as test changes
+- Counts added spec-tag comment lines as test changes
+- Ignores added blank and comment-only lines
+- Counts remaining added source lines as behavioral changes
+- Passes when behavioral changes are accompanied by test changes
+- Fails when behavioral changes have no test or spec change
+
+## Mutation Testing
+
+- Generates mutants by flipping comparison operators outside test blocks
+- Generates mutants by swapping binary plus and minus operators
+- Skips unary minus when generating arithmetic mutants
+- Generates mutants by swapping boolean and/or keywords
+- Generates mutants by flipping true and false literals
+- Restricts fast-tier mutants to added line spans
+- Samples mutants deterministically down to the configured cap
+- Applies a mutant by splicing the replacement into the source
+- Classifies mutant outcomes from the build and test phases
+- Scores a run as kills over viable mutants counting timeouts as kills
+- Fails a run whose score drops below the configured minimum
+- Ratchets the full-run mutation score against a snapshot
+- Skips every check while a mutation test run is in progress
+
 ## Complexity Bounds
 
 - Caps boolean operators per condition
-- Caps return statements per function body
 
 ## Test Hygiene
 
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
 - Rejects production code @import-ing test files
+
+## Escape Discipline
+
+- Flags raw {s} interpolation into HTML/SVG markup
+
+## Oom Discipline
+
+- Flags allocation errors dropped by a swallowing catch
 
 ## Hidden Dependency Bans
 
@@ -231,3 +301,13 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects sleep calls outside test infrastructure
 - Rejects mutable pub var globals outside wiring/main
 - Rejects hardcoded absolute paths and URLs in string literals
+
+## Ban Secrets
+
+- Flags known-format vendor tokens like AWS and GitHub keys
+- Flags PEM private-key headers even inside test and fixture paths
+- Flags high-entropy secret-named assignments outside tests
+- Ignores placeholder and env-var-name secret assignments
+- Ignores publishable and test vendor keys
+- Skips the entropy heuristic in test blocks and fixture paths
+- Redacts the matched secret in the violation message

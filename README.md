@@ -35,22 +35,26 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-56 hard-block checks ship today, all gating Guardian's own self-build (one — `test-coverage` — is opt-in). The list below is grouped by FRAMEWORK.md tier; defaults are tightened per the change-cost framework's recommendations.
+57 checks gate Guardian's own self-build (plus the `spec-init` generator and the `mutate` command, which are explicit steps rather than gates). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, and `magic-number` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
 |---|---|
 | **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
 | **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
-| **spec-drift** | A `pub fn` signature changed without updating its snapshot |
+
+### Process gates (git-aware)
+| Check | Blocks on |
+|---|---|
+| **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or SPEC.md changes in the same diff — the "quick fix with no regression test" pattern. Skips silently outside a git repo. |
 
 ### Structural
 | Check | Blocks on |
 |---|---|
-| **file-size** | Any .zig file exceeding `max_file_lines` (default 500) |
-| **function-size** | Any function with more than `max_params` parameters (default 4) |
-| **function-length** | Any fn over `max_lines` source lines (default 60) |
-| **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 4) |
+| **file-size** | Any .zig file exceeding `max_file_lines` (default 1000) |
+| **function-size** | Any function with more than `max_params` parameters (default 6) |
+| **function-length** | Any fn over `max_lines` source lines (default 120) |
+| **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
@@ -60,19 +64,18 @@ zig build  # guardian gates every build
 ### Public API
 | Check | Blocks on |
 |---|---|
-| **pub-api-surface** | Unintended additions/removals to the public API (snapshot diff) |
-| **dead-pub** | A `pub fn` / `pub const` referenced nowhere in the project |
+| **pub-api-surface** | Unintended additions/removals to the public API, or a changed `pub fn` signature (snapshot diff) |
+| **dead-pub** | A `pub fn` / `pub const` referenced nowhere in the project (optionally ignoring test-only references) |
 
 ### Code style
 | Check | Blocks on |
 |---|---|
-| **naming** | PascalCase fns that don't return `type`; lowercase types |
-| **doc-comments** | `pub fn` or `pub struct/enum/union` without a `///` doc comment |
-| **doc-quality** | Empty / placeholder / sub-`min_chars` `///` comments (default 12) |
-| **cognitive-complexity** | Per-function complexity score (default 15) |
+| **naming** | PascalCase fns that don't return `type`; lowercase types; vague public identifiers (`tmp` / `data` / `Manager` / `Util` etc.) |
+| **doc-comments** | `pub fn` or `pub struct/enum/union` missing a `///` doc comment (protocol names `deinit`/`format`/`next`/`reset` exempt, extend via `doc_quality.exempt_names`), or one that's empty / placeholder / under `min_chars` (default 12) |
+| **cognitive-complexity** | Per-function complexity score (default 25) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
-| **debug-print-ban** | `std.debug.print(...)` calls outside `pub fn main` / test blocks |
+| **debug-print-ban** | `std.debug.print(...)` calls outside `pub fn main` / test blocks / CLI command modules (`cli/*`, `commands*`) |
 
 ### Error handling
 | Check | Blocks on |
@@ -80,15 +83,18 @@ zig build  # guardian gates every build
 | **error-discipline** | Inferred `!T` or `anyerror!T` on `pub fn` (require explicit error sets) |
 | **catch-discipline** | `catch unreachable` and `catch {}` (silent error swallow) |
 | **unwrap-discipline** | `orelse unreachable` / `orelse undefined` (crash/UB on null) |
+| **stack-escape** | Returning `&local` / a slice of a stack array / `&local.field` / a `const` alias of `&local` — a dangling pointer into the dead frame |
 | **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
-| **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts (snapshot) |
-| **comptime-quota** | Increase in `@setEvalBranchQuota` call count or max literal (snapshot) |
+| **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts, or `@setEvalBranchQuota` call count / max literal (snapshot) |
+| **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |
+| **unsafe-ops-budget** | Increase in any unsafe-cast builtin count (`@ptrCast`, `@alignCast`, `@bitCast`, `@ptrFromInt`, `@intFromPtr`, `@constCast`, `@volatileCast`) or in `undefined` re-assignments to a live lvalue; declaration-init and test blocks exempt (snapshot) |
 
 ### Allocation
 | Check | Blocks on |
 |---|---|
-| **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests |
-| **dup-const** | Same `pub const NAME = "literal"` declared in 2+ files |
+| **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests (suppress a deliberate site with a `// allocator-ok:` comment) |
+| **escape-discipline** *(opt-in)* | Raw `{s}` interpolation into HTML/SVG markup without an escape helper (XSS sink) |
+| **oom-discipline** *(opt-in)* | A swallowing `catch` on an allocating call that conflates `OutOfMemory` with "not found" |
 
 ### Hidden Dependency Bans (Tier 1)
 Every nondeterminism source must be injected, not acquired. Each check ships with the FRAMEWORK.md symbol list baked in.
@@ -103,7 +109,8 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **ban-sleep** | `std.Thread.sleep` / `std.time.sleep` outside test infrastructure |
 | **ban-globals** | top-level `pub var` outside `wiring` / `main` |
 | **ban-hardcoded-paths** | absolute `/etc`, `/usr`, Windows `C:\`, `http://`, `https://` literals |
-| **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests |
+| **ban-secrets** | hardcoded credentials — known vendor token formats (AWS/GitHub/Slack/Google/OpenAI/Stripe-live/JWT), PEM private-key headers, and entropy-gated `password`/`token`/`secret`-named assignments (precision-first: publishable/test keys and placeholders are ignored) |
+| **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests / CLI command modules (`cli/*`, `commands*`) |
 
 ### Constructor & DI Hygiene (Tier 1)
 | Check | Blocks on |
@@ -125,16 +132,14 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | Check | Blocks on |
 |---|---|
 | **bool-ops-per-condition** | More than `max_ops` (default 3) `and`/`or`/`!` per condition |
-| **returns-per-function** | More than `max_returns` (default 3) `return` keywords per fn body |
 
 ### Tier 2 Anti-patterns
 | Check | Blocks on |
 |---|---|
-| **line-length** | Source line over `max_len` codepoints (default 120) |
-| **vague-name-blacklist** | Public identifiers named `tmp` / `data` / `Manager` / `Util` / `Helper` etc. |
+| **line-length** | Source line over `max_len` codepoints (default 120; `\\` multiline-string lines skipped) |
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
-| **magic-number** | Bare integer literals outside the small allowlist |
-| **repeated-string-literal** | The same string literal appearing 3+ times in a single file |
+| **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
+| **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
 | **stringly-typed-switches** | `switch` whose case keys are string literals |
@@ -145,6 +150,43 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **repeated-switch-on-enum** | The same enum prong-set switched in 2+ files (move dispatch onto the type) |
 
 Plus `zig fmt --check` and the `spec-init` generator.
+
+## Mutation testing (`mutate`)
+
+Static checks prove tests *exist*; `mutate` proves they *bite*. Each mutant is
+one small deliberate bug spliced into production code (comparison flips
+`==`/`!=`/`<`/`<=`/`>`/`>=`, binary `+`/`-` and `+=`/`-=` swaps, `and`/`or`
+swaps, `true`/`false` flips — test blocks are never mutated). The suite runs
+against each mutant; a mutant every test passes **survived**, and survivors
+are the gaps where your tests weren't constraining behavior.
+
+```bash
+zig build mutate        # fast tier: mutate only lines changed vs HEAD
+zig build mutate-full   # nightly tier: whole tree + score ratchet
+```
+
+Two tiers:
+- **Fast** (default): mutants are restricted to lines changed vs the diff
+  base (`--against <ref>` / `GUARDIAN_AGAINST` / config, default HEAD), plus
+  all of any untracked new file. Cheap enough to run on every PR.
+- **Full** (`--full`): the whole tree, sampled down to `max_mutants`. The
+  score is ratcheted in `.guardian/mutation.txt` — it can never drop without
+  `GUARDIAN_UPDATE_SNAPSHOT=1`.
+
+Both tiers fail below `min_score_pct` (default 80). Scoring: timeouts count
+as kills (the mutant made the suite hang — it was caught); compile-error
+mutants are *unviable* and excluded. During mutant runs guardian sets
+`GUARDIAN_MUTATION_RUN=1` on child builds, and every guardian command no-ops
+under it — so the deliberately-broken tree isn't gated against itself.
+
+`mutate` is an explicit step, never part of `all`: each mutant costs a build
++ test cycle. Wire it in `build.zig` like `spec-init`:
+
+```zig
+const mutate_run = b.addRunArtifact(check_exe);
+mutate_run.addArgs(&.{ "mutate", "." });
+b.step("mutate", "Mutation-test changed lines").dependOn(&mutate_run.step);
+```
 
 ### Future work (not yet shipped)
 The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
@@ -172,7 +214,7 @@ Guardian enforces **1:1 mapping**: every spec behavior needs exactly one test ta
 
 ## Snapshot-based checks
 
-`pub-api-surface`, `panic-budget`, `spec-drift`, and `comptime-quota` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
+`pub-api-surface`, `panic-budget`, `int-from-float-budget`, and `unsafe-ops-budget` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
 
 ```bash
 GUARDIAN_UPDATE_SNAPSHOT=1 zig build
@@ -232,18 +274,19 @@ Optional — sensible defaults work out of the box. Each check has its own secti
 
 ```toml
 spec_file = "SPEC.md"
-max_file_lines = 500
+max_file_lines = 1000
 file_size_exclude = ["generated/*"]
+parallel = true    # run checks across cores (default); false forces sequential
 
 [[boundary]]
 module = "src/core/*"
 forbidden = ["utils"]
 
 [function_size]
-max_params = 4
+max_params = 6
 
 [complexity]
-max_score = 15
+max_score = 25
 
 [anytype_budget]
 max_per_file = 2
@@ -253,10 +296,10 @@ exclude = ["reporter.zig"]   # variadic/formatting boundaries are exempt
 forbidden_phrases = ["properly", "as needed"]
 
 [function_length]
-max_lines = 60
+max_lines = 120
 
 [nesting_depth]
-max_depth = 4
+max_depth = 5
 
 [type_size]
 max_fields = 7
@@ -266,6 +309,32 @@ exclude = ["config.zig"]   # flat aggregation structs are exempt
 [test_coverage]
 enabled = true
 exempt_names = ["main", "build"]
+
+# Opt-in: references from inside test blocks don't count toward liveness,
+# so production-dead code kept alive only by its own test is flagged.
+[dead_pub]
+ignore_test_refs = true
+
+# Diff-scoped process gate: behavioral src changes need a test/spec change.
+# `against` is the default diff base (--against / GUARDIAN_AGAINST override).
+[change_classification]
+enabled = true
+against = "HEAD"
+
+# The mutate command's budgets (explicit step, not part of `all`).
+[mutation]
+min_score_pct = 80   # fail below this kill rate
+max_mutants = 100    # deterministic sampling cap per run
+timeout_secs = 300   # per-phase child build timeout (timeout = killed)
+
+# Per-check allowed-path exemptions. Each ban-family / path-scoped check keeps
+# its architectural defaults (infra/clock, adapters/http, config, main, …);
+# [[allow]] grants extra paths on top, merged by check name. This is where a
+# project (Guardian included) records its own self-hosting carve-outs instead of
+# compiling them into the check — so a downstream repo never inherits them.
+[[allow]]
+check = "ban-fs"
+paths = ["src/infra/persistence/*"]
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
@@ -274,7 +343,10 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
 ```bash
 zig build spec-init                  # Generate starter SPEC.md
+zig build mutate                     # Mutation-test changed lines (fast tier)
+zig build mutate-full                # Mutation-test the whole tree + ratchet
 GUARDIAN_UPDATE_SNAPSHOT=1 zig build # Refresh snapshot baselines
+GUARDIAN_AGAINST=origin/main ...     # Diff base for change-classification / mutate
 ```
 
 ## Principles

@@ -7,13 +7,13 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
+// Architectural defaults: config values and paths live in config/ or main.
+// This check's own file (whose pattern strings inevitably look like what it
+// flags) is exempted via [[allow]] in Guardian's guardian.toml.
 const allowed_paths = [_][]const u8{
     "src/config*",
     "config/*",
     "src/main*",
-    // Self-exemption: this file's pattern strings inevitably look like
-    // the things it's flagging.
-    "src/checks/ban_hardcoded_paths*",
 };
 
 const ScanCtx = struct {
@@ -118,13 +118,20 @@ const lineOf = @import("../text.zig").lineOf;
 const FileScanCtx = struct {
     allocator: Allocator,
     violations: *std.ArrayListUnmanaged([]const u8),
+    extra_allowed: []const []const u8 = &.{},
 };
+
+/// True if `rel_path` matches a compiled architectural default or a configured
+/// [[allow]] path for this check.
+fn isAllowed(rel_path: []const u8, extra: []const []const u8) bool {
+    for (allowed_paths) |pat| if (walk.matchGlob(rel_path, pat)) return true;
+    for (extra) |pat| if (walk.matchGlob(rel_path, pat)) return true;
+    return false;
+}
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
-    for (allowed_paths) |pat| {
-        if (walk.matchGlob(entry.rel_path, pat)) return;
-    }
+    if (isAllowed(entry.rel_path, ctx.extra_allowed)) return;
     var local: ScanCtx = .{
         .allocator = ctx.allocator,
         .rel_path = entry.rel_path,
@@ -137,7 +144,11 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
-    var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
+    var fs_ctx: FileScanCtx = .{
+        .allocator = allocator,
+        .violations = &violations,
+        .extra_allowed = ctx.cfg.extraAllowed("ban-hardcoded-paths"),
+    };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
     if (violations.items.len == 0) {

@@ -108,7 +108,7 @@ fn extractTags(ctx: *ScanCtx, path: []const u8, content: []const u8) !void {
     for (lines, 0..) |line, i| {
         if (std.mem.startsWith(u8, line, SPEC_PREFIX)) {
             const tag_text = line[SPEC_PREFIX.len..];
-            if (tagPrecedesTest(lines, i)) {
+            if (tagPrecedesTest(lines, i) or tagInsideTest(lines, i)) {
                 try ctx.tags.append(allocator, .{
                     .file = path,
                     .tag = tag_text,
@@ -141,9 +141,36 @@ fn tagPrecedesTest(lines: []const []const u8, i: usize) bool {
         if (s.len == 0) continue;
         if (std.mem.startsWith(u8, s, SPEC_PREFIX)) continue;
         if (std.mem.startsWith(u8, s, "///")) continue;
-        return std.mem.startsWith(u8, s, "test ") or std.mem.startsWith(u8, s, "test{");
+        return startsWithTest(s);
     }
     return false;
+}
+
+/// True when the tag at `lines[i]` sits at the top of a test body — i.e. the
+/// nearest non-blank, non-`// spec:` line above it opens an *unclosed*
+/// `test { ... }` block. Accepts the common in-body style `test "x" {`
+/// newline `// spec:`, but not a tag after a one-line `test "x" {}`.
+fn tagInsideTest(lines: []const []const u8, i: usize) bool {
+    var j = i;
+    while (j > 0) {
+        j -= 1;
+        const s = lines[j];
+        if (s.len == 0) continue;
+        if (std.mem.startsWith(u8, s, SPEC_PREFIX)) continue;
+        return opensTestBody(s);
+    }
+    return false;
+}
+
+/// True when `s` begins a test declaration (`test "..."` / `test {`).
+fn startsWithTest(s: []const u8) bool {
+    return std.mem.startsWith(u8, s, "test ") or std.mem.startsWith(u8, s, "test{");
+}
+
+/// True when `s` opens a test body that continues onto later lines (ends in
+/// `{`), so a following line is inside that body — unlike `test "x" {}`.
+fn opensTestBody(s: []const u8) bool {
+    return startsWithTest(s) and std.mem.endsWith(u8, s, "{");
 }
 
 /// Flattens every behavior across all sections into one owned slice.
@@ -378,6 +405,28 @@ test "extractTags classifies tags by attachment, near-miss, and prose" {
     try std.testing.expectEqual(@as(usize, 1), tags.items.len);
     try std.testing.expectEqual(@as(usize, 1), unattached.items.len);
     try std.testing.expectEqual(@as(usize, 1), malformed.items.len);
+}
+
+test "extractTags accepts an in-body top tag but not a mid-body one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        "test \"adds\" {\n" ++
+        "// spec: Math - adds\n" ++ // attached — first line inside the body
+        "try expect(x);\n" ++
+        "}\n" ++
+        "test \"subs\" {\n" ++
+        "try expect(y);\n" ++
+        "// spec: Math - subs\n" ++ // unattached — mid-body, not the top
+        "}\n";
+    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
+    var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    var unattached: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
+    try extractTags(&ctx, "x.zig", content);
+    try std.testing.expectEqual(@as(usize, 1), tags.items.len);
+    try std.testing.expectEqual(@as(usize, 1), unattached.items.len);
 }
 
 test "analyze unlinked tag" {

@@ -11,19 +11,26 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 const SNAPSHOT_LEAF = "panic-budget.txt";
-const SNAPSHOT_VERSION: u32 = 1;
+// v2: added comptime_calls / comptime_max (folded in comptime-quota).
+const SNAPSHOT_VERSION: u32 = 2;
 
 const Counts = struct {
     panics: u32 = 0,
     unreachables: u32 = 0,
     todos: u32 = 0,
     fixmes: u32 = 0,
+    // Folded-in comptime-quota metrics: @setEvalBranchQuota call count and the
+    // largest quota value requested anywhere in the tree.
+    comptime_calls: u32 = 0,
+    comptime_max: u64 = 0,
 
     fn add(self: *Counts, other: Counts) void {
         self.panics += other.panics;
         self.unreachables += other.unreachables;
         self.todos += other.todos;
         self.fixmes += other.fixmes;
+        self.comptime_calls += other.comptime_calls;
+        if (other.comptime_max > self.comptime_max) self.comptime_max = other.comptime_max;
     }
 };
 
@@ -105,12 +112,66 @@ fn containsWord(text: []const u8, word: []const u8) bool {
     return false;
 }
 
+const QuotaCounts = struct { calls: u32 = 0, max_value: u64 = 0 };
+
+/// Scans for `@setEvalBranchQuota(N)` calls: counts them and tracks the largest
+/// literal N. Non-literal args (a const reference) bump the count but not the
+/// max. Tokenizer skips strings/comments. (Folded in from comptime-quota.)
+fn countQuotas(allocator: std.mem.Allocator, content: []const u8) QuotaCounts {
+    var q: QuotaCounts = .{};
+    const z = allocator.dupeZ(u8, content) catch return q;
+    var tok = std.zig.Tokenizer.init(z);
+    while (true) {
+        const t = tok.next();
+        if (t.tag == .eof) break;
+        if (t.tag != .builtin) continue;
+        if (!std.mem.eql(u8, z[t.loc.start..t.loc.end], "@setEvalBranchQuota")) continue;
+        if (tok.next().tag != .l_paren) continue;
+        const arg = tok.next();
+        q.calls += 1;
+        if (arg.tag == .number_literal) {
+            const cleaned = stripUnderscores(allocator, z[arg.loc.start..arg.loc.end]) catch continue;
+            const v = parseUint(cleaned) catch continue;
+            if (v > q.max_value) q.max_value = v;
+        }
+    }
+    return q;
+}
+
+fn stripUnderscores(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    for (s) |ch| if (ch != '_') try out.append(allocator, ch);
+    return out.toOwnedSlice(allocator);
+}
+
+const Radix = struct { prefix: []const u8, base: u8 };
+const radix_prefixes = [_]Radix{
+    .{ .prefix = "0x", .base = 16 },
+    .{ .prefix = "0b", .base = 2 },
+    .{ .prefix = "0o", .base = 8 },
+};
+
+fn parseUint(s: []const u8) !u64 {
+    var digits = s;
+    var base: u8 = 10;
+    for (radix_prefixes) |r| {
+        if (s.len >= r.prefix.len and std.ascii.eqlIgnoreCase(s[0..r.prefix.len], r.prefix)) {
+            digits = s[2..];
+            base = r.base;
+        }
+    }
+    return std.fmt.parseInt(u64, digits, base);
+}
+
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     var c = countTokens(ctx.allocator, entry.content);
     const cm = countCommentMarkers(entry.content);
     c.todos = cm.todos;
     c.fixmes = cm.fixmes;
+    const q = countQuotas(ctx.allocator, entry.content);
+    c.comptime_calls = q.calls;
+    c.comptime_max = q.max_value;
     ctx.totals.add(c);
 }
 
@@ -120,6 +181,8 @@ fn countsToLines(allocator: std.mem.Allocator, c: Counts) ![][]const u8 {
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "unreachables {d}", .{c.unreachables}));
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "todos {d}", .{c.todos}));
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "fixmes {d}", .{c.fixmes}));
+    try lines.append(allocator, try std.fmt.allocPrint(allocator, "comptime_calls {d}", .{c.comptime_calls}));
+    try lines.append(allocator, try std.fmt.allocPrint(allocator, "comptime_max {d}", .{c.comptime_max}));
     return lines.toOwnedSlice(allocator);
 }
 
@@ -128,27 +191,37 @@ fn linesToCounts(lines: []const []const u8) Counts {
     for (lines) |line| {
         const sp = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
         const key = line[0..sp];
-        const val = std.fmt.parseInt(u32, line[sp + 1 ..], 10) catch continue;
+        const raw = line[sp + 1 ..];
+        if (std.mem.eql(u8, key, "comptime_max")) {
+            c.comptime_max = std.fmt.parseInt(u64, raw, 10) catch 0;
+            continue;
+        }
+        const val = std.fmt.parseInt(u32, raw, 10) catch continue;
         if (std.mem.eql(u8, key, "panics")) c.panics = val;
         if (std.mem.eql(u8, key, "unreachables")) c.unreachables = val;
         if (std.mem.eql(u8, key, "todos")) c.todos = val;
         if (std.mem.eql(u8, key, "fixmes")) c.fixmes = val;
+        if (std.mem.eql(u8, key, "comptime_calls")) c.comptime_calls = val;
     }
     return c;
 }
 
 const Metric = struct {
     name: []const u8,
-    found: u32,
-    budget: u32,
+    found: u64,
+    budget: u64,
 };
 
-fn metrics(totals: Counts, budget: Counts) [4]Metric {
+const metric_count = 6;
+
+fn metrics(totals: Counts, budget: Counts) [metric_count]Metric {
     return .{
         .{ .name = "panics", .found = totals.panics, .budget = budget.panics },
         .{ .name = "unreachables", .found = totals.unreachables, .budget = budget.unreachables },
         .{ .name = "todos", .found = totals.todos, .budget = budget.todos },
         .{ .name = "fixmes", .found = totals.fixmes, .budget = budget.fixmes },
+        .{ .name = "comptime_calls", .found = totals.comptime_calls, .budget = budget.comptime_calls },
+        .{ .name = "comptime_max", .found = totals.comptime_max, .budget = budget.comptime_max },
     };
 }
 
@@ -264,6 +337,20 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 // spec: Panic Budget - Tracks panic and unreachable token counts against a snapshot
 // spec: Panic Budget - Tracks TODO and FIXME comment counts against a snapshot
+// spec: Panic Budget - Tracks @setEvalBranchQuota call count and max value against a snapshot
+
+test "countQuotas counts @setEvalBranchQuota calls and tracks the max literal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const q = countQuotas(arena.allocator(),
+        \\fn x() void { @setEvalBranchQuota(1000); }
+        \\fn y() void { @setEvalBranchQuota(50_000); }
+        \\const s = "@setEvalBranchQuota(99999)";
+    );
+    // Two real calls (the string literal is skipped); max tracks 50_000.
+    try std.testing.expectEqual(@as(u32, 2), q.calls);
+    try std.testing.expectEqual(@as(u64, 50000), q.max_value);
+}
 
 test "countTokens counts panics and unreachables" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -305,11 +392,20 @@ test "linesToCounts round-trips countsToLines" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const original: Counts = .{ .panics = 5, .unreachables = 3, .todos = 7, .fixmes = 1 };
+    const original: Counts = .{
+        .panics = 5,
+        .unreachables = 3,
+        .todos = 7,
+        .fixmes = 1,
+        .comptime_calls = 2,
+        .comptime_max = 40000,
+    };
     const lines = try countsToLines(a, original);
     const parsed = linesToCounts(lines);
     try std.testing.expectEqual(original.panics, parsed.panics);
     try std.testing.expectEqual(original.unreachables, parsed.unreachables);
     try std.testing.expectEqual(original.todos, parsed.todos);
     try std.testing.expectEqual(original.fixmes, parsed.fixmes);
+    try std.testing.expectEqual(original.comptime_calls, parsed.comptime_calls);
+    try std.testing.expectEqual(original.comptime_max, parsed.comptime_max);
 }

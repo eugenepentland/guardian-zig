@@ -4,3 +4,4 @@ zig-out/
 GUARDIAN_FEEDBACK.md
 test-project/zig-out/
 test-project/.zig-cache/
+.claude/worktrees/

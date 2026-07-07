@@ -13,17 +13,12 @@ const rules = [_]helper.Rule{
 
 const opts: helper.ScanOpts = .{
     .rules = &rules,
-    .allowed_paths = &.{
-        // Guardian-internal: legitimate diagnostic warnings (parse failures,
-        // snapshot read failures, test-cleanup notices, capture-write OOM).
-        // Downstream consumers should leave this empty and route logging
-        // through their adapter.
-        "src/ast/parser*",
-        "src/snapshot.zig",
-        "src/snapshot_helper*",
-        "src/baseline.zig",
-        "src/reporter.zig",
-    },
+    // CLI command modules are exempt by default: a command-line tool printing
+    // to stdout is the program doing its job, not a stray debug trace. The
+    // globs cover the conventional `cli/` and `commands`/`commands/` layouts
+    // (top-level or nested). Downstream consumers route non-CLI logging through
+    // their adapter; extra self-hosting exemptions merge in via [[allow]].
+    .allowed_paths = &.{ "cli/*", "*/cli/*", "commands*", "*/commands*" },
     .fix_hint = "route through reporter.print/detail, or alias once at file scope and use the alias.",
 };
 
@@ -40,7 +35,7 @@ pub fn analyzeContent(
 
 /// Entry point for the debug-print-ban check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
-    return helper.scan(ctx_param, "debug print ban", opts);
+    return helper.scan(ctx_param, "debug-print-ban", opts);
 }
 
 // spec: Debug Print Ban - Rejects std.debug.print call expressions outside test blocks and pub fn main
@@ -57,6 +52,25 @@ test "analyzeContent flags std.debug.print call outside main" {
     ;
     const out = try analyzeContent(a, "src/x.zig", content);
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+// spec: Debug Print Ban - Exempts CLI command modules where printing to stdout is the program working
+test "analyzeContent exempts CLI command modules" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\fn handle() void {
+        \\    std.debug.print("result\n", .{});
+        \\}
+    ;
+    // The same print flags in a normal module but is allowed in cli/ and
+    // commands/ modules (top-level or nested).
+    try std.testing.expectEqual(@as(usize, 1), (try analyzeContent(a, "src/x.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "src/cli/run.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "app/cli/run.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "commands/build.zig", content)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try analyzeContent(a, "src/commands/build.zig", content)).len);
 }
 
 test "analyzeContent allows std.debug.print inside pub fn main" {

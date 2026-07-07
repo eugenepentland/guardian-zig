@@ -14,26 +14,14 @@ const rules = [_]helper.Rule{
     .{ .chain = &.{ "std", "fs", "realpath" }, .display = "std.fs.realpath" },
 };
 
-// Guardian itself is a static analyzer that walks filesystems by design,
-// so its own infrastructure files are exempt. Downstream consumers should
-// keep just `src/infra/fs*` and route filesystem access through that port.
+// Only the architectural default ships in code: filesystem access routes
+// through an infra/fs port. Guardian is itself a static analyzer that walks
+// filesystems by design, so its own analyzer files are exempted via [[allow]]
+// in Guardian's guardian.toml — a downstream repo that happens to have e.g.
+// src/config.zig does not inherit that hole.
 const opts: helper.ScanOpts = .{
     .rules = &rules,
-    .allowed_paths = &.{
-        "src/infra/fs*",
-        "infra/fs*",
-        // Guardian-internal exemptions:
-        "src/walk*",
-        "src/cache*",
-        "src/snapshot*",
-        "src/snapshot_helper*",
-        "src/config*",
-        "src/spec/parser*",
-        "src/checks/spec_init*",
-        "src/checks/dead_pub*",
-        "src/testing/*",
-        "src/baseline.zig",
-    },
+    .allowed_paths = &.{ "src/infra/fs*", "infra/fs*" },
     .fix_hint = "inject a Filesystem port from infra/fs and call its read/write methods.",
 };
 

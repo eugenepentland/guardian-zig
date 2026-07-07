@@ -120,7 +120,12 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
     return state.sections.toOwnedSlice(allocator);
 }
 
-/// Lowercases and collapses whitespace for whitespace-insensitive comparison.
+/// Normalizes a key for comparison: lowercases, collapses whitespace runs to a
+/// single space, and strips trailing sentence punctuation. Applied to BOTH
+/// tags and behavior bullets (and to duplicate detection), so a bullet ending
+/// in `.`/`!` still links to its tag, and two keys that differ only in casing,
+/// spacing, or a trailing period are treated as the same — the exact-string
+/// coupling was too brittle for large hand-maintained SPEC.md files.
 pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8 {
     // Lowercase and collapse whitespace
     var result: std.ArrayListUnmanaged(u8) = .empty;
@@ -140,7 +145,10 @@ pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u
     // Propagate OOM rather than returning "" — an empty key would spuriously
     // match another empty key and report false coverage.
     const slice = try result.toOwnedSlice(allocator);
-    return std.mem.trim(u8, slice, &std.ascii.whitespace);
+    // Strip trailing whitespace first, then any run of `.`/`!` (and whitespace
+    // between), so "foo." / "foo !" / "foo" all normalize identically.
+    const trimmed = std.mem.trim(u8, slice, &std.ascii.whitespace);
+    return std.mem.trimRight(u8, trimmed, ". !\t");
 }
 
 // spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison
@@ -224,4 +232,18 @@ test "normalize key" {
 
     const result = try normalizeKey(allocator, "  Compilation  -  Runs  Zig  Build  ");
     try std.testing.expectEqualStrings("compilation - runs zig build", result);
+}
+
+// spec: Spec Lifecycle - Strips trailing sentence punctuation when normalizing spec keys
+test "normalize key strips trailing punctuation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A trailing period, bang, or mix normalizes to the same key as the plain
+    // form — so a tag and a bullet that differ only in punctuation still link.
+    const plain = try normalizeKey(a, "Math - Adds numbers");
+    try std.testing.expectEqualStrings("math - adds numbers", plain);
+    try std.testing.expectEqualStrings(plain, try normalizeKey(a, "Math - Adds numbers."));
+    try std.testing.expectEqualStrings(plain, try normalizeKey(a, "Math - Adds numbers!"));
+    try std.testing.expectEqualStrings(plain, try normalizeKey(a, "Math - Adds numbers . "));
 }

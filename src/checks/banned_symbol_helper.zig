@@ -113,26 +113,31 @@ pub fn analyzeContent(
         .violations = &violations,
         .opts = opts,
     };
-    try scanFile(&ctx, content);
+    const z = try allocator.dupeZ(u8, content);
+    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    try scanTree(&ctx, &tree);
     return violations.toOwnedSlice(allocator);
 }
 
-fn scanFile(ctx: *Ctx, content: []const u8) Allocator.Error!void {
+/// Scans a file's pre-parsed token stream. Iterating the shared tree's tokens
+/// avoids the per-check `dupeZ` + full re-tokenize; only identifiers need their
+/// end offset (to read text), so `tokenSlice` is called only for those.
+fn scanTree(ctx: *Ctx, tree: *const std.zig.Ast) Allocator.Error!void {
     const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
-
     const states = try a.alloc(Match, ctx.opts.rules.len);
     defer a.free(states);
     for (states) |*s| s.reset();
 
-    var state: ScanState = .{ .z = z, .states = states };
+    var state: ScanState = .{ .z = tree.source, .states = states };
     defer state.permissive.deinit(a);
 
-    var tok = std.zig.Tokenizer.init(z);
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
-        try stepToken(ctx, &state, t);
+    const tags = tree.tokens.items(.tag);
+    const starts = tree.tokens.items(.start);
+    for (tags, 0..) |tag, i| {
+        if (tag == .eof) break;
+        const start: usize = starts[i];
+        const end = if (tag == .identifier) start + tree.tokenSlice(@intCast(i)).len else start;
+        try stepToken(ctx, &state, .{ .tag = tag, .loc = .{ .start = start, .end = end } });
     }
 }
 
@@ -236,7 +241,29 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
         .violations = ctx.violations,
         .opts = ctx.opts,
     };
-    try scanFile(&local, entry.content);
+    // Reuse the shared parse when the index provides it; parse standalone only
+    // for a single-check run with no shared index.
+    if (entry.tree) |t| {
+        try scanTree(&local, t);
+    } else {
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
+        try scanTree(&local, &tree);
+    }
+}
+
+/// Concatenates a check's compiled allowed paths with any configured via
+/// [[allow]] in guardian.toml. Returns `base` unchanged when there are no
+/// extras, so the common (no-config) path allocates nothing.
+fn mergeAllowed(
+    allocator: Allocator,
+    base: []const []const u8,
+    extra: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    if (extra.len == 0) return base;
+    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    try list.appendSlice(allocator, base);
+    try list.appendSlice(allocator, extra);
+    return list.toOwnedSlice(allocator);
 }
 
 /// Run the banned-symbol scan against the project's `src/` tree and
@@ -249,11 +276,17 @@ pub fn scan(
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
+    // Merge the check's compiled architectural defaults with any [[allow]]
+    // entries from guardian.toml, so self-hosting exemptions live in config
+    // rather than punching holes into every downstream repo.
+    var merged = opts;
+    merged.allowed_paths = try mergeAllowed(allocator, opts.allowed_paths, ctx_param.cfg.extraAllowed(check_name));
+
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
-        .opts = opts,
+        .opts = merged,
     };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 

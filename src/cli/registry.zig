@@ -11,22 +11,23 @@ const check_naming = @import("../checks/naming.zig");
 const check_function_size = @import("../checks/function_size.zig");
 const check_doc_comments = @import("../checks/doc_comments.zig");
 const check_imports = @import("../checks/imports.zig");
+// doc-quality folded into doc-comments (presence + quality in one walk).
 const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
-const check_spec_drift = @import("../checks/spec_drift.zig");
 const check_catch_discipline = @import("../checks/catch_discipline.zig");
 const check_unwrap_discipline = @import("../checks/unwrap_discipline.zig");
 const check_error_discipline = @import("../checks/error_discipline.zig");
 const check_cognitive_complexity = @import("../checks/cognitive_complexity.zig");
 const check_anytype_budget = @import("../checks/anytype_budget.zig");
+const check_escape_discipline = @import("../checks/escape_discipline.zig");
+const check_oom_discipline = @import("../checks/oom_discipline.zig");
 const check_dead_pub = @import("../checks/dead_pub.zig");
 const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
-const check_dup_const = @import("../checks/dup_const.zig");
 const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
 const check_orphan_files = @import("../checks/orphan_files.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
-const check_doc_quality = @import("../checks/doc_quality.zig");
-const check_comptime_quota = @import("../checks/comptime_quota.zig");
+const check_int_from_float_budget = @import("../checks/int_from_float_budget.zig");
+const check_unsafe_ops_budget = @import("../checks/unsafe_ops_budget.zig");
 const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
@@ -39,6 +40,7 @@ const check_ban_env = @import("../checks/ban_env.zig");
 const check_ban_sleep = @import("../checks/ban_sleep.zig");
 const check_ban_globals = @import("../checks/ban_globals.zig");
 const check_ban_hardcoded_paths = @import("../checks/ban_hardcoded_paths.zig");
+const check_ban_secrets = @import("../checks/ban_secrets.zig");
 const check_compile_error_explanation = @import("../checks/compile_error_explanation.zig");
 const check_init_hygiene = @import("../checks/init_hygiene.zig");
 const check_static_factory_ban = @import("../checks/static_factory_ban.zig");
@@ -48,9 +50,7 @@ const check_test_has_assertion = @import("../checks/test_has_assertion.zig");
 const check_test_no_conditional = @import("../checks/test_no_conditional.zig");
 const check_prod_imports_no_test = @import("../checks/no_test_imports_in_prod.zig");
 const check_bool_ops_per_condition = @import("../checks/bool_ops_per_condition.zig");
-const check_returns_per_function = @import("../checks/returns_per_function.zig");
 const check_line_length = @import("../checks/line_length.zig");
-const check_vague_name_blacklist = @import("../checks/vague_name_blacklist.zig");
 const check_boolean_param_ban = @import("../checks/boolean_param_ban.zig");
 const check_magic_number = @import("../checks/magic_number.zig");
 const check_repeated_string_literal = @import("../checks/repeated_string_literal.zig");
@@ -58,6 +58,9 @@ const check_struct_method_cap = @import("../checks/struct_method_cap.zig");
 const check_optional_density = @import("../checks/optional_density.zig");
 const check_stringly_typed_switches = @import("../checks/stringly_typed_switches.zig");
 const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum.zig");
+const check_stack_escape = @import("../checks/stack_escape.zig");
+const check_change_classification = @import("../checks/change_classification.zig");
+const cmd_mutate = @import("mutate.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -69,6 +72,11 @@ pub const all: []const Command = &.{
         .name = "spec-init",
         .summary = "Generate starter SPEC.md from pub fn signatures",
         .run = check_spec_init.run,
+    },
+    .{
+        .name = "mutate",
+        .summary = "Mutation-test the suite (fast tier: changed lines; --full: whole tree)",
+        .run = cmd_mutate.run,
     },
     .{ .name = "file-size", .summary = "Enforce per-file line limit", .run = check_file_size.run },
     .{ .name = "boundaries", .summary = "Enforce @import boundary rules", .run = check_boundaries.run },
@@ -96,7 +104,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "doc-comments",
-        .summary = "Require /// doc comments on every public fn/type",
+        .summary = "Require a real /// doc comment on every public fn/type (presence + quality)",
         .needs_ast = .yes,
         .run = check_doc_comments.run,
     },
@@ -111,12 +119,6 @@ pub const all: []const Command = &.{
         .name = "panic-budget",
         .summary = "Cap @panic / unreachable / TODO / FIXME counts via snapshot",
         .run = check_panic_budget.run,
-    },
-    .{
-        .name = "spec-drift",
-        .summary = "Snapshot pub fn prototypes; diff fails on signature change",
-        .needs_ast = .yes,
-        .run = check_spec_drift.run,
     },
     .{
         .name = "catch-discipline",
@@ -156,11 +158,6 @@ pub const all: []const Command = &.{
         .run = check_allocator_hygiene.run,
     },
     .{
-        .name = "dup-const",
-        .summary = "Reject duplicate file-scope string-literal consts across files",
-        .run = check_dup_const.run,
-    },
-    .{
         .name = "debug-print-ban",
         .summary = "Reject std.debug.print(...) calls outside main/test",
         .run = check_debug_print_ban.run,
@@ -178,15 +175,14 @@ pub const all: []const Command = &.{
         .run = check_stub_body_ban.run,
     },
     .{
-        .name = "doc-quality",
-        .summary = "Reject empty or stub /// doc comments on public declarations",
-        .needs_ast = .yes,
-        .run = check_doc_quality.run,
+        .name = "int-from-float-budget",
+        .summary = "Track @intFromFloat call count via snapshot (new sites need a guard review)",
+        .run = check_int_from_float_budget.run,
     },
     .{
-        .name = "comptime-quota",
-        .summary = "Track @setEvalBranchQuota call count and max value via snapshot",
-        .run = check_comptime_quota.run,
+        .name = "unsafe-ops-budget",
+        .summary = "Track unsafe-cast builtin and undefined re-assignment counts via snapshot",
+        .run = check_unsafe_ops_budget.run,
     },
     .{
         .name = "type-size",
@@ -241,6 +237,12 @@ pub const all: []const Command = &.{
         .run = check_ban_hardcoded_paths.run,
     },
     .{
+        .name = "ban-secrets",
+        .summary = "Reject hardcoded credentials " ++
+            "(known token formats + entropy-gated secret assignments)",
+        .run = check_ban_secrets.run,
+    },
+    .{
         .name = "compile-error-explanation",
         .summary = "Reject @compileError without a non-empty string explanation",
         .run = check_compile_error_explanation.run,
@@ -287,19 +289,7 @@ pub const all: []const Command = &.{
         .summary = "Cap boolean operators per condition",
         .run = check_bool_ops_per_condition.run,
     },
-    .{
-        .name = "returns-per-function",
-        .summary = "Cap return statements per function body",
-        .needs_ast = .yes,
-        .run = check_returns_per_function.run,
-    },
     .{ .name = "line-length", .summary = "Cap source line length", .run = check_line_length.run },
-    .{
-        .name = "vague-name-blacklist",
-        .summary = "Reject vague identifier names on public declarations",
-        .needs_ast = .yes,
-        .run = check_vague_name_blacklist.run,
-    },
     .{
         .name = "boolean-param-ban",
         .summary = "Reject bool parameters in public functions",
@@ -312,7 +302,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "repeated-string-literal",
-        .summary = "Reject identical string literals appearing 3+ times in a single file",
+        .summary = "Reject 3+ repeats of a literal in a file and duplicate consts across files",
         .run = check_repeated_string_literal.run,
     },
     .{
@@ -334,6 +324,30 @@ pub const all: []const Command = &.{
         .name = "repeated-switch-on-enum",
         .summary = "Flag the same enum dot-prong set switched in 2+ files",
         .run = check_repeated_switch_on_enum.run,
+    },
+    .{
+        .name = "stack-escape",
+        .summary = "Reject returning the address of a stack local (dangling pointer)",
+        .needs_ast = .yes,
+        .run = check_stack_escape.run,
+    },
+    .{
+        .name = "change-classification",
+        .summary = "Require a test or spec change alongside behavioral src changes (vs git ref)",
+        .needs_ast = .yes,
+        .run = check_change_classification.run,
+    },
+    .{
+        .name = "escape-discipline",
+        .summary = "Flag raw {s} interpolation into HTML/SVG markup (opt-in)",
+        .needs_ast = .yes,
+        .run = check_escape_discipline.run,
+    },
+    .{
+        .name = "oom-discipline",
+        .summary = "Flag allocation errors conflated with domain absence (opt-in)",
+        .needs_ast = .yes,
+        .run = check_oom_discipline.run,
     },
 };
 
