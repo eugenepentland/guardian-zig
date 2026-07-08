@@ -265,10 +265,17 @@ src/reporter.zig::emit | fn emit(self: Reporter, v: Violation) void
 src/reporter.zig::emit | fn emit(v: Violation) void
 src/reporter.zig::fail | fn fail(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::fail | fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::flatLine | fn flatLine(arena: Allocator, v: Violation) Allocator.Error![]const u8
+src/reporter.zig::flatLines | fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![]const []const u8
 src/reporter.zig::init | fn init(quiet: bool) void
 src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
+src/sink.zig::Summary struct_
+src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
+src/sink.zig::summaryJson | fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8
+src/sink.zig::violationJson | fn violationJson(arena: Allocator, v: reporter.Violation) Allocator.Error![]u8
+src/sink.zig::write | fn write(arena: Allocator, project_dir: []const u8, records: []const reporter.Violation, summary: Summary) void
 src/snapshot.zig::Diff struct_
 src/snapshot.zig::MAGIC_PREFIX value
 src/snapshot.zig::ReadError value

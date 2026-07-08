@@ -253,6 +253,7 @@ test {
     _ = @import("cli/explain.zig");
     _ = @import("version.zig");
     _ = @import("reporter.zig");
+    _ = @import("sink.zig");
     _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
     _ = @import("ast/containers.zig");

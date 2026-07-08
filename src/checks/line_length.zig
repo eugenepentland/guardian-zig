@@ -15,7 +15,20 @@ pub fn analyzeContentWithLimit(
     content: []const u8,
     max_len: u32,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    return reporter.flatLines(allocator, try scanLines(allocator, rel_path, content, max_len));
+}
+
+/// Structured scan: one Violation per over-limit line. The per-line human
+/// message is unchanged; each record carries the file as its `ratchet_key` so
+/// item 5 can derive a per-file over-limit count, and the line's length as the
+/// metric.
+fn scanLines(
+    allocator: Allocator,
+    rel_path: []const u8,
+    content: []const u8,
+    max_len: u32,
+) Allocator.Error![]reporter.Violation {
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var line_num: u32 = 1;
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| : (line_num += 1) {
@@ -25,12 +38,18 @@ pub fn analyzeContentWithLimit(
         if (std.mem.startsWith(u8, std.mem.trimLeft(u8, line, &std.ascii.whitespace), "\\\\")) continue;
         const codepoint_len = std.unicode.utf8CountCodepoints(line) catch line.len;
         if (codepoint_len > max_len) {
-            const msg = try std.fmt.allocPrint(
-                allocator,
-                "{s}:{d}: line is {d} chars (cap {d})",
-                .{ rel_path, line_num, codepoint_len, max_len },
-            );
-            try violations.append(allocator, msg);
+            try violations.append(allocator, .{
+                .check = "line-length",
+                .file = rel_path,
+                .line = line_num,
+                .message = try std.fmt.allocPrint(
+                    allocator,
+                    "line is {d} chars (cap {d})",
+                    .{ codepoint_len, max_len },
+                ),
+                .ratchet_key = try allocator.dupe(u8, rel_path),
+                .metric = codepoint_len,
+            });
         }
     }
     return violations.toOwnedSlice(allocator);
@@ -47,14 +66,14 @@ pub fn analyzeContent(
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
     cap: u32,
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
-    const out = try analyzeContentWithLimit(ctx.allocator, entry.rel_path, entry.content, ctx.cap);
-    for (out) |line| try ctx.violations.append(ctx.allocator, line);
+    const out = try scanLines(ctx.allocator, entry.rel_path, entry.content, ctx.cap);
+    for (out) |v| try ctx.violations.append(ctx.allocator, v);
 }
 
 /// Entry point for the line-length check.
@@ -65,7 +84,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("line-length disabled by config", .{});
         return;
     }
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
@@ -78,7 +97,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         return;
     }
     reporter.fail("line-length FAILED ({d} occurrence(s))", .{violations.items.len});
-    for (violations.items) |v| detail("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     detail("  fix: split long expressions; introduce intermediate names.\n", .{});
     return error.CheckFailed;
 }

@@ -239,6 +239,38 @@ An unknown name **hard-fails** the run (a typo can't silently refresh nothing). 
 
 The snapshot files are plain text, sorted, designed to diff cleanly in code review.
 
+## Machine-readable output
+
+Guardian is AI-first, so every `all` / `nightly` run also drops a machine-readable
+log of what it found at **`.guardian/cache/last-run.jsonl`** — one JSON object per
+line (JSONL). It exists so an agent's fix loop, an editor integration, or the
+`debt` report can consume structured findings instead of re-parsing terminal
+prose.
+
+```jsonl
+{"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (cap 200)","fix_hint":null,"ratchet_key":"src/foo.zig|parse","metric":246}
+{"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Auth - Validates tokens","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"summary","passed":56,"failed":1,"skipped":3,"filtered":false}
+```
+
+- One `violation` record per finding, then a final `summary` record. A green run
+  writes a summary-only log.
+- Threshold checks (function-length, nesting-depth, cognitive-complexity,
+  function-size, type-size, file-size, struct-method-cap, optional-density,
+  bool-ops, line-length) emit a **`ratchet_key`** (stable per-subject identity —
+  `file|fn`, `file|Type`, or `file`) and a **`metric`** (the measured value).
+  Other checks contribute at least `check` + `message` (the rest `null`).
+- Written under `cache/` on purpose: that subdir is git-ignored and excluded from
+  the skip-cache input digest, so the log is rewritten every run without churning
+  git or invalidating the build cache. No timestamps (std.time is banned).
+- Escaping is done by `std.json` — the file is always valid JSONL.
+
+Under the hood the threshold checks now emit a structured `reporter.Violation`
+(carrying `check` / `ratchet_key` / `metric`) that the reporter renders to the
+exact same human-readable line; baseline capture reads those records instead of
+re-scraping prose. This is the groundwork for per-item ratchets (see the audit's
+item 5) and does not change any check's terminal output.
+
 ## Adopting Guardian on an existing codebase
 
 Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — every check records its current violations on the first run and only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.

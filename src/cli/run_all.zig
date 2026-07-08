@@ -6,6 +6,7 @@ const baseline = @import("../baseline.zig");
 const ast_index = @import("../ast/index.zig");
 const cache = @import("../cache.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
+const sink = @import("../sink.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -65,7 +66,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     defer ctx.source_index = null;
 
     var ran: u32 = 0;
-    const failed = try runChecks(ctx, &ran);
+    var acc: Sink = .{};
+    const failed = try runChecks(ctx, &ran, &acc);
+
+    // Write the machine-readable last-run log on every real run (green or red),
+    // before the green/red branch. A skipped run (early return above) leaves the
+    // last real run's log in place.
+    writeSink(ctx, acc.records.items, ran, failed, filtered);
 
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
@@ -77,6 +84,26 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
     return error.CheckFailed;
+}
+
+/// Collects every check's findings across the run for the JSONL sink. Owned by
+/// the run allocator so records outlive the per-worker arenas that produced them.
+const Sink = struct {
+    records: std.ArrayListUnmanaged(reporter.Violation) = .empty,
+};
+
+/// Writes the machine-readable last-run log for a real (non-skipped) run.
+/// `skipped` is the registry entries that didn't execute this pass (built-in
+/// non-gates, disabled, and filtered-out checks). Best-effort (never fails the
+/// build) and always written — a green run yields a summary-only log.
+fn writeSink(ctx: *types.RunCtx, records: []const reporter.Violation, ran: u32, failed: u32, filtered: bool) void {
+    const total_checks: u32 = @intCast(registry.all.len);
+    sink.write(ctx.allocator, ctx.project_dir, records, .{
+        .passed = ran - failed,
+        .failed = failed,
+        .skipped = total_checks - ran,
+        .filtered = filtered,
+    });
 }
 
 /// True when an --only / --skip selection is active for this run.
@@ -223,11 +250,14 @@ fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bo
 }
 
 /// One check's outcome + captured output, filled by the worker that ran it.
+/// `records` are the structured Violations the check emitted (empty for an
+/// unmigrated check, whose findings are scraped from `output` instead).
 const CheckResult = struct {
     ran: bool = false,
     failed: bool = false,
     err: ?anyerror = null,
     output: []const u8 = "",
+    records: []const reporter.Violation = &.{},
 };
 
 /// Shared handle passed to each worker thread.
@@ -238,14 +268,30 @@ const WorkerJob = struct {
     results: []CheckResult,
 };
 
-/// Runs every non-skipped check, tallying how many ran (into `ran`) and
-/// returning how many failed. Parallel across worker threads when enabled and
-/// multiple cores exist; a single core (or `parallel = false`) runs sequentially.
-/// Propagates the first non-CheckFailed error.
-fn runChecks(ctx: *types.RunCtx, ran: *u32) types.RunError!u32 {
+/// Runs every non-skipped check into `results` (parallel across worker threads
+/// when enabled and multi-core, else sequentially in this thread), then replays
+/// captured output in registry order and tallies. Each check's findings are
+/// gathered into `acc` for the JSONL sink. Returns how many failed; propagates
+/// the first non-CheckFailed error. Output is deterministic (registry order)
+/// regardless of the path taken.
+fn runChecks(ctx: *types.RunCtx, ran: *u32, acc: *Sink) types.RunError!u32 {
+    const results = try ctx.allocator.alloc(CheckResult, registry.all.len);
+    for (results) |*r| r.* = .{};
+
     const workers = if (ctx.cfg.parallel) threadCount() else 1;
-    if (workers <= 1) return runChecksSequential(ctx, ran);
-    return runChecksParallel(ctx, ran, workers);
+    if (workers > 1) {
+        const arenas = try ctx.allocator.alloc(std.heap.ArenaAllocator, workers);
+        // allocator-ok: page_allocator is thread-safe and each worker owns a private arena
+        for (arenas) |*ar| ar.* = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        // Deinit runs after emitAndTally (which copies worker-arena records into
+        // the run allocator for `acc`), so the sink never reads freed memory.
+        defer for (arenas) |*ar| ar.deinit();
+        if (try spawnAndJoin(ctx, arenas, results) > 0)
+            return emitAndTally(ctx, results, ran, acc);
+        // Threads unsupported: fall through to the sequential fill.
+    }
+    fillSequential(ctx, results);
+    return emitAndTally(ctx, results, ran, acc);
 }
 
 /// Usable worker count: one per core, capped at the number of checks.
@@ -254,41 +300,15 @@ fn threadCount() usize {
     return @max(@min(cpus, registry.all.len), 1);
 }
 
-/// Sequential fallback: run each check in this thread with live output.
-fn runChecksSequential(ctx: *types.RunCtx, ran: *u32) types.RunError!u32 {
+/// Sequential fill: run each non-excluded check in this thread with its own
+/// capture (over the run allocator), for replay by emitAndTally. Used when
+/// parallelism is off, on a single core, or when thread spawn is unsupported.
+fn fillSequential(ctx: *types.RunCtx, results: []CheckResult) void {
     const baseline_on = ctx.cfg.baseline.enabled;
-    var failed: u32 = 0;
-    for (registry.all) |cmd| {
+    for (registry.all, 0..) |cmd, i| {
         if (excluded(ctx, cmd.name)) continue;
-        ran.* += 1;
-        const outcome = if (baseline_on)
-            baseline.runWithBaseline(ctx, cmd)
-        else
-            cmd.run(ctx);
-        outcome catch |e| switch (e) {
-            error.CheckFailed => failed += 1,
-            else => return e,
-        };
+        results[i] = runCaptured(ctx, ctx.allocator, cmd, baseline_on);
     }
-    return failed;
-}
-
-/// Parallel path: each check is claimed via an atomic counter and run into a
-/// per-worker arena with a per-check output capture. The main thread replays
-/// output in registry order afterward — deterministic despite concurrency.
-fn runChecksParallel(ctx: *types.RunCtx, ran: *u32, workers: usize) types.RunError!u32 {
-    const a = ctx.allocator;
-    const results = try a.alloc(CheckResult, registry.all.len);
-    for (results) |*r| r.* = .{};
-
-    const arenas = try a.alloc(std.heap.ArenaAllocator, workers);
-    // allocator-ok: page_allocator is thread-safe and each worker owns a private arena
-    for (arenas) |*ar| ar.* = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer for (arenas) |*ar| ar.deinit();
-
-    const spawned = try spawnAndJoin(ctx, arenas, results);
-    if (spawned == 0) return runChecksSequential(ctx, ran); // threads unsupported
-    return emitAndTally(ctx, results, ran);
 }
 
 /// Spawns one worker per arena (fewer if `spawn` is unsupported), each draining
@@ -345,16 +365,19 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command, ba
         },
     };
     res.output = cap.buf.items;
+    res.records = cap.records.items;
     return res;
 }
 
 /// Replays each ran check's captured output in registry order and tallies
-/// pass/fail. Quiet mode prints only failures. The first non-CheckFailed error
-/// (if any) is propagated after all output is shown.
-fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32) types.RunError!u32 {
+/// pass/fail, gathering findings into `acc` for the JSONL sink. Quiet mode
+/// prints only failures. The first non-CheckFailed error (if any) is propagated
+/// after all output is shown. Single-threaded (main), so the sink append is
+/// race-free even though checks ran in parallel.
+fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sink) types.RunError!u32 {
     var failed: u32 = 0;
     var first_err: ?anyerror = null;
-    for (results) |r| {
+    for (results, registry.all) |r, cmd| {
         if (!r.ran) continue;
         ran.* += 1;
         if (r.failed) failed += 1;
@@ -362,9 +385,43 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32) types.Run
             if (first_err == null) first_err = e;
         }
         if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+        collectSink(ctx, acc, cmd.name, r);
     }
     if (first_err) |e| return e;
     return failed;
+}
+
+/// Adds a check's findings to the JSONL sink accumulator: its structured
+/// records when migrated (each string copied into the run allocator so it
+/// outlives the worker arena), else the scraped violation lines tagged with the
+/// check name. Best-effort — a copy/append OOM drops the record, never fails.
+fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckResult) void {
+    if (r.records.len > 0) {
+        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch return;
+        return;
+    }
+    // Unmigrated check: scrape indented violation lines (baseline.extract shares
+    // the same indentation rules), tagging each with the check name.
+    const lines = baseline.extract(ctx.allocator, r.output) catch return;
+    for (lines) |line| acc.records.append(ctx.allocator, .{ .check = check_name, .message = line }) catch return;
+}
+
+/// Copies a Violation's borrowed string fields into `a` so a record produced in
+/// a per-worker arena survives that arena's deinit and can be serialized later.
+fn dupViolation(a: std.mem.Allocator, v: reporter.Violation) reporter.Violation {
+    return .{
+        .check = a.dupe(u8, v.check) catch v.check,
+        .file = dupOpt(a, v.file),
+        .line = v.line,
+        .message = a.dupe(u8, v.message) catch v.message,
+        .fix_hint = dupOpt(a, v.fix_hint),
+        .ratchet_key = dupOpt(a, v.ratchet_key),
+        .metric = v.metric,
+    };
+}
+
+fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) ?[]const u8 {
+    return if (s) |x| (a.dupe(u8, x) catch x) else null;
 }
 
 /// A captured check's output is replayed when it has content and either we're

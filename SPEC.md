@@ -293,6 +293,18 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Wraps a single check run with capture, diff, and outcome reporting
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
+- Prefers structured records over scraped text when present
+
+## Reporter
+
+- Renders a Violation to the same indented line the emitter prints
+
+## Machine-Readable Sink
+
+- Serializes each violation as a JSON line escaping message and path text
+- Appends a run summary record with pass fail skip counts
+- Writes the last-run log under the git-ignored guardian cache dir
+- Writes a summary-only log when the run passes with no violations
 
 ## Git Diff
 

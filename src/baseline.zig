@@ -252,20 +252,37 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
         };
     }
 
-    return processOutcome(ctx, cmd.name, capture.buf.items, force_refresh);
+    return processOutcome(ctx, cmd.name, capture.buf.items, capture.records.items, force_refresh);
+}
+
+/// Violation lines for the baseline diff. Prefers the structured records a
+/// migrated check emitted through `reporter.emit` — rendered to the *same* flat
+/// lines the baseline file already stores — and falls back to scraping the
+/// captured prose for unmigrated checks. Rendering records to the identical
+/// stored form is what keeps existing committed baselines valid across the
+/// migration: the diff sees byte-identical lines whether they were scraped or
+/// rendered, so the coupling to output formatting is gone without a reformat.
+fn violationLines(
+    arena: Allocator,
+    captured: []const u8,
+    records: []const reporter.Violation,
+) Allocator.Error![]const []const u8 {
+    if (records.len > 0) return reporter.flatLines(arena, records);
+    return extract(arena, captured);
 }
 
 fn processOutcome(
     ctx: *types.RunCtx,
     check_name: []const u8,
     captured: []const u8,
+    records: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const violations_const = try extract(a, captured);
+    const violations_const = try violationLines(a, captured, records);
     const violations = try a.alloc([]const u8, violations_const.len);
     @memcpy(violations, violations_const);
 
@@ -369,6 +386,29 @@ fn deleteIfExists(path: []const u8) void {
 
 // spec: Baseline Mode - Captures each check's current violations on first run and only fails on additions
 // spec: Baseline Mode - Wraps a single check run with capture, diff, and outcome reporting
+
+// spec: Baseline Mode - Prefers structured records over scraped text when present
+
+test "violationLines renders records when present and scrapes text otherwise" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // With structured records, the flat lines come from the records — the
+    // captured prose (here a decoy indented line) is ignored, proving the
+    // baseline no longer re-parses a migrated check's output.
+    const records = [_]reporter.Violation{
+        .{ .check = "function-length", .file = "src/x.zig", .line = 5, .message = "fn foo is 246 lines (cap 200)" },
+    };
+    const from_records = try violationLines(a, "guardian: function length FAILED\n  DECOY TEXT\n", &records);
+    try std.testing.expectEqual(@as(usize, 1), from_records.len);
+    try std.testing.expectEqualStrings("src/x.zig:5: fn foo is 246 lines (cap 200)", from_records[0]);
+
+    // With no records (an unmigrated check), it falls back to scraping the text.
+    const from_text = try violationLines(a, "guardian: ban-fs FAILED\n  src/y.zig:8: bad\n", &.{});
+    try std.testing.expectEqual(@as(usize, 1), from_text.len);
+    try std.testing.expectEqualStrings("src/y.zig:8: bad", from_text[0]);
+}
 
 test "pathFor builds the baseline file path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

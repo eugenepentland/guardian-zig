@@ -40,7 +40,7 @@ enabled = true
 # bullets — the unstaged new side isn't in git's object store, so it reads disk.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/testing/*", "src/baseline.zig", "src/mutation/*"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/testing/*", "src/baseline.zig", "src/mutation/*", "src/sink*"]
 
 # check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST in main; the
 # mutation runner clones the env to inject the child-build skip flag.
@@ -55,7 +55,7 @@ paths = ["src/reporter.zig"]
 
 [[allow]]
 check = "debug-print-ban"
-paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/reporter.zig"]
+paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/reporter.zig", "src/sink*"]
 
 # This check's own file: its pattern strings look like the paths it flags.
 [[allow]]
