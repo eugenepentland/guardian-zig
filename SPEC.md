@@ -10,12 +10,20 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Falls back to defaults when no config file exists
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
+- Parses the baseline deny_growth check list
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
 - Defaults magic-number off and enables it via [magic_number] enabled
 - Parses the mutation section score and budget settings
 - Parses the change classification toggle and against ref
+- Parses the change classification last-commit gate toggle
+- Defaults completeness off and parses its enabled and exempt_sections settings
+- Parses the dora sink path and enabled toggle
 - Parses the against and full command-line flags
+- Parses the only, skip, and version command-line flags
+- Parses the intent flag for the commit command
+- Splits a comma-separated filter value into check names
+- Rejects combining the only and skip filters
 
 ## Spec Coverage
 
@@ -91,6 +99,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Hashes the guardian input set into a stable digest
 - Round-trips the digest through the cache file
 - Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
+- Reflects a rewritten .guardian baseline in a fresh input digest
 
 ## Run All
 
@@ -98,12 +107,56 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects unknown check names in the disabled list
 - Tolerates retired check names in the disabled list
 - Emits a captured check's output only when not quiet or it failed
+- Runs only the checks named by an only filter
+- Excludes the checks named by a skip filter
+- Rejects an only or skip name that is not a runnable check
+- Detects a filtered run so the green cache stamp is suppressed
+- Skips a full run only when the cache is on, unchanged, and no refresh is pending
+- Rejects an unknown refresh target or deny_growth check name
+
+## Nightly
+
+- Fails when either the suite or the whole-tree mutation ratchet fails
+- Runs the whole-tree mutation tier by setting the full flag
+
+## Explain
+
+- Returns the explanation text for a registered check name
+- Signals an unknown check name
+- Provides an explanation entry for every registered command
+- Resolves a summary for checks and documented meta commands
+- Documents the commit meta command
+
+## Commit
+
+- Requires a non-empty intent message
+- Excludes forbidden secret and build-artifact paths from staging
+- Always stages guardian metadata and the spec file
+- Reports nothing to commit when no eligible paths remain
+
+## Debt
+
+- Counts non-header lines for baseline and pub-api debt
+- Notes a per-item ratchet's worst offender
+- Sums snapshot counts while ignoring magnitude keys
+- Reads the mutation kill score from its snapshot
+- Classifies each .guardian file into a labelled debt source
+- Sorts the debt rows by count descending
+- Formats a committed-state delta and omits it when unchanged or absent
+- Omits a clean source with zero debt and no committed change
+
+## Versioning
+
+- Reports a non-empty dotted guardian version string
 
 ## Snapshot Lifecycle
 
 - Creates snapshot file on first run with no prior snapshot
 - Reports drift when current state differs from prior snapshot
 - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
+- Refreshes only the checks named in a GUARDIAN_UPDATE_SNAPSHOT list
+- Treats a 1, true, or all value as a full refresh
+- Treats an unset, empty, or zero value as no refresh
 
 ## Pub Api Surface
 
@@ -241,12 +294,54 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Captures each check's current violations on first run and only fails on additions
 - Wraps a single check run with capture, diff, and outcome reporting
+- Prunes the baseline file when resolved violations shrink it
+- Refuses to refresh a deny_growth baseline that would grow
+- Prefers structured records over scraped text when present
+
+## Per-Item Ratchets
+
+- Selects the ratchet lifecycle only for threshold checks
+- Aggregates violation records to the max metric per key
+- Counts over-limit records per key in count mode
+- Encodes and decodes a value key line
+- Fails when a key value exceeds its recorded ceiling
+- Fails an unrecorded key as a new offender over the default cap
+- Lowers a key whose value decreased and stays green
+- Prunes keys absent from the current violations
+- Matches when every key holds its recorded value
+- Creates then auto-lowers a ratchet file across runs
+- Re-records a stale-version baseline as a ratchet
+- Refuses a deny_growth refresh that raises a value or adds a key
+- Summarizes a ratchet file's worst offender
+- Scrapes the check's own fix hint for the regression message
+
+## Reporter
+
+- Renders a Violation to the same indented line the emitter prints
+
+## Machine-Readable Sink
+
+- Serializes each violation as a JSON line escaping message and path text
+- Appends a run summary record with pass fail skip counts
+- Writes the last-run log under the git-ignored guardian cache dir
+- Writes a summary-only log when the run passes with no violations
+
+## Delivery Metrics
+
+- Renders a run record as one JSON line with outcome and failed checks
+- Includes the git branch and commit or null when absent
+- Appends a run record to the sink without overwriting
+- Writes nothing when the dora sink is disabled
+- Converts elapsed nanoseconds to whole milliseconds
+- Reads zero elapsed for an unavailable stopwatch and a non-decreasing value otherwise
 
 ## Git Diff
 
 - Parses unified diff hunk headers into added line spans
 - Groups unified diff output into per-file added spans
 - Returns no spans for deletion-only hunks and deleted files
+- Counts a commit's parents from a rev-list line
+- Extracts changed and untracked paths from porcelain status resolving renames
 
 ## Change Classification
 
@@ -256,6 +351,11 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Counts remaining added source lines as behavioral changes
 - Passes when behavioral changes are accompanied by test changes
 - Fails when behavioral changes have no test or spec change
+- Treats an added SPEC.md behavior bullet as a spec change
+- Ignores SPEC.md edits confined to prose, headers, or fenced code
+- Gates the last commit when the working tree is clean against HEAD
+- Skips the last-commit fallback at a merge or root commit
+- Uses the working tree when the base is overridden or the gate is disabled
 
 ## Mutation Testing
 
@@ -270,8 +370,20 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Classifies mutant outcomes from the build and test phases
 - Scores a run as kills over viable mutants counting timeouts as kills
 - Fails a run whose score drops below the configured minimum
+- Gates on the kill percentage only at or above the min_mutants floor
 - Ratchets the full-run mutation score against a snapshot
 - Skips every check while a mutation test run is in progress
+- Excludes a mutate-ok waived line from generation and counts the waiver
+- Records the original source line on each generated mutant
+- Keys the result cache on a suite digest that changes with any source or test edit
+- Serializes and reparses a cached mutant outcome name
+- Builds a stable mutant identity key from its file span and operator
+- Renders a cached mutant outcome as one JSON record
+- Loads matching-suite outcomes dropping stale and duplicate records
+- Reuses appended outcomes on load and bypasses the cache under refresh
+- Records each surviving mutant with its operator and original source line
+- Records a mutation summary with the tier, score, and outcome counts
+- Writes the survivor report under the git-ignored mutate cache dir
 
 ## Complexity Bounds
 
@@ -282,6 +394,22 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
 - Rejects production code @import-ing test files
+
+## Test Skip Ban
+
+- Flags a test whose first statement is an unconditional SkipZigTest
+- Allows a conditional SkipZigTest guard
+- Flags a test with an empty body
+- Allows a test with a real assertion body
+
+## Completeness Checklist
+
+- Fails a feature section that omits a required completeness category
+- Passes a section whose bullets address every completeness category
+- Accepts a completeness-waiver bullet that gives a reason
+- Rejects a completeness-waiver bullet that omits its reason
+- Skips sections listed in the exempt_sections config
+- Excludes completeness-waiver bullets from spec behavior mapping
 
 ## Escape Discipline
 
@@ -301,6 +429,23 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects sleep calls outside test infrastructure
 - Rejects mutable pub var globals outside wiring/main
 - Rejects hardcoded absolute paths and URLs in string literals
+
+## Fakes
+
+- FakeClock reads back its start time
+- FakeClock advance accumulates elapsed nanoseconds
+- FakeClock sleep advances the clock instead of blocking
+- FakeClock reads through an injected Clock port
+- SeededRandom reproduces a sequence for a given seed
+- SeededRandom diverges for different seeds
+- FakeFs round-trips bytes through writeFile and readFile
+- FakeFs reports existence of written paths
+- FakeFs deleteFile removes a stored file
+- FakeFs readFile returns FileNotFound for a missing path
+- FakeFs listPaths returns paths sorted ascending
+- FakeEnv get returns a set value
+- FakeEnv get returns null for an unset key
+- FakeEnv unset removes a variable
 
 ## Ban Secrets
 

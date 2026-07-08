@@ -4,6 +4,10 @@ const config_parser = @import("config_parser.zig");
 const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
+const nightly = @import("cli/nightly.zig");
+const commit_cmd = @import("cli/commit.zig");
+const explain = @import("cli/explain.zig");
+const version = @import("version.zig");
 const baseline = @import("baseline.zig");
 const mutation_runner = @import("mutation/runner.zig");
 
@@ -38,10 +42,31 @@ pub fn main() !void {
 
     const parsed = parseArgs(args[1..]);
     reporter.init(parsed.quiet);
+
+    // `--version` / `version`: print and exit before any project work. Printing
+    // std.debug.print from pub fn main is exempt from debug-print-ban.
+    if (parsed.show_version or isVersionCommand(parsed.command)) {
+        std.debug.print("guardian-check {s}\n", .{version.string});
+        return;
+    }
+
     const command = parsed.command orelse {
         registry.printHelp();
         std.process.exit(1);
     };
+
+    // `explain <check>`: static, needs no project dir or config. An unknown
+    // name exits non-zero after listing the valid checks.
+    if (std.mem.eql(u8, command, "explain")) {
+        if (!explain.run(explainQuery(parsed))) std.process.exit(1);
+        return;
+    }
+
+    // --only and --skip contradict each other; reject the combination outright.
+    if (onlySkipConflict(parsed)) {
+        reporter.fail("--only and --skip cannot be combined", .{});
+        std.process.exit(1);
+    }
 
     const cfg = config_parser.load(allocator, parsed.project_dir);
     var ctx: registry.RunCtx = .{
@@ -51,6 +76,9 @@ pub fn main() !void {
         .quiet = parsed.quiet,
         .against = parsed.against orelse nonEmpty(readEnv(allocator, AGAINST_ENV)),
         .full = parsed.full,
+        .only = splitCsv(allocator, parsed.only),
+        .skip = splitCsv(allocator, parsed.skip),
+        .intent = parsed.intent,
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
@@ -67,11 +95,21 @@ const ParsedArgs = struct {
     quiet: bool = false,
     full: bool = false,
     against: ?[]const u8 = null,
+    /// Raw comma-separated `--only` value (split later); null = no filter.
+    only: ?[]const u8 = null,
+    /// Raw comma-separated `--skip` value (split later); null = no filter.
+    skip: ?[]const u8 = null,
+    /// `--intent "<message>"` value for the `commit` command; null when absent.
+    intent: ?[]const u8 = null,
+    /// True when `--version` was passed anywhere on the command line.
+    show_version: bool = false,
 };
 
-// Scans argv (sans program name): first non-flag token is the command, the
-// next is the project dir; `--quiet`/`-q` toggles quiet mode, `--full`
-// selects mutate's whole-tree tier, `--against <ref>` sets the diff base.
+// Scans argv (sans program name): first non-flag token is the command, the next
+// is the project dir; `--quiet`/`-q` toggles quiet mode, `--full` selects
+// mutate's whole-tree tier, `--against <ref>` sets the diff base, `--only`/
+// `--skip <a,b>` filter the `all` suite, `--intent "<msg>"` is the commit
+// subject, `--version` requests the version.
 fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
     var i: usize = 0;
@@ -81,9 +119,20 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             parsed.quiet = true;
         } else if (std.mem.eql(u8, arg, "--full")) {
             parsed.full = true;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            parsed.show_version = true;
         } else if (std.mem.eql(u8, arg, "--against")) {
             i += 1;
             if (i < args.len) parsed.against = args[i];
+        } else if (std.mem.eql(u8, arg, "--only")) {
+            i += 1;
+            if (i < args.len) parsed.only = args[i];
+        } else if (std.mem.eql(u8, arg, "--skip")) {
+            i += 1;
+            if (i < args.len) parsed.skip = args[i];
+        } else if (std.mem.eql(u8, arg, "--intent")) {
+            i += 1;
+            if (i < args.len) parsed.intent = args[i];
         } else if (parsed.command == null) {
             parsed.command = arg;
         } else {
@@ -91,6 +140,41 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         }
     }
     return parsed;
+}
+
+/// True when `command` is the `version` command (prints the version like the
+/// `--version` flag).
+fn isVersionCommand(command: ?[]const u8) bool {
+    const c = command orelse return false;
+    return std.mem.eql(u8, c, "version");
+}
+
+/// The check name for `explain`: the positional after the command, or null when
+/// omitted. parseArgs stores that positional in `project_dir`, so its default
+/// "." means no name was given (a bare `explain` lists every check).
+fn explainQuery(parsed: ParsedArgs) ?[]const u8 {
+    return if (std.mem.eql(u8, parsed.project_dir, ".")) null else parsed.project_dir;
+}
+
+/// True when both --only and --skip were given — a contradiction that is an
+/// error rather than an intersection.
+fn onlySkipConflict(parsed: ParsedArgs) bool {
+    return parsed.only != null and parsed.skip != null;
+}
+
+/// Splits a comma-separated `--only`/`--skip` value into check names, trimming
+/// whitespace and dropping blank segments ("a,,b" -> {a,b}); empty slice when
+/// null (no filter active).
+fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) []const []const u8 {
+    const s = csv orelse return &.{};
+    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, s, ',');
+    while (it.next()) |part| {
+        const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
+        if (trimmed.len == 0) continue;
+        list.append(allocator, trimmed) catch return list.items;
+    }
+    return list.toOwnedSlice(allocator) catch list.items;
 }
 
 /// Reads an env var; null when unset (arena-owned when present).
@@ -117,11 +201,28 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     if (std.mem.eql(u8, command, run_all.COMMAND_NAME)) {
         return run_all.run(ctx);
     }
+    // nightly composes `all` + `mutate --full`; dispatched specially (like
+    // `all`) because it can't be a registry entry without an @import cycle.
+    if (std.mem.eql(u8, command, nightly.COMMAND_NAME)) {
+        return nightly.run(ctx);
+    }
+    // commit gates the tree (`all`) then auto-commits on green; special-dispatched
+    // for the same reason as nightly (commit.zig imports run_all → registry cycle).
+    if (std.mem.eql(u8, command, commit_cmd.COMMAND_NAME)) {
+        return commit_cmd.run(ctx);
+    }
     const cmd = registry.find(command) orelse {
         registry.printHelp();
         std.process.exit(1);
     };
-    if (cfg.baseline.enabled) {
+    // `all`/`nightly` validate refresh + deny_growth names inside run_all.run;
+    // a single-check run (e.g. `guardian-check pub-api-surface`, `mutate`) has
+    // to validate them here so a typo'd GUARDIAN_UPDATE_SNAPSHOT still hard-fails.
+    try run_all.validateSelectiveConfig(ctx);
+    // Baseline mode only wraps real gate checks. Non-gates (spec-init, mutate,
+    // debt — the run_all SKIP set) must run raw: baseline-wrapping a report like
+    // `debt` would capture its own output as "violations" and baseline it.
+    if (cfg.baseline.enabled and run_all.isAllCheck(cmd.name)) {
         return baseline.runWithBaseline(ctx, cmd);
     }
     return cmd.run(ctx);
@@ -145,8 +246,17 @@ test {
     _ = @import("git.zig");
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");
+    _ = @import("mutation/cache.zig");
+    _ = @import("mutation/report.zig");
     _ = @import("cli/mutate.zig");
+    _ = @import("cli/debt.zig");
+    _ = @import("cli/nightly.zig");
+    _ = @import("cli/commit.zig");
+    _ = @import("cli/explain.zig");
+    _ = @import("version.zig");
     _ = @import("reporter.zig");
+    _ = @import("sink.zig");
+    _ = @import("dora.zig");
     _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
     _ = @import("ast/containers.zig");
@@ -159,7 +269,18 @@ test {
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
     _ = @import("baseline.zig");
+    _ = @import("ratchet.zig");
     _ = @import("testing/golden_runner.zig");
+
+    // Fakes — deterministic test doubles shipped as the `guardian-fakes`
+    // module. They live outside src/checks/, so the check-file meta-guard
+    // doesn't cover them; the "test root imports every fakes file" guard below
+    // keeps this list in sync with src/fakes/*.zig.
+    _ = @import("fakes/fakes.zig");
+    _ = @import("fakes/clock.zig");
+    _ = @import("fakes/random.zig");
+    _ = @import("fakes/fs.zig");
+    _ = @import("fakes/env.zig");
 
     // Checks — keep in sync with src/checks/*.zig (enforced by test-root-drift)
     _ = @import("checks/allocator_hygiene.zig");
@@ -181,6 +302,7 @@ test {
     _ = @import("checks/change_classification.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/compile_error_explanation.zig");
+    _ = @import("checks/completeness.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/doc_comments.zig");
@@ -217,6 +339,7 @@ test {
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
+    _ = @import("checks/test_skip_ban.zig");
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unsafe_ops_budget.zig");
     _ = @import("checks/unwrap_discipline.zig");
@@ -241,6 +364,66 @@ test "parseArgs reads --against ref and --full alongside command and dir" {
     try std.testing.expectEqualStrings("origin/main", parsed.against.?);
     try std.testing.expect(parsed.full);
     try std.testing.expect(!parsed.quiet);
+}
+
+// spec: Configuration - Parses the only, skip, and version command-line flags
+
+test "parseArgs reads --only, --skip and --version" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 6);
+    args[0] = try a.dupeZ(u8, "all");
+    args[1] = try a.dupeZ(u8, "--only");
+    args[2] = try a.dupeZ(u8, "spec,file-size");
+    args[3] = try a.dupeZ(u8, "--skip");
+    args[4] = try a.dupeZ(u8, "boundaries");
+    args[5] = try a.dupeZ(u8, "--version");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("all", parsed.command.?);
+    try std.testing.expectEqualStrings("spec,file-size", parsed.only.?);
+    try std.testing.expectEqualStrings("boundaries", parsed.skip.?);
+    try std.testing.expect(parsed.show_version);
+}
+
+// spec: Configuration - Parses the intent flag for the commit command
+
+test "parseArgs reads --intent message alongside command and dir" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 4);
+    args[0] = try a.dupeZ(u8, "commit");
+    args[1] = try a.dupeZ(u8, "--intent");
+    args[2] = try a.dupeZ(u8, "add the widget");
+    args[3] = try a.dupeZ(u8, ".");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("commit", parsed.command.?);
+    try std.testing.expectEqualStrings("add the widget", parsed.intent.?);
+    try std.testing.expectEqualStrings(".", parsed.project_dir);
+}
+
+// spec: Configuration - Splits a comma-separated filter value into check names
+
+test "splitCsv trims segments and returns empty for null" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = splitCsv(a, "spec, file-size ,,boundaries");
+    try std.testing.expectEqual(@as(usize, 3), out.len);
+    try std.testing.expectEqualStrings("spec", out[0]);
+    try std.testing.expectEqualStrings("file-size", out[1]);
+    try std.testing.expectEqualStrings("boundaries", out[2]);
+    try std.testing.expectEqual(@as(usize, 0), splitCsv(a, null).len);
+}
+
+// spec: Configuration - Rejects combining the only and skip filters
+
+test "onlySkipConflict flags only+skip together" {
+    try std.testing.expect(onlySkipConflict(.{ .only = "a", .skip = "b" }));
+    try std.testing.expect(!onlySkipConflict(.{ .only = "a" }));
+    try std.testing.expect(!onlySkipConflict(.{ .skip = "b" }));
+    try std.testing.expect(!onlySkipConflict(.{}));
 }
 
 // spec: Mutation Testing - Skips every check while a mutation test run is in progress
@@ -281,5 +464,34 @@ test "test root imports every check file" {
         }
     }
     // A non-empty result names a check file missing from the block above.
+    try std.testing.expectEqualStrings("", missing_buf[0..missing_len]);
+}
+
+// Meta-guard for src/fakes/ — the check-file guard above only walks
+// src/checks/, but the same drift bug (AUDIT P0-1) would silently drop a fakes
+// file's tests from the test root. This walks src/fakes/ and fails if any file
+// is missing from the aggregation block, so a future fake can't skip its tests
+// unnoticed. (fs walk allowed in test scope; the capturing while is an iterator
+// loop and its inner ifs are nested — neither ban-fs nor test-no-conditional
+// flags it, same as the check-file guard.)
+test "test root imports every fakes file" {
+    const self_src = @embedFile("check.zig");
+    var dir = try std.fs.cwd().openDir("src/fakes", .{ .iterate = true });
+    defer dir.close();
+    var it = dir.iterate();
+    var missing_buf: [256]u8 = undefined;
+    var missing_len: usize = 0;
+    var needle_buf: [256]u8 = undefined;
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        const needle = try std.fmt.bufPrint(&needle_buf, "@import(\"fakes/{s}\")", .{entry.name});
+        if (std.mem.indexOf(u8, self_src, needle) == null) {
+            @memcpy(missing_buf[0..entry.name.len], entry.name);
+            missing_len = entry.name.len;
+            break;
+        }
+    }
+    // A non-empty result names a fakes file missing from the block above.
     try std.testing.expectEqualStrings("", missing_buf[0..missing_len]);
 }

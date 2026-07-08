@@ -78,6 +78,10 @@ const ParseState = struct {
     fn handleBullet(self: *ParseState, line: []const u8) ParseError!void {
         const sec = self.current_section orelse return;
         const statement = std.mem.trim(u8, line[2..], &std.ascii.whitespace);
+        // A `- completeness-waiver: ...` bullet is metadata for the opt-in
+        // completeness check, not a behavior — it must not mint a spec bullet
+        // that would then demand its own `// spec:` tag.
+        if (isCompletenessWaiver(statement)) return;
         const raw_key = try std.fmt.allocPrint(self.allocator, "{s} - {s}", .{ sec, statement });
         const key = try normalizeKey(self.allocator, raw_key);
         try self.current_behaviors.append(self.allocator, .{
@@ -118,6 +122,14 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
 
     try state.flushSection();
     return state.sections.toOwnedSlice(allocator);
+}
+
+/// True when a bullet statement is a `completeness-waiver:` line (the opt-in
+/// completeness check's waiver syntax), which the spec map must ignore.
+fn isCompletenessWaiver(statement: []const u8) bool {
+    const prefix = "completeness-waiver:";
+    return statement.len >= prefix.len and
+        std.ascii.eqlIgnoreCase(statement[0..prefix.len], prefix);
 }
 
 /// Normalizes a key for comparison: lowercases, collapses whitespace runs to a
@@ -206,6 +218,23 @@ test "parse ignores fenced code and trailing Planned section" {
     try std.testing.expectEqual(@as(usize, 1), sections.len);
     try std.testing.expectEqualStrings("Real", sections[0].name);
     try std.testing.expectEqual(@as(usize, 1), sections[0].behaviors.len);
+}
+
+// spec: Completeness Checklist - Excludes completeness-waiver bullets from spec behavior mapping
+test "parseContent skips completeness-waiver bullets" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\## Feature
+        \\- real behavior
+        \\- completeness-waiver: i/o failure (pure in-memory function)
+    ;
+    const sections = try parseContent(a, content);
+    // Only the real behavior maps; the waiver bullet is completeness metadata.
+    try std.testing.expectEqual(@as(usize, 1), sections.len);
+    try std.testing.expectEqual(@as(usize, 1), sections[0].behaviors.len);
+    try std.testing.expectEqualStrings("real behavior", sections[0].behaviors[0].statement);
 }
 
 // spec: Spec Coverage - Fails with clear error when SPEC.md is missing

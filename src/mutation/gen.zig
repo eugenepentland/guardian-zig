@@ -15,9 +15,16 @@ const Allocator = std.mem.Allocator;
 const TRUE_LIT = "true";
 const FALSE_LIT = "false";
 
+/// Waiver marker: a source line containing this string is excluded from mutant
+/// generation. For known *equivalent* mutants — e.g. `>` vs `>=` on a min/max
+/// scan — that no test could ever kill, so gating on them is pure noise. An
+/// optional reason may follow (`// mutate-ok: boundary equivalence`).
+const WAIVER_MARKER = "// mutate-ok";
+
 /// One candidate mutation: replace `content[start..end]` (which reads
 /// `original`) with `replacement`. `line` is 1-indexed for reporting and
-/// for fast-tier span filtering.
+/// for fast-tier span filtering; `src_line` is that line's full text, so a
+/// survivor report can show an agent the exact expression that changed.
 pub const Mutant = struct {
     path: []const u8,
     start: usize,
@@ -25,13 +32,26 @@ pub const Mutant = struct {
     original: []const u8,
     replacement: []const u8,
     line: u32,
+    src_line: []const u8 = "",
+};
+
+/// A file's generated mutants plus the 1-indexed lines whose mutation sites
+/// were suppressed by a `// mutate-ok` waiver (one entry per suppressed site).
+/// Waived sites never run and never score; the lines are surfaced so a
+/// deliberately-waived equivalence is visible, and so the fast tier can scope
+/// its waiver tally to the diff exactly as it scopes mutants (see waivedInSpans).
+pub const GenResult = struct {
+    mutants: []const Mutant,
+    waived_lines: []const u32 = &.{},
 };
 
 /// Generates every mutant for one file's content. Deterministic: mutants
 /// are emitted in token order, so identical input yields identical output.
-pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8) Allocator.Error![]const Mutant {
+/// Sites on a `// mutate-ok` line are recorded in `waived_lines` and skipped.
+pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8) Allocator.Error!GenResult {
     const z = try allocator.dupeZ(u8, content);
     var out: std.ArrayListUnmanaged(Mutant) = .empty;
+    var waived: std.ArrayListUnmanaged(u32) = .empty;
     var tok = std.zig.Tokenizer.init(z);
     var scope = text.TestScope{};
     var line: u32 = 1;
@@ -45,19 +65,49 @@ pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8)
         scope.update(t.tag);
         if (!in_test) {
             if (replacementFor(z, t, prev_tag)) |rep| {
-                try out.append(allocator, .{
-                    .path = rel_path,
-                    .start = t.loc.start,
-                    .end = t.loc.end,
-                    .original = z[t.loc.start..t.loc.end],
-                    .replacement = rep,
-                    .line = line,
-                });
+                const src = lineText(z, t.loc.start);
+                if (isWaived(src)) {
+                    try waived.append(allocator, line);
+                } else {
+                    try out.append(allocator, .{
+                        .path = rel_path,
+                        .start = t.loc.start,
+                        .end = t.loc.end,
+                        .original = z[t.loc.start..t.loc.end],
+                        .replacement = rep,
+                        .line = line,
+                        .src_line = src,
+                    });
+                }
             }
         }
         prev_tag = t.tag;
     }
-    return out.toOwnedSlice(allocator);
+    return .{ .mutants = try out.toOwnedSlice(allocator), .waived_lines = try waived.toOwnedSlice(allocator) };
+}
+
+/// Count of waived-site lines falling within `spans` — the fast tier's waiver
+/// tally, scoped to the diff exactly like `filterToSpans` scopes mutants.
+pub fn waivedInSpans(waived_lines: []const u32, spans: []const git.LineSpan) u32 {
+    var n: u32 = 0;
+    for (waived_lines) |ln| {
+        if (anySpanContains(spans, ln)) n += 1;
+    }
+    return n;
+}
+
+/// True when `src_line` carries the `// mutate-ok` waiver marker.
+fn isWaived(src_line: []const u8) bool {
+    return std.mem.indexOf(u8, src_line, WAIVER_MARKER) != null;
+}
+
+/// The full source line (no trailing newline) containing byte `offset`, sliced
+/// from `z`. Feeds both the survivor report (the exact line an agent must
+/// strengthen a test against) and the `// mutate-ok` waiver scan.
+fn lineText(z: []const u8, offset: usize) []const u8 {
+    const start = if (std.mem.lastIndexOfScalar(u8, z[0..offset], '\n')) |i| i + 1 else 0;
+    const end = std.mem.indexOfScalarPos(u8, z, offset, '\n') orelse z.len;
+    return z[start..end];
 }
 
 /// The mutated text for one token, or null when the token isn't a mutation
@@ -158,11 +208,11 @@ fn countReplacement(mutants: []const Mutant, replacement: []const u8) usize {
 test "generate flips comparison operators in production code only" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const out = try generate(arena.allocator(), "src/x.zig",
+    const out = (try generate(arena.allocator(), "src/x.zig",
         \\pub fn lt(a: u32, b: u32) bool { return a < b; }
         \\pub fn ge(a: u32, b: u32) bool { return a >= b; }
         \\test "cmp" { try expect(1 == 1); }
-    );
+    )).mutants;
     // `<` -> `<=`, `>=` -> `>`; the `==` inside the test block is skipped.
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "<="));
     try testing.expectEqual(@as(usize, 1), countReplacement(out, ">"));
@@ -175,9 +225,9 @@ test "generate flips comparison operators in production code only" {
 test "generate swaps binary plus and minus" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const out = try generate(arena.allocator(), "src/x.zig",
+    const out = (try generate(arena.allocator(), "src/x.zig",
         \\pub fn calc(a: u32, b: u32) u32 { return a + b - 1; }
-    );
+    )).mutants;
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "-"));
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "+"));
 }
@@ -187,10 +237,10 @@ test "generate swaps binary plus and minus" {
 test "generate skips unary minus (no unary plus exists in Zig)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const out = try generate(arena.allocator(), "src/x.zig",
+    const out = (try generate(arena.allocator(), "src/x.zig",
         \\pub fn neg(a: i32) i32 { return -a; }
         \\pub fn expr(a: i32) i32 { return (a) - -a; }
-    );
+    )).mutants;
     // Only the binary minus after `)` mutates; both unary sites are skipped.
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "+"));
 }
@@ -200,9 +250,9 @@ test "generate skips unary minus (no unary plus exists in Zig)" {
 test "generate swaps and/or keywords" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const out = try generate(arena.allocator(), "src/x.zig",
+    const out = (try generate(arena.allocator(), "src/x.zig",
         \\pub fn both(a: bool, b: bool, c: bool) bool { return a and (b or c); }
-    );
+    )).mutants;
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "or"));
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "and"));
 }
@@ -212,12 +262,47 @@ test "generate swaps and/or keywords" {
 test "generate flips boolean literals" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const out = try generate(arena.allocator(), "src/x.zig",
+    const out = (try generate(arena.allocator(), "src/x.zig",
         \\pub const ON = true;
         \\pub fn off() bool { return false; }
-    );
+    )).mutants;
     try testing.expectEqual(@as(usize, 1), countReplacement(out, FALSE_LIT));
     try testing.expectEqual(@as(usize, 1), countReplacement(out, TRUE_LIT));
+}
+
+// spec: Mutation Testing - Excludes a mutate-ok waived line from generation and counts the waiver
+
+test "generate skips a mutate-ok line and counts it as waived" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const res = try generate(arena.allocator(), "src/x.zig",
+        \\pub fn hi(a: u32, b: u32) bool { return a > b; } // mutate-ok: boundary equivalence
+        \\pub fn lo(a: u32, b: u32) bool { return a < b; }
+    );
+    // The `>` site on the waived line (1) is suppressed and recorded; the `<` on
+    // line 2 still mutates, so the waiver never touches non-waived lines.
+    try testing.expectEqual(@as(usize, 1), res.waived_lines.len);
+    try testing.expectEqual(@as(u32, 1), res.waived_lines[0]);
+    try testing.expectEqual(@as(usize, 1), res.mutants.len);
+    try testing.expectEqualStrings("<=", res.mutants[0].replacement);
+    try testing.expectEqual(@as(u32, 2), res.mutants[0].line);
+    // The fast tier scopes the waiver tally to the diff: a span covering only
+    // line 2 sees no waiver; one covering line 1 counts it.
+    try testing.expectEqual(@as(u32, 0), waivedInSpans(res.waived_lines, &.{.{ .start = 2, .len = 1 }}));
+    try testing.expectEqual(@as(u32, 1), waivedInSpans(res.waived_lines, &.{.{ .start = 1, .len = 1 }}));
+}
+
+// spec: Mutation Testing - Records the original source line on each generated mutant
+
+test "generate carries the original source line for the survivor report" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const res = try generate(arena.allocator(), "src/x.zig",
+        \\pub fn lt(a: u32, b: u32) bool { return a < b; }
+    );
+    try testing.expectEqual(@as(usize, 1), res.mutants.len);
+    // src_line is the whole line's text — the exact context an agent needs.
+    try testing.expectEqualStrings("pub fn lt(a: u32, b: u32) bool { return a < b; }", res.mutants[0].src_line);
 }
 
 // spec: Mutation Testing - Restricts fast-tier mutants to added line spans
@@ -226,10 +311,10 @@ test "filterToSpans keeps only mutants on added lines" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const out = try generate(a, "src/x.zig",
+    const out = (try generate(a, "src/x.zig",
         \\pub fn one(x: u32) bool { return x == 1; }
         \\pub fn two(x: u32) bool { return x == 2; }
-    );
+    )).mutants;
     try testing.expectEqual(@as(usize, 2), out.len);
     const kept = try filterToSpans(a, out, &.{.{ .start = 2, .len = 1 }});
     try testing.expectEqual(@as(usize, 1), kept.len);

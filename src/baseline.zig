@@ -4,6 +4,7 @@ const snapshot = @import("snapshot.zig");
 const reporter = @import("reporter.zig");
 const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
+const ratchet = @import("ratchet.zig");
 
 /// Baseline file format version. Bump if the format changes meaningfully.
 pub const VERSION: u32 = 1;
@@ -16,8 +17,9 @@ pub const Outcome = union(enum) {
     created: usize,
     /// Current set matches baseline exactly.
     matched: usize,
-    /// Some baselined violations were resolved. Run with
-    /// GUARDIAN_UPDATE_SNAPSHOT=1 to prune them.
+    /// Some baselined violations were resolved; the baseline file was
+    /// auto-pruned to the current (smaller) set. Removing entries is
+    /// monotone-safe, so pruning never needs a refresh env var.
     shrunk: struct { remaining: usize, removed: usize },
     /// `force_refresh` was set; baseline was rewritten.
     refreshed: usize,
@@ -167,7 +169,17 @@ pub fn lifecycle(
     // Match ignoring source-line position so an unrelated edit that merely shifts a
     // legacy violation's line number isn't reported as a new violation (see positionKey).
     const d = try diffByPosition(arena, old, current);
-    return classify(d, old.lines.len, current.len);
+    const outcome = classify(d, old.lines.len, current.len);
+    // Auto-prune: a pure shrink (violations resolved, none added) rewrites the
+    // baseline with the current smaller set. Removing entries is monotone-safe —
+    // it can never introduce a false failure — so it needs no refresh env var,
+    // and it retires the old "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune"
+    // round-trip that generated a class of .guardian/ churn commits.
+    switch (outcome) {
+        .shrunk => try snapshot.write(baseline_path, VERSION, current),
+        else => {},
+    }
+    return outcome;
 }
 
 /// Result of loading (and possibly initializing) a baseline before diffing.
@@ -220,7 +232,10 @@ pub fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8
 /// Run `cmd` with output captured, then apply the baseline lifecycle.
 /// Used by both `run-all` and the single-check dispatch in `check.zig`.
 pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void {
-    const force_refresh = snapshot_helper.shouldUpdate(ctx.allocator);
+    // Selective refresh: GUARDIAN_UPDATE_SNAPSHOT=<name> refreshes only that
+    // check's baseline, so accepting one intended change can't ratify unrelated
+    // baseline growth in the same run.
+    const force_refresh = snapshot_helper.shouldUpdateFor(ctx.allocator, cmd.name);
     var capture: reporter.Capture = .{ .allocator = ctx.allocator };
     defer capture.deinit();
 
@@ -238,24 +253,56 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
         };
     }
 
-    return processOutcome(ctx, cmd.name, capture.buf.items, force_refresh);
+    return processOutcome(ctx, cmd.name, capture.buf.items, capture.records.items, force_refresh);
+}
+
+/// Violation lines for the baseline diff. Prefers the structured records a
+/// migrated check emitted through `reporter.emit` — rendered to the *same* flat
+/// lines the baseline file already stores — and falls back to scraping the
+/// captured prose for unmigrated checks. Rendering records to the identical
+/// stored form is what keeps existing committed baselines valid across the
+/// migration: the diff sees byte-identical lines whether they were scraped or
+/// rendered, so the coupling to output formatting is gone without a reformat.
+fn violationLines(
+    arena: Allocator,
+    captured: []const u8,
+    records: []const reporter.Violation,
+) Allocator.Error![]const []const u8 {
+    if (records.len > 0) return reporter.flatLines(arena, records);
+    return extract(arena, captured);
 }
 
 fn processOutcome(
     ctx: *types.RunCtx,
     check_name: []const u8,
     captured: []const u8,
+    records: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const violations_const = try extract(a, captured);
+    // A threshold check with a stable key + metric uses the per-item ratchet
+    // lifecycle (baseline v2): each offender gets an only-shrinks ceiling, so a
+    // metric change on a grandfathered offender no longer reds the build. Every
+    // other check keeps the v1 text-diff lifecycle below. Selection is by check
+    // name (not the presence of records), so a metric check with zero current
+    // violations still ratchets — it prunes its whole baseline.
+    if (ratchet.metricMode(check_name) != null) {
+        return processRatchet(a, ctx, check_name, captured, records, force_refresh);
+    }
+
+    const path = try pathFor(a, ctx.project_dir, check_name);
+    const violations_const = try violationLines(a, captured, records);
     const violations = try a.alloc([]const u8, violations_const.len);
     @memcpy(violations, violations_const);
 
-    const path = try pathFor(a, ctx.project_dir, check_name);
+    // deny_growth: a refresh (global or selective) may only rewrite this
+    // check's baseline if it doesn't grow. Guards the flagship 1:1 spec map —
+    // today's fastest-growing frozen debt — from being ratified upward.
+    try denyGrowthGuard(a, ctx, check_name, path, violations.len, force_refresh);
+
     const outcome = lifecycle(a, path, violations, force_refresh) catch |e| {
         reporter.fail("{s}: baseline I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
@@ -264,13 +311,152 @@ fn processOutcome(
     return reportOutcome(check_name, outcome);
 }
 
+/// Ratchet (baseline v2) path for a threshold check: aggregate its records to
+/// one value per key, guard a deny_growth refresh, run the lifecycle, and report.
+/// Only called after `metricMode(check_name)` returned non-null, so the unwrap
+/// below is total.
+fn processRatchet(
+    a: std.mem.Allocator,
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    captured: []const u8,
+    records: []const reporter.Violation,
+    force_refresh: bool,
+) types.RunError!void {
+    const path = try pathFor(a, ctx.project_dir, check_name);
+    const entries = try ratchet.aggregate(a, records, ratchet.metricMode(check_name).?);
+    try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, force_refresh);
+
+    const outcome = ratchet.lifecycle(a, path, entries, force_refresh) catch |e| {
+        reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
+        return error.CheckFailed;
+    };
+    return reportRatchet(check_name, outcome, firstFixHint(captured));
+}
+
+/// deny_growth for a ratchet check: on a refresh of a listed check, refuse to
+/// rewrite when the new state would raise any key's value or add a key. A
+/// missing / v1 (pre-migration) file reads as no prior ratchet — a refresh that
+/// first-records or migrates is never "growth", so it is allowed.
+fn ratchetDenyGrowthGuard(
+    a: std.mem.Allocator,
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    path: []const u8,
+    entries: []const ratchet.Entry,
+    force_refresh: bool,
+) types.RunError!void {
+    if (!force_refresh) return;
+    if (!nameInList(ctx.cfg.baseline.deny_growth, check_name)) return;
+    const snap = snapshot.read(a, path, ratchet.VERSION) catch return;
+    const old = try ratchet.decodeLines(a, snap.lines);
+    if (!try ratchet.wouldGrow(a, old, entries)) return;
+    reporter.fail(
+        "refusing to refresh {s}: ratchet would raise a value or add a key; " ++
+            "fix the regressions or remove {s} from deny_growth",
+        .{ check_name, check_name },
+    );
+    return error.CheckFailed;
+}
+
+/// Reports a ratchet outcome; `regressed` prints each grown / new-offender key
+/// (with the check's own fix hint, scraped from its captured output) and fails.
+fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]const u8) types.RunError!void {
+    switch (outcome) {
+        .created => |n| reporter.ok("{s}: ratchet baselined ({d} key(s))", .{ check_name, n }),
+        .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
+        .matched => |n| reporter.ok("{s}: ratchet matches ({d} key(s))", .{ check_name, n }),
+        .improved => |imp| reporter.ok(
+            "{s}: {d} ratchet(s) lowered, {d} pruned (now {d} key(s))",
+            .{ check_name, imp.lowered, imp.pruned, imp.remaining },
+        ),
+        .refreshed => |n| reporter.ok("{s}: ratchet refreshed ({d} key(s))", .{ check_name, n }),
+        .regressed => |reg| {
+            const n = reg.grown.len + reg.new_offenders.len;
+            reporter.fail("{s}: {d} key(s) regressed above ratchet", .{ check_name, n });
+            for (reg.grown) |g| reporter.detail(
+                "  {s}: {s} grew {d} -> {d} (ratcheted at {d})\n",
+                .{ check_name, g.key, g.old, g.new, g.old },
+            );
+            for (reg.new_offenders) |o| reporter.detail(
+                "  {s}: {s} new offender over default cap ({d})\n",
+                .{ check_name, o.key, o.value },
+            );
+            if (fix_hint) |h| reporter.detail("  {s}\n", .{h});
+            return error.CheckFailed;
+        },
+    }
+}
+
+/// The first `fix:` hint line in a check's captured output (dedented), or null.
+/// Reuses the check's own hint text for the ratchet regression message instead
+/// of duplicating it in a table.
+fn firstFixHint(captured: []const u8) ?[]const u8 {
+    var it = std.mem.splitScalar(u8, captured, '\n');
+    while (it.next()) |raw| {
+        const trimmed = leftTrim(raw);
+        if (std.mem.startsWith(u8, trimmed, "fix:")) return trimmed;
+    }
+    return null;
+}
+
+/// Fails the run when `check_name` is in `[baseline] deny_growth` and a refresh
+/// would grow its baseline. Only fires on the refresh path; an existing
+/// baseline is required (initial creation is not "growth"). A no-op otherwise.
+fn denyGrowthGuard(
+    arena: Allocator,
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    path: []const u8,
+    new_count: usize,
+    force_refresh: bool,
+) types.RunError!void {
+    const old_count = baselineViolationCount(arena, path);
+    if (!growthDenied(ctx.cfg.baseline.deny_growth, check_name, old_count, new_count, force_refresh)) return;
+    reporter.fail(
+        "refusing to refresh {s}: baseline would grow {d}→{d}; " ++
+            "fix the new violations or remove {s} from deny_growth",
+        .{ check_name, old_count.?, new_count, check_name },
+    );
+    return error.CheckFailed;
+}
+
+/// Pure decision for denyGrowthGuard: a refresh of a deny_growth check with an
+/// existing baseline is denied exactly when the new count exceeds the old.
+/// `old_count` is null when no baseline exists yet — initial creation is never
+/// "growth", so it is always allowed.
+fn growthDenied(
+    deny_list: []const []const u8,
+    check_name: []const u8,
+    old_count: ?usize,
+    new_count: usize,
+    force_refresh: bool,
+) bool {
+    if (!force_refresh) return false;
+    if (!nameInList(deny_list, check_name)) return false;
+    const oc = old_count orelse return false;
+    return new_count > oc;
+}
+
+/// Current recorded violation count in a baseline file, or null when it is
+/// absent/unreadable (so initial creation isn't treated as growth).
+fn baselineViolationCount(arena: Allocator, path: []const u8) ?usize {
+    const snap = snapshot.read(arena, path, VERSION) catch return null;
+    return snap.lines.len;
+}
+
+/// True when `name` appears in `list`.
+fn nameInList(list: []const []const u8, name: []const u8) bool {
+    for (list) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
 fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
     switch (outcome) {
         .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
         .matched => |n| reporter.ok("{s}: baseline matches ({d} violation(s))", .{ check_name, n }),
         .shrunk => |s| reporter.ok(
-            "{s}: {d} violation(s) resolved (now {d}) — " ++
-                "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune",
+            "{s}: {d} resolved, baseline pruned (now {d})",
             .{ check_name, s.removed, s.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: baseline refreshed ({d} violation(s))", .{ check_name, n }),
@@ -300,6 +486,45 @@ fn deleteIfExists(path: []const u8) void {
 
 // spec: Baseline Mode - Captures each check's current violations on first run and only fails on additions
 // spec: Baseline Mode - Wraps a single check run with capture, diff, and outcome reporting
+
+// spec: Baseline Mode - Prefers structured records over scraped text when present
+
+test "violationLines renders records when present and scrapes text otherwise" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // With structured records, the flat lines come from the records — the
+    // captured prose (here a decoy indented line) is ignored, proving the
+    // baseline no longer re-parses a migrated check's output.
+    const records = [_]reporter.Violation{
+        .{ .check = "function-length", .file = "src/x.zig", .line = 5, .message = "fn foo is 246 lines (cap 200)" },
+    };
+    const from_records = try violationLines(a, "guardian: function length FAILED\n  DECOY TEXT\n", &records);
+    try std.testing.expectEqual(@as(usize, 1), from_records.len);
+    try std.testing.expectEqualStrings("src/x.zig:5: fn foo is 246 lines (cap 200)", from_records[0]);
+
+    // With no records (an unmigrated check), it falls back to scraping the text.
+    const from_text = try violationLines(a, "guardian: ban-fs FAILED\n  src/y.zig:8: bad\n", &.{});
+    try std.testing.expectEqual(@as(usize, 1), from_text.len);
+    try std.testing.expectEqualStrings("src/y.zig:8: bad", from_text[0]);
+}
+
+// spec: Per-Item Ratchets - Scrapes the check's own fix hint for the regression message
+
+test "firstFixHint pulls the check's fix line out of captured output" {
+    const captured =
+        \\guardian: function length FAILED (1 fn(s) over 120 line cap)
+        \\  src/x.zig:5: fn foo is 130 lines (cap 120)
+        \\  fix: extract helpers to break the function into focused units.
+    ;
+    try std.testing.expectEqualStrings(
+        "fix: extract helpers to break the function into focused units.",
+        firstFixHint(captured).?,
+    );
+    // No fix line → null (the regression message just omits the hint).
+    try std.testing.expect(firstFixHint("guardian: all good\n") == null);
+}
 
 test "pathFor builds the baseline file path" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -447,6 +672,49 @@ test "lifecycle returns shrunk when violations are resolved" {
     try std.testing.expect(out == .shrunk);
     try std.testing.expectEqual(@as(usize, 2), out.shrunk.removed);
     try std.testing.expectEqual(@as(usize, 1), out.shrunk.remaining);
+}
+
+// spec: Baseline Mode - Prunes the baseline file when resolved violations shrink it
+
+test "lifecycle auto-prunes the baseline file after a shrink" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-autoprune.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    var lines = [_][]const u8{ "alpha", "beta", "gamma" };
+    _ = try lifecycle(a, path, &lines, false);
+
+    // Resolving two violations shrinks the set AND rewrites the file.
+    var lines2 = [_][]const u8{"alpha"};
+    try std.testing.expect((try lifecycle(a, path, &lines2, false)) == .shrunk);
+
+    // The file was pruned to the surviving violation, so a re-run matches
+    // (no lingering "resolved" entries to keep reporting).
+    var lines3 = [_][]const u8{"alpha"};
+    const out2 = try lifecycle(a, path, &lines3, false);
+    try std.testing.expect(out2 == .matched);
+    try std.testing.expectEqual(@as(usize, 1), out2.matched);
+}
+
+// spec: Baseline Mode - Refuses to refresh a deny_growth baseline that would grow
+
+test "growthDenied blocks refresh growth only for a listed check with a prior baseline" {
+    const deny = &[_][]const u8{"spec"};
+    // A refresh that would grow the listed check's baseline (5 > 3) is denied.
+    try std.testing.expect(growthDenied(deny, "spec", 3, 5, true));
+    // A refresh that holds or shrinks is fine (pruning is always safe).
+    try std.testing.expect(!growthDenied(deny, "spec", 3, 3, true));
+    try std.testing.expect(!growthDenied(deny, "spec", 3, 2, true));
+    // A check not in deny_growth is never guarded.
+    try std.testing.expect(!growthDenied(deny, "magic-number", 3, 5, true));
+    // Without a refresh, growth is the ordinary `grown` failure, not this guard.
+    try std.testing.expect(!growthDenied(deny, "spec", 3, 5, false));
+    // No prior baseline (null) — initial creation is never "growth".
+    try std.testing.expect(!growthDenied(deny, "spec", null, 5, true));
 }
 
 test "lifecycle force_refresh rewrites the baseline" {

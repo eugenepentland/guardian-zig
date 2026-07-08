@@ -26,6 +26,16 @@ pub const RunCtx = struct {
     /// True when `--full` was passed: `mutate` covers the whole tree
     /// (nightly tier) instead of only diff-touched lines.
     full: bool = false,
+    /// `--only a,b`: when non-empty, `all` runs exactly these check names and
+    /// nothing else. Mutually exclusive with `skip`. A filtered run never
+    /// writes the green skip-cache stamp (it isn't the full suite).
+    only: []const []const u8 = &.{},
+    /// `--skip a,b`: when non-empty, `all` runs every check except these.
+    /// Mutually exclusive with `only`; same skip-cache suppression applies.
+    skip: []const []const u8 = &.{},
+    /// `--intent "<message>"`: the commit subject for the `commit` command.
+    /// Null for every other command; `commit` errors when it is null or blank.
+    intent: ?[]const u8 = null,
 };
 
 /// Whether a check needs the AST index built before invocation.

@@ -12,7 +12,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
     cfg: config_mod.FunctionLengthCfg,
 };
 
@@ -23,12 +23,18 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const fns = if (entry.tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, entry.content);
     for (fns) |f| {
         if (f.line_count <= ctx.cfg.max_lines) continue;
-        const msg = try std.fmt.allocPrint(
-            a,
-            "{s}:{d}: fn {s} is {d} lines (cap {d})",
-            .{ entry.rel_path, f.start_line, f.name, f.line_count, ctx.cfg.max_lines },
-        );
-        try ctx.violations.append(a, msg);
+        try ctx.violations.append(a, .{
+            .check = "function-length",
+            .file = entry.rel_path,
+            .line = f.start_line,
+            .message = try std.fmt.allocPrint(
+                a,
+                "fn {s} is {d} lines (cap {d})",
+                .{ f.name, f.line_count, ctx.cfg.max_lines },
+            ),
+            .ratchet_key = try std.fmt.allocPrint(a, "{s}|{s}", .{ entry.rel_path, f.name }),
+            .metric = f.line_count,
+        });
     }
 }
 
@@ -40,13 +46,13 @@ pub fn analyzeContent(
     content: []const u8,
     cfg: config_mod.FunctionLengthCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
     visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
-    return violations.toOwnedSlice(allocator);
+    return reporter.flatLines(allocator, violations.items);
 }
 
 /// Entry point for the function-length check.
@@ -60,7 +66,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -71,7 +77,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     fail("function length FAILED ({d} fn(s) over {d} line cap)", .{ violations.items.len, cfg.max_lines });
-    for (violations.items) |v| print("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     print("  fix: extract helpers to break the function into focused units, " ++
         "or raise [function_length] max_lines.\n", .{});
     return error.CheckFailed;
@@ -83,7 +89,7 @@ test "visit flags fn over the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -104,7 +110,7 @@ test "visit allows fn at the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -123,7 +129,7 @@ test "visit reports correct start_line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -138,6 +144,7 @@ test "visit reports correct start_line" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
-    // The violation message should reference line 3 (where `pub fn` sits).
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], ":3:") != null);
+    // The violation should reference line 3 (where `pub fn` sits) as structured data.
+    try std.testing.expectEqual(@as(u32, 3), violations.items[0].line.?);
+    try std.testing.expectEqualStrings("src/x.zig|long", violations.items[0].ratchet_key.?);
 }

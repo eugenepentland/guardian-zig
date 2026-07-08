@@ -12,7 +12,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
     cfg: config_mod.NestingDepthCfg,
 };
 
@@ -84,12 +84,18 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     for (fns) |f| {
         const depth = maxNestingDepth(a, f.body_text);
         if (depth <= ctx.cfg.max_depth) continue;
-        const msg = try std.fmt.allocPrint(
-            a,
-            "{s}:{d}: fn {s} reaches nesting depth {d} (cap {d})",
-            .{ entry.rel_path, f.start_line, f.name, depth, ctx.cfg.max_depth },
-        );
-        try ctx.violations.append(a, msg);
+        try ctx.violations.append(a, .{
+            .check = "nesting-depth",
+            .file = entry.rel_path,
+            .line = f.start_line,
+            .message = try std.fmt.allocPrint(
+                a,
+                "fn {s} reaches nesting depth {d} (cap {d})",
+                .{ f.name, depth, ctx.cfg.max_depth },
+            ),
+            .ratchet_key = try std.fmt.allocPrint(a, "{s}|{s}", .{ entry.rel_path, f.name }),
+            .metric = depth,
+        });
     }
 }
 
@@ -101,13 +107,13 @@ pub fn analyzeContent(
     content: []const u8,
     cfg: config_mod.NestingDepthCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
     visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
-    return violations.toOwnedSlice(allocator);
+    return reporter.flatLines(allocator, violations.items);
 }
 
 /// Entry point for the nesting-depth check.
@@ -121,7 +127,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -132,7 +138,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     fail("nesting depth FAILED ({d} fn(s) over depth {d})", .{ violations.items.len, cfg.max_depth });
-    for (violations.items) |v| print("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     print("  fix: extract nested blocks into helper fns, invert conditions to " ++
         "early-return, or raise [nesting_depth] max_depth.\n", .{});
     return error.CheckFailed;
@@ -190,7 +196,7 @@ test "visit flags fn over depth cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -213,7 +219,7 @@ test "visit allows fn at the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,

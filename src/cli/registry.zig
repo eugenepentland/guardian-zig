@@ -7,6 +7,7 @@ const check_file_size = @import("../checks/file_size.zig");
 const check_boundaries = @import("../checks/boundaries.zig");
 const check_usingnamespace_ban = @import("../checks/usingnamespace_ban.zig");
 const check_spec_quality = @import("../checks/spec_quality.zig");
+const check_completeness = @import("../checks/completeness.zig");
 const check_naming = @import("../checks/naming.zig");
 const check_function_size = @import("../checks/function_size.zig");
 const check_doc_comments = @import("../checks/doc_comments.zig");
@@ -48,6 +49,7 @@ const check_init_deinit_symmetry = @import("../checks/init_deinit_symmetry.zig")
 const check_errdefer_in_init = @import("../checks/errdefer_in_init.zig");
 const check_test_has_assertion = @import("../checks/test_has_assertion.zig");
 const check_test_no_conditional = @import("../checks/test_no_conditional.zig");
+const check_test_skip_ban = @import("../checks/test_skip_ban.zig");
 const check_prod_imports_no_test = @import("../checks/no_test_imports_in_prod.zig");
 const check_bool_ops_per_condition = @import("../checks/bool_ops_per_condition.zig");
 const check_line_length = @import("../checks/line_length.zig");
@@ -61,6 +63,7 @@ const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum
 const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
 const cmd_mutate = @import("mutate.zig");
+const cmd_debt = @import("debt.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -78,6 +81,11 @@ pub const all: []const Command = &.{
         .summary = "Mutation-test the suite (fast tier: changed lines; --full: whole tree)",
         .run = cmd_mutate.run,
     },
+    .{
+        .name = "debt",
+        .summary = "Report baseline/snapshot debt totals with deltas (non-gating)",
+        .run = cmd_debt.run,
+    },
     .{ .name = "file-size", .summary = "Enforce per-file line limit", .run = check_file_size.run },
     .{ .name = "boundaries", .summary = "Enforce @import boundary rules", .run = check_boundaries.run },
     .{
@@ -89,6 +97,11 @@ pub const all: []const Command = &.{
         .name = "spec-quality",
         .summary = "Lint SPEC.md prose for vague phrases and stub behaviors",
         .run = check_spec_quality.run,
+    },
+    .{
+        .name = "completeness",
+        .summary = "Require each SPEC.md feature section to address or waive 8 scenario categories (opt-in)",
+        .run = check_completeness.run,
     },
     .{
         .name = "naming",
@@ -280,6 +293,11 @@ pub const all: []const Command = &.{
         .run = check_test_no_conditional.run,
     },
     .{
+        .name = "test-skip-ban",
+        .summary = "Reject tests that are empty or unconditionally return error.SkipZigTest",
+        .run = check_test_skip_ban.run,
+    },
+    .{
         .name = "prod-imports-no-test",
         .summary = "Reject production code @import-ing test files",
         .run = check_prod_imports_no_test.run,
@@ -359,12 +377,36 @@ pub fn find(name: []const u8) ?Command {
     return null;
 }
 
-/// Print the usage summary enumerating every registered command.
+// Commands dispatched specially by check.zig rather than through this registry:
+// the `all` aggregate, the composed `nightly` tier, and the informational
+// explain/version. They can't be registry entries — their run functions would
+// close an @import cycle with run_all — so they are listed here by hand.
+const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
+    .{ .name = "all", .summary = "Run every hard-block check (filter with --only/--skip a,b)" },
+    .{ .name = "nightly", .summary = "Full suite + whole-tree mutation ratchet (scheduled/CI tier)" },
+    .{ .name = "commit", .summary = "Gate the tree, then auto-commit the change set with --intent" },
+    .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
+    .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
+};
+
+/// One-line summary for `name` from either the check registry or the specially
+/// dispatched meta commands (all/nightly/commit/explain/version); null when the
+/// name is neither. Lets `explain` resolve a documented meta command that — to
+/// avoid an @import cycle — is not a registry entry.
+pub fn summaryFor(name: []const u8) ?[]const u8 {
+    if (find(name)) |cmd| return cmd.summary;
+    for (meta_commands) |m| if (std.mem.eql(u8, m.name, name)) return m.summary;
+    return null;
+}
+
+/// Print the usage summary enumerating every registered command plus the
+/// specially-dispatched meta commands.
 pub fn printHelp() void {
     const print = std.debug.print;
+    const row = "  {s: <14} {s}\n";
     print("Usage: guardian-check <command> [project-dir] [--quiet]\n\n", .{});
     print("Commands:\n", .{});
-    for (all) |cmd| {
-        print("  {s: <14} {s}\n", .{ cmd.name, cmd.summary });
-    }
+    for (all) |cmd| print(row, .{ cmd.name, cmd.summary });
+    print("\nMeta commands (composed / informational):\n", .{});
+    for (meta_commands) |m| print(row, .{ m.name, m.summary });
 }

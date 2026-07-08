@@ -10,7 +10,7 @@ const detail = reporter.detail;
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
     max_ops: u32,
 };
 
@@ -22,7 +22,7 @@ pub fn analyzeContentWithLimit(
     content: []const u8,
     max_ops: u32,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .rel_path = rel_path,
@@ -30,7 +30,7 @@ pub fn analyzeContentWithLimit(
         .max_ops = max_ops,
     };
     try scan(&ctx, content);
-    return violations.toOwnedSlice(allocator);
+    return reporter.flatLines(allocator, violations.items);
 }
 
 /// Pure-function entry using the framework default (3) for tests.
@@ -47,24 +47,47 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
     const z = try a.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
+    // Attribute each condition to the most recent `fn <name>` so item 5 can key
+    // a per-fn ceiling (best-effort: a condition outside any fn falls back to
+    // the file). Tracking the name never affects the emitted message text.
+    var current_fn: ?[]const u8 = null;
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
+        if (t.tag == .keyword_fn) {
+            current_fn = fnNameAfter(&tok, z);
+            continue;
+        }
         if (t.tag != .keyword_if and t.tag != .keyword_while) continue;
         const start_byte = t.loc.start;
         const lparen = tok.next();
         if (lparen.tag != .l_paren) continue;
         const ops = countOpsUntilMatchingRparen(&tok);
         if (ops > ctx.max_ops) {
-            const line = lineOf(z, start_byte);
-            const msg = try std.fmt.allocPrint(
-                a,
-                "{s}:{d}: condition has {d} boolean ops (cap {d})",
-                .{ ctx.rel_path, line, ops, ctx.max_ops },
-            );
-            try ctx.violations.append(a, msg);
+            try ctx.violations.append(a, .{
+                .check = "bool-ops-per-condition",
+                .file = ctx.rel_path,
+                .line = lineOf(z, start_byte),
+                .message = try std.fmt.allocPrint(a, "condition has {d} boolean ops (cap {d})", .{ ops, ctx.max_ops }),
+                .ratchet_key = try ratchetKey(a, ctx.rel_path, current_fn),
+                .metric = ops,
+            });
         }
     }
+}
+
+/// The identifier immediately after a `fn` keyword (a named fn), or null for an
+/// anonymous fn type. Consumes the name token; callers only care about `if`/
+/// `while`, so consuming an identifier here is harmless.
+fn fnNameAfter(tok: *std.zig.Tokenizer, z: []const u8) ?[]const u8 {
+    const nt = tok.next();
+    return if (nt.tag == .identifier) z[nt.loc.start..nt.loc.end] else null;
+}
+
+/// Ratchet subject: `<file>|<fn>` when the enclosing fn is known, else `<file>`.
+fn ratchetKey(a: Allocator, rel_path: []const u8, current_fn: ?[]const u8) Allocator.Error![]const u8 {
+    if (current_fn) |name| return std.fmt.allocPrint(a, "{s}|{s}", .{ rel_path, name });
+    return a.dupe(u8, rel_path);
 }
 
 fn countOpsUntilMatchingRparen(tok: *std.zig.Tokenizer) u32 {
@@ -89,7 +112,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
     max_ops: u32,
 };
 
@@ -112,7 +135,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("bool-ops-per-condition disabled by config", .{});
         return;
     }
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
@@ -125,7 +148,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         return;
     }
     reporter.fail("bool-ops-per-condition FAILED ({d} occurrence(s))", .{violations.items.len});
-    for (violations.items) |v| detail("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     detail("  fix: extract the condition into a named bool, or split into nested ifs.\n", .{});
     return error.CheckFailed;
 }

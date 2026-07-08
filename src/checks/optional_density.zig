@@ -20,7 +20,7 @@ const allowed_paths = [_][]const u8{
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
 };
 
 /// Pure-function entry: scans `content` for pub structs whose `?T`
@@ -30,9 +30,9 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     for (allowed_paths) |pat| {
-        if (walk.matchGlob(rel_path, pat)) return violations.toOwnedSlice(allocator);
+        if (walk.matchGlob(rel_path, pat)) return reporter.flatLines(allocator, violations.items);
     }
     var ctx: ScanCtx = .{
         .allocator = allocator,
@@ -40,7 +40,7 @@ pub fn analyzeContent(
         .violations = &violations,
     };
     try scan(&ctx, content);
-    return violations.toOwnedSlice(allocator);
+    return reporter.flatLines(allocator, violations.items);
 }
 
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
@@ -63,12 +63,18 @@ fn recordDensity(ctx: *ScanCtx, head: Head, stats: Stats) Allocator.Error!void {
     if (stats.total < min_fields) return;
     const pct = (stats.optional * 100) / stats.total;
     if (pct <= max_density_pct) return;
-    const msg = try std.fmt.allocPrint(
-        ctx.allocator,
-        "{s}:{d}: pub struct '{s}' is {d}% optional ({d}/{d} fields)",
-        .{ ctx.rel_path, head.line, head.name, pct, stats.optional, stats.total },
-    );
-    try ctx.violations.append(ctx.allocator, msg);
+    try ctx.violations.append(ctx.allocator, .{
+        .check = "optional-density",
+        .file = ctx.rel_path,
+        .line = head.line,
+        .message = try std.fmt.allocPrint(
+            ctx.allocator,
+            "pub struct '{s}' is {d}% optional ({d}/{d} fields)",
+            .{ head.name, pct, stats.optional, stats.total },
+        ),
+        .ratchet_key = try std.fmt.allocPrint(ctx.allocator, "{s}|{s}", .{ ctx.rel_path, head.name }),
+        .metric = pct,
+    });
 }
 
 const Head = struct { name: []const u8, line: u32 };
@@ -189,7 +195,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayListUnmanaged(reporter.Violation),
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -208,7 +214,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// Entry point for the optional-density check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
@@ -217,7 +223,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         return;
     }
     reporter.fail("optional-density FAILED ({d} occurrence(s))", .{violations.items.len});
-    for (violations.items) |v| detail("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     detail("  fix: split the type into a 'maybe-built' phase and a 'fully-built' phase, " ++
         "or model the optionality as a tagged union.\n", .{});
     return error.CheckFailed;

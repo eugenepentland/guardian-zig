@@ -276,7 +276,7 @@ fn loadBudget(
     totals: Counts,
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
-    if (snapshot_helper.shouldUpdate(allocator)) {
+    if (snapshot_helper.shouldUpdateFor(allocator, "panic-budget")) {
         try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
         okCounts("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
         return null;

@@ -17,9 +17,12 @@ forbidden = ["config"]
 exclude = ["reporter.zig", "testing/golden_runner.zig"]
 
 # Config is a flat settings aggregation (one field per knob), not a "god struct"
-# doing too much — the type-size smell doesn't apply. Exempt it.
+# doing too much — the type-size smell doesn't apply. Exempt it. cli/types.zig
+# holds RunCtx, the per-invocation context bag threaded through every check
+# (allocator, dirs, cfg, diff base, mutate tier, --only/--skip filters) — the
+# same flat-aggregation case, not a god struct. Exempt it too.
 [type_size]
-exclude = ["config.zig"]
+exclude = ["config.zig", "cli/types.zig"]
 
 # magic-number is opt-in (off by default) because it's pure noise in literal-heavy
 # domains. Guardian's own code passes it, so enable it here to keep dogfooding.
@@ -33,9 +36,20 @@ enabled = true
 
 # Guardian is a static analyzer: it walks the filesystem and reads env by design.
 # The mutation runner additionally splices/restores source files in place.
+# change-classification reads the working-tree SPEC.md to detect added behavior
+# bullets — the unstaged new side isn't in git's object store, so it reads disk.
+# completeness reads SPEC.md directly (raw bullets incl. waivers); the DORA sink
+# appends its JSONL delivery-telemetry file.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/testing/*", "src/baseline.zig", "src/mutation/*"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/testing/*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
+
+# Delivery telemetry is guardian's one legitimate wall-clock consumer: the DORA
+# sink times each gate run with std.time.Timer to record duration_ms. This
+# repo-local allow does not propagate to consumers.
+[[allow]]
+check = "ban-time"
+paths = ["src/dora*"]
 
 # check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST in main; the
 # mutation runner clones the env to inject the child-build skip flag.
@@ -48,9 +62,19 @@ paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation
 check = "ban-globals"
 paths = ["src/reporter.zig"]
 
+# SeededRandom is the injection point ban-rng exists to force: the fake IS the
+# deterministic Random a test puts behind the port, so its one
+# std.Random.DefaultPrng.init call is legitimate here (and only here). The other
+# fakes (clock/fs/env) are pure in-memory and need no allow.
+[[allow]]
+check = "ban-rng"
+paths = ["src/fakes/*"]
+
+# The mutation cache/report sinks (src/mutation/cache.zig, report.zig) log
+# best-effort I/O failures with std.log.warn, like sink/dora.
 [[allow]]
 check = "debug-print-ban"
-paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/reporter.zig"]
+paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/ratchet.zig", "src/reporter.zig", "src/sink*", "src/dora*", "src/mutation/*"]
 
 # This check's own file: its pattern strings look like the paths it flags.
 [[allow]]
@@ -62,17 +86,24 @@ check = "static-factory-ban"
 paths = ["src/build_helper.zig", "src/reporter.zig"]
 
 # Refactor debt: many token-walk files dispatch the same internal enums.
+# ratchet.zig shares snapshot read-error dispatch (Missing/VersionMismatch) with
+# baseline.zig; the two init semantics genuinely differ (create/migrate vs
+# create/refresh), so the switch is not foldable.
 [[allow]]
 check = "repeated-switch-on-enum"
-paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/snapshot_helper.zig"]
+paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/snapshot_helper.zig", "src/ratchet.zig"]
 
 # Self-hosting: enforce that every pub fn is referenced from a test. Entry
 # points (main), CLI/build integration (printHelp, addAllChecks), env/IO
 # wrappers around already-tested pure logic (parseFile, scanDir,
-# collectModules, shouldUpdate), the ban-family orchestration shell (scan),
-# baseline orchestration (runWithBaseline), reporter output (fail,
-# detail, emit), and the git/mutation process shells (diffAgainst,
-# untrackedFiles, runOne — their pure cores are tested) are exempt.
+# collectModules, shouldUpdate, shouldUpdateFor, refreshTargets — the pure
+# classify/refreshIncludes cores are tested), config validation shell
+# (validateSelectiveConfig — validateDenyGrowth is tested), the ban-family
+# orchestration shell (scan), baseline orchestration (runWithBaseline),
+# reporter output (fail, detail, emit), and the git/mutation process shells
+# (diffAgainst, untrackedFiles, fileAtHead, runOne, parentCount, changedPaths,
+# addPaths, commit, headHash, currentBranch — their pure cores
+# countParents/parsePorcelainZ are tested) are exempt.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "runOne"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch"]

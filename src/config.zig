@@ -113,6 +113,12 @@ pub const NestingDepthCfg = struct {
 /// Designed for adopting Guardian on legacy codebases.
 pub const BaselineCfg = struct {
     enabled: bool = false,
+    /// Registered check names whose baseline may never grow, even under a
+    /// refresh: a refresh that would raise the recorded violation count fails
+    /// instead of rewriting. The 1:1 spec map is the flagship guarantee and
+    /// the fastest-growing frozen debt, so `["spec"]` is the canonical use.
+    /// Validated like `disabled` — a typo hard-fails the run.
+    deny_growth: []const []const u8 = &.{},
 };
 
 /// Per-check config for the line-length cap.
@@ -169,6 +175,30 @@ pub const ChangeClassificationCfg = struct {
     /// Git ref the working tree is diffed against when neither the
     /// `--against` flag nor the GUARDIAN_AGAINST env var names one.
     against: []const u8 = "HEAD",
+    /// When true (default) and the effective diff base is HEAD with a clean
+    /// working tree, gate the last commit (HEAD~1..HEAD) instead of passing on
+    /// the empty diff — closing the commit-then-build hole. Skipped when HEAD is
+    /// a merge (>1 parent) or the root (0 parents). Set false to keep the
+    /// working-tree-only behavior.
+    gate_last_commit: bool = true,
+};
+
+/// Per-check config for the completeness checklist. Opt-in (default off): it
+/// requires every `## ` SPEC.md feature section to address (or explicitly
+/// waive) each of the 8 scenario categories, which most existing specs need a
+/// pass to satisfy. `exempt_sections` lists non-feature sections (changelog,
+/// overview) skipped by name.
+pub const CompletenessCfg = struct {
+    enabled: bool = false,
+    exempt_sections: []const []const u8 = &.{},
+};
+
+/// Config for the DORA delivery-metrics sink (non-gating; see dora.zig). Each
+/// `all`/`nightly` run appends one JSON line unless disabled. The sink lives
+/// under `.guardian/cache/` so rewriting it never invalidates the skip-cache.
+pub const DoraCfg = struct {
+    enabled: bool = true,
+    sink_path: []const u8 = ".guardian/cache/dora.jsonl",
 };
 
 /// Config for the `mutate` command (an explicit step, never part of `all` —
@@ -176,6 +206,12 @@ pub const ChangeClassificationCfg = struct {
 pub const MutationCfg = struct {
     /// Minimum percent of viable mutants the test suite must kill.
     min_score_pct: u32 = 80,
+    /// Gating floor: a run with fewer viable (non-unviable) mutants than this
+    /// reports its survivors informationally and passes, instead of failing on
+    /// a meaningless percentage (1 survivor of 2 = 50% red). Below the floor the
+    /// score ratchet is never written. Default 4; bites the fast tier, where a
+    /// tiny diff can produce only a mutant or two.
+    min_mutants: u32 = 4,
     /// Cap on mutants exercised per run; larger candidate sets are sampled
     /// deterministically (every k-th mutant) down to this budget.
     max_mutants: u32 = 100,
@@ -241,6 +277,8 @@ pub const Config = struct {
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},
+    completeness: CompletenessCfg = .{},
+    dora: DoraCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 

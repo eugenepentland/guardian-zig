@@ -40,6 +40,8 @@ const Section = enum {
     dead_pub,
     change_classification,
     mutation,
+    completeness,
+    dora,
     unknown,
 };
 
@@ -200,13 +202,15 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .line_length => applyU32Cfg("line_length", "max_len", ctx, kv),
         .anytype_budget => try applyAnytypeBudgetKey(ctx, kv),
         .type_size => try applyTypeSizeKey(ctx, kv),
-        .baseline => applyEnabledCfg("baseline", ctx, kv),
+        .baseline => try applyBaselineKey(ctx, kv),
         .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .magic_number => applyEnabledCfg("magic_number", ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
         .mutation => applyMutationKey(ctx, kv),
+        .completeness => try applyCompletenessKey(ctx, kv),
+        .dora => applyDoraKey(ctx, kv),
         .unknown => {},
     }
 }
@@ -233,6 +237,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
+        .{ "completeness", Section.completeness },
+        .{ "dora", Section.dora },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -328,12 +334,23 @@ fn applyDocQualityKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     }
 }
 
+fn applyBaselineKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.baseline;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "deny_growth")) {
+        g.deny_growth = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
 fn applyChangeClassificationKey(ctx: ApplyCtx, kv: KeyVal) void {
     const g = &ctx.cfg.change_classification;
     if (std.mem.eql(u8, kv.key, "enabled")) {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     } else if (std.mem.eql(u8, kv.key, "against")) {
         if (parseString(kv.val)) |v| g.against = v;
+    } else if (std.mem.eql(u8, kv.key, "gate_last_commit")) {
+        g.gate_last_commit = parseBool(kv.val) orelse g.gate_last_commit;
     }
 }
 
@@ -341,10 +358,30 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
     const g = &ctx.cfg.mutation;
     if (std.mem.eql(u8, kv.key, "min_score_pct")) {
         g.min_score_pct = parseU32(kv.val, g.min_score_pct);
+    } else if (std.mem.eql(u8, kv.key, "min_mutants")) {
+        g.min_mutants = parseU32(kv.val, g.min_mutants);
     } else if (std.mem.eql(u8, kv.key, "max_mutants")) {
         g.max_mutants = parseU32(kv.val, g.max_mutants);
     } else if (std.mem.eql(u8, kv.key, "timeout_secs")) {
         g.timeout_secs = parseU32(kv.val, g.timeout_secs);
+    }
+}
+
+fn applyCompletenessKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.completeness;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "exempt_sections")) {
+        g.exempt_sections = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+fn applyDoraKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.dora;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "sink_path")) {
+        if (parseString(kv.val)) |v| g.sink_path = v;
     }
 }
 
@@ -502,11 +539,13 @@ test "parse reads [mutation] score minimum and run budgets" {
     const content =
         \\[mutation]
         \\min_score_pct = 90
+        \\min_mutants = 6
         \\max_mutants = 25
         \\timeout_secs = 60
     ;
     const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(u32, 90), cfg.mutation.min_score_pct);
+    try std.testing.expectEqual(@as(u32, 6), cfg.mutation.min_mutants);
     try std.testing.expectEqual(@as(u32, 25), cfg.mutation.max_mutants);
     try std.testing.expectEqual(@as(u32, 60), cfg.mutation.timeout_secs);
 }
@@ -528,6 +567,60 @@ test "parse reads [change_classification] enabled and against" {
     const defaults = try parse(arena.allocator(), "");
     try std.testing.expect(defaults.change_classification.enabled);
     try std.testing.expectEqualStrings("HEAD", defaults.change_classification.against);
+}
+
+// spec: Configuration - Defaults completeness off and parses its enabled and exempt_sections settings
+
+test "parse [completeness] defaults off and reads enabled + exempt_sections" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: opt-in, so off, with no exemptions.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(!defaults.completeness.enabled);
+    try std.testing.expectEqual(@as(usize, 0), defaults.completeness.exempt_sections.len);
+    // Opt in and exempt a non-feature section.
+    const cfg = try parse(arena.allocator(),
+        \\[completeness]
+        \\enabled = true
+        \\exempt_sections = ["Overview", "Changelog"]
+    );
+    try std.testing.expect(cfg.completeness.enabled);
+    try std.testing.expectEqual(@as(usize, 2), cfg.completeness.exempt_sections.len);
+    try std.testing.expectEqualStrings("Overview", cfg.completeness.exempt_sections[0]);
+}
+
+// spec: Configuration - Parses the dora sink path and enabled toggle
+
+test "parse [dora] defaults on and reads enabled + sink_path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: enabled, sink under the git-ignored cache dir.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.dora.enabled);
+    try std.testing.expectEqualStrings(".guardian/cache/dora.jsonl", defaults.dora.sink_path);
+    // Override both.
+    const cfg = try parse(arena.allocator(),
+        \\[dora]
+        \\enabled = false
+        \\sink_path = "metrics/runs.jsonl"
+    );
+    try std.testing.expect(!cfg.dora.enabled);
+    try std.testing.expectEqualStrings("metrics/runs.jsonl", cfg.dora.sink_path);
+}
+
+// spec: Configuration - Parses the change classification last-commit gate toggle
+
+test "parse reads [change_classification] gate_last_commit" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[change_classification]
+        \\gate_last_commit = false
+    );
+    try std.testing.expect(!cfg.change_classification.gate_last_commit);
+    // Default: the last-commit fallback is on.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.change_classification.gate_last_commit);
 }
 
 test "parse strips inline comments from values" {
@@ -552,6 +645,26 @@ test "parse disabled check list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
     try std.testing.expectEqualStrings("spec-drift", cfg.disabled[0]);
     try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
+}
+
+// spec: Configuration - Parses the baseline deny_growth check list
+
+test "parse [baseline] enabled and deny_growth list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[baseline]
+        \\enabled = true
+        \\deny_growth = ["spec", "doc-comments"]
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expect(cfg.baseline.enabled);
+    try std.testing.expectEqual(@as(usize, 2), cfg.baseline.deny_growth.len);
+    try std.testing.expectEqualStrings("spec", cfg.baseline.deny_growth[0]);
+    try std.testing.expectEqualStrings("doc-comments", cfg.baseline.deny_growth[1]);
+    // Default: empty list.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.baseline.deny_growth.len);
 }
 
 // spec: Configuration - Parses a top-level exclude list of path globs dropped from the scan

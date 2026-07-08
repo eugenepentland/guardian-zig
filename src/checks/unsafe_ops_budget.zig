@@ -215,7 +215,7 @@ fn loadBudget(
     totals: Counts,
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
-    if (snapshot_helper.shouldUpdate(allocator)) {
+    if (snapshot_helper.shouldUpdateFor(allocator, "unsafe-ops-budget")) {
         try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
         ok("unsafe-ops budget updated (casts={d}, undefined_reassign={d})", .{
             totals.castTotal(), totals.undefined_reassign,

@@ -8,12 +8,14 @@ const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
 // Guardian's reporter.init(quiet), snapshot_helper.lifecycle(force_update),
-// and baseline.lifecycle(force_refresh) take bool params. Refactor to enums
-// is queued separately. Downstream consumers should leave this empty.
+// baseline.lifecycle(force_refresh), and ratchet.lifecycle(force_refresh) take
+// bool params. Refactor to enums is queued separately. Downstream consumers
+// should leave this empty.
 const allowed_paths = [_][]const u8{
     "src/reporter.zig",
     "src/snapshot_helper.zig",
     "src/baseline.zig",
+    "src/ratchet.zig",
 };
 
 const ScanCtx = struct {
