@@ -195,5 +195,6 @@ src/
   cache.zig            # Skip-when-unchanged input digest for `all`
   config.zig           # guardian.toml parser
   build_helper.zig     # addAllChecks for downstream consumers
+  fakes/               # Deterministic test doubles (FakeClock/SeededRandom/FakeFs/FakeEnv) — the `guardian-fakes` module consumers import in tests
   testing/             # Golden-file test harness
 ```

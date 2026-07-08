@@ -62,6 +62,14 @@ paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation
 check = "ban-globals"
 paths = ["src/reporter.zig"]
 
+# SeededRandom is the injection point ban-rng exists to force: the fake IS the
+# deterministic Random a test puts behind the port, so its one
+# std.Random.DefaultPrng.init call is legitimate here (and only here). The other
+# fakes (clock/fs/env) are pure in-memory and need no allow.
+[[allow]]
+check = "ban-rng"
+paths = ["src/fakes/*"]
+
 # The mutation cache/report sinks (src/mutation/cache.zig, report.zig) log
 # best-effort I/O failures with std.log.warn, like sink/dora.
 [[allow]]

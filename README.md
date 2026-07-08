@@ -637,6 +637,77 @@ just verified.
   commit-then-build flow slip an untested change past the gate is structurally
   closed for this workflow.
 
+## Deterministic fakes (test doubles)
+
+The Tier-1 `ban-time` / `ban-rng` / `ban-fs` / `ban-env` checks force every
+nondeterminism source behind an injected port (`infra/clock`, `infra/random`,
+`infra/fs`, `config`). Guardian ships the deterministic values you put behind
+those ports **in your tests** as a standalone `guardian-fakes` module:
+
+| Fake | Replaces (check) | Shape |
+|---|---|---|
+| `FakeClock` | a Clock port (`ban-time`) | manually advanced `i128`-nanosecond counter — no `std.time` |
+| `SeededRandom` | a Random port (`ban-rng`) | thin `std.Random.DefaultPrng` wrapper with a **required** explicit seed |
+| `FakeFs` | a filesystem port (`ban-fs`) | in-memory `path -> bytes` map (write / read / exists / delete / list) |
+| `FakeEnv` | a config/env port (`ban-env`) | in-memory `name -> value` map (set / get / unset) |
+
+They are dependency-free (only `std`), in-memory, and deterministic — a test
+that "reads the clock", "sleeps", "rolls a die", "reads a file", or "reads an
+env var" is instant and reproducible run to run.
+
+### Wiring
+
+`guardian-fakes` is a separate module from the checker, imported only by the
+compilation that runs your **tests**. In your `build.zig`:
+
+```zig
+const guardian_dep = b.dependency("guardian", .{ .target = target, .optimize = optimize });
+
+// The fakes module (test doubles). Add it to whatever compilation runs your tests.
+const fakes_mod = guardian_dep.module("guardian-fakes");
+my_tests.root_module.addImport("guardian_fakes", fakes_mod);
+```
+
+### Example — a FakeClock behind a Clock port
+
+```zig
+const std = @import("std");
+const fakes = @import("guardian_fakes");
+
+test "retry backs off using the injected clock" {
+    // A minimal Clock port: production depends on this seam; the test injects a fake.
+    const Clock = struct {
+        backing: *fakes.FakeClock,
+        fn now(self: @This()) i128 { return self.backing.now(); }
+    };
+
+    var fake = fakes.FakeClock.init(0);
+    const clock = Clock{ .backing = &fake };
+
+    fake.sleep(1_500); // advances the clock instead of blocking — instant + deterministic
+    try std.testing.expectEqual(@as(i128, 1_500), clock.now());
+}
+```
+
+`FakeFs` and `FakeEnv` own the keys/values you insert, so call `deinit`:
+
+```zig
+var fs = fakes.FakeFs.init(std.testing.allocator);
+defer fs.deinit();
+try fs.writeFile("config.toml", "enabled = true");
+const bytes = try fs.readFile(std.testing.allocator, "config.toml");
+defer std.testing.allocator.free(bytes);
+try std.testing.expect(fs.exists("config.toml"));
+try std.testing.expectError(error.FileNotFound, fs.readFile(std.testing.allocator, "absent.toml"));
+```
+
+`SeededRandom` requires an explicit seed, so a "random" test is reproducible:
+
+```zig
+var rng = fakes.SeededRandom.init(0xC0FFEE);
+const r = rng.random(); // a std.Random — call r.int(u32), r.float(f64), …
+```
+
 ## Principles
 
 1. **AI-first** — catches agent mistakes

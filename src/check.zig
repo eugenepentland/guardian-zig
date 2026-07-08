@@ -272,6 +272,16 @@ test {
     _ = @import("ratchet.zig");
     _ = @import("testing/golden_runner.zig");
 
+    // Fakes — deterministic test doubles shipped as the `guardian-fakes`
+    // module. They live outside src/checks/, so the check-file meta-guard
+    // doesn't cover them; the "test root imports every fakes file" guard below
+    // keeps this list in sync with src/fakes/*.zig.
+    _ = @import("fakes/fakes.zig");
+    _ = @import("fakes/clock.zig");
+    _ = @import("fakes/random.zig");
+    _ = @import("fakes/fs.zig");
+    _ = @import("fakes/env.zig");
+
     // Checks — keep in sync with src/checks/*.zig (enforced by test-root-drift)
     _ = @import("checks/allocator_hygiene.zig");
     _ = @import("checks/anytype_budget.zig");
@@ -454,5 +464,34 @@ test "test root imports every check file" {
         }
     }
     // A non-empty result names a check file missing from the block above.
+    try std.testing.expectEqualStrings("", missing_buf[0..missing_len]);
+}
+
+// Meta-guard for src/fakes/ — the check-file guard above only walks
+// src/checks/, but the same drift bug (AUDIT P0-1) would silently drop a fakes
+// file's tests from the test root. This walks src/fakes/ and fails if any file
+// is missing from the aggregation block, so a future fake can't skip its tests
+// unnoticed. (fs walk allowed in test scope; the capturing while is an iterator
+// loop and its inner ifs are nested — neither ban-fs nor test-no-conditional
+// flags it, same as the check-file guard.)
+test "test root imports every fakes file" {
+    const self_src = @embedFile("check.zig");
+    var dir = try std.fs.cwd().openDir("src/fakes", .{ .iterate = true });
+    defer dir.close();
+    var it = dir.iterate();
+    var missing_buf: [256]u8 = undefined;
+    var missing_len: usize = 0;
+    var needle_buf: [256]u8 = undefined;
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        const needle = try std.fmt.bufPrint(&needle_buf, "@import(\"fakes/{s}\")", .{entry.name});
+        if (std.mem.indexOf(u8, self_src, needle) == null) {
+            @memcpy(missing_buf[0..entry.name.len], entry.name);
+            missing_len = entry.name.len;
+            break;
+        }
+    }
+    // A non-empty result names a fakes file missing from the block above.
     try std.testing.expectEqualStrings("", missing_buf[0..missing_len]);
 }

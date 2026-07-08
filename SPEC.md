@@ -430,6 +430,23 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects mutable pub var globals outside wiring/main
 - Rejects hardcoded absolute paths and URLs in string literals
 
+## Fakes
+
+- FakeClock reads back its start time
+- FakeClock advance accumulates elapsed nanoseconds
+- FakeClock sleep advances the clock instead of blocking
+- FakeClock reads through an injected Clock port
+- SeededRandom reproduces a sequence for a given seed
+- SeededRandom diverges for different seeds
+- FakeFs round-trips bytes through writeFile and readFile
+- FakeFs reports existence of written paths
+- FakeFs deleteFile removes a stored file
+- FakeFs readFile returns FileNotFound for a missing path
+- FakeFs listPaths returns paths sorted ascending
+- FakeEnv get returns a set value
+- FakeEnv get returns null for an unset key
+- FakeEnv unset removes a variable
+
 ## Ban Secrets
 
 - Flags known-format vendor tokens like AWS and GitHub keys

@@ -236,6 +236,34 @@ src/dora.zig::elapsedMs | fn elapsedMs(self: *Stopwatch) u64
 src/dora.zig::recordRun | fn recordRun( arena: Allocator, project_dir: []const u8, cfg: config_mod.DoraCfg, outcome: Outcome, failed_checks: []const []const u8, duration_ms: u64, ) void
 src/dora.zig::renderRecord | fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8
 src/dora.zig::startStopwatch | fn startStopwatch() Stopwatch
+src/fakes/clock.zig::FakeClock struct_
+src/fakes/clock.zig::advance | fn advance(self: *FakeClock, delta_nanos: i128) void
+src/fakes/clock.zig::init | fn init(start_nanos: i128) FakeClock
+src/fakes/clock.zig::now | fn now(self: *const FakeClock) i128
+src/fakes/clock.zig::sleep | fn sleep(self: *FakeClock, delta_nanos: i128) void
+src/fakes/env.zig::FakeEnv struct_
+src/fakes/env.zig::deinit | fn deinit(self: *FakeEnv) void
+src/fakes/env.zig::get | fn get(self: *const FakeEnv, key: []const u8) ?[]const u8
+src/fakes/env.zig::init | fn init(allocator: std.mem.Allocator) FakeEnv
+src/fakes/env.zig::set | fn set(self: *FakeEnv, key: []const u8, value: []const u8) std.mem.Allocator.Error!void
+src/fakes/env.zig::unset | fn unset(self: *FakeEnv, key: []const u8) void
+src/fakes/fakes.zig::FakeClock value
+src/fakes/fakes.zig::FakeEnv value
+src/fakes/fakes.zig::FakeFs value
+src/fakes/fakes.zig::ReadError value
+src/fakes/fakes.zig::SeededRandom value
+src/fakes/fs.zig::FakeFs struct_
+src/fakes/fs.zig::ReadError value
+src/fakes/fs.zig::deinit | fn deinit(self: *FakeFs) void
+src/fakes/fs.zig::deleteFile | fn deleteFile(self: *FakeFs, path: []const u8) void
+src/fakes/fs.zig::exists | fn exists(self: *const FakeFs, path: []const u8) bool
+src/fakes/fs.zig::init | fn init(allocator: std.mem.Allocator) FakeFs
+src/fakes/fs.zig::listPaths | fn listPaths( self: *const FakeFs, result_allocator: std.mem.Allocator, ) std.mem.Allocator.Error![]const []const u8
+src/fakes/fs.zig::readFile | fn readFile(self: *const FakeFs, result_allocator: std.mem.Allocator, path: []const u8) ReadError![]const u8
+src/fakes/fs.zig::writeFile | fn writeFile(self: *FakeFs, path: []const u8, bytes: []const u8) std.mem.Allocator.Error!void
+src/fakes/random.zig::SeededRandom struct_
+src/fakes/random.zig::init | fn init(seed: u64) SeededRandom
+src/fakes/random.zig::random | fn random(self: *SeededRandom) std.Random
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
 src/git.zig::LineSpan struct_

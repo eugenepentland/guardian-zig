@@ -23,6 +23,14 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(check_exe);
 
+    // Deterministic fakes: a standalone, dependency-free module consumers
+    // import in their TESTS to put behind the ports the ban-* checks force
+    // (Clock/Random/Fs/Env). Exposed as a named module so a dependent does
+    // `guardian_dep.module("guardian-fakes")` — see README's fakes section.
+    _ = b.addModule("guardian-fakes", .{
+        .root_source_file = b.path("src/fakes/fakes.zig"),
+    });
+
     // Tests
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/check.zig"),
