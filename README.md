@@ -180,13 +180,20 @@ mutants are *unviable* and excluded. During mutant runs guardian sets
 under it — so the deliberately-broken tree isn't gated against itself.
 
 `mutate` is an explicit step, never part of `all`: each mutant costs a build
-+ test cycle. Wire it in `build.zig` like `spec-init`:
++ test cycle. **`addAllChecks` auto-registers the `mutate` and `mutate-full`
+steps for you** (`opts.mutate_steps` defaults `true`), so every consumer gets
+the mutation tier the day it upgrades — no hand-wiring. The registration is
+idempotent, so calling `addAllChecks` more than once (install + test steps) is
+safe, as is keeping your own hand-rolled `mutate` step. Opt out with
+`addAllChecks(b, check_exe, step, .{ .mutate_steps = false })`.
 
-```zig
-const mutate_run = b.addRunArtifact(check_exe);
-mutate_run.addArgs(&.{ "mutate", "." });
-b.step("mutate", "Mutation-test changed lines").dependOn(&mutate_run.step);
-```
+### `nightly` — the scheduled tier
+
+`guardian-check nightly [dir]` runs the full `all` suite, then `mutate --full`
+on the same tree, and fails if either fails. It's the obvious cron/CI home for
+the whole-tree ratchet that `mutate-full` alone rarely gets scheduled into. A
+suggested CI split: `GUARDIAN_AGAINST=origin/main zig build mutate` on PRs
+(fast tier, changed lines only) and `guardian-check nightly .` on a schedule.
 
 ### Future work (not yet shipped)
 The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
@@ -343,11 +350,35 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
 ```bash
 zig build spec-init                  # Generate starter SPEC.md
-zig build mutate                     # Mutation-test changed lines (fast tier)
-zig build mutate-full                # Mutation-test the whole tree + ratchet
+zig build mutate                     # Mutation-test changed lines (fast tier, auto-wired)
+zig build mutate-full                # Mutation-test the whole tree + ratchet (auto-wired)
 GUARDIAN_UPDATE_SNAPSHOT=1 zig build # Refresh snapshot baselines
 GUARDIAN_AGAINST=origin/main ...     # Diff base for change-classification / mutate
 ```
+
+### `guardian-check` CLI
+
+The checker binary also runs directly (this is what the build steps invoke):
+
+```bash
+guardian-check all .                 # Run every hard-block check
+guardian-check all . --only spec,file-size   # Run ONLY the named checks
+guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
+guardian-check nightly .             # Full suite + whole-tree mutation ratchet
+guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
+guardian-check explain               # List every check name + summary
+guardian-check version               # Print the guardian version (also --version)
+```
+
+- **`--only` / `--skip`** take comma-separated check names and are mutually
+  exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
+  valid-name hint. A filtered run is a subset, so it never writes the green
+  skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **`explain`** prints a longer rationale for every registered check: the
+  agent mistake it catches, how to fix a violation, and the exemption knob
+  (`[[allow]]` paths, a config toggle, the `disabled` list, or a snapshot
+  refresh). Unknown/no name lists all checks.
+- **`--version` / `version`** print the version (from `src/version.zig`).
 
 ## Principles
 

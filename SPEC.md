@@ -16,6 +16,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses the mutation section score and budget settings
 - Parses the change classification toggle and against ref
 - Parses the against and full command-line flags
+- Parses the only, skip, and version command-line flags
+- Splits a comma-separated filter value into check names
+- Rejects combining the only and skip filters
 
 ## Spec Coverage
 
@@ -98,6 +101,25 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects unknown check names in the disabled list
 - Tolerates retired check names in the disabled list
 - Emits a captured check's output only when not quiet or it failed
+- Runs only the checks named by an only filter
+- Excludes the checks named by a skip filter
+- Rejects an only or skip name that is not a runnable check
+- Detects a filtered run so the green cache stamp is suppressed
+
+## Nightly
+
+- Fails when either the suite or the whole-tree mutation ratchet fails
+- Runs the whole-tree mutation tier by setting the full flag
+
+## Explain
+
+- Returns the explanation text for a registered check name
+- Signals an unknown check name
+- Provides an explanation entry for every registered command
+
+## Versioning
+
+- Reports a non-empty dotted guardian version string
 
 ## Snapshot Lifecycle
 

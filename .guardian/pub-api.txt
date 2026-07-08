@@ -166,9 +166,13 @@ src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.Run
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/cli/explain.zig::run | fn run(query: ?[]const u8) bool
 src/cli/mutate.zig::COMMAND_NAME value
 src/cli/mutate.zig::gatePasses | fn gatePasses(score_pct: u32, min_pct: u32) bool
 src/cli/mutate.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/nightly.zig::COMMAND_NAME value
+src/cli/nightly.zig::mutateContext | fn mutateContext(ctx: *const types.RunCtx) types.RunCtx
+src/cli/nightly.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/registry.zig::Command value
 src/cli/registry.zig::NeedsAst value
 src/cli/registry.zig::RunCtx value
@@ -176,6 +180,7 @@ src/cli/registry.zig::all value
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/run_all.zig::COMMAND_NAME value
+src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
@@ -295,6 +300,7 @@ src/testing/golden_runner.zig::runWithCfg | fn runWithCfg(allocator: Allocator, 
 src/text.zig::TestScope struct_
 src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
+src/version.zig::string value
 src/walk.zig::FileEntry struct_
 src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_

@@ -12,8 +12,11 @@ const fail = reporter.fail;
 
 pub const COMMAND_NAME = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
-// mutant, so both are explicit commands rather than build gates.
-const SKIP = [_][]const u8{ "spec-init", "mutate" };
+// mutant; nightly composes `all` + `mutate --full`. None is a build gate.
+// (nightly is dispatched specially and never appears in the registry, so its
+// entry here is defensive — mirroring the long-standing `all` exclusion in
+// build_helper — and guarantees it can never be run as a check.)
+const SKIP = [_][]const u8{ "spec-init", "mutate", "nightly" };
 
 /// Runs every registered hard-block check in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
@@ -32,10 +35,15 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Validate the disabled list up front: a typo like "magic-numbers" would
     // otherwise silently disable nothing while the user believes it's off.
     try validateDisabled(ctx.cfg.disabled);
+    // Validate --only / --skip the same way: an unknown or non-gate name must
+    // hard-fail rather than silently narrow the run to nothing.
+    try validateFilter(ctx);
 
-    // Skip the whole run when guardian's hashed input set is unchanged since
-    // the last all-green run. GUARDIAN_UPDATE_SNAPSHOT forces a full run.
-    const cache_state = cacheState(ctx);
+    // A filtered run (--only/--skip) is a subset, not the full suite, so it
+    // must neither trust nor write the green skip-cache — recording green from
+    // a partial run would mask a failure in the checks it didn't run.
+    const filtered = isFiltered(ctx);
+    const cache_state = if (filtered) CacheState{} else cacheState(ctx);
     if (cache_state.skip) {
         reporter.ok("run-all: inputs unchanged since last green run — checks skipped", .{});
         return;
@@ -44,22 +52,56 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Build the shared parsed-source index once if any check needs it, so
     // the ~17 AST checks read and parse each file once instead of per check.
     var index_storage: ast_index.Index = undefined;
-    if (anyNeedsAst(ctx.cfg.disabled)) {
+    if (anyNeedsAst(ctx)) {
         index_storage = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
         ctx.source_index = &index_storage;
     }
+    // index_storage is stack-scoped; clear the ctx pointer on return so a caller
+    // that reuses ctx afterward (nightly → mutate) can't dereference a dangling
+    // index. Workers copy ctx before this fires, so the current run is unaffected.
+    defer ctx.source_index = null;
 
     var ran: u32 = 0;
     const failed = try runChecks(ctx, &ran);
 
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
-        // Record this green input state so an unchanged re-run can skip.
+        // Record this green input state so an unchanged re-run can skip —
+        // never for a filtered run (cache_state.digest is null there).
         if (cache_state.digest) |d| cache.writeStored(ctx.allocator, ctx.project_dir, d);
         return;
     }
 
     fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
+    return error.CheckFailed;
+}
+
+/// True when an --only / --skip selection is active for this run.
+fn isFiltered(ctx: *const types.RunCtx) bool {
+    return ctx.only.len > 0 or ctx.skip.len > 0;
+}
+
+/// True when `name` is a check that `all` actually runs: a registered command
+/// that isn't a built-in non-gate (spec-init / mutate / nightly). Used to
+/// validate --only / --skip names before running.
+pub fn isAllCheck(name: []const u8) bool {
+    if (registry.find(name) == null) return false;
+    for (SKIP) |s| if (std.mem.eql(u8, name, s)) return false;
+    return true;
+}
+
+/// Fails the run when --only or --skip names a check that `all` does not run
+/// (unknown, or a non-gate like `mutate`). Mirrors validateDisabled so a typo
+/// can't silently narrow the suite to nothing.
+fn validateFilter(ctx: *const types.RunCtx) types.RunError!void {
+    for (ctx.only) |name| try requireAllCheck(name, "--only");
+    for (ctx.skip) |name| try requireAllCheck(name, "--skip");
+}
+
+fn requireAllCheck(name: []const u8, flag: []const u8) types.RunError!void {
+    if (isAllCheck(name)) return;
+    fail("unknown check name in {s}: {s}", .{ flag, name });
+    fail("  run `guardian-check explain` to list valid check names", .{});
     return error.CheckFailed;
 }
 
@@ -152,7 +194,7 @@ fn runChecksSequential(ctx: *types.RunCtx, ran: *u32) types.RunError!u32 {
     const baseline_on = ctx.cfg.baseline.enabled;
     var failed: u32 = 0;
     for (registry.all) |cmd| {
-        if (shouldSkip(cmd.name, ctx.cfg.disabled)) continue;
+        if (excluded(ctx, cmd.name)) continue;
         ran.* += 1;
         const outcome = if (baseline_on)
             baseline.runWithBaseline(ctx, cmd)
@@ -212,7 +254,7 @@ fn worker(job: *WorkerJob) void {
         const i = @atomicRmw(usize, job.next, .Add, 1, .monotonic);
         if (i >= registry.all.len) break;
         const cmd = registry.all[i];
-        if (shouldSkip(cmd.name, job.base.cfg.disabled)) continue;
+        if (excluded(job.base, cmd.name)) continue;
         job.results[i] = runCaptured(job.base, a, cmd, baseline_on);
     }
 }
@@ -272,11 +314,25 @@ fn shouldSkip(name: []const u8, disabled: []const []const u8) bool {
     return false;
 }
 
-/// True when at least one non-skipped check declares `needs_ast = .yes`,
+fn inList(list: []const []const u8, name: []const u8) bool {
+    for (list) |s| if (std.mem.eql(u8, name, s)) return true;
+    return false;
+}
+
+/// True when `name` must not run this pass: a built-in non-gate or a disabled
+/// check (shouldSkip), or filtered out by an active --only / --skip. With
+/// --only, only the listed names run; --skip removes the listed names.
+fn excluded(ctx: *const types.RunCtx, name: []const u8) bool {
+    if (shouldSkip(name, ctx.cfg.disabled)) return true;
+    if (ctx.only.len > 0) return !inList(ctx.only, name);
+    return inList(ctx.skip, name);
+}
+
+/// True when at least one non-excluded check declares `needs_ast = .yes`,
 /// meaning the shared parsed-source index is worth building for this run.
-fn anyNeedsAst(disabled: []const []const u8) bool {
+fn anyNeedsAst(ctx: *const types.RunCtx) bool {
     for (registry.all) |cmd| {
-        if (shouldSkip(cmd.name, disabled)) continue;
+        if (excluded(ctx, cmd.name)) continue;
         if (cmd.needs_ast == .yes) return true;
     }
     return false;
@@ -319,4 +375,65 @@ test "retired check names are recognized (tolerated in disabled)" {
     try std.testing.expect(retiredInfo("spec-drift") != null);
     try std.testing.expectEqualStrings("pub-api-surface", retiredInfo("spec-drift").?.folded_into);
     try std.testing.expect(retiredInfo("not-a-real-check") == null);
+}
+
+const test_config = @import("../config.zig");
+
+// spec: Run All - Runs only the checks named by an only filter
+// spec: Run All - Excludes the checks named by a skip filter
+// spec: Run All - Rejects an only or skip name that is not a runnable check
+// spec: Run All - Detects a filtered run so the green cache stamp is suppressed
+
+test "excluded runs only the names listed by an only filter" {
+    const cfg: test_config.Config = .{};
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .only = &[_][]const u8{"spec"},
+    };
+    try std.testing.expect(!excluded(&ctx, "spec"));
+    try std.testing.expect(excluded(&ctx, "file-size"));
+    // built-in non-gates stay excluded regardless of the filter
+    try std.testing.expect(excluded(&ctx, "mutate"));
+}
+
+test "excluded removes the names listed by a skip filter" {
+    const cfg: test_config.Config = .{};
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .skip = &[_][]const u8{"file-size"},
+    };
+    try std.testing.expect(excluded(&ctx, "file-size"));
+    try std.testing.expect(!excluded(&ctx, "spec"));
+}
+
+test "isAllCheck accepts gates and rejects non-gates and typos" {
+    try std.testing.expect(isAllCheck("spec"));
+    try std.testing.expect(isAllCheck("file-size"));
+    try std.testing.expect(!isAllCheck("mutate")); // non-gate step
+    try std.testing.expect(!isAllCheck("nightly")); // composed, not in registry
+    try std.testing.expect(!isAllCheck("spec-init")); // generator
+    try std.testing.expect(!isAllCheck("bogus")); // typo
+}
+
+test "isFiltered is true exactly when an only or skip selection is active" {
+    const cfg: test_config.Config = .{};
+    const base: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    try std.testing.expect(!isFiltered(&base));
+    var only_ctx = base;
+    only_ctx.only = &[_][]const u8{"spec"};
+    try std.testing.expect(isFiltered(&only_ctx));
+    var skip_ctx = base;
+    skip_ctx.skip = &[_][]const u8{"spec"};
+    try std.testing.expect(isFiltered(&skip_ctx));
 }

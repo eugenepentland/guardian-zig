@@ -40,6 +40,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&fmt_check.step);
 
     // Self-hosting: run all hard-block checks on Guardian's own source.
+    // addAllChecks also registers the top-level `mutate` / `mutate-full`
+    // steps (opts.mutate_steps defaults true); the registration is idempotent,
+    // so the second call below (and any consumer's hand-rolled step) is safe.
     guardian_helper.addAllChecks(b, check_exe, b.getInstallStep(), .{});
     guardian_helper.addAllChecks(b, check_exe, test_step, .{});
 
@@ -48,17 +51,4 @@ pub fn build(b: *std.Build) void {
     spec_init_run.addArgs(&.{ "spec-init", "." });
     const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
     spec_init_step.dependOn(&spec_init_run.step);
-
-    // mutate: mutation-test the suite (explicit steps, not gates — each
-    // mutant costs a build + test cycle). Fast tier covers lines changed
-    // vs HEAD/GUARDIAN_AGAINST; mutate-full ratchets the whole-tree score.
-    const mutate_run = b.addRunArtifact(check_exe);
-    mutate_run.addArgs(&.{ "mutate", "." });
-    const mutate_step = b.step("mutate", "Mutation-test changed lines (fast tier)");
-    mutate_step.dependOn(&mutate_run.step);
-
-    const mutate_full_run = b.addRunArtifact(check_exe);
-    mutate_full_run.addArgs(&.{ "mutate", ".", "--full" });
-    const mutate_full_step = b.step("mutate-full", "Mutation-test the whole tree and ratchet the score (nightly)");
-    mutate_full_step.dependOn(&mutate_full_run.step);
 }

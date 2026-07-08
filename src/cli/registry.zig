@@ -359,12 +359,25 @@ pub fn find(name: []const u8) ?Command {
     return null;
 }
 
-/// Print the usage summary enumerating every registered command.
+// Commands dispatched specially by check.zig rather than through this registry:
+// the `all` aggregate, the composed `nightly` tier, and the informational
+// explain/version. They can't be registry entries — their run functions would
+// close an @import cycle with run_all — so they are listed here by hand.
+const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
+    .{ .name = "all", .summary = "Run every hard-block check (filter with --only/--skip a,b)" },
+    .{ .name = "nightly", .summary = "Full suite + whole-tree mutation ratchet (scheduled/CI tier)" },
+    .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
+    .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
+};
+
+/// Print the usage summary enumerating every registered command plus the
+/// specially-dispatched meta commands.
 pub fn printHelp() void {
     const print = std.debug.print;
+    const row = "  {s: <14} {s}\n";
     print("Usage: guardian-check <command> [project-dir] [--quiet]\n\n", .{});
     print("Commands:\n", .{});
-    for (all) |cmd| {
-        print("  {s: <14} {s}\n", .{ cmd.name, cmd.summary });
-    }
+    for (all) |cmd| print(row, .{ cmd.name, cmd.summary });
+    print("\nMeta commands (composed / informational):\n", .{});
+    for (meta_commands) |m| print(row, .{ m.name, m.summary });
 }

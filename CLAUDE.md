@@ -37,6 +37,20 @@ zig build mutate     # mutation-test lines changed vs HEAD (fast tier)
 zig build mutate-full  # mutation-test the whole tree + score ratchet
 ```
 
+The `mutate` / `mutate-full` steps are auto-registered by `addAllChecks`
+(`opts.mutate_steps` defaults true), so consumers get them for free; the
+registration is idempotent.
+
+The `guardian-check` binary also runs directly:
+
+```bash
+guardian-check nightly .             # full suite + whole-tree mutation ratchet (CI/cron tier)
+guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
+guardian-check all . --skip line-length     # run every check except these
+guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
+guardian-check version               # print the version (also --version)
+```
+
 Guardian is invisible — it gates every build automatically.
 
 ## Integration
@@ -126,6 +140,13 @@ suite — the fast tier mutates only changed lines, `--full` ratchets a
 whole-tree kill score in `.guardian/mutation.txt` and both gate on
 `[mutation] min_score_pct` (default 80). Child builds during mutation run
 with `GUARDIAN_MUTATION_RUN=1`, which makes every guardian command no-op.
+The `mutate`/`mutate-full` build steps are auto-wired by `addAllChecks`
+(`opts.mutate_steps`, idempotent), and the `nightly` command composes `all`
++ `mutate --full` for the scheduled/CI tier (dispatched specially, like `all`,
+so it never appears in the registry). `all` also accepts `--only a,b` /
+`--skip a,b` (mutually exclusive; unknown names hard-fail; a filtered run
+never writes the green skip-cache stamp); `explain <check>` prints a check's
+rationale/fix/exemption; `version` (or `--version`) prints the version.
 
 Some checks were folded into a related one to cut overlap
 (spec-drift→pub-api-surface, comptime-quota→panic-budget,

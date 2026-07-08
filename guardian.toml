@@ -17,9 +17,12 @@ forbidden = ["config"]
 exclude = ["reporter.zig", "testing/golden_runner.zig"]
 
 # Config is a flat settings aggregation (one field per knob), not a "god struct"
-# doing too much — the type-size smell doesn't apply. Exempt it.
+# doing too much — the type-size smell doesn't apply. Exempt it. cli/types.zig
+# holds RunCtx, the per-invocation context bag threaded through every check
+# (allocator, dirs, cfg, diff base, mutate tier, --only/--skip filters) — the
+# same flat-aggregation case, not a god struct. Exempt it too.
 [type_size]
-exclude = ["config.zig"]
+exclude = ["config.zig", "cli/types.zig"]
 
 # magic-number is opt-in (off by default) because it's pure noise in literal-heavy
 # domains. Guardian's own code passes it, so enable it here to keep dogfooding.

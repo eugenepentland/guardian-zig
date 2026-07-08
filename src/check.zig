@@ -4,6 +4,9 @@ const config_parser = @import("config_parser.zig");
 const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
+const nightly = @import("cli/nightly.zig");
+const explain = @import("cli/explain.zig");
+const version = @import("version.zig");
 const baseline = @import("baseline.zig");
 const mutation_runner = @import("mutation/runner.zig");
 
@@ -38,10 +41,31 @@ pub fn main() !void {
 
     const parsed = parseArgs(args[1..]);
     reporter.init(parsed.quiet);
+
+    // `--version` / `version`: print and exit before any project work. Printing
+    // std.debug.print from pub fn main is exempt from debug-print-ban.
+    if (parsed.show_version or isVersionCommand(parsed.command)) {
+        std.debug.print("guardian-check {s}\n", .{version.string});
+        return;
+    }
+
     const command = parsed.command orelse {
         registry.printHelp();
         std.process.exit(1);
     };
+
+    // `explain <check>`: static, needs no project dir or config. An unknown
+    // name exits non-zero after listing the valid checks.
+    if (std.mem.eql(u8, command, "explain")) {
+        if (!explain.run(explainQuery(parsed))) std.process.exit(1);
+        return;
+    }
+
+    // --only and --skip contradict each other; reject the combination outright.
+    if (onlySkipConflict(parsed)) {
+        reporter.fail("--only and --skip cannot be combined", .{});
+        std.process.exit(1);
+    }
 
     const cfg = config_parser.load(allocator, parsed.project_dir);
     var ctx: registry.RunCtx = .{
@@ -51,6 +75,8 @@ pub fn main() !void {
         .quiet = parsed.quiet,
         .against = parsed.against orelse nonEmpty(readEnv(allocator, AGAINST_ENV)),
         .full = parsed.full,
+        .only = splitCsv(allocator, parsed.only),
+        .skip = splitCsv(allocator, parsed.skip),
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
@@ -67,11 +93,18 @@ const ParsedArgs = struct {
     quiet: bool = false,
     full: bool = false,
     against: ?[]const u8 = null,
+    /// Raw comma-separated `--only` value (split later); null = no filter.
+    only: ?[]const u8 = null,
+    /// Raw comma-separated `--skip` value (split later); null = no filter.
+    skip: ?[]const u8 = null,
+    /// True when `--version` was passed anywhere on the command line.
+    show_version: bool = false,
 };
 
-// Scans argv (sans program name): first non-flag token is the command, the
-// next is the project dir; `--quiet`/`-q` toggles quiet mode, `--full`
-// selects mutate's whole-tree tier, `--against <ref>` sets the diff base.
+// Scans argv (sans program name): first non-flag token is the command, the next
+// is the project dir; `--quiet`/`-q` toggles quiet mode, `--full` selects
+// mutate's whole-tree tier, `--against <ref>` sets the diff base, `--only`/
+// `--skip <a,b>` filter the `all` suite, `--version` requests the version.
 fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
     var i: usize = 0;
@@ -81,9 +114,17 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             parsed.quiet = true;
         } else if (std.mem.eql(u8, arg, "--full")) {
             parsed.full = true;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            parsed.show_version = true;
         } else if (std.mem.eql(u8, arg, "--against")) {
             i += 1;
             if (i < args.len) parsed.against = args[i];
+        } else if (std.mem.eql(u8, arg, "--only")) {
+            i += 1;
+            if (i < args.len) parsed.only = args[i];
+        } else if (std.mem.eql(u8, arg, "--skip")) {
+            i += 1;
+            if (i < args.len) parsed.skip = args[i];
         } else if (parsed.command == null) {
             parsed.command = arg;
         } else {
@@ -91,6 +132,41 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         }
     }
     return parsed;
+}
+
+/// True when `command` is the `version` command (prints the version like the
+/// `--version` flag).
+fn isVersionCommand(command: ?[]const u8) bool {
+    const c = command orelse return false;
+    return std.mem.eql(u8, c, "version");
+}
+
+/// The check name for `explain`: the positional after the command, or null when
+/// omitted. parseArgs stores that positional in `project_dir`, so its default
+/// "." means no name was given (a bare `explain` lists every check).
+fn explainQuery(parsed: ParsedArgs) ?[]const u8 {
+    return if (std.mem.eql(u8, parsed.project_dir, ".")) null else parsed.project_dir;
+}
+
+/// True when both --only and --skip were given — a contradiction that is an
+/// error rather than an intersection.
+fn onlySkipConflict(parsed: ParsedArgs) bool {
+    return parsed.only != null and parsed.skip != null;
+}
+
+/// Splits a comma-separated `--only`/`--skip` value into check names, trimming
+/// whitespace and dropping blank segments ("a,,b" -> {a,b}); empty slice when
+/// null (no filter active).
+fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) []const []const u8 {
+    const s = csv orelse return &.{};
+    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, s, ',');
+    while (it.next()) |part| {
+        const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
+        if (trimmed.len == 0) continue;
+        list.append(allocator, trimmed) catch return list.items;
+    }
+    return list.toOwnedSlice(allocator) catch list.items;
 }
 
 /// Reads an env var; null when unset (arena-owned when present).
@@ -116,6 +192,11 @@ fn nonEmpty(value: ?[]const u8) ?[]const u8 {
 fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []const u8) !void {
     if (std.mem.eql(u8, command, run_all.COMMAND_NAME)) {
         return run_all.run(ctx);
+    }
+    // nightly composes `all` + `mutate --full`; dispatched specially (like
+    // `all`) because it can't be a registry entry without an @import cycle.
+    if (std.mem.eql(u8, command, nightly.COMMAND_NAME)) {
+        return nightly.run(ctx);
     }
     const cmd = registry.find(command) orelse {
         registry.printHelp();
@@ -146,6 +227,9 @@ test {
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");
     _ = @import("cli/mutate.zig");
+    _ = @import("cli/nightly.zig");
+    _ = @import("cli/explain.zig");
+    _ = @import("version.zig");
     _ = @import("reporter.zig");
     _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
@@ -241,6 +325,49 @@ test "parseArgs reads --against ref and --full alongside command and dir" {
     try std.testing.expectEqualStrings("origin/main", parsed.against.?);
     try std.testing.expect(parsed.full);
     try std.testing.expect(!parsed.quiet);
+}
+
+// spec: Configuration - Parses the only, skip, and version command-line flags
+
+test "parseArgs reads --only, --skip and --version" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 6);
+    args[0] = try a.dupeZ(u8, "all");
+    args[1] = try a.dupeZ(u8, "--only");
+    args[2] = try a.dupeZ(u8, "spec,file-size");
+    args[3] = try a.dupeZ(u8, "--skip");
+    args[4] = try a.dupeZ(u8, "boundaries");
+    args[5] = try a.dupeZ(u8, "--version");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("all", parsed.command.?);
+    try std.testing.expectEqualStrings("spec,file-size", parsed.only.?);
+    try std.testing.expectEqualStrings("boundaries", parsed.skip.?);
+    try std.testing.expect(parsed.show_version);
+}
+
+// spec: Configuration - Splits a comma-separated filter value into check names
+
+test "splitCsv trims segments and returns empty for null" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = splitCsv(a, "spec, file-size ,,boundaries");
+    try std.testing.expectEqual(@as(usize, 3), out.len);
+    try std.testing.expectEqualStrings("spec", out[0]);
+    try std.testing.expectEqualStrings("file-size", out[1]);
+    try std.testing.expectEqualStrings("boundaries", out[2]);
+    try std.testing.expectEqual(@as(usize, 0), splitCsv(a, null).len);
+}
+
+// spec: Configuration - Rejects combining the only and skip filters
+
+test "onlySkipConflict flags only+skip together" {
+    try std.testing.expect(onlySkipConflict(.{ .only = "a", .skip = "b" }));
+    try std.testing.expect(!onlySkipConflict(.{ .only = "a" }));
+    try std.testing.expect(!onlySkipConflict(.{ .skip = "b" }));
+    try std.testing.expect(!onlySkipConflict(.{}));
 }
 
 // spec: Mutation Testing - Skips every check while a mutation test run is in progress
