@@ -135,6 +135,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Debt
 
 - Counts non-header lines for baseline and pub-api debt
+- Notes a per-item ratchet's worst offender
 - Sums snapshot counts while ignoring magnitude keys
 - Reads the mutation kill score from its snapshot
 - Classifies each .guardian file into a labelled debt source
@@ -294,6 +295,23 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
 - Prefers structured records over scraped text when present
+
+## Per-Item Ratchets
+
+- Selects the ratchet lifecycle only for threshold checks
+- Aggregates violation records to the max metric per key
+- Counts over-limit records per key in count mode
+- Encodes and decodes a value key line
+- Fails when a key value exceeds its recorded ceiling
+- Fails an unrecorded key as a new offender over the default cap
+- Lowers a key whose value decreased and stays green
+- Prunes keys absent from the current violations
+- Matches when every key holds its recorded value
+- Creates then auto-lowers a ratchet file across runs
+- Re-records a stale-version baseline as a ratchet
+- Refuses a deny_growth refresh that raises a value or adds a key
+- Summarizes a ratchet file's worst offender
+- Scrapes the check's own fix hint for the regression message
 
 ## Reporter
 

@@ -250,6 +250,23 @@ src/mutation/runner.zig::pct | fn pct(self: Score) u32
 src/mutation/runner.zig::ratchetDecision | fn ratchetDecision(old_pct: ?u32, new_pct: u32) RatchetDecision
 src/mutation/runner.zig::runOne | fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outcome
 src/mutation/runner.zig::spliced | fn spliced(allocator: Allocator, original: []const u8, m: gen.Mutant) SpliceError![]const u8
+src/ratchet.zig::AggMode enum_
+src/ratchet.zig::Entry struct_
+src/ratchet.zig::GrownKey struct_
+src/ratchet.zig::Improved struct_
+src/ratchet.zig::LifecycleError value
+src/ratchet.zig::Outcome union_
+src/ratchet.zig::Regression struct_
+src/ratchet.zig::VERSION value
+src/ratchet.zig::aggregate | fn aggregate(arena: Allocator, records: []const reporter.Violation, mode: AggMode) Allocator.Error![]Entry
+src/ratchet.zig::classify | fn classify(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!Outcome
+src/ratchet.zig::decodeLine | fn decodeLine(line: []const u8) ?Entry
+src/ratchet.zig::decodeLines | fn decodeLines(arena: Allocator, lines: []const []const u8) Allocator.Error![]Entry
+src/ratchet.zig::lifecycle | fn lifecycle( arena: Allocator, path: []const u8, entries: []const Entry, force_refresh: bool, ) LifecycleError!Outcome
+src/ratchet.zig::maxEntry | fn maxEntry(entries: []const Entry) ?Entry
+src/ratchet.zig::metricMode | fn metricMode(check_name: []const u8) ?AggMode
+src/ratchet.zig::parse | fn parse(arena: Allocator, content: []const u8) Allocator.Error![]Entry
+src/ratchet.zig::wouldGrow | fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool
 src/reporter.zig::Capture struct_
 src/reporter.zig::GREEN value
 src/reporter.zig::PREFIX value
@@ -285,6 +302,7 @@ src/snapshot.zig::diff | fn diff(arena: Allocator, old: Snapshot, new_lines: []c
 src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
+src/snapshot.zig::writePresorted | fn writePresorted(path: []const u8, version: u32, lines: []const []const u8) WriteError!void
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_

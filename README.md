@@ -265,15 +265,18 @@ prose.
   git or invalidating the build cache. No timestamps (std.time is banned).
 - Escaping is done by `std.json` — the file is always valid JSONL.
 
-Under the hood the threshold checks now emit a structured `reporter.Violation`
+Under the hood the threshold checks emit a structured `reporter.Violation`
 (carrying `check` / `ratchet_key` / `metric`) that the reporter renders to the
 exact same human-readable line; baseline capture reads those records instead of
-re-scraping prose. This is the groundwork for per-item ratchets (see the audit's
-item 5) and does not change any check's terminal output.
+re-scraping prose. Those `ratchet_key` + `metric` records are what power the
+**per-item ratchets** (baseline v2) described under *Adopting Guardian on an
+existing codebase* — none of it changes a check's terminal output.
 
 ## Adopting Guardian on an existing codebase
 
 Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — every check records its current violations on the first run and only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.
+
+The key move: **keep the default caps.** You do *not* raise `max_file_lines`, `max_lines`, or any other threshold to accommodate legacy code. Baseline mode grandfathers each existing offender *individually*, so new code still meets the strict default while history is tolerated exactly as-is.
 
 In `guardian.toml`:
 
@@ -282,36 +285,77 @@ In `guardian.toml`:
 enabled = true
 ```
 
-Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is written for each check that found violations, and the build passes. On subsequent builds:
+Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is written for each check that found violations, and the build passes.
 
-| What changed in your code | Outcome | Exit code |
+### Two baseline flavors
+
+Baseline mode runs one of two lifecycles per check, chosen automatically:
+
+- **Per-item ratchets (baseline v2)** for the ten **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `struct-method-cap`, `optional-density`, `bool-ops-per-condition`, `line-length`. Each offender is stored as a `<value> <key>` line (`130 src/foo.zig|parse`) and gets a **personal, only-shrinks ceiling**. A metric *change* on a grandfathered offender — even an improvement that's still over cap (130 → 125 lines) — no longer reds the build; only a value that *rises above its recorded ceiling* fails.
+- **Text baselines (v1)** for every other check — the exact violation lines are frozen and diffed; a new line fails, a resolved line auto-prunes.
+
+This split fixes the structural flaw that made consumers raise global caps: a text baseline embeds the metric in the line, so *any* metric change (including a shrink) reads as a new violation. Ratchets store the metric as a comparable number instead.
+
+For a threshold check, subsequent builds report:
+
+| What changed | Outcome | Exit code |
 |---|---|---|
-| Nothing | `<check>: baseline matches (N violation(s))` | 0 |
-| You fixed some violations | `<check>: M resolved, baseline pruned (now N)` — the file is auto-rewritten | 0 |
-| You introduced a new violation | `<check>: K new violation(s) above baseline of N` — only the new ones are printed | 1 |
-| You set the env var | `<check>: baseline refreshed (N violation(s))` | 0 |
+| Nothing | `<check>: ratchet matches (N key(s))` | 0 |
+| An offender shrank / vanished | `<check>: R ratchet(s) lowered, P pruned (now N key(s))` — the file is auto-rewritten to the smaller ceilings | 0 |
+| A grandfathered offender grew | `<check>: <key> grew <old> -> <new> (ratcheted at <old>)` | 1 |
+| A brand-new offender over the default cap | `<check>: <key> new offender over default cap (<value>)` — never silently added | 1 |
+| You set the env var | `<check>: ratchet refreshed (N key(s))` | 0 |
 
-The recommended workflow once baselines exist:
-1. **PRs that fix violations** — the build **auto-prunes** the baseline in place (removing entries is always safe), so just commit the smaller `.guardian/baselines/<check>.txt`. No env var, no round-trip.
-2. **PRs that intentionally accept a new violation** (rare) — refresh that one check by name: `GUARDIAN_UPDATE_SNAPSHOT=<check> zig build`, same commit pattern.
+Improvements can never be lost: a lowered ceiling is written on the same green run, so a later regression is measured against the *new, tighter* value. A new offender is one the default cap already flagged — it fails rather than being grandfathered, so history is frozen but new code stays strict.
+
+### Migration is automatic
+
+A pre-upgrade project has v1 *text* baselines for these threshold checks. On the first build after upgrading, guardian reads each one, finds the version doesn't match, and **re-records it as a v2 ratchet** — reported as `<check>: migrated to per-item ratchet (N key(s))`, green, no red build. Commit the rewritten `.guardian/baselines/` and you're on ratchets. No manual step.
+
+### Worked example: retire a global cap
+
+Say your project carries `max_file_lines = 10000` — a 10× relaxation added so 25 oversized legacy files could build, which silently removed the file-size cap from *all* new code too. With ratchets you can take it back:
+
+```toml
+# Before: one global escape hatch that neuters the cap everywhere.
+max_file_lines = 10000
+
+# After: default cap for everyone, baseline mode grandfathers the 25 offenders.
+# (max_file_lines line deleted → back to the 1000 default)
+[baseline]
+enabled = true
+```
+
+On the next build, `file-size` writes a ratchet with 25 entries — each oversized file pinned to its *current* length (`11482 src/placement/optimizer.zig`, …). Every one of those files can now only shrink; a 26th file crossing 1000 lines fails as a new offender; and the 24,000 lines of code that were under 1000 are held to 1000 again. The stale cap-justification comments (`# Instance has 16 fields`) go with it.
+
+### Recommended workflow
+
+1. **PRs that fix violations** — the build **auto-lowers / prunes** the ratchet in place, so just commit the updated `.guardian/baselines/<check>.txt`. No env var, no round-trip.
+2. **PRs that intentionally accept a regression** (rare) — refresh that one check by name: `GUARDIAN_UPDATE_SNAPSHOT=<check> zig build`, same commit pattern.
 3. **PRs that incidentally regress** — fix the new violation, no baseline changes.
 
-The baseline files are plain text and sorted, so they diff cleanly in code review.
+The baseline files are plain text and sorted by key, so a value change is a one-line diff in code review.
 
-**Freeze a baseline against growth.** For the checks whose debt should only ever shrink — the 1:1 spec map is the canonical case — list them in `[baseline] deny_growth`. A refresh (global or selective) that would *raise* their recorded count fails with a clear message instead of ratifying the growth:
+**Freeze a baseline against growth.** For the checks whose debt should only ever shrink — the 1:1 spec map is the canonical case — list them in `[baseline] deny_growth`. A refresh that would *raise* a recorded value or *add* a key fails with a clear message instead of ratifying the growth (this applies to both flavors):
 
 ```toml
 [baseline]
 enabled = true
-deny_growth = ["spec"]   # a refresh may prune spec's baseline, never grow it
+deny_growth = ["spec", "file-size"]
 ```
 
 ```
-guardian: refusing to refresh spec: baseline would grow 2→3;
-          fix the new violations or remove spec from deny_growth
+guardian: refusing to refresh file-size: ratchet would raise a value or add a key;
+          fix the regressions or remove file-size from deny_growth
 ```
 
-**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state — so debt growth is a visible decision, not a side effect.
+**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state. A per-item ratchet also shows its worst offender:
+
+```
+debt report — 2 tracked source(s), sorted by count (delta vs HEAD)
+  file-size               25  (+25 vs HEAD)  worst: 11482 src/placement/optimizer.zig
+  function-length          8   (unchanged)  worst:   246 src/router.zig|route
+```
 
 ### Tier-by-tier rollout
 

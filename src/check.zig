@@ -266,6 +266,7 @@ test {
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
     _ = @import("baseline.zig");
+    _ = @import("ratchet.zig");
     _ = @import("testing/golden_runner.zig");
 
     // Checks — keep in sync with src/checks/*.zig (enforced by test-root-drift)

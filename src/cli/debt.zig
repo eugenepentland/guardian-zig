@@ -13,6 +13,7 @@ const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const walk = @import("../walk.zig");
 const git = @import("../git.zig");
+const ratchet = @import("../ratchet.zig");
 
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
@@ -23,6 +24,10 @@ pub const COMMAND_NAME = "debt";
 const HEADER_PREFIX = "#";
 /// Path fragment identifying a per-check baseline file under `.guardian/`.
 const BASELINES_MARKER = "/baselines/";
+/// Header of a per-item ratchet (baseline v2) file, whose lines are `<value>
+/// <key>` — the count still reads as one-per-line, and its worst offender
+/// (highest value) is reported as a note.
+const RATCHET_HEADER = "# guardian-snapshot v2";
 
 /// How one `.guardian/` file's debt total is derived from its contents.
 const Kind = enum {
@@ -34,12 +39,14 @@ const Kind = enum {
     mutation,
 };
 
-/// One report line: a source label, its current total, and the change vs the
-/// committed state (null when git can't supply it).
+/// One report line: a source label, its current total, the change vs the
+/// committed state (null when git can't supply it), and an optional note (the
+/// worst offender for a per-item ratchet file).
 const Row = struct {
     label: []const u8,
     count: u64,
     delta: ?i64,
+    note: ?[]const u8 = null,
 };
 
 /// A recognized snapshot file: its leaf name, report label, and summary kind.
@@ -97,8 +104,24 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     // the report to what's actually accumulated, even when every check has a
     // baseline file (baseline mode writes one per check, most at zero).
     if (reportable(current, delta)) {
-        try ctx.rows.append(ctx.arena, .{ .label = c.label, .count = current, .delta = delta });
+        try ctx.rows.append(ctx.arena, .{
+            .label = c.label,
+            .count = current,
+            .delta = delta,
+            .note = ratchetNote(ctx.arena, entry.rel_path, entry.content),
+        });
     }
+}
+
+/// A `worst: <value> <key>` note for a per-item ratchet (v2) baseline, or null
+/// for any other file. The count column already reads the key count (one line
+/// per key); this adds the single highest-value offender for context.
+fn ratchetNote(arena: Allocator, rel_path: []const u8, content: []const u8) ?[]const u8 {
+    if (std.mem.indexOf(u8, rel_path, BASELINES_MARKER) == null) return null;
+    if (!std.mem.startsWith(u8, content, RATCHET_HEADER)) return null;
+    const entries = ratchet.parse(arena, content) catch return null;
+    const worst = ratchet.maxEntry(entries) orelse return null;
+    return std.fmt.allocPrint(arena, "  worst: {d} {s}", .{ worst.value, worst.key }) catch null;
 }
 
 /// True when a source is worth listing: it carries debt now, or its committed
@@ -226,7 +249,7 @@ fn printReport(allocator: Allocator, project_dir: []const u8, rows: []const Row)
     }
     reporter.ok("debt report — {d} tracked source(s), sorted by count (delta vs HEAD)", .{rows.len});
     for (rows) |r| {
-        print("  {s:<28} {d:>6}{s}\n", .{ r.label, r.count, deltaText(allocator, r.delta) });
+        print("  {s:<28} {d:>6}{s}{s}\n", .{ r.label, r.count, deltaText(allocator, r.delta), r.note orelse "" });
     }
 }
 
@@ -306,6 +329,23 @@ test "sortByCountDesc orders by count then label" {
     try testing.expectEqualStrings("a", rows[0].label); // 130, label a first
     try testing.expectEqualStrings("c", rows[1].label); // 130, label c
     try testing.expectEqualStrings("b", rows[2].label); // 5 last
+}
+
+// spec: Debt - Notes a per-item ratchet's worst offender
+
+test "ratchetNote reports the worst offender of a v2 baseline only" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const v2 = "# guardian-snapshot v2\n95 src/a.zig|f\n130 src/b.zig|g\n";
+    try testing.expectEqualStrings(
+        "  worst: 130 src/b.zig|g",
+        ratchetNote(a, ".guardian/baselines/function-length.txt", v2).?,
+    );
+    // A v1 text baseline is not a ratchet — no note.
+    try testing.expect(ratchetNote(a, ".guardian/baselines/spec.txt", "# guardian-snapshot v1\nfoo\n") == null);
+    // A non-baseline file (a snapshot) is not a ratchet either.
+    try testing.expect(ratchetNote(a, ".guardian/pub-api.txt", v2) == null);
 }
 
 // spec: Debt - Formats a committed-state delta and omits it when unchanged or absent

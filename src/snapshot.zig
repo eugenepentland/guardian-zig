@@ -75,7 +75,14 @@ pub const WriteError = std.fs.File.OpenError || std.fs.File.WriteError || std.me
 /// Writes a snapshot file. Lines are sorted in place for deterministic output.
 pub fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void {
     std.mem.sort([]const u8, lines, {}, lessThan);
+    try writePresorted(path, version, lines);
+}
 
+/// Writes a snapshot file in the caller's line order (no sort). Callers that
+/// need a non-lexical order — the per-item ratchet baseline stores `<value>
+/// <key>` lines but sorts them by *key* so a value change never reorders the
+/// file — presort and call this. `write` is `sort` + `writePresorted`.
+pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8) WriteError!void {
     if (std.fs.path.dirname(path)) |dir| {
         std.fs.cwd().makePath(dir) catch |e| std.log.warn("snapshot makePath {s}: {s}", .{ dir, @errorName(e) });
     }
@@ -147,6 +154,24 @@ test "write then read round-trips" {
     try std.testing.expectEqualStrings("apple", snap.lines[0]);
     try std.testing.expectEqualStrings("mango", snap.lines[1]);
     try std.testing.expectEqualStrings("zebra", snap.lines[2]);
+}
+
+test "writePresorted keeps the caller's line order" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const tmp_path = "zig-cache/test-snapshot-presorted.txt";
+    // Deliberately non-lexical order: writePresorted must not reorder it.
+    const lines = [_][]const u8{ "130 zebra", "95 apple" };
+    try writePresorted(tmp_path, 2, &lines);
+    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+        std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
+
+    const snap = try read(a, tmp_path, 2);
+    try std.testing.expectEqual(@as(usize, 2), snap.lines.len);
+    try std.testing.expectEqualStrings("130 zebra", snap.lines[0]);
+    try std.testing.expectEqualStrings("95 apple", snap.lines[1]);
 }
 
 test "read returns Missing for missing file" {
