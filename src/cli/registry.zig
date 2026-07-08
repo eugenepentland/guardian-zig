@@ -61,6 +61,7 @@ const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum
 const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
 const cmd_mutate = @import("mutate.zig");
+const cmd_debt = @import("debt.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -77,6 +78,11 @@ pub const all: []const Command = &.{
         .name = "mutate",
         .summary = "Mutation-test the suite (fast tier: changed lines; --full: whole tree)",
         .run = cmd_mutate.run,
+    },
+    .{
+        .name = "debt",
+        .summary = "Report baseline/snapshot debt totals with deltas (non-gating)",
+        .run = cmd_debt.run,
     },
     .{ .name = "file-size", .summary = "Enforce per-file line limit", .run = check_file_size.run },
     .{ .name = "boundaries", .summary = "Enforce @import boundary rules", .run = check_boundaries.run },

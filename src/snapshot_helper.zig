@@ -23,12 +23,98 @@ pub const Outcome = union(enum) {
     version_mismatch,
 };
 
-/// Returns true if the user has requested a snapshot regeneration via the
-/// GUARDIAN_UPDATE_SNAPSHOT env var. Empty / unset / "0" all return false.
+/// True when *any* refresh was requested via GUARDIAN_UPDATE_SNAPSHOT (a full
+/// "1"/"true"/"all" refresh or a comma-separated check-name list). Empty /
+/// unset / "0" all return false. Used only by the run-all skip-cache to bypass
+/// the cache whenever a refresh might rewrite `.guardian/`; per-check refresh
+/// decisions go through `shouldUpdateFor`.
 pub fn shouldUpdate(allocator: Allocator) bool {
     const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
     defer allocator.free(v);
-    return v.len > 0 and !std.mem.eql(u8, v, "0");
+    const t = std.mem.trim(u8, v, &std.ascii.whitespace);
+    return t.len > 0 and !std.mem.eql(u8, t, "0");
+}
+
+/// A parsed GUARDIAN_UPDATE_SNAPSHOT request. `none` = unset / empty / "0";
+/// `all` = "1" / "true" / "all" (refresh every snapshot and baseline — the
+/// backward-compatible behavior); `named` = a comma-separated check-name list,
+/// so only those checks' snapshots/baselines refresh. Selective refresh means
+/// accepting one intended snapshot change can no longer silently ratify
+/// unrelated drift (e.g. spec-baseline growth) in the same run.
+const Refresh = union(enum) {
+    none,
+    all,
+    named: []const []const u8,
+};
+
+/// True when the whole value names a full refresh: "1", "true", or "all".
+fn isAllToken(v: []const u8) bool {
+    return std.mem.eql(u8, v, "1") or std.mem.eql(u8, v, "true") or std.mem.eql(u8, v, "all");
+}
+
+/// Splits a comma-separated check-name list, trimming each segment and dropping
+/// blanks ("a,,b" -> {a,b}). Swallows OOM by returning what was collected so
+/// far — a refresh decision must never fail the build on allocator pressure.
+fn splitNames(allocator: Allocator, csv: []const u8) []const []const u8 {
+    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, csv, ',');
+    while (it.next()) |part| {
+        const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
+        if (trimmed.len == 0) continue;
+        list.append(allocator, trimmed) catch return list.items;
+    }
+    return list.toOwnedSlice(allocator) catch list.items;
+}
+
+/// Classifies a raw GUARDIAN_UPDATE_SNAPSHOT value into a Refresh request. Pure
+/// (no env read) so the none/all/named partition is unit-testable.
+fn classifyValue(allocator: Allocator, raw: []const u8) Refresh {
+    const trimmed = std.mem.trim(u8, raw, &std.ascii.whitespace);
+    if (trimmed.len == 0 or std.mem.eql(u8, trimmed, "0")) return .none;
+    if (isAllToken(trimmed)) return .all;
+    return .{ .named = splitNames(allocator, trimmed) };
+}
+
+/// Reads and classifies GUARDIAN_UPDATE_SNAPSHOT; `.none` when unset/unreadable.
+fn parseRefresh(allocator: Allocator) Refresh {
+    const raw = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return .none;
+    return classifyValue(allocator, raw);
+}
+
+/// True when `name` appears in `names`.
+fn containsName(names: []const []const u8, name: []const u8) bool {
+    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
+/// True when refresh request `r` covers the check `check_name`: every check
+/// under `all`, only the listed checks under `named`, none under `none`.
+fn refreshIncludes(r: Refresh, check_name: []const u8) bool {
+    return switch (r) {
+        .none => false,
+        .all => true,
+        .named => |names| containsName(names, check_name),
+    };
+}
+
+/// True when the check named `check_name` should refresh its snapshot/baseline
+/// this run — the per-check replacement for the old global `shouldUpdate`
+/// boolean. Threaded through every snapshot check, `mutate`'s ratchet, and
+/// baseline mode so `GUARDIAN_UPDATE_SNAPSHOT=<name[,name]>` refreshes only
+/// those checks (`=1`/`true`/`all` still refreshes everything).
+pub fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool {
+    return refreshIncludes(parseRefresh(allocator), check_name);
+}
+
+/// The check names listed in a `named` GUARDIAN_UPDATE_SNAPSHOT request, or null
+/// under the none/all modes (nothing to validate). Callers validate the names
+/// against the registry so a typo hard-fails instead of silently refreshing
+/// nothing.
+pub fn refreshTargets(allocator: Allocator) ?[]const []const u8 {
+    return switch (parseRefresh(allocator)) {
+        .named => |names| names,
+        else => null,
+    };
 }
 
 /// Joins `project_dir/.guardian/{leaf}` for snapshot file paths. Caller owns
@@ -191,4 +277,47 @@ test "lifecycle reports version_mismatch on stale snapshot" {
     var lines2 = [_][]const u8{"x"};
     const out = try lifecycle(a, .{ .path = path, .version = 2 }, &lines2, false);
     try testing.expect(out == .version_mismatch);
+}
+
+// spec: Snapshot Lifecycle - Refreshes only the checks named in a GUARDIAN_UPDATE_SNAPSHOT list
+
+test "classifyValue and refreshIncludes select only the named checks" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const r = classifyValue(a, "pub-api-surface, spec");
+    try testing.expect(r == .named);
+    try testing.expectEqual(@as(usize, 2), r.named.len);
+    // Only the two listed checks refresh; everything else is held back.
+    try testing.expect(refreshIncludes(r, "pub-api-surface"));
+    try testing.expect(refreshIncludes(r, "spec"));
+    try testing.expect(!refreshIncludes(r, "panic-budget"));
+}
+
+// spec: Snapshot Lifecycle - Treats a 1, true, or all value as a full refresh
+
+test "classifyValue treats 1, true, and all as a full refresh of every check" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_][]const u8{ "1", "true", "all" }) |token| {
+        const r = classifyValue(a, token);
+        try testing.expect(r == .all);
+        // A full refresh includes any check name.
+        try testing.expect(refreshIncludes(r, "pub-api-surface"));
+        try testing.expect(refreshIncludes(r, "anything-else"));
+    }
+}
+
+// spec: Snapshot Lifecycle - Treats an unset, empty, or zero value as no refresh
+
+test "classifyValue treats empty and zero as no refresh" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_][]const u8{ "", "   ", "0" }) |token| {
+        const r = classifyValue(a, token);
+        try testing.expect(r == .none);
+        try testing.expect(!refreshIncludes(r, "pub-api-surface"));
+    }
 }

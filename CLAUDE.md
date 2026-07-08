@@ -129,7 +129,13 @@ the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are
 snapshot-based (pub-api-surface, panic-budget, int-from-float-budget,
 unsafe-ops-budget) — refresh with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build`
-and commit `.guardian/`.
+and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` is now *selective*: `=1`
+(or `true`/`all`) refreshes everything, but a comma-separated check-name list
+(`=pub-api-surface,spec`) refreshes only those checks' snapshots/baselines —
+one accepted change no longer ratifies unrelated drift. An unknown name in the
+list hard-fails the run. The non-gating `guardian-check debt [dir]` (`zig build
+debt`) reports every baseline/snapshot total, sorted by count, with the delta
+vs the committed `.guardian/` state.
 
 Two features diff the working tree against a git ref (`--against` flag,
 `GUARDIAN_AGAINST` env var, or `[change_classification] against`; default
@@ -158,9 +164,17 @@ entries (check + paths), not compiled into the checks.
 
 `all` runs are cached: when the hashed input set (src/test/build/spec/
 guardian.toml/.guardian) is unchanged since the last green run, checks are
-skipped. Disable with `cache_enabled = false`. Turn off individual checks
-with a top-level `disabled = ["check-name", ...]` list (not a per-check
-`enabled` flag).
+skipped. The green stamp is written *after* checks run (recomputed over the
+post-write tree), so a run that rewrites `.guardian/` — an auto-pruned baseline,
+a freshly created snapshot — doesn't trigger a spurious full re-run next build,
+and a `.guardian/` that diverges from the stamped state always re-runs. Disable
+with `cache_enabled = false`. Turn off individual checks with a top-level
+`disabled = ["check-name", ...]` list (not a per-check `enabled` flag).
+
+Baseline mode (`[baseline] enabled = true`) auto-prunes: when violations
+resolve, the baseline file is rewritten smaller in place (no refresh env var).
+`[baseline] deny_growth = ["spec", ...]` freezes the named checks' baselines
+against ever growing — a refresh that would raise their count fails instead.
 
 ## Project Structure
 

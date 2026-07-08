@@ -200,7 +200,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .line_length => applyU32Cfg("line_length", "max_len", ctx, kv),
         .anytype_budget => try applyAnytypeBudgetKey(ctx, kv),
         .type_size => try applyTypeSizeKey(ctx, kv),
-        .baseline => applyEnabledCfg("baseline", ctx, kv),
+        .baseline => try applyBaselineKey(ctx, kv),
         .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .magic_number => applyEnabledCfg("magic_number", ctx, kv),
@@ -325,6 +325,15 @@ fn applyDocQualityKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.min_chars = parseU32(kv.val, g.min_chars);
     } else if (std.mem.eql(u8, kv.key, "exempt_names")) {
         g.exempt_names = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+fn applyBaselineKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.baseline;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "deny_growth")) {
+        g.deny_growth = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -552,6 +561,26 @@ test "parse disabled check list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
     try std.testing.expectEqualStrings("spec-drift", cfg.disabled[0]);
     try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
+}
+
+// spec: Configuration - Parses the baseline deny_growth check list
+
+test "parse [baseline] enabled and deny_growth list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[baseline]
+        \\enabled = true
+        \\deny_growth = ["spec", "doc-comments"]
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expect(cfg.baseline.enabled);
+    try std.testing.expectEqual(@as(usize, 2), cfg.baseline.deny_growth.len);
+    try std.testing.expectEqualStrings("spec", cfg.baseline.deny_growth[0]);
+    try std.testing.expectEqualStrings("doc-comments", cfg.baseline.deny_growth[1]);
+    // Default: empty list.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.baseline.deny_growth.len);
 }
 
 // spec: Configuration - Parses a top-level exclude list of path globs dropped from the scan

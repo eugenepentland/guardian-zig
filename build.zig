@@ -51,4 +51,10 @@ pub fn build(b: *std.Build) void {
     spec_init_run.addArgs(&.{ "spec-init", "." });
     const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
     spec_init_step.dependOn(&spec_init_run.step);
+
+    // debt: non-gating report of baseline/snapshot debt totals (separate step)
+    const debt_run = b.addRunArtifact(check_exe);
+    debt_run.addArgs(&.{ "debt", "." });
+    const debt_step = b.step("debt", "Report baseline/snapshot debt totals with deltas");
+    debt_step.dependOn(&debt_run.step);
 }

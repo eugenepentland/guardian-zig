@@ -72,10 +72,13 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # Self-hosting: enforce that every pub fn is referenced from a test. Entry
 # points (main), CLI/build integration (printHelp, addAllChecks), env/IO
 # wrappers around already-tested pure logic (parseFile, scanDir,
-# collectModules, shouldUpdate), the ban-family orchestration shell (scan),
-# baseline orchestration (runWithBaseline), reporter output (fail,
-# detail, emit), and the git/mutation process shells (diffAgainst,
-# untrackedFiles, runOne — their pure cores are tested) are exempt.
+# collectModules, shouldUpdate, shouldUpdateFor, refreshTargets — the pure
+# classify/refreshIncludes cores are tested), config validation shell
+# (validateSelectiveConfig — validateDenyGrowth is tested), the ban-family
+# orchestration shell (scan), baseline orchestration (runWithBaseline),
+# reporter output (fail, detail, emit), and the git/mutation process shells
+# (diffAgainst, untrackedFiles, fileAtHead, runOne — their pure cores are
+# tested) are exempt.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "runOne"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne"]

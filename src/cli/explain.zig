@@ -47,6 +47,14 @@ const entries = [_]Entry{
     \\Exempt: tune `[mutation] min_score_pct` / `max_mutants`; run the fast tier
     \\(`zig build mutate`) on PRs and `mutate-full` in nightly.
     },
+    .{ .name = "debt", .text = 
+    \\Why: not a gate — a report of accumulated ratchet debt (per-check baseline
+    \\counts, snapshot totals, mutation score) so frozen debt growth is a visible
+    \\decision, not a side effect smeared across `.guardian/` churn commits.
+    \\Fix: nothing to fix — it always exits 0. Use it to decide what to pay down;
+    \\the delta column shows the change vs the committed `.guardian/` state.
+    \\Exempt: n/a — run `guardian-check debt [dir]`; never part of `all`.
+    },
     .{ .name = "file-size", .text = 
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.

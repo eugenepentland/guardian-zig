@@ -113,6 +113,12 @@ pub const NestingDepthCfg = struct {
 /// Designed for adopting Guardian on legacy codebases.
 pub const BaselineCfg = struct {
     enabled: bool = false,
+    /// Registered check names whose baseline may never grow, even under a
+    /// refresh: a refresh that would raise the recorded violation count fails
+    /// instead of rewriting. The 1:1 spec map is the flagship guarantee and
+    /// the fastest-growing frozen debt, so `["spec"]` is the canonical use.
+    /// Validated like `disabled` — a typo hard-fails the run.
+    deny_growth: []const []const u8 = &.{},
 };
 
 /// Per-check config for the line-length cap.

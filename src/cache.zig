@@ -198,3 +198,39 @@ test "writeStored then readStored round-trips the digest" {
     const got = readStored(a, dir) orelse return error.TestExpectedStored;
     try std.testing.expect(eql(d, got));
 }
+
+// spec: Skip Cache - Reflects a rewritten .guardian baseline in a fresh input digest
+
+test "a post-write .guardian digest stamps clean while the pre-write digest goes stale" {
+    // Regression for the ordering bug behind eda commit 8cbb775 ("refresh stale
+    // baselines masked by inputs.sha256 cache") and the auto-prune churn: a green
+    // run can rewrite .guardian/, so the stamp must be recomputed AFTER checks
+    // run — the pre-run digest describes a tree state no longer on disk.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/cache-prune-proj";
+    const bpath = dir ++ "/.guardian/baselines/foo.txt";
+    try std.fs.cwd().makePath(dir ++ "/.guardian/baselines");
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("prune test cleanup: {s}", .{@errorName(e)});
+
+    // Pre-prune baseline (three violations) → digest d1.
+    try std.fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\nb\nc\n" });
+    const d1 = try inputDigest(a, dir, "SPEC.md");
+
+    // Auto-prune rewrites the baseline smaller → digest d2.
+    try std.fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\n" });
+    const d2 = try inputDigest(a, dir, "SPEC.md");
+
+    // A .guardian/ rewrite changes the digest, so storing the pre-write digest
+    // (d1) can never match the on-disk tree — that is the spurious re-run.
+    try std.testing.expect(!eql(d1, d2));
+
+    // Stamping the POST-write digest (d2) makes the next unchanged run a cache
+    // hit; the pre-write digest (d1) would miss it.
+    writeStored(a, dir, d2);
+    const stored = readStored(a, dir) orelse return error.TestExpectedStored;
+    const current = try inputDigest(a, dir, "SPEC.md");
+    try std.testing.expect(eql(stored, current));
+    try std.testing.expect(!eql(d1, current));
+}

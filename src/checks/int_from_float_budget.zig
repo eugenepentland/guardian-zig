@@ -71,7 +71,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
     const new_lines = try countToLines(allocator, total);
 
-    if (snapshot_helper.shouldUpdate(allocator)) {
+    if (snapshot_helper.shouldUpdateFor(allocator, "int-from-float-budget")) {
         try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
         ok("int-from-float budget updated (casts={d})", .{total});
         return;

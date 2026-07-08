@@ -224,9 +224,18 @@ Guardian enforces **1:1 mapping**: every spec behavior needs exactly one test ta
 `pub-api-surface`, `panic-budget`, `int-from-float-budget`, and `unsafe-ops-budget` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
 
 ```bash
-GUARDIAN_UPDATE_SNAPSHOT=1 zig build
+GUARDIAN_UPDATE_SNAPSHOT=1 zig build   # refresh every drifted snapshot + baseline
 git add .guardian/
 ```
+
+**Selective refresh.** `=1` (also `true` / `all`) accepts *everything* that drifted in that run — every snapshot **and** every baseline. That all-or-nothing valve is how frozen debt creeps up: refreshing to accept one intended change silently ratifies unrelated drift in the same run. To accept only specific checks, name them (comma-separated):
+
+```bash
+GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build      # only the pub-api snapshot
+GUARDIAN_UPDATE_SNAPSHOT=spec,panic-budget zig build    # just these two
+```
+
+An unknown name **hard-fails** the run (a typo can't silently refresh nothing). The names are the same kebab-case names used everywhere else: `mutate` refreshes the mutation-score ratchet, and in baseline mode a check name refreshes that check's baseline.
 
 The snapshot files are plain text, sorted, designed to diff cleanly in code review.
 
@@ -246,16 +255,31 @@ Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is w
 | What changed in your code | Outcome | Exit code |
 |---|---|---|
 | Nothing | `<check>: baseline matches (N violation(s))` | 0 |
-| You fixed some violations | `<check>: M resolved (now N) — re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune` | 0 |
+| You fixed some violations | `<check>: M resolved, baseline pruned (now N)` — the file is auto-rewritten | 0 |
 | You introduced a new violation | `<check>: K new violation(s) above baseline of N` — only the new ones are printed | 1 |
 | You set the env var | `<check>: baseline refreshed (N violation(s))` | 0 |
 
 The recommended workflow once baselines exist:
-1. **PRs that fix violations** — let the build print "M resolved", then run `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit the shrunk baseline.
-2. **PRs that intentionally accept a new violation** (rare) — same env var, same commit pattern.
+1. **PRs that fix violations** — the build **auto-prunes** the baseline in place (removing entries is always safe), so just commit the smaller `.guardian/baselines/<check>.txt`. No env var, no round-trip.
+2. **PRs that intentionally accept a new violation** (rare) — refresh that one check by name: `GUARDIAN_UPDATE_SNAPSHOT=<check> zig build`, same commit pattern.
 3. **PRs that incidentally regress** — fix the new violation, no baseline changes.
 
 The baseline files are plain text and sorted, so they diff cleanly in code review.
+
+**Freeze a baseline against growth.** For the checks whose debt should only ever shrink — the 1:1 spec map is the canonical case — list them in `[baseline] deny_growth`. A refresh (global or selective) that would *raise* their recorded count fails with a clear message instead of ratifying the growth:
+
+```toml
+[baseline]
+enabled = true
+deny_growth = ["spec"]   # a refresh may prune spec's baseline, never grow it
+```
+
+```
+guardian: refusing to refresh spec: baseline would grow 2→3;
+          fix the new violations or remove spec from deny_growth
+```
+
+**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state — so debt growth is a visible decision, not a side effect.
 
 ### Tier-by-tier rollout
 
@@ -334,6 +358,13 @@ min_score_pct = 80   # fail below this kill rate
 max_mutants = 100    # deterministic sampling cap per run
 timeout_secs = 300   # per-phase child build timeout (timeout = killed)
 
+# Adopt on a legacy codebase: baseline every check's current violations, then
+# only fail on NEW ones (auto-pruned as you fix them). deny_growth freezes the
+# listed checks' baselines against ever growing, even under a refresh.
+[baseline]
+enabled = true
+deny_growth = ["spec"]
+
 # Per-check allowed-path exemptions. Each ban-family / path-scoped check keeps
 # its architectural defaults (infra/clock, adapters/http, config, main, …);
 # [[allow]] grants extra paths on top, merged by check name. This is where a
@@ -352,8 +383,10 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 zig build spec-init                  # Generate starter SPEC.md
 zig build mutate                     # Mutation-test changed lines (fast tier, auto-wired)
 zig build mutate-full                # Mutation-test the whole tree + ratchet (auto-wired)
-GUARDIAN_UPDATE_SNAPSHOT=1 zig build # Refresh snapshot baselines
-GUARDIAN_AGAINST=origin/main ...     # Diff base for change-classification / mutate
+zig build debt                       # Non-gating baseline/snapshot debt report
+GUARDIAN_UPDATE_SNAPSHOT=1 zig build         # Refresh every drifted snapshot + baseline
+GUARDIAN_UPDATE_SNAPSHOT=spec,mutate ...     # Refresh only the named checks (typo hard-fails)
+GUARDIAN_AGAINST=origin/main ...             # Diff base for change-classification / mutate
 ```
 
 ### `guardian-check` CLI
@@ -365,6 +398,7 @@ guardian-check all .                 # Run every hard-block check
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet
+guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
 guardian-check explain               # List every check name + summary
 guardian-check version               # Print the guardian version (also --version)
@@ -374,6 +408,9 @@ guardian-check version               # Print the guardian version (also --versio
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **`debt`** reports every baseline/snapshot total sorted high-to-low, with the
+  change vs the committed `.guardian/` state (omitted outside a git repo). Never
+  gates (exit 0) and is excluded from `all` — run it to decide what to pay down.
 - **`explain`** prints a longer rationale for every registered check: the
   agent mistake it catches, how to fix a violation, and the exemption knob
   (`[[allow]]` paths, a config toggle, the `disabled` list, or a snapshot

@@ -184,7 +184,7 @@ fn ratchet(ctx: *types.RunCtx, pct: u32) types.RunError!bool {
     const a = ctx.allocator;
     const path = try snapshot_helper.snapshotPath(a, ctx.project_dir, SNAPSHOT_LEAF);
     const old = readScore(a, path);
-    const force = snapshot_helper.shouldUpdate(a);
+    const force = snapshot_helper.shouldUpdateFor(a, "mutate");
     const decision = runner.ratchetDecision(old, pct);
     if (decision == .regressed and !force) {
         reporter.fail("mutate FAILED: score {d}% regressed below the snapshot ratchet {d}%", .{ pct, old.? });

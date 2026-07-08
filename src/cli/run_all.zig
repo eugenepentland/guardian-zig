@@ -12,11 +12,11 @@ const fail = reporter.fail;
 
 pub const COMMAND_NAME = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
-// mutant; nightly composes `all` + `mutate --full`. None is a build gate.
-// (nightly is dispatched specially and never appears in the registry, so its
-// entry here is defensive — mirroring the long-standing `all` exclusion in
-// build_helper — and guarantees it can never be run as a check.)
-const SKIP = [_][]const u8{ "spec-init", "mutate", "nightly" };
+// mutant; debt is a non-gating report; nightly composes `all` + `mutate --full`.
+// None is a build gate. (nightly is dispatched specially and never appears in
+// the registry, so its entry here is defensive — mirroring the long-standing
+// `all` exclusion in build_helper — and guarantees it can never be run as a check.)
+const SKIP = [_][]const u8{ "spec-init", "mutate", "debt", "nightly" };
 
 /// Runs every registered hard-block check in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
@@ -38,13 +38,15 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Validate --only / --skip the same way: an unknown or non-gate name must
     // hard-fail rather than silently narrow the run to nothing.
     try validateFilter(ctx);
+    // Validate GUARDIAN_UPDATE_SNAPSHOT targets + [baseline] deny_growth names,
+    // so a typo can't silently refresh nothing / guard nothing.
+    try validateSelectiveConfig(ctx);
 
     // A filtered run (--only/--skip) is a subset, not the full suite, so it
     // must neither trust nor write the green skip-cache — recording green from
     // a partial run would mask a failure in the checks it didn't run.
     const filtered = isFiltered(ctx);
-    const cache_state = if (filtered) CacheState{} else cacheState(ctx);
-    if (cache_state.skip) {
+    if (!filtered and shouldSkipRun(ctx)) {
         reporter.ok("run-all: inputs unchanged since last green run — checks skipped", .{});
         return;
     }
@@ -66,9 +68,9 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
-        // Record this green input state so an unchanged re-run can skip —
-        // never for a filtered run (cache_state.digest is null there).
-        if (cache_state.digest) |d| cache.writeStored(ctx.allocator, ctx.project_dir, d);
+        // Stamp the POST-write tree so an unchanged next run can skip. Never for
+        // a filtered run — a partial suite must not claim the full suite green.
+        if (!filtered) stampGreen(ctx);
         return;
     }
 
@@ -142,19 +144,81 @@ fn validateDisabled(disabled: []const []const u8) types.RunError!void {
     }
 }
 
-/// Digest for the current input set plus whether an unchanged re-run may skip.
-const CacheState = struct { digest: ?cache.Digest = null, skip: bool = false };
+/// Validates GUARDIAN_UPDATE_SNAPSHOT named targets and [baseline] deny_growth
+/// names against the registry, hard-failing on a typo (mirrors validateDisabled
+/// / validateFilter). Exported so single-check dispatch validates them too.
+pub fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void {
+    try validateRefreshTargets(ctx.allocator);
+    try validateDenyGrowth(ctx.cfg.baseline.deny_growth);
+}
 
-/// Computes this run's input digest and whether it matches the last green run.
-fn cacheState(ctx: *types.RunCtx) CacheState {
-    const force_update = snapshot_helper.shouldUpdate(ctx.allocator);
-    if (!ctx.cfg.cache_enabled or force_update) return .{};
-    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch {
-        return .{};
-    };
-    const stored = cache.readStored(ctx.allocator, ctx.project_dir);
-    const skip = if (stored) |s| cache.eql(s, d) else false;
-    return .{ .digest = d, .skip = skip };
+/// Rejects a GUARDIAN_UPDATE_SNAPSHOT check-name list with an unknown name —
+/// a typo must hard-fail, not silently refresh nothing. No-op in the none/all
+/// modes (refreshTargets returns null).
+fn validateRefreshTargets(allocator: std.mem.Allocator) types.RunError!void {
+    const names = snapshot_helper.refreshTargets(allocator) orelse return;
+    for (names) |name| try requireKnownCheck(name, snapshot_helper.UPDATE_ENV);
+}
+
+/// Rejects a [baseline] deny_growth list with an unknown check name.
+fn validateDenyGrowth(names: []const []const u8) types.RunError!void {
+    for (names) |name| try requireKnownCheck(name, "[baseline] deny_growth");
+}
+
+/// Fails the run when `name` is neither a registered check nor a tolerated
+/// retired (folded) name; `origin` names the setting for the diagnostic.
+fn requireKnownCheck(name: []const u8, origin: []const u8) types.RunError!void {
+    if (registry.find(name) != null) return;
+    if (retiredInfo(name)) |r| {
+        reporter.ok("note: '{s}' is retired (folded into {s})", .{ r.name, r.folded_into });
+        return;
+    }
+    fail("unknown check name in {s}: {s}", .{ origin, name });
+    fail("  run `guardian-check explain` to list valid check names", .{});
+    return error.CheckFailed;
+}
+
+/// Whether an unchanged re-run may skip the whole suite, and — separately —
+/// the post-run stamp so a green run records its final input state.
+///
+/// The stamp is recomputed AFTER checks finish (see `stampGreen`), never reused
+/// from the skip check: a green run can rewrite `.guardian/` (auto-pruned
+/// baselines, freshly created/refreshed snapshots), so the pre-run digest would
+/// describe a tree state that is no longer on disk — storing it would force a
+/// spurious re-run next build (and, if that stale state were ever restored,
+/// wrongly skip it).
+fn shouldSkipRun(ctx: *types.RunCtx) bool {
+    const enabled = ctx.cfg.cache_enabled;
+    const refresh = snapshot_helper.shouldUpdate(ctx.allocator);
+    // Only pay for the digest walk when a skip is still possible (cache on, no
+    // refresh) — the `and` short-circuits otherwise.
+    const digest_matches = enabled and !refresh and digestMatchesStored(ctx);
+    return skipDecision(enabled, refresh, digest_matches);
+}
+
+/// True when the current input digest equals the last green run's stored digest.
+fn digestMatchesStored(ctx: *types.RunCtx) bool {
+    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch return false;
+    const stored = cache.readStored(ctx.allocator, ctx.project_dir) orelse return false;
+    return cache.eql(stored, d);
+}
+
+/// Records the current (post-check) input digest as the last green state, so an
+/// unchanged next run can skip. Recomputes the digest now — after checks may
+/// have written `.guardian/` — so the stamp always reflects the tree on disk.
+/// Best-effort: a disabled cache or a digest/write failure simply skips the
+/// stamp (never fails the build).
+fn stampGreen(ctx: *types.RunCtx) void {
+    if (!ctx.cfg.cache_enabled) return;
+    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch return;
+    cache.writeStored(ctx.allocator, ctx.project_dir, d);
+}
+
+/// Pure skip decision, factored out for testing: a run skips only when the
+/// cache is enabled, no refresh was requested, and the input digest matches the
+/// stored green digest. A refresh (or a digest mismatch) always executes fully.
+fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bool) bool {
+    return cache_enabled and !refresh_requested and digest_matches;
 }
 
 /// One check's outcome + captured output, filled by the worker that ran it.
@@ -436,4 +500,33 @@ test "isFiltered is true exactly when an only or skip selection is active" {
     var skip_ctx = base;
     skip_ctx.skip = &[_][]const u8{"spec"};
     try std.testing.expect(isFiltered(&skip_ctx));
+}
+
+// spec: Run All - Skips a full run only when the cache is on, unchanged, and no refresh is pending
+
+test "skipDecision requires cache on, a digest match, and no pending refresh" {
+    // The only skip case: cache enabled, no refresh, digest matches.
+    try std.testing.expect(skipDecision(true, false, true));
+    // A pending refresh always executes fully — it exists to rewrite snapshots,
+    // and its post-write tree must be re-stamped, never skipped.
+    try std.testing.expect(!skipDecision(true, true, true));
+    // A changed source or .guardian/ tree (digest mismatch) re-runs — this is
+    // what makes an auto-pruned baseline re-run instead of being masked.
+    try std.testing.expect(!skipDecision(true, false, false));
+    // A disabled cache never skips.
+    try std.testing.expect(!skipDecision(false, false, true));
+}
+
+// spec: Run All - Rejects an unknown refresh target or deny_growth check name
+
+test "validateDenyGrowth accepts real checks and rejects a typo" {
+    // Capture so the expected failure diagnostics don't leak to the test log.
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    try validateDenyGrowth(&.{"spec"});
+    try std.testing.expectError(error.CheckFailed, validateDenyGrowth(&.{"nonsense-check"}));
 }

@@ -127,6 +127,17 @@ pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u
     return .{ .ok = try parseUnifiedDiff(allocator, out) };
 }
 
+/// Contents of `rel_path` (cwd-relative, forward slashes) as committed at HEAD,
+/// or null when git is unavailable, the path is untracked at HEAD, or the read
+/// fails. The `:./` spec resolves the path relative to `project_dir` rather than
+/// the repo root. Used by the `debt` report to show a delta vs the committed
+/// `.guardian/` state; callers omit the delta on null.
+pub fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) ?[]const u8 {
+    const spec = std.fmt.allocPrint(allocator, "HEAD:./{s}", .{rel_path}) catch return null;
+    const argv = [_][]const u8{ "git", "show", spec };
+    return runGit(allocator, project_dir, &argv);
+}
+
 /// Lists untracked (not ignored) files via `git ls-files`. Best-effort:
 /// returns an empty slice when git is unavailable.
 pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const []const u8 {

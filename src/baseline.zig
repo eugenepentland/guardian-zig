@@ -16,8 +16,9 @@ pub const Outcome = union(enum) {
     created: usize,
     /// Current set matches baseline exactly.
     matched: usize,
-    /// Some baselined violations were resolved. Run with
-    /// GUARDIAN_UPDATE_SNAPSHOT=1 to prune them.
+    /// Some baselined violations were resolved; the baseline file was
+    /// auto-pruned to the current (smaller) set. Removing entries is
+    /// monotone-safe, so pruning never needs a refresh env var.
     shrunk: struct { remaining: usize, removed: usize },
     /// `force_refresh` was set; baseline was rewritten.
     refreshed: usize,
@@ -167,7 +168,17 @@ pub fn lifecycle(
     // Match ignoring source-line position so an unrelated edit that merely shifts a
     // legacy violation's line number isn't reported as a new violation (see positionKey).
     const d = try diffByPosition(arena, old, current);
-    return classify(d, old.lines.len, current.len);
+    const outcome = classify(d, old.lines.len, current.len);
+    // Auto-prune: a pure shrink (violations resolved, none added) rewrites the
+    // baseline with the current smaller set. Removing entries is monotone-safe —
+    // it can never introduce a false failure — so it needs no refresh env var,
+    // and it retires the old "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune"
+    // round-trip that generated a class of .guardian/ churn commits.
+    switch (outcome) {
+        .shrunk => try snapshot.write(baseline_path, VERSION, current),
+        else => {},
+    }
+    return outcome;
 }
 
 /// Result of loading (and possibly initializing) a baseline before diffing.
@@ -220,7 +231,10 @@ pub fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8
 /// Run `cmd` with output captured, then apply the baseline lifecycle.
 /// Used by both `run-all` and the single-check dispatch in `check.zig`.
 pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void {
-    const force_refresh = snapshot_helper.shouldUpdate(ctx.allocator);
+    // Selective refresh: GUARDIAN_UPDATE_SNAPSHOT=<name> refreshes only that
+    // check's baseline, so accepting one intended change can't ratify unrelated
+    // baseline growth in the same run.
+    const force_refresh = snapshot_helper.shouldUpdateFor(ctx.allocator, cmd.name);
     var capture: reporter.Capture = .{ .allocator = ctx.allocator };
     defer capture.deinit();
 
@@ -256,6 +270,11 @@ fn processOutcome(
     @memcpy(violations, violations_const);
 
     const path = try pathFor(a, ctx.project_dir, check_name);
+    // deny_growth: a refresh (global or selective) may only rewrite this
+    // check's baseline if it doesn't grow. Guards the flagship 1:1 spec map —
+    // today's fastest-growing frozen debt — from being ratified upward.
+    try denyGrowthGuard(a, ctx, check_name, path, violations.len, force_refresh);
+
     const outcome = lifecycle(a, path, violations, force_refresh) catch |e| {
         reporter.fail("{s}: baseline I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
@@ -264,13 +283,63 @@ fn processOutcome(
     return reportOutcome(check_name, outcome);
 }
 
+/// Fails the run when `check_name` is in `[baseline] deny_growth` and a refresh
+/// would grow its baseline. Only fires on the refresh path; an existing
+/// baseline is required (initial creation is not "growth"). A no-op otherwise.
+fn denyGrowthGuard(
+    arena: Allocator,
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    path: []const u8,
+    new_count: usize,
+    force_refresh: bool,
+) types.RunError!void {
+    const old_count = baselineViolationCount(arena, path);
+    if (!growthDenied(ctx.cfg.baseline.deny_growth, check_name, old_count, new_count, force_refresh)) return;
+    reporter.fail(
+        "refusing to refresh {s}: baseline would grow {d}→{d}; " ++
+            "fix the new violations or remove {s} from deny_growth",
+        .{ check_name, old_count.?, new_count, check_name },
+    );
+    return error.CheckFailed;
+}
+
+/// Pure decision for denyGrowthGuard: a refresh of a deny_growth check with an
+/// existing baseline is denied exactly when the new count exceeds the old.
+/// `old_count` is null when no baseline exists yet — initial creation is never
+/// "growth", so it is always allowed.
+fn growthDenied(
+    deny_list: []const []const u8,
+    check_name: []const u8,
+    old_count: ?usize,
+    new_count: usize,
+    force_refresh: bool,
+) bool {
+    if (!force_refresh) return false;
+    if (!nameInList(deny_list, check_name)) return false;
+    const oc = old_count orelse return false;
+    return new_count > oc;
+}
+
+/// Current recorded violation count in a baseline file, or null when it is
+/// absent/unreadable (so initial creation isn't treated as growth).
+fn baselineViolationCount(arena: Allocator, path: []const u8) ?usize {
+    const snap = snapshot.read(arena, path, VERSION) catch return null;
+    return snap.lines.len;
+}
+
+/// True when `name` appears in `list`.
+fn nameInList(list: []const []const u8, name: []const u8) bool {
+    for (list) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
 fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
     switch (outcome) {
         .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
         .matched => |n| reporter.ok("{s}: baseline matches ({d} violation(s))", .{ check_name, n }),
         .shrunk => |s| reporter.ok(
-            "{s}: {d} violation(s) resolved (now {d}) — " ++
-                "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune",
+            "{s}: {d} resolved, baseline pruned (now {d})",
             .{ check_name, s.removed, s.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: baseline refreshed ({d} violation(s))", .{ check_name, n }),
@@ -447,6 +516,49 @@ test "lifecycle returns shrunk when violations are resolved" {
     try std.testing.expect(out == .shrunk);
     try std.testing.expectEqual(@as(usize, 2), out.shrunk.removed);
     try std.testing.expectEqual(@as(usize, 1), out.shrunk.remaining);
+}
+
+// spec: Baseline Mode - Prunes the baseline file when resolved violations shrink it
+
+test "lifecycle auto-prunes the baseline file after a shrink" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-autoprune.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    var lines = [_][]const u8{ "alpha", "beta", "gamma" };
+    _ = try lifecycle(a, path, &lines, false);
+
+    // Resolving two violations shrinks the set AND rewrites the file.
+    var lines2 = [_][]const u8{"alpha"};
+    try std.testing.expect((try lifecycle(a, path, &lines2, false)) == .shrunk);
+
+    // The file was pruned to the surviving violation, so a re-run matches
+    // (no lingering "resolved" entries to keep reporting).
+    var lines3 = [_][]const u8{"alpha"};
+    const out2 = try lifecycle(a, path, &lines3, false);
+    try std.testing.expect(out2 == .matched);
+    try std.testing.expectEqual(@as(usize, 1), out2.matched);
+}
+
+// spec: Baseline Mode - Refuses to refresh a deny_growth baseline that would grow
+
+test "growthDenied blocks refresh growth only for a listed check with a prior baseline" {
+    const deny = &[_][]const u8{"spec"};
+    // A refresh that would grow the listed check's baseline (5 > 3) is denied.
+    try std.testing.expect(growthDenied(deny, "spec", 3, 5, true));
+    // A refresh that holds or shrinks is fine (pruning is always safe).
+    try std.testing.expect(!growthDenied(deny, "spec", 3, 3, true));
+    try std.testing.expect(!growthDenied(deny, "spec", 3, 2, true));
+    // A check not in deny_growth is never guarded.
+    try std.testing.expect(!growthDenied(deny, "magic-number", 3, 5, true));
+    // Without a refresh, growth is the ordinary `grown` failure, not this guard.
+    try std.testing.expect(!growthDenied(deny, "spec", 3, 5, false));
+    // No prior baseline (null) — initial creation is never "growth".
+    try std.testing.expect(!growthDenied(deny, "spec", null, 5, true));
 }
 
 test "lifecycle force_refresh rewrites the baseline" {

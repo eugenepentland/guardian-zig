@@ -10,6 +10,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Falls back to defaults when no config file exists
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
+- Parses the baseline deny_growth check list
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
 - Defaults magic-number off and enables it via [magic_number] enabled
@@ -94,6 +95,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Hashes the guardian input set into a stable digest
 - Round-trips the digest through the cache file
 - Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
+- Reflects a rewritten .guardian baseline in a fresh input digest
 
 ## Run All
 
@@ -105,6 +107,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Excludes the checks named by a skip filter
 - Rejects an only or skip name that is not a runnable check
 - Detects a filtered run so the green cache stamp is suppressed
+- Skips a full run only when the cache is on, unchanged, and no refresh is pending
+- Rejects an unknown refresh target or deny_growth check name
 
 ## Nightly
 
@@ -117,6 +121,16 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Signals an unknown check name
 - Provides an explanation entry for every registered command
 
+## Debt
+
+- Counts non-header lines for baseline and pub-api debt
+- Sums snapshot counts while ignoring magnitude keys
+- Reads the mutation kill score from its snapshot
+- Classifies each .guardian file into a labelled debt source
+- Sorts the debt rows by count descending
+- Formats a committed-state delta and omits it when unchanged or absent
+- Omits a clean source with zero debt and no committed change
+
 ## Versioning
 
 - Reports a non-empty dotted guardian version string
@@ -126,6 +140,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Creates snapshot file on first run with no prior snapshot
 - Reports drift when current state differs from prior snapshot
 - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
+- Refreshes only the checks named in a GUARDIAN_UPDATE_SNAPSHOT list
+- Treats a 1, true, or all value as a full refresh
+- Treats an unset, empty, or zero value as no refresh
 
 ## Pub Api Surface
 
@@ -263,6 +280,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Captures each check's current violations on first run and only fails on additions
 - Wraps a single check run with capture, diff, and outcome reporting
+- Prunes the baseline file when resolved violations shrink it
+- Refuses to refresh a deny_growth baseline that would grow
 
 ## Git Diff
 

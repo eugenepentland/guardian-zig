@@ -202,7 +202,14 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
         registry.printHelp();
         std.process.exit(1);
     };
-    if (cfg.baseline.enabled) {
+    // `all`/`nightly` validate refresh + deny_growth names inside run_all.run;
+    // a single-check run (e.g. `guardian-check pub-api-surface`, `mutate`) has
+    // to validate them here so a typo'd GUARDIAN_UPDATE_SNAPSHOT still hard-fails.
+    try run_all.validateSelectiveConfig(ctx);
+    // Baseline mode only wraps real gate checks. Non-gates (spec-init, mutate,
+    // debt — the run_all SKIP set) must run raw: baseline-wrapping a report like
+    // `debt` would capture its own output as "violations" and baseline it.
+    if (cfg.baseline.enabled and run_all.isAllCheck(cmd.name)) {
         return baseline.runWithBaseline(ctx, cmd);
     }
     return cmd.run(ctx);
@@ -227,6 +234,7 @@ test {
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");
     _ = @import("cli/mutate.zig");
+    _ = @import("cli/debt.zig");
     _ = @import("cli/nightly.zig");
     _ = @import("cli/explain.zig");
     _ = @import("version.zig");
