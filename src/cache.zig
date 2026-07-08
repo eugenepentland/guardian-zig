@@ -12,6 +12,9 @@ pub const Error = walk.WalkError;
 // Bump when the hashed input set below changes, so a stale cache written by
 // an older guardian can never produce a wrong skip.
 const VERSION = "guardian-cache-v2";
+// Version tag for the mutation suite digest (see `suiteDigest`). Distinct from
+// VERSION so the two digests can never collide even over an identical item set.
+const SUITE_VERSION = "guardian-mutation-suite-v1";
 const CACHE_LEAF = ".guardian/cache/inputs.sha256";
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const STORED_MAX_BYTES = 128;
@@ -98,14 +101,22 @@ fn digestWithBinaryId(
     try readSingle(arena, &items, project_dir, "guardian.toml");
 
     std.mem.sort(Item, items.items, {}, lessThan);
+    return hashItems(VERSION, binary_id, items.items);
+}
 
+/// SHA-256 over a `version` tag, a length-prefixed `prefix` string (the
+/// guardian binary identity for the skip-cache; empty for the mutation suite
+/// digest), and each item's length-prefixed path + content. Length prefixes
+/// make the concatenation unambiguous — no path/content pair can be reframed as
+/// another. Callers sort `items` first for a stable digest.
+fn hashItems(version: []const u8, prefix: []const u8, items: []const Item) Digest {
     var h = Sha256.init(.{});
-    h.update(VERSION);
+    h.update(version);
     var len_buf: [@sizeOf(usize)]u8 = undefined;
-    std.mem.writeInt(usize, &len_buf, binary_id.len, .little);
+    std.mem.writeInt(usize, &len_buf, prefix.len, .little);
     h.update(&len_buf);
-    h.update(binary_id);
-    for (items.items) |it| {
+    h.update(prefix);
+    for (items) |it| {
         std.mem.writeInt(usize, &len_buf, it.path.len, .little);
         h.update(&len_buf);
         h.update(it.path);
@@ -116,6 +127,32 @@ fn digestWithBinaryId(
     var out: Digest = undefined;
     h.final(&out);
     return out;
+}
+
+/// Digest over every input whose change could alter a *mutation* outcome: every
+/// `.zig` file under src/ and test/, plus the root build.zig, build.zig.zon, and
+/// guardian.toml. Deliberately excludes `.guardian/` and the guardian binary
+/// identity that `inputDigest` mixes in — a mutant's build+test cycle runs with
+/// guardian no-op'd (GUARDIAN_MUTATION_RUN), so neither guardian's own snapshots
+/// nor its binary can change whether a mutant is killed. Keys the per-mutant
+/// result cache: any source or test edit changes this digest and so invalidates
+/// every cached outcome (correctness first; see mutation/cache.zig).
+pub fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest {
+    var items: std.ArrayListUnmanaged(Item) = .empty;
+    var ctx: Collector = .{ .arena = arena, .items = &items };
+    const v: walk.Visitor = .{ .ctx = @ptrCast(&ctx), .visit = collect };
+
+    const src = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
+    try walk.walkZigFiles(arena, src, .{ .display_root = "src" }, v);
+    const tst = try std.fmt.allocPrint(arena, "{s}/test", .{project_dir});
+    try walk.walkZigFiles(arena, tst, .{ .display_root = "test" }, v);
+
+    try readSingle(arena, &items, project_dir, "build.zig");
+    try readSingle(arena, &items, project_dir, "build.zig.zon");
+    try readSingle(arena, &items, project_dir, "guardian.toml");
+
+    std.mem.sort(Item, items.items, {}, lessThan);
+    return hashItems(SUITE_VERSION, "", items.items);
 }
 
 /// True when two digests are equal.
@@ -182,6 +219,27 @@ test "a different guardian binary identity changes the digest" {
     const d3 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-1");
     try std.testing.expect(!eql(d1, d2));
     try std.testing.expect(eql(d1, d3));
+}
+
+// spec: Mutation Testing - Keys the result cache on a suite digest that changes with any source or test edit
+
+test "suiteDigest is stable for an unchanged tree and shifts when a source file changes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/suite-digest-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir ++ "/src");
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("suite digest cleanup: {s}", .{@errorName(e)});
+
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 1; }\n" });
+    const d1 = try suiteDigest(a, dir);
+    // Same tree, same digest.
+    try std.testing.expect(eql(d1, try suiteDigest(a, dir)));
+    // Editing a source file changes the digest — so every cached mutant outcome
+    // keyed on the old digest is correctly invalidated.
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 2; }\n" });
+    try std.testing.expect(!eql(d1, try suiteDigest(a, dir)));
 }
 
 test "writeStored then readStored round-trips the digest" {

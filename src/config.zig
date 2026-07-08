@@ -206,6 +206,12 @@ pub const DoraCfg = struct {
 pub const MutationCfg = struct {
     /// Minimum percent of viable mutants the test suite must kill.
     min_score_pct: u32 = 80,
+    /// Gating floor: a run with fewer viable (non-unviable) mutants than this
+    /// reports its survivors informationally and passes, instead of failing on
+    /// a meaningless percentage (1 survivor of 2 = 50% red). Below the floor the
+    /// score ratchet is never written. Default 4; bites the fast tier, where a
+    /// tiny diff can produce only a mutant or two.
+    min_mutants: u32 = 4,
     /// Cap on mutants exercised per run; larger candidate sets are sampled
     /// deterministically (every k-th mutant) down to this budget.
     max_mutants: u32 = 100,

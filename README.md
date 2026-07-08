@@ -175,11 +175,75 @@ Two tiers:
   score is ratcheted in `.guardian/mutation.txt` — it can never drop without
   `GUARDIAN_UPDATE_SNAPSHOT=1`.
 
-Both tiers fail below `min_score_pct` (default 80). Scoring: timeouts count
-as kills (the mutant made the suite hang — it was caught); compile-error
-mutants are *unviable* and excluded. During mutant runs guardian sets
-`GUARDIAN_MUTATION_RUN=1` on child builds, and every guardian command no-ops
-under it — so the deliberately-broken tree isn't gated against itself.
+Both tiers fail below `min_score_pct` (default 80) — but only once the run has
+at least `min_mutants` (default 4) **viable** mutants. Below that floor a single
+survivor would be a meaningless red (1 of 2 = 50%), so the run instead lists its
+survivors *informationally* and exits green (`N viable mutant(s) below
+min_mutants=M — informational, not gated`). The floor mostly bites the fast tier,
+where a tiny diff can produce only a mutant or two; a below-floor run never
+records the score ratchet. Scoring: timeouts count as kills (the mutant made the
+suite hang — it was caught); compile-error mutants are *unviable* and excluded.
+During mutant runs guardian sets `GUARDIAN_MUTATION_RUN=1` on child builds, and
+every guardian command no-ops under it — so the deliberately-broken tree isn't
+gated against itself.
+
+### Survivor report
+
+Every survivor prints its `file:line`, the operator swap (`original -> replacement`),
+and the **original source line** — the exact context an agent needs to write the
+killing test:
+
+```
+  src/parser.zig:88: `>` -> `>=` survived
+      if (depth > max) return error.TooDeep;
+  fix: strengthen the tests these mutants slipped past — assert the exact values, not just success.
+```
+
+The same survivors are written machine-readably to
+`.guardian/cache/last-mutate.jsonl` — one `{"type":"survivor","file":…,"line":…,
+"op":…,"original_line":…}` record per survivor, then a `{"type":"summary",…}`
+record (tier, score, outcome counts, `waived`, `cached`, `gated`). std.json does
+the escaping; no timestamps. Agents read the log instead of scraping terminal
+prose.
+
+### Result cache (resume / re-run)
+
+Each mutant's outcome is a pure function of the tree state and the mutant's
+identity, so guardian caches it in `.guardian/cache/mutants.jsonl` (git-ignored
+and excluded from the skip-cache digest, so it never churns git or the build
+cache). A mutant whose `(suite digest, identity)` key is already recorded skips
+the build+test cycle and reuses the outcome, marked `(cached)`.
+
+The **suite digest** hashes every `src/`+`test/` `.zig` file plus `build.zig`,
+`build.zig.zon`, and `guardian.toml`, so **any source or test change invalidates
+every record** — correctness first: the cache never replays an outcome a change
+could have altered. Its value is therefore *repeating a run at the same tree
+state*: resuming an interrupted run (completed mutants are flushed immediately,
+so a re-run picks up where a `Ctrl-C`/CI-timeout/OOM left off), a CI retry, or
+re-running after a doc-only edit or a red gate that didn't touch sources. The
+file is append-only during a run and compacted on load (stale-suite records
+dropped, latest outcome per identity kept). A snapshot refresh
+(`GUARDIAN_UPDATE_SNAPSHOT=mutate` / `=1`) bypasses cache reads entirely — a
+fresh ratchet must be a fresh measurement.
+
+### Equivalent-mutant waiver (`// mutate-ok`)
+
+Some mutants are *equivalent* — no test can ever kill them because they don't
+change observable behavior. The classic case is `>` vs `>=` on a min/max-style
+scan:
+
+```zig
+// `>` and `>=` are equivalent here: on a tie we keep the first-seen max either
+// way, so no test distinguishes them.
+if (candidate > best) best = candidate; // mutate-ok: min/max boundary equivalence
+```
+
+A source line containing `// mutate-ok` (optionally `// mutate-ok: <reason>`) is
+excluded from mutant **generation** in both tiers; the run reports `W site(s)
+waived via mutate-ok` and the score is computed over the remaining mutants.
+**Use sparingly** — a waiver you add to silence a *real* survivor is a test you
+didn't write. Reserve it for genuinely equivalent mutants and say why in the
+reason.
 
 `mutate` is an explicit step, never part of `all`: each mutant costs a build
 + test cycle. **`addAllChecks` auto-registers the `mutate` and `mutate-full`
@@ -201,6 +265,7 @@ suggested CI split: `GUARDIAN_AGAINST=origin/main zig build mutate` on PRs
 The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
 - **allocator-injection** — needs full parameter-list AST parsing to avoid false positives on every `pub fn run(ctx: *RunCtx)`. `allocator-hygiene` covers the worst case (hardcoded global allocators) until then.
 - **train-wreck** — depth-2 member-access analysis was prototyped but produced too many false positives on legitimate `tree.tokens.items` / `obj.field.method()` chains; needs taint-style filtering.
+- **parallel mutants** — the engine splices each mutant into the *real* source tree in place, which forbids running mutants concurrently (two would corrupt each other's file). Copy-tree / worktree sandboxes would parallelize, but they break consumers with a relative-path dependency: the production consumer depends on guardian via `.path = "../guardian-zig"`, and a sandbox at a different directory depth resolves that relative dep to the wrong location (building against the wrong guardian, or failing outright). Guardian can't know or safely rewrite consumer manifests, so a general copy-tree parallelism would be flaky in exactly the setup that matters. Deferred until a depth-preserving sandbox with collision-safe naming proves out; a working sequential engine beats a flaky parallel one. In the meantime the wall-clock cost is mitigated two ways: the **fast tier** only mutates changed lines (usually a handful), and the **result cache** skips unchanged mutants and resumes interrupted runs, so a re-run is near-instant.
 - **same-type-adjacent-params**, **identical-switch-case** — both need the AST helper to expose parameter types and switch-case bodies.
 - **stable-deps** — extending `import_graph.zig` with per-node Ce / Ca / I metrics. Designed but not implemented.
 - **dup-tokens** — token-window hashing with snapshot ratchet. Designed but not implemented.
@@ -470,6 +535,7 @@ gate_last_commit = true
 # The mutate command's budgets (explicit step, not part of `all`).
 [mutation]
 min_score_pct = 80   # fail below this kill rate
+min_mutants = 4      # gate on the percentage only at >= this many viable mutants
 max_mutants = 100    # deterministic sampling cap per run
 timeout_secs = 300   # per-phase child build timeout (timeout = killed)
 

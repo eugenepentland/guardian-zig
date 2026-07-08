@@ -370,8 +370,20 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Classifies mutant outcomes from the build and test phases
 - Scores a run as kills over viable mutants counting timeouts as kills
 - Fails a run whose score drops below the configured minimum
+- Gates on the kill percentage only at or above the min_mutants floor
 - Ratchets the full-run mutation score against a snapshot
 - Skips every check while a mutation test run is in progress
+- Excludes a mutate-ok waived line from generation and counts the waiver
+- Records the original source line on each generated mutant
+- Keys the result cache on a suite digest that changes with any source or test edit
+- Serializes and reparses a cached mutant outcome name
+- Builds a stable mutant identity key from its file span and operator
+- Renders a cached mutant outcome as one JSON record
+- Loads matching-suite outcomes dropping stale and duplicate records
+- Reuses appended outcomes on load and bypasses the cache under refresh
+- Records each surviving mutant with its operator and original source line
+- Records a mutation summary with the tier, score, and outcome counts
+- Writes the survivor report under the git-ignored mutate cache dir
 
 ## Complexity Bounds
 

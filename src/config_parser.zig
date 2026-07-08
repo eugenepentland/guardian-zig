@@ -358,6 +358,8 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
     const g = &ctx.cfg.mutation;
     if (std.mem.eql(u8, kv.key, "min_score_pct")) {
         g.min_score_pct = parseU32(kv.val, g.min_score_pct);
+    } else if (std.mem.eql(u8, kv.key, "min_mutants")) {
+        g.min_mutants = parseU32(kv.val, g.min_mutants);
     } else if (std.mem.eql(u8, kv.key, "max_mutants")) {
         g.max_mutants = parseU32(kv.val, g.max_mutants);
     } else if (std.mem.eql(u8, kv.key, "timeout_secs")) {
@@ -537,11 +539,13 @@ test "parse reads [mutation] score minimum and run budgets" {
     const content =
         \\[mutation]
         \\min_score_pct = 90
+        \\min_mutants = 6
         \\max_mutants = 25
         \\timeout_secs = 60
     ;
     const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(u32, 90), cfg.mutation.min_score_pct);
+    try std.testing.expectEqual(@as(u32, 6), cfg.mutation.min_mutants);
     try std.testing.expectEqual(@as(u32, 25), cfg.mutation.max_mutants);
     try std.testing.expectEqual(@as(u32, 60), cfg.mutation.timeout_secs);
 }

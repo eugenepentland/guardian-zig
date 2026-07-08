@@ -62,9 +62,11 @@ paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation
 check = "ban-globals"
 paths = ["src/reporter.zig"]
 
+# The mutation cache/report sinks (src/mutation/cache.zig, report.zig) log
+# best-effort I/O failures with std.log.warn, like sink/dora.
 [[allow]]
 check = "debug-print-ban"
-paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/ratchet.zig", "src/reporter.zig", "src/sink*", "src/dora*"]
+paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/ratchet.zig", "src/reporter.zig", "src/sink*", "src/dora*", "src/mutation/*"]
 
 # This check's own file: its pattern strings look like the paths it flags.
 [[allow]]

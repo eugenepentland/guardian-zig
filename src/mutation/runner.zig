@@ -62,12 +62,20 @@ pub const Score = struct {
         }
     }
 
+    /// Count of viable mutants — killed + timed-out + survived, excluding
+    /// unviable (compile-error) mutants. This is the percentage denominator and
+    /// the quantity the small-diff gating floor (`min_mutants`) is measured
+    /// against: below the floor a percentage is statistically meaningless.
+    pub fn viable(self: Score) u32 {
+        return self.killed + self.timed_out + self.survived;
+    }
+
     /// Kill percentage over viable mutants. Timeouts count as kills (an
     /// infinite-loop mutant was still caught); unviable mutants are
     /// excluded. An empty run scores 100 — nothing survived.
     pub fn pct(self: Score) u32 {
         const kills = self.killed + self.timed_out;
-        const denom = kills + self.survived;
+        const denom = self.viable();
         if (denom == 0) return 100;
         return kills * 100 / denom;
     }
@@ -198,8 +206,10 @@ test "Score.pct counts timeouts as kills and excludes unviable mutants" {
     s.add(.survived);
     s.add(.unviable);
     // 3 kills (2 killed + 1 timeout) of 4 viable = 75%; unviable excluded.
+    try testing.expectEqual(@as(u32, 4), s.viable());
     try testing.expectEqual(@as(u32, 75), s.pct());
     const empty: Score = .{};
+    try testing.expectEqual(@as(u32, 0), empty.viable());
     try testing.expectEqual(@as(u32, 100), empty.pct());
 }
 

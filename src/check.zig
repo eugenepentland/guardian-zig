@@ -246,6 +246,8 @@ test {
     _ = @import("git.zig");
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");
+    _ = @import("mutation/cache.zig");
+    _ = @import("mutation/report.zig");
     _ = @import("cli/mutate.zig");
     _ = @import("cli/debt.zig");
     _ = @import("cli/nightly.zig");

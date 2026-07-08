@@ -43,8 +43,13 @@ const entries = [_]Entry{
     \\Why: not a gate — static checks prove tests exist; `mutate` proves they
     \\bite by splicing small deliberate bugs and checking the suite catches them.
     \\Fix: for each surviving mutant, strengthen the test to assert the exact
-    \\value the mutation changed, not merely that the call succeeded.
-    \\Exempt: tune `[mutation] min_score_pct` / `max_mutants`; run the fast tier
+    \\value the mutation changed, not merely that the call succeeded. Survivors
+    \\print file:line, the operator swap, and the original line; the same land in
+    \\`.guardian/cache/last-mutate.jsonl` for an agent to read.
+    \\Exempt: tune `[mutation] min_score_pct` / `min_mutants` (runs below the
+    \\viable-mutant floor report but don't gate) / `max_mutants`; waive a genuinely
+    \\equivalent mutant with a `// mutate-ok: <reason>` line. Repeat runs reuse the
+    \\per-mutant result cache; a snapshot refresh bypasses it. Run the fast tier
     \\(`zig build mutate`) on PRs and `mutate-full` in nightly.
     },
     .{ .name = "debt", .text = 
