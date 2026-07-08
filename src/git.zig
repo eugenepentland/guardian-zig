@@ -228,6 +228,17 @@ pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
     return std.mem.trim(u8, out, &std.ascii.whitespace);
 }
 
+/// The current branch name (trimmed), or null when git is unavailable or HEAD
+/// is detached (`--abbrev-ref` yields "HEAD", reported as null). Used by the
+/// DORA sink to tag each recorded run.
+pub fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const name = std.mem.trim(u8, out, &std.ascii.whitespace);
+    if (name.len == 0 or std.mem.eql(u8, name, "HEAD")) return null;
+    return name;
+}
+
 /// Spawns git with `argv` in `project_dir`, returning trimmed stdout on
 /// exit 0 and null on any spawn failure or non-zero exit.
 fn runGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) ?[]const u8 {

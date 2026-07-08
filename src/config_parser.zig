@@ -40,6 +40,8 @@ const Section = enum {
     dead_pub,
     change_classification,
     mutation,
+    completeness,
+    dora,
     unknown,
 };
 
@@ -207,6 +209,8 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
         .mutation => applyMutationKey(ctx, kv),
+        .completeness => try applyCompletenessKey(ctx, kv),
+        .dora => applyDoraKey(ctx, kv),
         .unknown => {},
     }
 }
@@ -233,6 +237,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
+        .{ "completeness", Section.completeness },
+        .{ "dora", Section.dora },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -356,6 +362,24 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
         g.max_mutants = parseU32(kv.val, g.max_mutants);
     } else if (std.mem.eql(u8, kv.key, "timeout_secs")) {
         g.timeout_secs = parseU32(kv.val, g.timeout_secs);
+    }
+}
+
+fn applyCompletenessKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.completeness;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "exempt_sections")) {
+        g.exempt_sections = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+fn applyDoraKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.dora;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "sink_path")) {
+        if (parseString(kv.val)) |v| g.sink_path = v;
     }
 }
 
@@ -539,6 +563,45 @@ test "parse reads [change_classification] enabled and against" {
     const defaults = try parse(arena.allocator(), "");
     try std.testing.expect(defaults.change_classification.enabled);
     try std.testing.expectEqualStrings("HEAD", defaults.change_classification.against);
+}
+
+// spec: Configuration - Defaults completeness off and parses its enabled and exempt_sections settings
+
+test "parse [completeness] defaults off and reads enabled + exempt_sections" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: opt-in, so off, with no exemptions.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(!defaults.completeness.enabled);
+    try std.testing.expectEqual(@as(usize, 0), defaults.completeness.exempt_sections.len);
+    // Opt in and exempt a non-feature section.
+    const cfg = try parse(arena.allocator(),
+        \\[completeness]
+        \\enabled = true
+        \\exempt_sections = ["Overview", "Changelog"]
+    );
+    try std.testing.expect(cfg.completeness.enabled);
+    try std.testing.expectEqual(@as(usize, 2), cfg.completeness.exempt_sections.len);
+    try std.testing.expectEqualStrings("Overview", cfg.completeness.exempt_sections[0]);
+}
+
+// spec: Configuration - Parses the dora sink path and enabled toggle
+
+test "parse [dora] defaults on and reads enabled + sink_path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: enabled, sink under the git-ignored cache dir.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.dora.enabled);
+    try std.testing.expectEqualStrings(".guardian/cache/dora.jsonl", defaults.dora.sink_path);
+    // Override both.
+    const cfg = try parse(arena.allocator(),
+        \\[dora]
+        \\enabled = false
+        \\sink_path = "metrics/runs.jsonl"
+    );
+    try std.testing.expect(!cfg.dora.enabled);
+    try std.testing.expectEqualStrings("metrics/runs.jsonl", cfg.dora.sink_path);
 }
 
 // spec: Configuration - Parses the change classification last-commit gate toggle

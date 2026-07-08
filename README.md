@@ -35,13 +35,14 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-57 checks gate Guardian's own self-build (plus the `spec-init` generator and the `mutate` command, which are explicit steps rather than gates). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, and `magic-number` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+59 checks gate Guardian's own self-build (plus the `spec-init` generator and the `mutate` command, which are explicit steps rather than gates). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
 |---|---|
 | **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
 | **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
+| **completeness** *(opt-in)* | A `## ` SPEC.md feature section that doesn't address (or `completeness-waiver:`) each of the 8 scenario categories: empty/large inputs, unauthorized access, I/O failure, concurrent access, malformed encoding, integer overflow, panic-free. Off unless `[completeness] enabled = true`; exempt non-feature sections via `[completeness] exempt_sections` |
 
 ### Process gates (git-aware)
 | Check | Blocks on |
@@ -126,6 +127,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 |---|---|
 | **test-has-assertion** | A named `test "..." {…}` block with no `expect*` call |
 | **test-no-conditional** | `if` / `while` / `switch` or 2+ `for` loops at the top level of a test body |
+| **test-skip-ban** | A test whose body is empty or whose first statement is an unconditional `return error.SkipZigTest;` — it still satisfies its `// spec:` tag while never running (a conditional `if (…) return error.SkipZigTest;` is legal) |
 | **prod-imports-no-test** | Production code `@import`-ing a `*_test.zig` or `tests/` path |
 
 ### Complexity Bounds (Tier 1)
@@ -271,6 +273,39 @@ exact same human-readable line; baseline capture reads those records instead of
 re-scraping prose. Those `ratchet_key` + `metric` records are what power the
 **per-item ratchets** (baseline v2) described under *Adopting Guardian on an
 existing codebase* — none of it changes a check's terminal output.
+
+## Delivery metrics (DORA)
+
+Every real `all` / `nightly` run also appends one line to an append-only
+DORA-metrics sink at **`.guardian/cache/dora.jsonl`** — the data source for
+deployment-frequency / lead-time / change-failure-rate / MTTR analysis. It never
+gates the build.
+
+```jsonl
+{"type":"run","branch":"main","commit":"c36513b…","outcome":"green","failed_checks":[],"duration_ms":558}
+{"type":"run","branch":"main","commit":"d41f2c9…","outcome":"red","failed_checks":["spec","doc-comments"],"duration_ms":612}
+```
+
+- One record per full-suite run: `outcome` is `green` (every check passed) or
+  `red`, `failed_checks` lists the failed gate names, `duration_ms` is the
+  wall-clock run time. Outside a git repo, `branch` and `commit` are `null`.
+- **Cache-skipped and filtered (`--only`/`--skip`) runs record nothing** — only a
+  complete, executed suite is a delivery event. A `nightly` run records once (via
+  its nested `all` pass), reflecting the check-suite outcome.
+- Lives under `cache/` on purpose: that subdir is git-ignored and excluded from
+  the skip-cache input digest, so appending every run never churns git or
+  invalidates the build cache. `std.json` does the escaping.
+- Configurable via `[dora]` in guardian.toml:
+
+```toml
+[dora]
+enabled = true                          # default; false disables the sink
+sink_path = ".guardian/cache/dora.jsonl"  # default; relative paths resolve under the project dir
+```
+
+Run duration is guardian's one legitimate wall-clock read — the sink module
+carries a `ban-time` `[[allow]]` for `std.time.Timer` that does **not** propagate
+to consumers.
 
 ## Adopting Guardian on an existing codebase
 
@@ -437,6 +472,17 @@ gate_last_commit = true
 min_score_pct = 80   # fail below this kill rate
 max_mutants = 100    # deterministic sampling cap per run
 timeout_secs = 300   # per-phase child build timeout (timeout = killed)
+
+# Opt-in: every `## ` SPEC.md feature section must address or waive the 8
+# scenario categories. Exempt non-feature sections (Overview, Changelog) by name.
+[completeness]
+enabled = true
+exempt_sections = ["Overview", "Configuration"]
+
+# DORA delivery-metrics sink (non-gating): one JSON line per full-suite run.
+[dora]
+enabled = true
+sink_path = ".guardian/cache/dora.jsonl"
 
 # Adopt on a legacy codebase: baseline every check's current violations, then
 # only fail on NEW ones (auto-pruned as you fix them). deny_growth freezes the

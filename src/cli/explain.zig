@@ -84,6 +84,17 @@ const entries = [_]Entry{
     \\least the minimum length.
     \\Exempt: tune `[spec_quality] forbidden_phrases`, or disable the section.
     },
+    .{ .name = "completeness", .text = 
+    \\Why (opt-in): an agent writes a happy-path spec and never considers the
+    \\scenario classes that ship the most bugs — empty/large inputs, overflow,
+    \\I/O failure, unauthorized/concurrent access, malformed encoding, panics.
+    \\Fix: for each `## ` feature section in SPEC.md, add a `- ` bullet whose
+    \\prose addresses each of the 8 categories (the 1:1 map then forces a test),
+    \\or waive one explicitly: `- completeness-waiver: <category> (<reason>)`
+    \\with a non-empty reason.
+    \\Exempt: off unless `[completeness] enabled = true`; list non-feature
+    \\sections (Overview, Changelog) in `[completeness] exempt_sections`.
+    },
     .{ .name = "naming", .text = 
     \\Why: agents bleed Rust/Python casing into Zig or reach for placeholder
     \\names (tmp/data/Manager) that describe nothing.
@@ -338,6 +349,16 @@ const entries = [_]Entry{
     \\means the test only checks one branch, or skips silently.
     \\Fix: split into separate tests, or drive inputs table-style with asserts.
     \\Exempt: none — restructure the test. Disable only as a last resort.
+    },
+    .{ .name = "test-skip-ban", .text = 
+    \\Why: a test whose body is empty or whose first statement is
+    \\`return error.SkipZigTest;` never runs yet still satisfies its `// spec:`
+    \\tag — a silent hole in the flagship 1:1 spec-test guarantee.
+    \\Fix: implement the test so it asserts real behavior, or delete both the
+    \\test and its `// spec:` tag (and the SPEC.md bullet if the behavior is
+    \\gone). A conditional skip (`if (cond) return error.SkipZigTest;`) is legal
+    \\and never flagged.
+    \\Exempt: none — finish or remove the test. Disable only during migration.
     },
     .{ .name = "prod-imports-no-test", .text = 
     \\Why: production code importing a `*_test.zig`/`tests/` file drags test-only

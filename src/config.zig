@@ -183,6 +183,24 @@ pub const ChangeClassificationCfg = struct {
     gate_last_commit: bool = true,
 };
 
+/// Per-check config for the completeness checklist. Opt-in (default off): it
+/// requires every `## ` SPEC.md feature section to address (or explicitly
+/// waive) each of the 8 scenario categories, which most existing specs need a
+/// pass to satisfy. `exempt_sections` lists non-feature sections (changelog,
+/// overview) skipped by name.
+pub const CompletenessCfg = struct {
+    enabled: bool = false,
+    exempt_sections: []const []const u8 = &.{},
+};
+
+/// Config for the DORA delivery-metrics sink (non-gating; see dora.zig). Each
+/// `all`/`nightly` run appends one JSON line unless disabled. The sink lives
+/// under `.guardian/cache/` so rewriting it never invalidates the skip-cache.
+pub const DoraCfg = struct {
+    enabled: bool = true,
+    sink_path: []const u8 = ".guardian/cache/dora.jsonl",
+};
+
 /// Config for the `mutate` command (an explicit step, never part of `all` —
 /// each mutant costs a full build + test cycle; see cli/mutate.zig).
 pub const MutationCfg = struct {
@@ -253,6 +271,8 @@ pub const Config = struct {
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},
+    completeness: CompletenessCfg = .{},
+    dora: DoraCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 

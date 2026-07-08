@@ -38,9 +38,18 @@ enabled = true
 # The mutation runner additionally splices/restores source files in place.
 # change-classification reads the working-tree SPEC.md to detect added behavior
 # bullets — the unstaged new side isn't in git's object store, so it reads disk.
+# completeness reads SPEC.md directly (raw bullets incl. waivers); the DORA sink
+# appends its JSONL delivery-telemetry file.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/testing/*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/testing/*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
+
+# Delivery telemetry is guardian's one legitimate wall-clock consumer: the DORA
+# sink times each gate run with std.time.Timer to record duration_ms. This
+# repo-local allow does not propagate to consumers.
+[[allow]]
+check = "ban-time"
+paths = ["src/dora*"]
 
 # check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST in main; the
 # mutation runner clones the env to inject the child-build skip flag.
@@ -55,7 +64,7 @@ paths = ["src/reporter.zig"]
 
 [[allow]]
 check = "debug-print-ban"
-paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/ratchet.zig", "src/reporter.zig", "src/sink*"]
+paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/ratchet.zig", "src/reporter.zig", "src/sink*", "src/dora*"]
 
 # This check's own file: its pattern strings look like the paths it flags.
 [[allow]]
@@ -83,8 +92,8 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # orchestration shell (scan), baseline orchestration (runWithBaseline),
 # reporter output (fail, detail, emit), and the git/mutation process shells
 # (diffAgainst, untrackedFiles, fileAtHead, runOne, parentCount, changedPaths,
-# addPaths, commit, headHash — their pure cores countParents/parsePorcelainZ
-# are tested) are exempt.
+# addPaths, commit, headHash, currentBranch — their pure cores
+# countParents/parsePorcelainZ are tested) are exempt.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch"]

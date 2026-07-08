@@ -7,6 +7,7 @@ const ast_index = @import("../ast/index.zig");
 const cache = @import("../cache.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const sink = @import("../sink.zig");
+const dora = @import("../dora.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -65,6 +66,9 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // index. Workers copy ctx before this fires, so the current run is unaffected.
     defer ctx.source_index = null;
 
+    // Time the run for the DORA sink. Started here (after the cache-skip guard)
+    // so a cache-skipped run — which returns above — records nothing.
+    var stopwatch = dora.startStopwatch();
     var ran: u32 = 0;
     var acc: Sink = .{};
     const failed = try runChecks(ctx, &ran, &acc);
@@ -73,6 +77,12 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // before the green/red branch. A skipped run (early return above) leaves the
     // last real run's log in place.
     writeSink(ctx, acc.records.items, ran, failed, filtered);
+    // Append the DORA delivery-metrics record for this run (non-gating,
+    // best-effort; a nightly run records once via this nested `all` pass).
+    // Skipped for a filtered (--only/--skip) run: a partial dev iteration is
+    // not a delivery event, and its outcome would misrepresent the stream —
+    // the same reason a filtered run never stamps the green cache.
+    if (!filtered) recordDora(ctx, &stopwatch, failed, acc.failed_checks.items);
 
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
@@ -88,8 +98,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
 /// Collects every check's findings across the run for the JSONL sink. Owned by
 /// the run allocator so records outlive the per-worker arenas that produced them.
+/// `failed_checks` is the distinct registry names that failed, for the DORA
+/// telemetry record (names are static registry literals — no copy needed).
 const Sink = struct {
     records: std.ArrayListUnmanaged(reporter.Violation) = .empty,
+    failed_checks: std.ArrayListUnmanaged([]const u8) = .empty,
 };
 
 /// Writes the machine-readable last-run log for a real (non-skipped) run.
@@ -104,6 +117,14 @@ fn writeSink(ctx: *types.RunCtx, records: []const reporter.Violation, ran: u32, 
         .skipped = total_checks - ran,
         .filtered = filtered,
     });
+}
+
+/// Appends the DORA delivery-metrics record for a real (non-skipped) run:
+/// outcome, the failed-check names, and wall-clock duration. Non-gating and
+/// best-effort — `dora.recordRun` swallows a disabled sink or an I/O failure.
+fn recordDora(ctx: *types.RunCtx, stopwatch: *dora.Stopwatch, failed: u32, failed_checks: []const []const u8) void {
+    const outcome: dora.Outcome = if (failed == 0) .green else .red;
+    dora.recordRun(ctx.allocator, ctx.project_dir, ctx.cfg.dora, outcome, failed_checks, stopwatch.elapsedMs());
 }
 
 /// True when an --only / --skip selection is active for this run.
@@ -380,7 +401,12 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
     for (results, registry.all) |r, cmd| {
         if (!r.ran) continue;
         ran.* += 1;
-        if (r.failed) failed += 1;
+        if (r.failed) {
+            failed += 1;
+            // Best-effort: a dropped name only omits one entry from telemetry.
+            acc.failed_checks.append(ctx.allocator, cmd.name) catch |e|
+                std.log.warn("guardian: dropped a failed-check telemetry note: {s}", .{@errorName(e)});
+        }
         if (r.err) |e| {
             if (first_err == null) first_err = e;
         }

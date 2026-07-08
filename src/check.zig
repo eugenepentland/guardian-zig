@@ -254,6 +254,7 @@ test {
     _ = @import("version.zig");
     _ = @import("reporter.zig");
     _ = @import("sink.zig");
+    _ = @import("dora.zig");
     _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
     _ = @import("ast/containers.zig");
@@ -289,6 +290,7 @@ test {
     _ = @import("checks/change_classification.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/compile_error_explanation.zig");
+    _ = @import("checks/completeness.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/doc_comments.zig");
@@ -325,6 +327,7 @@ test {
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
+    _ = @import("checks/test_skip_ban.zig");
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unsafe_ops_budget.zig");
     _ = @import("checks/unwrap_discipline.zig");

@@ -102,6 +102,11 @@ src/checks/change_classification.zig::verdictFor | fn verdictFor(t: Totals) Verd
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/compile_error_explanation.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/compile_error_explanation.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/completeness.zig::FeatureSection struct_
+src/checks/completeness.zig::WAIVER_PREFIX value
+src/checks/completeness.zig::analyze | fn analyze( arena: Allocator, sections: []const FeatureSection, exempt: []const []const u8, ) Allocator.Error![]const []const u8
+src/checks/completeness.zig::parseFeatureSections | fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error![]const FeatureSection
+src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -162,6 +167,8 @@ src/checks/test_has_assertion.zig::analyzeContent | fn analyzeContent( allocator
 src/checks/test_has_assertion.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/test_no_conditional.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -199,10 +206,12 @@ src/config.zig::BaselineCfg struct_
 src/config.zig::BoolOpsCfg struct_
 src/config.zig::BoundaryRule struct_
 src/config.zig::ChangeClassificationCfg struct_
+src/config.zig::CompletenessCfg struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::Config struct_
 src/config.zig::DeadPubCfg struct_
 src/config.zig::DocQualityCfg struct_
+src/config.zig::DoraCfg struct_
 src/config.zig::EscapeDisciplineCfg struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
@@ -218,6 +227,13 @@ src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
 src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config
+src/dora.zig::Outcome enum_
+src/dora.zig::RunRecord struct_
+src/dora.zig::Stopwatch struct_
+src/dora.zig::elapsedMs | fn elapsedMs(self: *Stopwatch) u64
+src/dora.zig::recordRun | fn recordRun( arena: Allocator, project_dir: []const u8, cfg: config_mod.DoraCfg, outcome: Outcome, failed_checks: []const []const u8, duration_ms: u64, ) void
+src/dora.zig::renderRecord | fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8
+src/dora.zig::startStopwatch | fn startStopwatch() Stopwatch
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
 src/git.zig::LineSpan struct_
@@ -225,6 +241,7 @@ src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u
 src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const []const u8
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
 src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
+src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) Allocator.Error!DiffResult
 src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) ?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8

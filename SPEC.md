@@ -17,6 +17,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses the mutation section score and budget settings
 - Parses the change classification toggle and against ref
 - Parses the change classification last-commit gate toggle
+- Defaults completeness off and parses its enabled and exempt_sections settings
+- Parses the dora sink path and enabled toggle
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
 - Parses the intent flag for the commit command
@@ -324,6 +326,15 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Writes the last-run log under the git-ignored guardian cache dir
 - Writes a summary-only log when the run passes with no violations
 
+## Delivery Metrics
+
+- Renders a run record as one JSON line with outcome and failed checks
+- Includes the git branch and commit or null when absent
+- Appends a run record to the sink without overwriting
+- Writes nothing when the dora sink is disabled
+- Converts elapsed nanoseconds to whole milliseconds
+- Reads zero elapsed for an unavailable stopwatch and a non-decreasing value otherwise
+
 ## Git Diff
 
 - Parses unified diff hunk headers into added line spans
@@ -371,6 +382,22 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
 - Rejects production code @import-ing test files
+
+## Test Skip Ban
+
+- Flags a test whose first statement is an unconditional SkipZigTest
+- Allows a conditional SkipZigTest guard
+- Flags a test with an empty body
+- Allows a test with a real assertion body
+
+## Completeness Checklist
+
+- Fails a feature section that omits a required completeness category
+- Passes a section whose bullets address every completeness category
+- Accepts a completeness-waiver bullet that gives a reason
+- Rejects a completeness-waiver bullet that omits its reason
+- Skips sections listed in the exempt_sections config
+- Excludes completeness-waiver bullets from spec behavior mapping
 
 ## Escape Discipline
 
