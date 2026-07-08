@@ -343,6 +343,8 @@ fn applyChangeClassificationKey(ctx: ApplyCtx, kv: KeyVal) void {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     } else if (std.mem.eql(u8, kv.key, "against")) {
         if (parseString(kv.val)) |v| g.against = v;
+    } else if (std.mem.eql(u8, kv.key, "gate_last_commit")) {
+        g.gate_last_commit = parseBool(kv.val) orelse g.gate_last_commit;
     }
 }
 
@@ -537,6 +539,21 @@ test "parse reads [change_classification] enabled and against" {
     const defaults = try parse(arena.allocator(), "");
     try std.testing.expect(defaults.change_classification.enabled);
     try std.testing.expectEqualStrings("HEAD", defaults.change_classification.against);
+}
+
+// spec: Configuration - Parses the change classification last-commit gate toggle
+
+test "parse reads [change_classification] gate_last_commit" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[change_classification]
+        \\gate_last_commit = false
+    );
+    try std.testing.expect(!cfg.change_classification.gate_last_commit);
+    // Default: the last-commit fallback is on.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.change_classification.gate_last_commit);
 }
 
 test "parse strips inline comments from values" {

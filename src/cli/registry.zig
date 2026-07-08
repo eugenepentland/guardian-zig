@@ -372,9 +372,20 @@ pub fn find(name: []const u8) ?Command {
 const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "all", .summary = "Run every hard-block check (filter with --only/--skip a,b)" },
     .{ .name = "nightly", .summary = "Full suite + whole-tree mutation ratchet (scheduled/CI tier)" },
+    .{ .name = "commit", .summary = "Gate the tree, then auto-commit the change set with --intent" },
     .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
     .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
 };
+
+/// One-line summary for `name` from either the check registry or the specially
+/// dispatched meta commands (all/nightly/commit/explain/version); null when the
+/// name is neither. Lets `explain` resolve a documented meta command that — to
+/// avoid an @import cycle — is not a registry entry.
+pub fn summaryFor(name: []const u8) ?[]const u8 {
+    if (find(name)) |cmd| return cmd.summary;
+    for (meta_commands) |m| if (std.mem.eql(u8, m.name, name)) return m.summary;
+    return null;
+}
 
 /// Print the usage summary enumerating every registered command plus the
 /// specially-dispatched meta commands.

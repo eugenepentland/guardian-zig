@@ -33,6 +33,9 @@ pub const RunCtx = struct {
     /// `--skip a,b`: when non-empty, `all` runs every check except these.
     /// Mutually exclusive with `only`; same skip-cache suppression applies.
     skip: []const []const u8 = &.{},
+    /// `--intent "<message>"`: the commit subject for the `commit` command.
+    /// Null for every other command; `commit` errors when it is null or blank.
+    intent: ?[]const u8 = null,
 };
 
 /// Whether a check needs the AST index built before invocation.

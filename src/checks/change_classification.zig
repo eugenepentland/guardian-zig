@@ -5,8 +5,16 @@
 //! diffs the working tree against a git ref (--against / GUARDIAN_AGAINST
 //! / config, default HEAD), classifies every added line as behavioral,
 //! test, or ignorable, and fails when behavioral lines arrive with no test
-//! lines and no spec-file change. Outside a git repo it skips silently:
+//! lines and no spec change. Outside a git repo it skips silently:
 //! diff-scoped gates degrade, they don't block.
+//!
+//! Two escape hatches are closed. (1) A spec change waives the test only
+//! when the SPEC.md diff adds/modifies a behavior *bullet* (`- ` outside a
+//! fenced block) — a prose/typo/header edit no longer counts. (2) When the
+//! effective base is HEAD and the working tree is clean, the last commit
+//! (HEAD~1..HEAD) is gated instead of vacuously passing an empty diff —
+//! unless HEAD is a merge or the root, which are skipped. The clean-tree
+//! fallback is toggled by `[change_classification] gate_last_commit`.
 
 const std = @import("std");
 const git = @import("../git.zig");
@@ -24,6 +32,14 @@ const SRC_PREFIX = "src/";
 const ZIG_EXT = ".zig";
 /// How many offending files are listed before the report truncates.
 const MAX_REPORTED_FILES = 10;
+/// Read cap for SPEC.md when checking for added behavior bullets.
+const MAX_SPEC_BYTES: usize = 1024 * 1024;
+/// Fenced-code delimiters (mirrors src/spec/parser.zig): a `- `/`## ` line
+/// inside a fence is illustrative markdown, never spec content.
+const FENCE_BACKTICKS = "```";
+const FENCE_TILDES = "~~~";
+/// The last-commit fallback diffs this committed range when the tree is clean.
+const LAST_COMMIT_RANGE = "HEAD~1..HEAD";
 
 /// Added-line tallies for one file (or summed across files).
 pub const LineCounts = struct {
@@ -148,15 +164,17 @@ fn advanceLine(z: []const u8, cursor: *usize, target: usize, line: u32) u32 {
 /// A whole-file span for untracked (brand new) files: every line is added.
 const WHOLE_FILE = [_]git.LineSpan{.{ .start = 1, .len = std.math.maxInt(u32) }};
 
-/// Entry point for the change-classification check.
+/// Entry point for the change-classification check. Diffs the working tree
+/// against the effective ref; when that base is HEAD and the tree is clean,
+/// falls back to gating the last commit (see fallbackDecision).
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const a = ctx.allocator;
     if (!ctx.cfg.change_classification.enabled) {
         reporter.ok("change-classification: disabled in guardian.toml", .{});
         return;
     }
-    const against = ctx.against orelse ctx.cfg.change_classification.against;
-    const file_diffs = switch (try git.diffAgainst(a, ctx.project_dir, against)) {
+    const effective = ctx.against orelse ctx.cfg.change_classification.against;
+    const wt = switch (try git.diffAgainst(a, ctx.project_dir, effective)) {
         .unavailable => |reason| {
             reporter.ok("change-classification: skipped — {s}", .{reason});
             return;
@@ -165,6 +183,61 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     };
     const untracked = try git.untrackedFiles(a, ctx.project_dir);
 
+    const ref_is_head = std.mem.eql(u8, effective, "HEAD");
+    const tree_clean = wt.len == 0 and untracked.len == 0;
+    const gate_last = ctx.cfg.change_classification.gate_last_commit;
+    const parents = git.parentCount(a, ctx.project_dir, "HEAD");
+    switch (fallbackDecision(ref_is_head, tree_clean, gate_last, parents)) {
+        .working_tree => return classifyAndReport(ctx, effective, wt, untracked),
+        .last_commit => return gateLastCommit(ctx),
+        .skip_merge_or_root => {
+            reporter.ok("change-classification: clean tree at a merge/root commit — nothing to gate", .{});
+            return;
+        },
+    }
+}
+
+/// Which side the check classifies once the fallback decision is made. Private
+/// (with fallbackDecision) so its bool parameters don't trip boolean-param-ban;
+/// both are exercised by same-file tests.
+const FallbackDecision = enum { working_tree, last_commit, skip_merge_or_root };
+
+/// Pure fallback decision. When the effective diff base is HEAD, the working
+/// tree is clean, and the gate is enabled, gate the last commit instead of
+/// passing on an empty diff — unless HEAD is a merge (>1 parent) or the root
+/// (0 parents, or an unresolvable count), which are skipped. Any other case
+/// (base overridden, dirty tree, gate disabled) classifies the working tree.
+fn fallbackDecision(ref_is_head: bool, tree_clean: bool, gate_last_commit: bool, parent_count: ?u32) FallbackDecision {
+    const fallback_eligible = ref_is_head and tree_clean and gate_last_commit;
+    if (!fallback_eligible) return .working_tree;
+    const pc = parent_count orelse return .skip_merge_or_root;
+    return if (pc == 1) .last_commit else .skip_merge_or_root;
+}
+
+/// Clean-tree fallback: diff and classify the last commit (HEAD~1..HEAD). The
+/// tree is clean here, so there are no untracked files to consider.
+fn gateLastCommit(ctx: *registry.RunCtx) registry.RunError!void {
+    const a = ctx.allocator;
+    const rd = switch (try git.diffAgainst(a, ctx.project_dir, LAST_COMMIT_RANGE)) {
+        .unavailable => |reason| {
+            reporter.ok("change-classification: skipped — {s}", .{reason});
+            return;
+        },
+        .ok => |fds| fds,
+    };
+    return classifyAndReport(ctx, LAST_COMMIT_RANGE, rd, &.{});
+}
+
+/// Builds the per-file span map, resolves whether the spec changed, tallies the
+/// indexed source files, and reports — shared by the working-tree and
+/// last-commit paths (`label` names the diff base in the report).
+fn classifyAndReport(
+    ctx: *registry.RunCtx,
+    label: []const u8,
+    file_diffs: []const git.FileDiff,
+    untracked: []const []const u8,
+) registry.RunError!void {
+    const a = ctx.allocator;
     var span_map: std.StringHashMapUnmanaged([]const git.LineSpan) = .empty;
     for (file_diffs) |fd| {
         if (isSrcZig(fd.path)) try span_map.put(a, fd.path, fd.spans);
@@ -173,11 +246,11 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         if (isSrcZig(p)) try span_map.put(a, p, &WHOLE_FILE);
     }
 
-    var totals: Totals = .{ .spec_changed = pathListed(ctx.cfg.spec_file, file_diffs, untracked) };
+    var totals: Totals = .{ .spec_changed = try specChanged(ctx, file_diffs, untracked) };
     var offenders: std.ArrayListUnmanaged([]const u8) = .empty;
     try tallyIndexedFiles(ctx, &span_map, &totals, &offenders);
 
-    try report(against, totals, offenders.items);
+    try report(label, totals, offenders.items);
 }
 
 /// Classifies every indexed source file that the diff touched, summing
@@ -235,14 +308,72 @@ fn isSrcZig(path: []const u8) bool {
     return std.mem.startsWith(u8, path, SRC_PREFIX) and std.mem.endsWith(u8, path, ZIG_EXT);
 }
 
-/// True when `spec_file` appears among the diffed or untracked paths.
-fn pathListed(spec_file: []const u8, file_diffs: []const git.FileDiff, untracked: []const []const u8) bool {
-    for (file_diffs) |fd| {
-        if (std.mem.eql(u8, fd.path, spec_file)) return true;
-    }
+/// True when the SPEC.md side of the diff adds or modifies a behavior bullet
+/// (see specBulletsAdded). An untracked spec is all-new; a tracked one uses its
+/// added spans. A spec that only had prose/headers/fenced lines edited — or was
+/// only deleted from — returns false and no longer waives the test requirement.
+fn specChanged(
+    ctx: *registry.RunCtx,
+    file_diffs: []const git.FileDiff,
+    untracked: []const []const u8,
+) registry.RunError!bool {
+    const a = ctx.allocator;
+    const spec_file = ctx.cfg.spec_file;
     for (untracked) |p| {
-        if (std.mem.eql(u8, p, spec_file)) return true;
+        if (std.mem.eql(u8, p, spec_file)) {
+            const content = readSpec(a, ctx.project_dir, spec_file) orelse return false;
+            return specBulletsAdded(content, &WHOLE_FILE);
+        }
     }
+    for (file_diffs) |fd| {
+        if (std.mem.eql(u8, fd.path, spec_file)) {
+            const content = readSpec(a, ctx.project_dir, spec_file) orelse return false;
+            return specBulletsAdded(content, fd.spans);
+        }
+    }
+    return false;
+}
+
+/// Reads the working-tree SPEC.md at `<project_dir>/<spec_file>`; null when it
+/// can't be read. The new (working-tree) side may be unstaged, so it isn't in
+/// git's object store — this reads it from disk directly. ban-fs is granted for
+/// this check in guardian.toml. In the clean-tree fallback the tree equals HEAD,
+/// so the disk read still matches the diffed content.
+fn readSpec(a: Allocator, project_dir: []const u8, spec_file: []const u8) ?[]const u8 {
+    const path = std.fmt.allocPrint(a, "{s}/{s}", .{ project_dir, spec_file }) catch return null;
+    return std.fs.cwd().readFileAlloc(a, path, MAX_SPEC_BYTES) catch return null;
+}
+
+/// True when any line covered by `spans` in SPEC.md `content` is a behavior
+/// bullet — a `- ` line (after trimming) sitting outside a fenced code block.
+/// Mirrors the spec parser's fence/bullet rules so a fenced `- ` example, a
+/// header, prose, or a blank line covered by an added span does not count.
+pub fn specBulletsAdded(content: []const u8, spans: []const git.LineSpan) bool {
+    var in_fence = false;
+    var ln: u32 = 0;
+    var it = std.mem.splitScalar(u8, content, '\n');
+    while (it.next()) |raw| {
+        ln += 1;
+        const line = std.mem.trim(u8, raw, &std.ascii.whitespace);
+        if (isFence(line)) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if (in_fence) continue;
+        if (!std.mem.startsWith(u8, line, "- ")) continue;
+        if (spanCovers(spans, ln)) return true;
+    }
+    return false;
+}
+
+/// A fenced-code delimiter line (``` or ~~~), which toggles fence state.
+fn isFence(line: []const u8) bool {
+    return std.mem.startsWith(u8, line, FENCE_BACKTICKS) or std.mem.startsWith(u8, line, FENCE_TILDES);
+}
+
+/// True when 1-indexed `ln` falls inside any added-line span.
+fn spanCovers(spans: []const git.LineSpan, ln: u32) bool {
+    for (spans) |s| if (s.contains(ln)) return true;
     return false;
 }
 
@@ -321,4 +452,62 @@ test "verdictFor passes behavioral changes that come with test or spec changes" 
 
 test "verdictFor fails behavioral changes with no test or spec change" {
     try testing.expectEqual(Verdict.fail, verdictFor(.{ .counts = .{ .behavioral = 1 } }));
+}
+
+const SPEC_SAMPLE =
+    \\# Title
+    \\
+    \\## Section
+    \\- first behavior
+    \\- second behavior
+    \\
+    \\```md
+    \\- fenced example, not a behavior
+    \\```
+    \\
+    \\Prose paragraph, not a bullet.
+;
+
+// spec: Change Classification - Treats an added SPEC.md behavior bullet as a spec change
+
+test "specBulletsAdded is true when an added span covers a behavior bullet" {
+    // Line 4 is a real `- ` behavior bullet outside any fence.
+    try testing.expect(specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 4, .len = 1 }}));
+    // The whole-file span used for a brand-new spec also counts it.
+    try testing.expect(specBulletsAdded(SPEC_SAMPLE, &WHOLE_FILE));
+}
+
+// spec: Change Classification - Ignores SPEC.md edits confined to prose, headers, or fenced code
+
+test "specBulletsAdded is false for headers, prose, blanks, and fenced bullets" {
+    // Header (3), fenced bullet (8), prose (11), blank (2) — none is a behavior bullet.
+    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 3, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 8, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 11, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 2, .len = 1 }}));
+}
+
+// spec: Change Classification - Gates the last commit when the working tree is clean against HEAD
+
+test "fallbackDecision gates the last commit on a clean tree at a normal commit" {
+    try testing.expectEqual(FallbackDecision.last_commit, fallbackDecision(true, true, true, 1));
+}
+
+// spec: Change Classification - Skips the last-commit fallback at a merge or root commit
+
+test "fallbackDecision skips the fallback at merge, root, and unresolvable commits" {
+    try testing.expectEqual(FallbackDecision.skip_merge_or_root, fallbackDecision(true, true, true, 0)); // root
+    try testing.expectEqual(FallbackDecision.skip_merge_or_root, fallbackDecision(true, true, true, 2)); // merge
+    try testing.expectEqual(FallbackDecision.skip_merge_or_root, fallbackDecision(true, true, true, null));
+}
+
+// spec: Change Classification - Uses the working tree when the base is overridden or the gate is disabled
+
+test "fallbackDecision uses the working tree unless every fallback condition holds" {
+    // Base overridden (not HEAD): always the working tree.
+    try testing.expectEqual(FallbackDecision.working_tree, fallbackDecision(false, true, true, 1));
+    // Dirty tree: the working-tree diff is non-empty, classify it.
+    try testing.expectEqual(FallbackDecision.working_tree, fallbackDecision(true, false, true, 1));
+    // Fallback disabled by config: keep the old working-tree-only behavior.
+    try testing.expectEqual(FallbackDecision.working_tree, fallbackDecision(true, true, false, 1));
 }

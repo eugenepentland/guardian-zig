@@ -175,6 +175,12 @@ pub const ChangeClassificationCfg = struct {
     /// Git ref the working tree is diffed against when neither the
     /// `--against` flag nor the GUARDIAN_AGAINST env var names one.
     against: []const u8 = "HEAD",
+    /// When true (default) and the effective diff base is HEAD with a clean
+    /// working tree, gate the last commit (HEAD~1..HEAD) instead of passing on
+    /// the empty diff — closing the commit-then-build hole. Skipped when HEAD is
+    /// a merge (>1 parent) or the root (0 parents). Set false to keep the
+    /// working-tree-only behavior.
+    gate_last_commit: bool = true,
 };
 
 /// Config for the `mutate` command (an explicit step, never part of `all` —

@@ -12,11 +12,12 @@ const fail = reporter.fail;
 
 pub const COMMAND_NAME = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
-// mutant; debt is a non-gating report; nightly composes `all` + `mutate --full`.
-// None is a build gate. (nightly is dispatched specially and never appears in
-// the registry, so its entry here is defensive — mirroring the long-standing
-// `all` exclusion in build_helper — and guarantees it can never be run as a check.)
-const SKIP = [_][]const u8{ "spec-init", "mutate", "debt", "nightly" };
+// mutant; debt is a non-gating report; nightly composes `all` + `mutate --full`;
+// commit gates then auto-commits. None is a build gate. (nightly and commit are
+// dispatched specially and never appear in the registry, so their entries here
+// are defensive — mirroring the long-standing `all` exclusion in build_helper —
+// and guarantee they can never be run as a check.)
+const SKIP = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
 
 /// Runs every registered hard-block check in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
@@ -481,6 +482,7 @@ test "isAllCheck accepts gates and rejects non-gates and typos" {
     try std.testing.expect(isAllCheck("file-size"));
     try std.testing.expect(!isAllCheck("mutate")); // non-gate step
     try std.testing.expect(!isAllCheck("nightly")); // composed, not in registry
+    try std.testing.expect(!isAllCheck("commit")); // gate+commit, not in registry
     try std.testing.expect(!isAllCheck("spec-init")); // generator
     try std.testing.expect(!isAllCheck("bogus")); // typo
 }

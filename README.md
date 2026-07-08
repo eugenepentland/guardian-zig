@@ -46,7 +46,7 @@ zig build  # guardian gates every build
 ### Process gates (git-aware)
 | Check | Blocks on |
 |---|---|
-| **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or SPEC.md changes in the same diff — the "quick fix with no regression test" pattern. Skips silently outside a git repo. |
+| **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or an added/modified SPEC.md **behavior bullet** in the same diff — the "quick fix with no regression test" pattern. A spec edit waives the test only when it adds/modifies a `- ` bullet outside a code fence (a prose/typo/header edit no longer counts). When the base is HEAD and the working tree is clean, it gates the **last commit** (`HEAD~1..HEAD`) instead of passing an empty diff — skipping merge/root commits, toggled by `[change_classification] gate_last_commit`. Skips silently outside a git repo. |
 
 ### Structural
 | Check | Blocks on |
@@ -348,9 +348,13 @@ ignore_test_refs = true
 
 # Diff-scoped process gate: behavioral src changes need a test/spec change.
 # `against` is the default diff base (--against / GUARDIAN_AGAINST override).
+# A spec change waives the test only when it adds/modifies a `- ` behavior
+# bullet. When the base is HEAD and the tree is clean, gate_last_commit gates
+# the last commit (HEAD~1..HEAD) instead of vacuously passing an empty diff.
 [change_classification]
 enabled = true
 against = "HEAD"
+gate_last_commit = true
 
 # The mutate command's budgets (explicit step, not part of `all`).
 [mutation]
@@ -398,6 +402,7 @@ guardian-check all .                 # Run every hard-block check
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet
+guardian-check commit --intent "fix the parser" .   # Gate, then auto-commit on green
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
 guardian-check explain               # List every check name + summary
@@ -408,6 +413,8 @@ guardian-check version               # Print the guardian version (also --versio
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **`commit`** gates the tree, then auto-commits the change set (see below).
+  Never part of `all`; requires an explicit `--intent`.
 - **`debt`** reports every baseline/snapshot total sorted high-to-low, with the
   change vs the committed `.guardian/` state (omitted outside a git repo). Never
   gates (exit 0) and is excluded from `all` — run it to decide what to pay down.
@@ -416,6 +423,31 @@ guardian-check version               # Print the guardian version (also --versio
   (`[[allow]]` paths, a config toggle, the `disabled` list, or a snapshot
   refresh). Unknown/no name lists all checks.
 - **`--version` / `version`** print the version (from `src/version.zig`).
+
+### `commit` — intent-driven auto-commit
+
+`guardian-check commit --intent "<message>" [dir]` brings guardian-zig into the
+sibling guardians' workflow: run the whole gate, then commit the change set it
+just verified.
+
+- **Red gate** → the violations print, git is left completely untouched, exit
+  non-zero. **Green gate** → the change set is staged and committed with the
+  intent as the message subject. Missing/empty `--intent` is a clean error with
+  no side effects.
+- **Safety-railed staging** (never `git add -A` / `.`): the path list comes from
+  `git status --porcelain` (modified + untracked). A forbidden secret/build
+  list is **skipped and reported**, never staged — `.env` / `.env.*`, `*.pem`,
+  `*.key`, `*.p12`, `id_rsa*`, `*credentials*`, `*secret*`, and `zig-out/` /
+  `.zig-cache/` / `zig-cache/`. `.guardian/` metadata and `SPEC.md` are **always
+  included**, so the baseline/snapshot churn a run produced rides the commit
+  that caused it — making that churn attributable instead of smeared across
+  unrelated commits. Never pushes, never amends. A green gate with nothing left
+  to stage reports "nothing to commit" and exits 0.
+- **Closes the diff-timing hole.** Because `commit` gates the exact working-tree
+  diff it is about to commit, change-classification (which diffs the same tree)
+  is guaranteed to have seen the change — the escape hatch that let a
+  commit-then-build flow slip an untested change past the gate is structurally
+  closed for this workflow.
 
 ## Principles
 

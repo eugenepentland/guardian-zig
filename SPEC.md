@@ -16,8 +16,10 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Defaults magic-number off and enables it via [magic_number] enabled
 - Parses the mutation section score and budget settings
 - Parses the change classification toggle and against ref
+- Parses the change classification last-commit gate toggle
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
+- Parses the intent flag for the commit command
 - Splits a comma-separated filter value into check names
 - Rejects combining the only and skip filters
 
@@ -120,6 +122,15 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Returns the explanation text for a registered check name
 - Signals an unknown check name
 - Provides an explanation entry for every registered command
+- Resolves a summary for checks and documented meta commands
+- Documents the commit meta command
+
+## Commit
+
+- Requires a non-empty intent message
+- Excludes forbidden secret and build-artifact paths from staging
+- Always stages guardian metadata and the spec file
+- Reports nothing to commit when no eligible paths remain
 
 ## Debt
 
@@ -288,6 +299,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses unified diff hunk headers into added line spans
 - Groups unified diff output into per-file added spans
 - Returns no spans for deletion-only hunks and deleted files
+- Counts a commit's parents from a rev-list line
+- Extracts changed and untracked paths from porcelain status resolving renames
 
 ## Change Classification
 
@@ -297,6 +310,11 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Counts remaining added source lines as behavioral changes
 - Passes when behavioral changes are accompanied by test changes
 - Fails when behavioral changes have no test or spec change
+- Treats an added SPEC.md behavior bullet as a spec change
+- Ignores SPEC.md edits confined to prose, headers, or fenced code
+- Gates the last commit when the working tree is clean against HEAD
+- Skips the last-commit fallback at a merge or root commit
+- Uses the working tree when the base is overridden or the gate is disabled
 
 ## Mutation Testing
 

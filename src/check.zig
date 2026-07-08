@@ -5,6 +5,7 @@ const reporter = @import("reporter.zig");
 const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
 const nightly = @import("cli/nightly.zig");
+const commit_cmd = @import("cli/commit.zig");
 const explain = @import("cli/explain.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
@@ -77,6 +78,7 @@ pub fn main() !void {
         .full = parsed.full,
         .only = splitCsv(allocator, parsed.only),
         .skip = splitCsv(allocator, parsed.skip),
+        .intent = parsed.intent,
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
@@ -97,6 +99,8 @@ const ParsedArgs = struct {
     only: ?[]const u8 = null,
     /// Raw comma-separated `--skip` value (split later); null = no filter.
     skip: ?[]const u8 = null,
+    /// `--intent "<message>"` value for the `commit` command; null when absent.
+    intent: ?[]const u8 = null,
     /// True when `--version` was passed anywhere on the command line.
     show_version: bool = false,
 };
@@ -104,7 +108,8 @@ const ParsedArgs = struct {
 // Scans argv (sans program name): first non-flag token is the command, the next
 // is the project dir; `--quiet`/`-q` toggles quiet mode, `--full` selects
 // mutate's whole-tree tier, `--against <ref>` sets the diff base, `--only`/
-// `--skip <a,b>` filter the `all` suite, `--version` requests the version.
+// `--skip <a,b>` filter the `all` suite, `--intent "<msg>"` is the commit
+// subject, `--version` requests the version.
 fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
     var i: usize = 0;
@@ -125,6 +130,9 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--skip")) {
             i += 1;
             if (i < args.len) parsed.skip = args[i];
+        } else if (std.mem.eql(u8, arg, "--intent")) {
+            i += 1;
+            if (i < args.len) parsed.intent = args[i];
         } else if (parsed.command == null) {
             parsed.command = arg;
         } else {
@@ -198,6 +206,11 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     if (std.mem.eql(u8, command, nightly.COMMAND_NAME)) {
         return nightly.run(ctx);
     }
+    // commit gates the tree (`all`) then auto-commits on green; special-dispatched
+    // for the same reason as nightly (commit.zig imports run_all → registry cycle).
+    if (std.mem.eql(u8, command, commit_cmd.COMMAND_NAME)) {
+        return commit_cmd.run(ctx);
+    }
     const cmd = registry.find(command) orelse {
         registry.printHelp();
         std.process.exit(1);
@@ -236,6 +249,7 @@ test {
     _ = @import("cli/mutate.zig");
     _ = @import("cli/debt.zig");
     _ = @import("cli/nightly.zig");
+    _ = @import("cli/commit.zig");
     _ = @import("cli/explain.zig");
     _ = @import("version.zig");
     _ = @import("reporter.zig");
@@ -353,6 +367,23 @@ test "parseArgs reads --only, --skip and --version" {
     try std.testing.expectEqualStrings("spec,file-size", parsed.only.?);
     try std.testing.expectEqualStrings("boundaries", parsed.skip.?);
     try std.testing.expect(parsed.show_version);
+}
+
+// spec: Configuration - Parses the intent flag for the commit command
+
+test "parseArgs reads --intent message alongside command and dir" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 4);
+    args[0] = try a.dupeZ(u8, "commit");
+    args[1] = try a.dupeZ(u8, "--intent");
+    args[2] = try a.dupeZ(u8, "add the widget");
+    args[3] = try a.dupeZ(u8, ".");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("commit", parsed.command.?);
+    try std.testing.expectEqualStrings("add the widget", parsed.intent.?);
+    try std.testing.expectEqualStrings(".", parsed.project_dir);
 }
 
 // spec: Configuration - Splits a comma-separated filter value into check names

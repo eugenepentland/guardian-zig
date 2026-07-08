@@ -5,6 +5,7 @@ const GENERATOR_NAME = "spec-init"; // generator, not a gate
 const MUTATE_NAME = "mutate"; // explicit step, not a gate
 const DEBT_NAME = "debt"; // non-gating debt report, invoked directly
 const NIGHTLY_NAME = "nightly"; // composed scheduled tier, dispatched specially
+const COMMIT_NAME = "commit"; // gate + auto-commit, dispatched specially
 const RUN_ALL_NAME = "all";
 
 // Comptime branch budget for the registry-iteration loop in
@@ -15,8 +16,8 @@ const REGISTRY_EVAL_QUOTA: u32 = 20000;
 /// Hard-block checks that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
 /// here automatically. The generator (`spec-init`), the explicit `mutate`
-/// step, the non-gating `debt` report, and the composed `nightly`/`all`
-/// commands are never gates and are excluded (the latter two defensively —
+/// step, the non-gating `debt` report, and the composed `nightly`/`commit`/
+/// `all` commands are never gates and are excluded (the last three defensively —
 /// they are dispatched specially and don't appear in the registry, mirroring
 /// the existing `all` exclusion).
 pub const all_check_names: []const []const u8 = blk: {
@@ -27,6 +28,7 @@ pub const all_check_names: []const []const u8 = blk: {
         if (std.mem.eql(u8, cmd.name, MUTATE_NAME)) continue;
         if (std.mem.eql(u8, cmd.name, DEBT_NAME)) continue;
         if (std.mem.eql(u8, cmd.name, NIGHTLY_NAME)) continue;
+        if (std.mem.eql(u8, cmd.name, COMMIT_NAME)) continue;
         if (std.mem.eql(u8, cmd.name, RUN_ALL_NAME)) continue;
         names = names ++ [_][]const u8{cmd.name};
     }

@@ -36,9 +36,11 @@ enabled = true
 
 # Guardian is a static analyzer: it walks the filesystem and reads env by design.
 # The mutation runner additionally splices/restores source files in place.
+# change-classification reads the working-tree SPEC.md to detect added behavior
+# bullets — the unstaged new side isn't in git's object store, so it reads disk.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/testing/*", "src/baseline.zig", "src/mutation/*"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/testing/*", "src/baseline.zig", "src/mutation/*"]
 
 # check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST in main; the
 # mutation runner clones the env to inject the child-build skip flag.
@@ -77,8 +79,9 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # (validateSelectiveConfig — validateDenyGrowth is tested), the ban-family
 # orchestration shell (scan), baseline orchestration (runWithBaseline),
 # reporter output (fail, detail, emit), and the git/mutation process shells
-# (diffAgainst, untrackedFiles, fileAtHead, runOne — their pure cores are
-# tested) are exempt.
+# (diffAgainst, untrackedFiles, fileAtHead, runOne, parentCount, changedPaths,
+# addPaths, commit, headHash — their pure cores countParents/parsePorcelainZ
+# are tested) are exempt.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash"]

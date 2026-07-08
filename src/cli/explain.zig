@@ -428,6 +428,17 @@ const entries = [_]Entry{
     \\Fix: propagate the allocation error; handle domain-absence separately.
     \\Exempt: off unless `[oom_discipline] enabled = true`.
     },
+    .{ .name = "commit", .text = 
+    \\Why: a meta command, not a gate — brings guardian-zig into the sibling
+    \\guardians' intent-driven flow: run the whole gate, then commit the change
+    \\set, with rails so a green build can't leak a secret or stage build output.
+    \\Fix: n/a — run `guardian-check commit --intent "<message>" [dir]`. On green
+    \\it stages the working-tree change set (never `git add -A`; forbidden
+    \\secret/artifact paths skipped and reported; `.guardian/` + SPEC.md always
+    \\included) and commits with the intent as the subject. On red it prints the
+    \\violations and leaves git untouched. Never pushes, never amends.
+    \\Exempt: n/a — never part of `all`; requires an explicit non-empty --intent.
+    },
 };
 
 /// Returns the explanation text for `name`, or null when no entry exists.
@@ -437,11 +448,13 @@ fn lookup(name: []const u8) ?[]const u8 {
 }
 
 /// True when `query` resolves to a printable explanation: a null query (the
-/// bare listing) always resolves; a named query resolves only when it is both a
-/// registered command and has an entry here.
+/// bare listing) always resolves; a named query resolves only when it has a
+/// known summary (a registered check or a documented meta command) and an entry
+/// here. Meta commands (e.g. `commit`) live outside the registry to avoid an
+/// @import cycle, so summaryFor — not find — is the membership test.
 fn resolves(query: ?[]const u8) bool {
     const name = query orelse return true;
-    return registry.find(name) != null and lookup(name) != null;
+    return registry.summaryFor(name) != null and lookup(name) != null;
 }
 
 /// Prints every registered command name with its one-line summary.
@@ -450,7 +463,7 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).
@@ -463,7 +476,7 @@ pub fn run(query: ?[]const u8) bool {
             listAll();
             return false;
         }
-        print("{s} — {s}\n\n", .{ name, registry.find(name).?.summary });
+        print("{s} — {s}\n\n", .{ name, registry.summaryFor(name).? });
         print("{s}\n", .{lookup(name).?});
         return true;
     }
@@ -493,4 +506,22 @@ test "every registered command has an explain entry" {
         errdefer std.debug.print("missing explain entry: {s}\n", .{cmd.name});
         try std.testing.expect(lookup(cmd.name) != null);
     }
+}
+
+// spec: Explain - Resolves a summary for checks and documented meta commands
+
+test "registry.summaryFor covers checks and meta commands" {
+    try std.testing.expect(registry.summaryFor("spec") != null); // a registered check
+    try std.testing.expect(registry.summaryFor("commit") != null); // a meta command
+    try std.testing.expect(registry.summaryFor("nightly") != null); // a meta command
+    try std.testing.expect(registry.summaryFor("not-a-command") == null);
+}
+
+// spec: Explain - Documents the commit meta command
+
+test "explain resolves and documents the commit meta command" {
+    // commit is dispatched specially (not a registry entry) but is still
+    // explainable: it has both a summary and a long-form entry.
+    try std.testing.expect(lookup("commit") != null);
+    try std.testing.expect(resolves("commit"));
 }

@@ -151,6 +151,83 @@ pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) Allocator.E
     return paths.toOwnedSlice(allocator);
 }
 
+/// Number of parents of `rev` — 0 for the root commit, 1 for a normal commit,
+/// ≥2 for a merge — or null when git is unavailable or `rev` doesn't resolve.
+/// Drives the change-classification last-commit fallback's merge/root skip.
+pub fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) ?u32 {
+    const argv = [_][]const u8{ "git", "rev-list", "--parents", "-n", "1", rev };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    return countParents(out);
+}
+
+/// Parent count from a `git rev-list --parents -n 1` line
+/// (`<sha> <parent1> <parent2>…`): space-separated tokens minus one. Null on
+/// empty input. Pure, so the merge/root partition is unit-tested without git.
+fn countParents(rev_list_output: []const u8) ?u32 {
+    const line = std.mem.trim(u8, rev_list_output, &std.ascii.whitespace);
+    if (line.len == 0) return null;
+    var count: u32 = 0;
+    var it = std.mem.tokenizeScalar(u8, line, ' ');
+    while (it.next()) |_| count += 1;
+    return if (count == 0) null else count - 1;
+}
+
+/// Working-tree changed + untracked paths (`git status --porcelain -z`) — the
+/// candidate set for the `commit` auto-commit. Rename/copy entries yield the new
+/// path. Null when git is unavailable, so the caller can refuse to commit.
+pub fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const []const u8 {
+    const argv = [_][]const u8{ "git", "status", "--porcelain", "-z" };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    return try parsePorcelainZ(allocator, out);
+}
+
+/// Parses `git status --porcelain -z` output into its changed/untracked path
+/// list. Each record is `XY <path>\0`; a rename/copy adds a trailing
+/// `<origpath>\0` token, so the new path is kept and the origin consumed. The
+/// NUL delimiter means paths with spaces or quotes need no unquoting. Pure.
+fn parsePorcelainZ(allocator: Allocator, out: []const u8) Allocator.Error![]const []const u8 {
+    var paths: std.ArrayListUnmanaged([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, out, 0);
+    while (it.next()) |entry| {
+        if (entry.len < 4) continue; // "XY p" is the shortest real record
+        const xy = entry[0..2];
+        const path = entry[3..];
+        if (isRenameStatus(xy)) _ = it.next(); // consume the paired origin path
+        try paths.append(allocator, path);
+    }
+    return paths.toOwnedSlice(allocator);
+}
+
+/// True when a porcelain XY status code is a rename or copy — its record
+/// carries a second, origin-path token that must be consumed.
+fn isRenameStatus(xy: []const u8) bool {
+    return xy[0] == 'R' or xy[0] == 'C' or xy[1] == 'R' or xy[1] == 'C';
+}
+
+/// Stages exactly `paths` via `git add -- <paths…>` (never `-A` / `.`); true on
+/// success. The `--` guards a path that happens to look like a flag. Mutates the
+/// index — used only by the `commit` command after a green gate.
+pub fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool {
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    try argv.appendSlice(allocator, &.{ "git", "add", "--" });
+    try argv.appendSlice(allocator, paths);
+    return runGit(allocator, project_dir, argv.items) != null;
+}
+
+/// Commits the staged tree with `message` as the subject. Never amends, never
+/// pushes. True on success (a clean "nothing to commit" exits non-zero → false).
+pub fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool {
+    const argv = [_][]const u8{ "git", "commit", "-m", message };
+    return runGit(allocator, project_dir, &argv) != null;
+}
+
+/// The current HEAD commit hash (trimmed), or null when git is unavailable.
+pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", "rev-parse", "HEAD" };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    return std.mem.trim(u8, out, &std.ascii.whitespace);
+}
+
 /// Spawns git with `argv` in `project_dir`, returning trimmed stdout on
 /// exit 0 and null on any spawn failure or non-zero exit.
 fn runGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) ?[]const u8 {
@@ -232,4 +309,32 @@ test "parseUnifiedDiff drops deleted files and deletion-only hunks" {
     try testing.expectEqual(@as(usize, 1), out.len);
     try testing.expectEqualStrings("src/kept.zig", out[0].path);
     try testing.expectEqual(@as(usize, 0), out[0].spans.len);
+}
+
+// spec: Git Diff - Counts a commit's parents from a rev-list line
+
+test "countParents is token count minus one, null on empty input" {
+    // Root commit: the line is just the sha — zero parents.
+    try testing.expectEqual(@as(?u32, 0), countParents("abcdef0"));
+    // Normal commit: sha + one parent.
+    try testing.expectEqual(@as(?u32, 1), countParents("abc def\n"));
+    // Merge commit: sha + two parents.
+    try testing.expectEqual(@as(?u32, 2), countParents("abc def ghi"));
+    try testing.expectEqual(@as(?u32, null), countParents("   \n"));
+}
+
+// spec: Git Diff - Extracts changed and untracked paths from porcelain status resolving renames
+
+test "parsePorcelainZ lists paths and consumes rename origins" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Modified, untracked, then a rename: the new path is kept and the trailing
+    // origin token (src/old.zig) is consumed, not reported as its own path.
+    const out = " M src/a.zig\x00?? new.txt\x00R  src/renamed.zig\x00src/old.zig\x00";
+    const paths = try parsePorcelainZ(a, out);
+    try testing.expectEqual(@as(usize, 3), paths.len);
+    try testing.expectEqualStrings("src/a.zig", paths[0]);
+    try testing.expectEqualStrings("new.txt", paths[1]);
+    try testing.expectEqualStrings("src/renamed.zig", paths[2]);
 }
