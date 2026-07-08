@@ -35,6 +35,7 @@ zig build run      # runs AND runs all guardian checks
 zig build spec-init  # generate starter SPEC.md from pub fn signatures
 zig build mutate     # mutation-test lines changed vs HEAD (fast tier)
 zig build mutate-full  # mutation-test the whole tree + score ratchet
+zig build debt       # non-gating baseline/snapshot debt report
 ```
 
 The `mutate` / `mutate-full` steps are auto-registered by `addAllChecks`
@@ -45,8 +46,10 @@ The `guardian-check` binary also runs directly:
 
 ```bash
 guardian-check nightly .             # full suite + whole-tree mutation ratchet (CI/cron tier)
+guardian-check commit --intent "..." .  # gate the tree, then auto-commit on green
 guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
 guardian-check all . --skip line-length     # run every check except these
+guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
 guardian-check version               # print the version (also --version)
 ```
@@ -86,7 +89,7 @@ spec_init_step.dependOn(&spec_init_run.step);
 Optional. Defaults are sensible:
 ```toml
 spec_file = "SPEC.md"        # default
-max_file_lines = 500          # default
+max_file_lines = 1000         # default
 file_size_exclude = ["generated/*", "*/vendor_*.zig"]
 
 [[boundary]]
@@ -123,8 +126,12 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-57 checks (most hard-block; test-coverage/escape-discipline/oom-discipline/
-magic-number opt-in) plus `zig fmt --check`. Full table in README.md;
+59 checks gate the build (most hard-block; completeness/test-coverage/
+escape-discipline/oom-discipline/magic-number are opt-in, default off) plus
+`zig fmt --check`. Three more registry entries are non-gating steps, never part
+of `all`: the `spec-init` generator, the `mutate` command, and the `debt`
+report (62 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
+are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are
 snapshot-based (pub-api-surface, panic-budget, int-from-float-budget,
@@ -173,25 +180,39 @@ with `cache_enabled = false`. Turn off individual checks with a top-level
 
 Baseline mode (`[baseline] enabled = true`) auto-prunes: when violations
 resolve, the baseline file is rewritten smaller in place (no refresh env var).
-`[baseline] deny_growth = ["spec", ...]` freezes the named checks' baselines
-against ever growing — a refresh that would raise their count fails instead.
+The ten threshold checks (function-length, nesting-depth, cognitive-complexity,
+function-size, type-size, file-size, struct-method-cap, optional-density,
+bool-ops-per-condition, line-length) use **per-item ratchets** (baseline v2):
+each offender is stored as `<value> <key>` and gets a personal only-shrinks
+ceiling, so an improvement that's still over cap no longer reds the build; v1
+text baselines self-migrate to v2 on first build. `[baseline] deny_growth =
+["spec", ...]` freezes the named checks' baselines against ever growing — a
+refresh that would raise their count (or add a key) fails instead.
+
+Every `all`/`nightly` run also drops machine-readable JSONL under the
+git-ignored, digest-excluded `.guardian/cache/`: `last-run.jsonl` (structured
+violations + summary) and `dora.jsonl` (per-run delivery metrics); `mutate`
+adds `last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
 
 ## Project Structure
 
 ```
 src/
   check.zig            # CLI entry / dispatch
-  cli/                 # Command registry + shared types + mutate command
+  cli/                 # Command registry + run_all + mutate/nightly/commit/debt/explain commands
   checks/              # One file per check
   spec/                # SPEC.md parser, // spec: matcher, spec-init
   ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)
   git.zig              # git diff parsing/shell-outs for diff-scoped features
-  mutation/            # Mutant generator + in-place splice/test runner
+  mutation/            # Mutant generator, in-place splice/test runner, result cache + survivor report
   walk.zig             # Recursive .zig file walker (visitor pattern)
   reporter.zig         # ok / fail printing + Violation type
+  sink.zig             # last-run.jsonl machine-readable violation log
+  dora.zig             # DORA delivery-metrics JSONL sink (non-gating)
   snapshot.zig         # Read/write/diff for snapshot-based checks
   snapshot_helper.zig  # Lifecycle helper used by all snapshot checks
-  baseline.zig         # Baseline/ratchet mode for legacy violations
+  baseline.zig         # Baseline mode for legacy violations (v1 text baselines)
+  ratchet.zig          # Per-item ratchets (baseline v2) for threshold checks
   cache.zig            # Skip-when-unchanged input digest for `all`
   config.zig           # guardian.toml parser
   build_helper.zig     # addAllChecks for downstream consumers

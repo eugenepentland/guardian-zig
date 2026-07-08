@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-59 checks gate Guardian's own self-build (plus the `spec-init` generator and the `mutate` command, which are explicit steps rather than gates). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+59 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -76,7 +76,6 @@ zig build  # guardian gates every build
 | **cognitive-complexity** | Per-function complexity score (default 25) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
-| **debug-print-ban** | `std.debug.print(...)` calls outside `pub fn main` / test blocks / CLI command modules (`cli/*`, `commands*`) |
 
 ### Error handling
 | Check | Blocks on |
@@ -151,7 +150,8 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 |---|---|
 | **repeated-switch-on-enum** | The same enum prong-set switched in 2+ files (move dispatch onto the type) |
 
-Plus `zig fmt --check` and the `spec-init` generator.
+Plus `zig fmt --check`, wired as a format gate alongside the checks. The
+`spec-init`, `mutate`, and `debt` steps are non-gating — see [Tools](#tools).
 
 ## Mutation testing (`mutate`)
 
@@ -308,20 +308,36 @@ The snapshot files are plain text, sorted, designed to diff cleanly in code revi
 
 ## Machine-readable output
 
-Guardian is AI-first, so every `all` / `nightly` run also drops a machine-readable
-log of what it found at **`.guardian/cache/last-run.jsonl`** — one JSON object per
-line (JSONL). It exists so an agent's fix loop, an editor integration, or the
-`debt` report can consume structured findings instead of re-parsing terminal
-prose.
+Guardian is AI-first, so it emits four JSONL logs — **all under `.guardian/cache/`,
+which is git-ignored and excluded from the skip-cache input digest, so writing them
+never churns git or invalidates the build cache, and none carries a timestamp
+(`std.time` is banned):**
+
+| File | Written by | Contents |
+|---|---|---|
+| `last-run.jsonl` | every `all` / `nightly` run | one `violation` record per finding + a final `summary` (detailed below) |
+| `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run (see [Delivery metrics](#delivery-metrics-dora)) |
+| `last-mutate.jsonl` | every `mutate` run | one `survivor` record per surviving mutant + a `summary` (see [Survivor report](#survivor-report)) |
+| `mutants.jsonl` | every `mutate` run | per-mutant result cache for resume / re-run (see [Result cache](#result-cache-resume--re-run)) |
+
+The rest of this section covers `last-run.jsonl`; the mutation logs and the DORA
+sink are detailed in their own sections.
+
+Every `all` / `nightly` run drops the machine-readable log of what it found at
+**`.guardian/cache/last-run.jsonl`** — one JSON object per line (JSONL). It exists
+so an agent's fix loop, an editor integration, or the `debt` report can consume
+structured findings instead of re-parsing terminal prose.
 
 ```jsonl
 {"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (cap 200)","fix_hint":null,"ratchet_key":"src/foo.zig|parse","metric":246}
 {"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Auth - Validates tokens","fix_hint":null,"ratchet_key":null,"metric":null}
-{"type":"summary","passed":56,"failed":1,"skipped":3,"filtered":false}
+{"type":"summary","passed":57,"failed":2,"skipped":3,"filtered":false}
 ```
 
-- One `violation` record per finding, then a final `summary` record. A green run
-  writes a summary-only log.
+- One `violation` record per finding, then a final `summary` record whose
+  `passed` + `failed` + `skipped` sum to the 62 registry entries — `skipped` is
+  the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
+  `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
   function-size, type-size, file-size, struct-method-cap, optional-density,
   bool-ops, line-length) emit a **`ratchet_key`** (stable per-subject identity —
@@ -483,7 +499,9 @@ Optional — sensible defaults work out of the box. Each check has its own secti
 spec_file = "SPEC.md"
 max_file_lines = 1000
 file_size_exclude = ["generated/*"]
-parallel = true    # run checks across cores (default); false forces sequential
+exclude = ["src/serve/templates"]   # path globs dropped from the scan entirely (generated code)
+parallel = true         # run checks across cores (default); false forces sequential
+cache_enabled = true    # skip a full run when the hashed input set is unchanged (default)
 
 [[boundary]]
 module = "src/core/*"
@@ -569,10 +587,44 @@ paths = ["src/infra/persistence/*"]
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
+### Complete key reference
+
+Every setting `src/config_parser.zig` understands (unknown sections/keys are
+silently ignored, so a typo'd `[section]` is a no-op, not an error):
+
+| Scope | Keys |
+|---|---|
+| *(top level)* | `spec_file`, `max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled` |
+| `[[boundary]]` | `module`, `forbidden` |
+| `[[allow]]` | `check`, `paths` |
+| `[spec_quality]` | `enabled`, `forbidden_phrases` |
+| `[function_size]` | `enabled`, `max_params` |
+| `[complexity]` | `enabled`, `max_score` |
+| `[anytype_budget]` | `enabled`, `max_per_file`, `exclude` |
+| `[orphan_files]` | `enabled`, `roots` |
+| `[doc_quality]` | `enabled`, `min_chars`, `exempt_names` |
+| `[type_size]` | `enabled`, `max_fields`, `exclude` |
+| `[function_length]` | `enabled`, `max_lines` |
+| `[nesting_depth]` | `enabled`, `max_depth` |
+| `[test_coverage]` | `enabled`, `exempt_names` |
+| `[bool_ops]` | `enabled`, `max_ops` |
+| `[line_length]` | `enabled`, `max_len` |
+| `[baseline]` | `enabled`, `deny_growth` |
+| `[escape_discipline]` | `enabled` |
+| `[oom_discipline]` | `enabled` |
+| `[magic_number]` | `enabled` |
+| `[dead_pub]` | `ignore_test_refs` |
+| `[change_classification]` | `enabled`, `against`, `gate_last_commit` |
+| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `timeout_secs` |
+| `[completeness]` | `enabled`, `exempt_sections` |
+| `[dora]` | `enabled`, `sink_path` |
+
 ## Tools
 
 ```bash
-zig build spec-init                  # Generate starter SPEC.md
+zig build                            # Compile + run every gate check (the primary gate)
+zig build test                       # Run tests + every gate check
+zig build spec-init                  # Generate starter SPEC.md (non-gating generator)
 zig build mutate                     # Mutation-test changed lines (fast tier, auto-wired)
 zig build mutate-full                # Mutation-test the whole tree + ratchet (auto-wired)
 zig build debt                       # Non-gating baseline/snapshot debt report
@@ -581,12 +633,20 @@ GUARDIAN_UPDATE_SNAPSHOT=spec,mutate ...     # Refresh only the named checks (ty
 GUARDIAN_AGAINST=origin/main ...             # Diff base for change-classification / mutate
 ```
 
+Three environment variables tune every entry point above: **`GUARDIAN_UPDATE_SNAPSHOT`**
+(`1`/`true`/`all` refreshes everything, or a comma-separated check list refreshes only those),
+**`GUARDIAN_AGAINST`** (the git ref diff-scoped features compare against; the `--against` flag
+wins over it), and **`GUARDIAN_MUTATION_RUN`** — set to `1` by guardian *itself* on the child
+builds it spawns during mutation testing, which makes every guardian command no-op so the
+deliberately-broken tree isn't gated against itself (you never set this by hand).
+
 ### `guardian-check` CLI
 
 The checker binary also runs directly (this is what the build steps invoke):
 
 ```bash
 guardian-check all .                 # Run every hard-block check
+guardian-check all . --quiet         # Same, but print only failures (what the build wiring uses)
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet
