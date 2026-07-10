@@ -41,7 +41,8 @@ pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
     const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return .{}, // zero-config: absent is fine
         else => {
-            reporter.fail("guardian: cannot read {s}: {s}", .{ path, @errorName(e) });
+            // reporter.fail already prefixes "guardian: " — don't double it.
+            reporter.fail("cannot read {s}: {s}", .{ path, @errorName(e) });
             return error.ConfigUnreadable;
         },
     };
@@ -49,7 +50,7 @@ pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
     return parseInto(allocator, content, &diag) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.UnknownSection, error.UnknownKey => {
-            reporter.fail("guardian: {s}:{d}: {s}", .{ path, diag.line, diag.message });
+            reporter.fail("{s}:{d}: {s}", .{ path, diag.line, diag.message });
             return e;
         },
     };
@@ -991,4 +992,6 @@ test "load hard-fails when guardian.toml exists but cannot be read" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
     try std.testing.expectError(error.ConfigUnreadable, load(a, dir));
+    // The diagnostic carries exactly one "guardian: " prefix (reporter adds it).
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: guardian:") == null);
 }

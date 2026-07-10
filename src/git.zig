@@ -296,11 +296,12 @@ fn checkedOutput(allocator: Allocator, project_dir: []const u8, argv: []const []
         .ok => |o| o,
         .no_repo => null,
         .failed => |stderr| {
-            reporter.fail("guardian: git command failed: {s}", .{stderr});
+            // reporter.fail already prefixes "guardian: " — don't double it.
+            reporter.fail("git command failed: {s}", .{stderr});
             return error.GitCommandFailed;
         },
         .spawn_error => |name| {
-            reporter.fail("guardian: could not run git ({s}) — is it installed and on PATH?", .{name});
+            reporter.fail("could not run git ({s}) — is it installed and on PATH?", .{name});
             return error.GitSpawnFailed;
         },
     };
