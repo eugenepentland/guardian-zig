@@ -65,6 +65,7 @@ const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
 const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
 const check_fatal_exit = @import("../checks/fatal_exit.zig");
+const check_stdout_flush = @import("../checks/stdout_flush.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
@@ -368,6 +369,11 @@ pub const all: []const Command = &.{
         .name = "fatal-exit",
         .summary = "Reject a hand-rolled std.process.exit(nonzero) outside the entry/fatal path",
         .run = check_fatal_exit.run,
+    },
+    .{
+        .name = "stdout-flush",
+        .summary = "Report-only: a buffered stdout/stderr writer with no reachable flush (0.15 truncation)",
+        .run = check_stdout_flush.run,
     },
     .{
         .name = "change-classification",

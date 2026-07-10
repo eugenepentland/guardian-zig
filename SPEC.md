@@ -493,3 +493,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Flags a nonzero std.process.exit outside the entry file
 - Allows std.process.exit(0)
 - Exempts a file that defines pub fn main
+
+## Stdout Flush
+
+- Flags a buffered stdout writer with no flush
+- Allows a buffered stdout writer that flushes before returning
+- Ignores a stdout write that never buffers

@@ -1,9 +1,9 @@
 # guardian-snapshot v1
-@alignCast 59
+@alignCast 60
 @bitCast 0
 @constCast 0
 @intFromPtr 0
-@ptrCast 66
+@ptrCast 67
 @ptrFromInt 0
 @volatileCast 0
 undefined_reassign 0

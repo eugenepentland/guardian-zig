@@ -168,6 +168,8 @@ src/checks/stack_escape.zig::analyzeContent | fn analyzeContent( allocator: Allo
 src/checks/stack_escape.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/static_factory_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/static_factory_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/stdout_flush.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/stdout_flush.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/stringly_typed_switches.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/stringly_typed_switches.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/struct_method_cap.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
