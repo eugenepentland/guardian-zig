@@ -151,7 +151,10 @@ fn boolFlip(name: []const u8) ?[]const u8 {
 
 /// Advances a monotone byte cursor to `target`, counting newlines into the
 /// running 1-indexed line number (tokens arrive in source order).
+/// Asserts the cursor has not already passed `target`: the caller feeds tokens
+/// in ascending start order, so a backward target would silently miscount lines.
 fn advanceLine(z: []const u8, cursor: *usize, target: usize, line: u32) u32 {
+    std.debug.assert(cursor.* <= target);
     var ln = line;
     while (cursor.* < target and cursor.* < z.len) : (cursor.* += 1) {
         if (z[cursor.*] == '\n') ln += 1;
@@ -186,6 +189,9 @@ fn anySpanContains(spans: []const git.LineSpan, line: u32) bool {
 pub fn sample(allocator: Allocator, mutants: []const Mutant, max: u32) Allocator.Error![]const Mutant {
     if (max == 0 or mutants.len <= max) return mutants;
     const step = mutants.len / max;
+    // len > max and max >= 1 here, so the stride is at least 1 — which keeps the
+    // largest sampled index (max-1)*step strictly below len (i.e. in bounds).
+    std.debug.assert(step >= 1);
     const out = try allocator.alloc(Mutant, max);
     for (out, 0..) |*m, i| m.* = mutants[i * step];
     return out;
@@ -340,4 +346,21 @@ test "sample takes a deterministic evenly-strided subset" {
     // Under the cap, the input is returned unchanged.
     const untouched = try sample(a, picked, 8);
     try testing.expectEqual(@as(usize, 3), untouched.len);
+}
+
+// spec: Assertion Discipline - Deterministic mutant sampling never selects an out-of-range candidate
+test "sample stays in bounds when the candidate list dwarfs the cap" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var all: [100]Mutant = undefined;
+    for (&all, 0..) |*m, i| {
+        m.* = .{ .path = "p", .start = i, .end = i, .original = "", .replacement = "", .line = @intCast(i + 1) };
+    }
+    // 100 candidates, cap 7 → stride 14 (>= 1), so the last pick is index 84 —
+    // still inside the array. A stride of 0 would have repeated index 0.
+    const picked = try sample(a, &all, 7);
+    try testing.expectEqual(@as(usize, 7), picked.len);
+    try testing.expectEqual(@as(u32, 1), picked[0].line);
+    try testing.expectEqual(@as(u32, 85), picked[6].line);
 }

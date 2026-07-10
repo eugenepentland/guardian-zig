@@ -456,3 +456,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Ignores publishable and test vendor keys
 - Skips the entropy heuristic in test blocks and fixture paths
 - Redacts the matched secret in the violation message
+
+## Assertion Discipline
+
+- Cycle detection visits a node reached by multiple import paths only once
+- Snapshot diff merges two sorted inputs into their exact set difference
+- Deterministic mutant sampling never selects an out-of-range candidate

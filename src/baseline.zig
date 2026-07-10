@@ -313,8 +313,9 @@ fn processOutcome(
 
 /// Ratchet (baseline v2) path for a threshold check: aggregate its records to
 /// one value per key, guard a deny_growth refresh, run the lifecycle, and report.
-/// Only called after `metricMode(check_name)` returned non-null, so the unwrap
-/// below is total.
+/// Asserts `check_name` is a threshold (ratchet) check — processOutcome only
+/// dispatches here when `metricMode(check_name)` is non-null, which the two
+/// `metricMode(check_name).?` unwraps below then rely on.
 fn processRatchet(
     a: std.mem.Allocator,
     ctx: *types.RunCtx,
@@ -323,6 +324,7 @@ fn processRatchet(
     records: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
+    std.debug.assert(ratchet.metricMode(check_name) != null);
     const path = try pathFor(a, ctx.project_dir, check_name);
     const entries = try ratchet.aggregate(a, records, ratchet.metricMode(check_name).?);
     try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, force_refresh);

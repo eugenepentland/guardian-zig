@@ -223,6 +223,8 @@ fn looksLikeEnvVarName(s: []const u8) bool {
 /// Shannon entropy of `s` in bits per character (0 for empty).
 fn shannonEntropy(s: []const u8) f64 {
     if (s.len == 0) return 0;
+    // Past the guard, len is non-zero, so it is a safe per-symbol probability divisor.
+    std.debug.assert(s.len > 0);
     var counts = [_]u32{0} ** 256;
     for (s) |c| counts[c] += 1;
     const len_f: f64 = @floatFromInt(s.len);

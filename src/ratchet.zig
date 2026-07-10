@@ -125,6 +125,9 @@ fn mapToSortedEntries(arena: Allocator, map: *std.StringHashMap(u64)) Allocator.
     var it = map.iterator();
     var i: usize = 0;
     while (it.next()) |e| : (i += 1) out[i] = .{ .key = e.key_ptr.*, .value = e.value_ptr.* };
+    // The map isn't mutated during iteration, so the drain fills exactly the
+    // preallocated slice — a mismatch would mean a stale count() or a leaked slot.
+    std.debug.assert(i == out.len);
     std.mem.sort(Entry, out, {}, byKey);
     return out;
 }

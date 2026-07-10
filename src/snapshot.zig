@@ -100,7 +100,12 @@ pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8)
 }
 
 /// Compute added/removed sets between sorted snapshot lines and a new sorted slice.
+/// Asserts both `old.lines` and `new_lines` are sorted ascending — the linear
+/// merge below is only correct on ordered inputs (`old` is read from a
+/// sort-on-write snapshot; `new_lines` is sorted by the caller before diffing).
 pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff {
+    std.debug.assert(std.sort.isSorted([]const u8, old.lines, {}, lessThan));
+    std.debug.assert(std.sort.isSorted([]const u8, new_lines, {}, lessThan));
     var added: std.ArrayListUnmanaged([]const u8) = .empty;
     var removed: std.ArrayListUnmanaged([]const u8) = .empty;
 
@@ -211,6 +216,22 @@ test "diff finds added and removed" {
     try std.testing.expectEqualStrings("banana", d.removed[0]);
     try std.testing.expectEqual(@as(usize, 1), d.added.len);
     try std.testing.expectEqualStrings("date", d.added[0]);
+}
+
+// spec: Assertion Discipline - Snapshot diff merges two sorted inputs into their exact set difference
+test "diff over disjoint sorted inputs reports every add and remove" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Both sides are sorted (the diff precondition) but share no element, so the
+    // linear merge must interleave them into a full remove-set and add-set.
+    const old: Snapshot = .{ .version = 1, .lines = &.{ "bravo", "delta", "foxtrot" } };
+    const new_lines = [_][]const u8{ "alpha", "charlie", "echo", "golf" };
+    const d = try diff(a, old, &new_lines);
+    try std.testing.expectEqual(@as(usize, 3), d.removed.len);
+    try std.testing.expectEqual(@as(usize, 4), d.added.len);
+    try std.testing.expectEqualStrings("alpha", d.added[0]);
+    try std.testing.expectEqualStrings("bravo", d.removed[0]);
 }
 
 test "diff identical snapshots returns empty" {
