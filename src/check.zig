@@ -1,3 +1,8 @@
+//! CLI entry point: parse argv, resolve the git-diff ref (--against /
+//! GUARDIAN_AGAINST / config), and dispatch to a registered command or one of
+//! the specially-handled aggregates (all / nightly / commit / explain /
+//! version) that can't be registry entries without forming an @import cycle.
+
 const std = @import("std");
 const config_mod = @import("config.zig");
 const config_parser = @import("config_parser.zig");
@@ -328,6 +333,7 @@ test {
     _ = @import("checks/init_hygiene.zig");
     _ = @import("checks/line_length.zig");
     _ = @import("checks/magic_number.zig");
+    _ = @import("checks/module_doc_header.zig");
     _ = @import("checks/naming.zig");
     _ = @import("checks/nesting_depth.zig");
     _ = @import("checks/no_test_imports_in_prod.zig");

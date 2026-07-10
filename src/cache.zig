@@ -1,3 +1,9 @@
+//! Skip-cache: a SHA-256 digest over guardian's whole input set (src/test/
+//! build/spec/guardian.toml/.guardian plus the guardian binary's own identity)
+//! so an `all` run whose inputs are unchanged since the last green run is
+//! skipped. Fail-open by design — any digest error makes run_all fall back to a
+//! full run, never to a wrong skip.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;

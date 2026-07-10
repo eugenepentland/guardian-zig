@@ -1,3 +1,8 @@
+//! ban-hardcoded-paths check: reject absolute filesystem paths (/home/…,
+//! C:\…) and URLs baked into string literals in src/ — environment-specific
+//! constants that belong in config, not source. `[[allow]]` path globs exempt
+//! a file.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

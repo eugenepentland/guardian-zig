@@ -1,3 +1,8 @@
+//! stack-escape check: reject returning the address of a stack local — `&local`,
+//! a slice of a stack array, `&local.field`, or a const alias bound to such an
+//! address — i.e. a dangling pointer. Addresses derived from parameters,
+//! function-call results, comptime locals, or already-pointer locals are safe.
+
 const std = @import("std");
 const Ast = std.zig.Ast;
 const walk = @import("../walk.zig");

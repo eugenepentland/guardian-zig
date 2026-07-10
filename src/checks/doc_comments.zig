@@ -1,3 +1,8 @@
+//! doc-comments check: require a real `///` doc comment on every public fn and
+//! type — presence plus quality, so empty or stub docs are rejected too.
+//! Protocol and trivial method names (deinit, format, …) are exempt from the
+//! presence rule. Folded-in from the retired doc-quality check.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

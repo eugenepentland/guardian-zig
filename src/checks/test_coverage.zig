@@ -1,3 +1,7 @@
+//! test-coverage check (opt-in): require every `pub fn` to be referenced from
+//! at least one test block — public behavior no test exercises is behavior an
+//! agent shipped unverified. Identifier references inside test blocks count.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

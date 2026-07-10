@@ -1,3 +1,8 @@
+//! static-factory-ban check: reject static factory / singleton patterns in
+//! business logic — a fn that constructs and returns the very type it lives on
+//! via hidden global state, defeating dependency injection. `[[allow]]` path
+//! globs exempt legitimate wiring.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

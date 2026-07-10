@@ -1,3 +1,7 @@
+//! test-skip-ban check: flag a test that can verify nothing — an empty body or
+//! one whose first statement is an unconditional `return error.SkipZigTest`. A
+//! conditional skip guard (a platform/feature gate) is allowed.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

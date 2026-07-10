@@ -1,3 +1,8 @@
+//! type-size check: cap the field count of a public struct/union/opaque — a
+//! type with too many fields is usually several types wanted at once. Enums are
+//! exempt (a variant list is legitimately long); exclude globs skip generated
+//! or vendored files.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

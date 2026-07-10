@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-61 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+62 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -53,6 +53,7 @@ zig build  # guardian gates every build
 | Check | Blocks on |
 |---|---|
 | **file-size** | Any .zig file exceeding `max_file_lines` (default 1000) |
+| **module-doc-header** | Any src file over 200 lines that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); exempt paths via `[[allow]]` |
 | **function-size** | Any function with more than `max_params` parameters (default 6) |
 | **function-length** | Any fn over `max_lines` source lines (default 120) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
@@ -337,7 +338,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 64 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 65 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,

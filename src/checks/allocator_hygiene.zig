@@ -1,3 +1,8 @@
+//! allocator-hygiene check: reject a hardcoded global allocator
+//! (page_allocator, smp_allocator, a GeneralPurposeAllocator literal, …)
+//! outside `pub fn main` and test blocks — allocators belong in the wiring
+//! layer and get threaded down. A `// allocator-ok` comment waives a site.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

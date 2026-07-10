@@ -1,3 +1,9 @@
+//! panic-budget check: track counts of `@panic`, `unreachable`, the two
+//! deferred-work comment markers, and `@setEvalBranchQuota` (call count + max
+//! literal) against a committed snapshot, so each only grows deliberately.
+//! Undercounting on OOM would fail open, so the tallying allocations propagate.
+//! Folded-in comptime-quota.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

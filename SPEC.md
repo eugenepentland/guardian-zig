@@ -487,3 +487,12 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Accepts a claiming doc backed by an assert call
 - Ignores lowercase or mid-word marker prose
 - Reports the fn name and line of a missing assert
+
+## Module Doc Header
+
+- Flags a module over the line threshold with no module doc header
+- Accepts an over-threshold module opening with a multi-line module doc
+- Accepts a single module-doc line meeting the character minimum
+- Rejects an over-threshold module whose lone header line is too short
+- Exempts a module at or below the line threshold
+- Skips a file matching a configured allow path

@@ -1,3 +1,9 @@
+//! Shared engine for the "banned symbol" checks (ban-time/rng/fs/net/env/sleep,
+//! debug-print-ban, deprecated-alias): each wrapper supplies a rule table of
+//! dotted symbol chains plus an allowed-path set, and this walks the token
+//! stream flagging any use outside the exempt paths. Reuses the shared AST tree
+//! when present, else parses the file once.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

@@ -1,3 +1,9 @@
+//! The check registry: the `all` table mapping each CLI name to its one-line
+//! summary and `run` fn, plus `find`/`summaryFor`/`printHelp`. Adding a check
+//! here wires it everywhere (build_helper derives the gate list from this at
+//! comptime). The composed commands (all/nightly/commit/explain/version) are
+//! dispatched outside the table to avoid an @import cycle with run_all.
+
 const std = @import("std");
 const types = @import("types.zig");
 
@@ -64,6 +70,7 @@ const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum
 const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
 const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
+const check_module_doc_header = @import("../checks/module_doc_header.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
@@ -380,6 +387,11 @@ pub const all: []const Command = &.{
         .summary = "Flag allocation errors conflated with domain absence (opt-in)",
         .needs_ast = .yes,
         .run = check_oom_discipline.run,
+    },
+    .{
+        .name = "module-doc-header",
+        .summary = "Require a //! module doc header on src files over 200 lines",
+        .run = check_module_doc_header.run,
     },
 };
 

@@ -1,3 +1,8 @@
+//! repeated-switch-on-enum check: flag the same enum dot-prong set (`.a`, `.b`,
+//! …) switched on in 2+ files — a duplicated dispatch that drifts when one copy
+//! gains a prong the other forgets. An architectural-fitness signal, not a
+//! per-switch rule.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

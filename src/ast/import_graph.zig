@@ -1,3 +1,7 @@
+//! Builds the project's `@import` graph: one node per src file with edges to
+//! the importable `.zig` files it pulls in (std/builtin/root and off-tree paths
+//! filtered out). Backs the import-cycle and orphan-file checks.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const walk = @import("../walk.zig");

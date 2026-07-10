@@ -1,3 +1,7 @@
+//! test-no-conditional check: reject if/while/switch (and a second `for`) at the
+//! top level of a test body — branching in a test usually means it silently
+//! skips the case it was meant to pin. One table-driven `for` is allowed.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

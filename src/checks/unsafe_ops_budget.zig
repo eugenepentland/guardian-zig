@@ -1,3 +1,8 @@
+//! unsafe-ops-budget check: track counts of the unsafe-cast builtins
+//! (@ptrCast/@alignCast/@constCast/@bitCast/…) and `undefined` re-assignments
+//! against a committed snapshot, so new unsafe surface is a deliberate, reviewed
+//! bump. Declaration-init `undefined` and test blocks are excluded.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

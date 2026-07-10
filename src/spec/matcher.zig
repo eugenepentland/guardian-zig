@@ -1,3 +1,8 @@
+//! Scans source for `// spec:` tags and matches them 1:1 against SPEC.md
+//! behaviors: reports unverified behaviors, unlinked tags, and near-miss
+//! malformed tags (`//spec:`, `// Spec:`, a missing space) so a typo'd tag is
+//! surfaced rather than silently ignored.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const parser = @import("parser.zig");

@@ -1,3 +1,8 @@
+//! Snapshot lifecycle shared by every snapshot-based check: compare current
+//! state to the committed snapshot and classify the run (created / unchanged /
+//! updated / drift / version_mismatch). `drift` and `version_mismatch` fail the
+//! build; `GUARDIAN_UPDATE_SNAPSHOT` (selective by check name) forces a rewrite.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");

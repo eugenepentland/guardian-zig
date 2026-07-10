@@ -1,3 +1,8 @@
+//! stub-body-ban check: reject an obvious placeholder fn body — a lone `return
+//! undefined`, a placeholder `@panic("not implemented")`, or an `unreachable`
+//! standing in for a value in a value-returning fn — code an agent left
+//! unfinished but that still compiles.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

@@ -1,3 +1,7 @@
+//! init-deinit-symmetry check: a struct that owns an allocator field must
+//! declare a `pub fn deinit` — a resource it acquires needs a matching release
+//! or callers leak. Tokenizer walk of each pub container's body.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

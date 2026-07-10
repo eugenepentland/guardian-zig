@@ -142,6 +142,7 @@ src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/magic_number.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/magic_number.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/module_doc_header.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/nesting_depth.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.NestingDepthCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/nesting_depth.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void

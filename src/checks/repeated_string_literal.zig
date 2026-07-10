@@ -1,3 +1,7 @@
+//! repeated-string-literal check: flag a string literal repeated 3+ times in
+//! one file (extract it to a named const) and the same file-scope string const
+//! duplicated across files. Folded-in from the retired dup-const check.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

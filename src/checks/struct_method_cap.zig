@@ -1,3 +1,7 @@
+//! struct-method-cap check: cap the number of `pub fn` methods on a single pub
+//! container (struct/enum/union) — a god-object taking on too many jobs.
+//! Per-container ratchet key, so an existing offender only has to stop growing.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

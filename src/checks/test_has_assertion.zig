@@ -1,3 +1,8 @@
+//! test-has-assertion check: require every named test block to contain at least
+//! one assertion — a `try` (error-propagation counts) or an `expect*`/`assert*`
+//! call. Anonymous `test { … }` aggregators are exempt. Token-based, so a
+//! `expected` variable or a comment never counts as an assertion.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

@@ -1,3 +1,8 @@
+//! dead-pub check: flag a `pub fn`/`pub const` whose identifier is referenced
+//! only by its own declaration — dead public surface an agent left behind.
+//! Counts references over the shared token index; `skip_tests` drops test-only
+//! references so a decl kept alive by nothing but its own test still reads dead.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

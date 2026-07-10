@@ -1,3 +1,9 @@
+//! Recursive `.zig` file walker (visitor pattern): yields each source file as a
+//! sentinel-terminated `FileEntry` to a check's callback. Fail-loud — a missing
+//! root is simply nothing to scan, but any other read error (permissions,
+//! oversize) is a hard error: a silently skipped file would be exempt from
+//! every check.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 

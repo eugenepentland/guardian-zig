@@ -1,3 +1,9 @@
+//! ban-secrets check: reject hardcoded credentials — known vendor token formats
+//! (AWS/GitHub/Slack/Stripe/…), PEM private-key headers, and high-entropy values
+//! assigned to secret-named identifiers. Placeholders, env-var names, and
+//! publishable/test keys are ignored; the entropy heuristic is off in test and
+//! fixture paths; the matched secret is redacted in the violation message.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

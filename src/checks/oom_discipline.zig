@@ -1,3 +1,8 @@
+//! oom-discipline check (opt-in): flag an allocation error dropped by a
+//! swallowing `catch` — `catch return <literal>` / `null` / `continue` on an
+//! allocating call — which conflates OutOfMemory with domain absence. Returning
+//! the caught error payload (or a real error value) is allowed.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

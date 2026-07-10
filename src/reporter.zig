@@ -1,3 +1,8 @@
+//! Terminal output plus the `Violation` value type. `ok`/`fail`/`detail` print
+//! the `guardian: ` status lines; `Violation` carries the structured
+//! `ratchet_key`/`metric` hooks the per-item ratchets and the JSONL sink read
+//! without re-parsing prose. Output is unbuffered debug.print to stderr.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;

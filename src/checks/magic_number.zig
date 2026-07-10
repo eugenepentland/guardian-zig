@@ -1,3 +1,8 @@
+//! magic-number check (opt-in, default off): reject a bare integer literal
+//! outside a small allowlist (0/1/2, hex/oct/bin, float-idiom positions) — an
+//! unexplained constant an agent should have named. `[[allow]]` and the
+//! allowlist keep it from firing on the obvious cases.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

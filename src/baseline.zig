@@ -1,3 +1,9 @@
+//! Baseline mode (v1 text baselines): grandfather a check's *existing*
+//! violations so only newly-added ones fail the build. Capture-once,
+//! diff-by-exact-text, auto-prune when the set shrinks; `grown` is the single
+//! failing outcome. Threshold checks use per-item ratchets (ratchet.zig)
+//! instead, which this module self-migrates to.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");

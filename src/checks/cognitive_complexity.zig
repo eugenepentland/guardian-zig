@@ -1,3 +1,8 @@
+//! cognitive-complexity check: cap a per-function branch score (if/while/for/
+//! switch each +1; `and`/`or`/`catch` are taxed by other checks so they don't
+//! double-count here). A flat count that under- rather than over-estimates
+//! deep nesting; the threshold compensates. Per-fn ratchet key.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

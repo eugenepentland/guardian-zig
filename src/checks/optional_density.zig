@@ -1,3 +1,8 @@
+//! optional-density check: cap the share of optional (`?T`) fields in a public
+//! struct — a struct that is mostly optionals is usually a missing type
+//! distinction or an under-specified state machine. Only structs at/above a
+//! minimum field count are measured, so the percentage has a stable divisor.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
