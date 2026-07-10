@@ -320,11 +320,15 @@ const entries = [_]Entry{
     \\`[[allow]] check = "ban-sleep"`.
     },
     .{ .name = "ban-globals", .text = 
-    \\Why: a mutable `pub var` global is shared hidden state — an agent's quick
-    \\stash that causes spooky action at a distance.
+    \\Why: a mutable file-scope `var` (pub or not, `threadlocal` included) — or a
+    \\`pub var` at container scope — is shared hidden global state, an agent's
+    \\quick stash that causes spooky action at a distance. zig-core's library core
+    \\has ~zero of these; process-lifetime globals live only in the entry layer.
     \\Fix: pass the state explicitly, or own it in a struct with a lifetime.
-    \\Exempt: allowed in `wiring`/`main`; add paths via
-    \\`[[allow]] check = "ban-globals"`.
+    \\Exempt: allowed in `wiring`/`main` and test files; add paths via
+    \\`[[allow]] check = "ban-globals"` (Guardian exempts its own reporter.zig
+    \\threadlocal singleton this way). A struct-scope non-pub container `var` is
+    \\out of scope.
     },
     .{ .name = "ban-hardcoded-paths", .text = 
     \\Why: a literal `/etc`, a Windows drive path, or `http://host` is an

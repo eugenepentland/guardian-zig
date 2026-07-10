@@ -111,7 +111,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **ban-net** | `std.net.*` / `std.http.*` outside `adapters/http` or `infra/net` |
 | **ban-env** | `std.process.getEnvVarOwned` etc. outside `config` or `main` |
 | **ban-sleep** | `std.Thread.sleep` / `std.time.sleep` outside test infrastructure |
-| **ban-globals** | top-level `pub var` outside `wiring` / `main` |
+| **ban-globals** | A file-scope `var` (pub or not, `threadlocal` included) or a `pub var` at container scope, outside `wiring` / `main` — mutable process-lifetime global state. Test files exempt; `[[allow]] check = "ban-globals"` grants path exemptions (Guardian's own `reporter.zig` threadlocal singleton). Struct-scope non-pub container `var`s are out of scope |
 | **ban-hardcoded-paths** | absolute `/etc`, `/usr`, Windows `C:\`, `http://`, `https://` literals |
 | **ban-secrets** | hardcoded credentials — known vendor token formats (AWS/GitHub/Slack/Google/OpenAI/Stripe-live/JWT), PEM private-key headers, and entropy-gated `password`/`token`/`secret`-named assignments (precision-first: publishable/test keys and placeholders are ignored) |
 | **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests / CLI command modules (`cli/*`, `commands*`) |
