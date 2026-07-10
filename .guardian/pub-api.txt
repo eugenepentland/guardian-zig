@@ -127,6 +127,8 @@ src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.Ru
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/escape_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/escape_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/fatal_exit.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
+src/checks/fatal_exit.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.FunctionLengthCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -353,6 +355,7 @@ src/reporter.zig::emit | fn emit(self: Reporter, v: Violation) void
 src/reporter.zig::emit | fn emit(v: Violation) void
 src/reporter.zig::fail | fn fail(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::fail | fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::fatal | fn fatal(comptime fmt: []const u8, args: anytype) noreturn
 src/reporter.zig::flatLine | fn flatLine(arena: Allocator, v: Violation) Allocator.Error![]const u8
 src/reporter.zig::flatLines | fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![]const []const u8
 src/reporter.zig::green value

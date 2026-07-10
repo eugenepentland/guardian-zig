@@ -64,8 +64,7 @@ pub fn main() !void {
 
     // --only and --skip contradict each other; reject the combination outright.
     if (onlySkipConflict(parsed)) {
-        reporter.fail("--only and --skip cannot be combined", .{});
-        std.process.exit(1);
+        reporter.fatal("--only and --skip cannot be combined", .{});
     }
 
     // Fail closed on a broken guardian.toml: load prints a located diagnostic
@@ -319,6 +318,7 @@ test {
     _ = @import("checks/error_discipline.zig");
     _ = @import("checks/escape_discipline.zig");
     _ = @import("checks/oom_discipline.zig");
+    _ = @import("checks/fatal_exit.zig");
     _ = @import("checks/file_size.zig");
     _ = @import("checks/function_length.zig");
     _ = @import("checks/function_size.zig");

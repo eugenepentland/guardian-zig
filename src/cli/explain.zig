@@ -472,6 +472,21 @@ const entries = [_]Entry{
     \\trigger is the whole word `Asserts` (case-sensitive), so lowercase prose
     \\never fires.
     },
+    .{ .name = "fatal-exit", .text = 
+    \\Why: a raw `std.process.exit(1)` scattered through the code fragments the
+    \\termination path an agent should route through one helper. Zig core funnels
+    \\every hard exit through `std.process.fatal` (×281); Guardian carries
+    \\`reporter.fatal`, which keeps the "guardian: " prefix and coloring that
+    \\`std.process.fatal` drops. `exit(0)` and `std.process.cleanExit` are fine —
+    \\a clean success exit isn't the fragmentation this targets.
+    \\Fix: replace `std.process.exit(<nonzero>)` with `reporter.fatal("...", .{})`
+    \\(or your project's fatal helper). Detection is the lexical `process.exit(`
+    \\chain, so string/comment mentions never fire.
+    \\Exempt: the process entry file is auto-detected by its `fn main` (a
+    \\downstream `src/main.zig` needs no config); designate the fatal helper's own
+    \\file via `[[allow]] check = "fatal-exit"` (Guardian points it at
+    \\`src/reporter.zig`).
+    },
     .{ .name = "change-classification", .text = 
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
     \\no regression test" pattern that lets the same bug return.
