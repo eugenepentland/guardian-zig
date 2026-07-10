@@ -22,6 +22,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses the change classification last-commit gate toggle
 - Defaults completeness off and parses its enabled and exempt_sections settings
 - Parses the dora sink path and enabled toggle
+- Parses the fuzz_presence modules list
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
 - Parses the intent flag for the commit command
@@ -493,3 +494,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Fuzzing the guardian.toml parser never panics and every reject populates its diagnostic
 - Fuzzing the wildcard matcher never crashes and a star-free pattern matches iff equal
 - Fuzzing the inline-test scope tracker never crashes and holds its depth invariant
+
+## Fuzz Presence
+
+- Passes each configured module that contains a std.testing.fuzz call
+- Flags a configured module whose source has no fuzz call
+- Hard-fails a configured module that is missing or unreadable

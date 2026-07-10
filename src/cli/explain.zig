@@ -491,6 +491,16 @@ const entries = [_]Entry{
     \\Fix: propagate the allocation error; handle domain-absence separately.
     \\Exempt: off unless `[oom_discipline] enabled = true`.
     },
+    .{ .name = "fuzz-presence", .text = 
+    \\Why (opt-in): a hand-rolled parser/decoder that ate untrusted input loses
+    \\its fuzz harness in a refactor, so the coverage-guided net silently lapses.
+    \\Fix: add a `test { try std.testing.fuzz(ctx, testOne, .{}); }` harness to
+    \\each module listed in `[fuzz_presence] modules`. A listed file that is
+    \\missing/unreadable or carries no `std.testing.fuzz` call fails the gate —
+    \\fail-closed, so a stale path can't quietly pass.
+    \\Exempt: off unless `[fuzz_presence] modules` names at least one file; drop
+    \\a path from that list if it no longer needs a fuzz harness.
+    },
     .{ .name = "commit", .text = 
     \\Why: a meta command, not a gate — brings guardian-zig into the sibling
     \\guardians' intent-driven flow: run the whole gate, then commit the change

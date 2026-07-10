@@ -322,6 +322,7 @@ test {
     _ = @import("checks/file_size.zig");
     _ = @import("checks/function_length.zig");
     _ = @import("checks/function_size.zig");
+    _ = @import("checks/fuzz_presence.zig");
     _ = @import("checks/imports.zig");
     _ = @import("checks/int_from_float_budget.zig");
     _ = @import("checks/init_deinit_symmetry.zig");

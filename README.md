@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-61 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+62 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -130,6 +130,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **test-no-conditional** | `if` / `while` / `switch` or 2+ `for` loops at the top level of a test body |
 | **test-skip-ban** | A test whose body is empty or whose first statement is an unconditional `return error.SkipZigTest;` — it still satisfies its `// spec:` tag while never running (a conditional `if (…) return error.SkipZigTest;` is legal) |
 | **prod-imports-no-test** | Production code `@import`-ing a `*_test.zig` or `tests/` path |
+| **fuzz-presence** *(opt-in)* | A file in `[fuzz_presence] modules` that has no `std.testing.fuzz` call (or is missing/unreadable — fail-closed). Off unless `[fuzz_presence] modules` names at least one path; guardian points it at the parser/matcher/scanner cores it fuzzes |
 
 ### Complexity Bounds (Tier 1)
 | Check | Blocks on |
@@ -358,7 +359,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 64 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 65 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -612,8 +613,10 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
 ### Complete key reference
 
-Every setting `src/config_parser.zig` understands (unknown sections/keys are
-silently ignored, so a typo'd `[section]` is a no-op, not an error):
+Every setting `src/config_parser.zig` understands (the parser fails closed —
+an unknown section header or an unknown key inside a known section is a hard
+error with a `guardian.toml:line:` diagnostic, so a typo can't silently drop
+config):
 
 | Scope | Keys |
 |---|---|
@@ -641,6 +644,7 @@ silently ignored, so a typo'd `[section]` is a no-op, not an error):
 | `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `timeout_secs` |
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
+| `[fuzz_presence]` | `modules` |
 
 ## Tools
 

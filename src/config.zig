@@ -232,6 +232,17 @@ pub const TestCoverageCfg = struct {
     exempt_names: []const []const u8 = &.{},
 };
 
+/// Per-check config for fuzz-presence. Each path in `modules` must contain at
+/// least one `std.testing.fuzz` call. Opt-in by construction: an empty list (the
+/// default) is a no-op, so the check does nothing until a project names the
+/// parser/decoder modules it expects to keep fuzzed. Paths are walker-relative
+/// (e.g. "src/config_parser.zig"), resolved under the project dir; a listed file
+/// that is missing/unreadable or carries no fuzz call is a hard failure, so a
+/// stale entry fails the gate closed rather than silently passing.
+pub const FuzzPresenceCfg = struct {
+    modules: []const []const u8 = &.{},
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -279,6 +290,7 @@ pub const Config = struct {
     mutation: MutationCfg = .{},
     completeness: CompletenessCfg = .{},
     dora: DoraCfg = .{},
+    fuzz_presence: FuzzPresenceCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 

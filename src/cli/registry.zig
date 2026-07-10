@@ -64,6 +64,7 @@ const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum
 const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
 const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
+const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
@@ -380,6 +381,11 @@ pub const all: []const Command = &.{
         .summary = "Flag allocation errors conflated with domain absence (opt-in)",
         .needs_ast = .yes,
         .run = check_oom_discipline.run,
+    },
+    .{
+        .name = "fuzz-presence",
+        .summary = "Require a std.testing.fuzz call in each configured module (opt-in)",
+        .run = check_fuzz_presence.run,
     },
 };
 
