@@ -73,7 +73,7 @@ const opts: helper.ScanOpts = .{
 pub fn analyzeContent(
     allocator: std.mem.Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) std.mem.Allocator.Error![]const []const u8 {
     return helper.analyzeContent(allocator, rel_path, content, opts);
 }

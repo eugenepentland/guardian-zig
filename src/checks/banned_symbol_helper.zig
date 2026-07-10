@@ -100,7 +100,7 @@ const Ctx = struct {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
     opts: ScanOpts,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
@@ -113,8 +113,7 @@ pub fn analyzeContent(
         .violations = &violations,
         .opts = opts,
     };
-    const z = try allocator.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .zig);
     try scanTree(&ctx, &tree);
     return violations.toOwnedSlice(allocator);
 }

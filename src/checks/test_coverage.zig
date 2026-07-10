@@ -75,10 +75,9 @@ const ScanState = struct {
 
 fn tallyTestRefs(
     allocator: std.mem.Allocator,
-    content: []const u8,
+    z: [:0]const u8,
     counts: *std.StringHashMapUnmanaged(u32),
 ) std.mem.Allocator.Error!void {
-    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
     var state: ScanState = .{};

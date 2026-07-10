@@ -128,9 +128,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 const testing = std.testing;
 
-fn scoreSource(allocator: std.mem.Allocator, source: []const u8) !u32 {
-    const z = try allocator.dupeZ(u8, source);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+fn scoreSource(allocator: std.mem.Allocator, source: [:0]const u8) !u32 {
+    var tree = try std.zig.Ast.parse(allocator, source, .zig);
     const tags = tree.tokens.items(.tag);
     for (tree.rootDecls()) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;

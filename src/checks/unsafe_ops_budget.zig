@@ -125,11 +125,10 @@ fn tallyBuiltin(c: *Counts, slice: []const u8) void {
 }
 
 /// Content entry (tests / standalone with no shared tree): parse once, count.
-fn countFromContent(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!Counts {
+fn countFromContent(allocator: std.mem.Allocator, content: [:0]const u8) std.mem.Allocator.Error!Counts {
     // Propagate OOM: zeroed counts on allocation failure would let a new unsafe
     // op or undefined re-assignment slip past the snapshot budget.
-    const z = try allocator.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .zig);
     return countFromTree(&tree);
 }
 

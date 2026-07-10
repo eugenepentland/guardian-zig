@@ -70,12 +70,11 @@ pub fn verdictFor(t: Totals) Verdict {
 /// blank and comment-only lines are ignored; everything else is behavioral.
 pub fn classifyAdded(
     allocator: Allocator,
-    content: []const u8,
+    content: [:0]const u8,
     spans: []const git.LineSpan,
 ) Allocator.Error!LineCounts {
     const lines = try splitLines(allocator, content);
-    const z = try allocator.dupeZ(u8, content);
-    const ranges = try testLineRanges(allocator, z, @intCast(lines.len));
+    const ranges = try testLineRanges(allocator, content, @intCast(lines.len));
 
     var counts: LineCounts = .{};
     for (spans) |span| {
