@@ -61,6 +61,8 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
 
 fn recordDensity(ctx: *ScanCtx, head: Head, stats: Stats) Allocator.Error!void {
     if (stats.total < min_fields) return;
+    // Past the guard, total >= min_fields (4), so it is a safe density divisor.
+    std.debug.assert(stats.total > 0);
     const pct = (stats.optional * 100) / stats.total;
     if (pct <= max_density_pct) return;
     try ctx.violations.append(ctx.allocator, .{

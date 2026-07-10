@@ -126,11 +126,11 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-59 checks gate the build (most hard-block; completeness/test-coverage/
+60 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number are opt-in, default off) plus
 `zig fmt --check`. Three more registry entries are non-gating steps, never part
 of `all`: the `spec-init` generator, the `mutate` command, and the `debt`
-report (62 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
+report (63 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are
@@ -142,7 +142,8 @@ and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` is now *selective*: `=1`
 one accepted change no longer ratifies unrelated drift. An unknown name in the
 list hard-fails the run. The non-gating `guardian-check debt [dir]` (`zig build
 debt`) reports every baseline/snapshot total, sorted by count, with the delta
-vs the committed `.guardian/` state.
+vs the committed `.guardian/` state, then an informational assert-density table
+(assert() calls per KLOC per top-level src module, ascending).
 
 Two features diff the working tree against a git ref (`--against` flag,
 `GUARDIAN_AGAINST` env var, or `[change_classification] against`; default

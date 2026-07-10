@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-59 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+60 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -88,6 +88,7 @@ zig build  # guardian gates every build
 | **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts, or `@setEvalBranchQuota` call count / max literal (snapshot) |
 | **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |
 | **unsafe-ops-budget** | Increase in any unsafe-cast builtin count (`@ptrCast`, `@alignCast`, `@bitCast`, `@ptrFromInt`, `@intFromPtr`, `@constCast`, `@volatileCast`) or in `undefined` re-assignments to a live lvalue; declaration-init and test blocks exempt (snapshot) |
+| **assert-doc-consistency** | A fn whose `///` doc carries the Zig-core `Asserts` precondition convention (whole word, case-sensitive) but whose body has no `assert(` call — the doc promises a guard the code never performs (exempt paths via `[[allow]]`) |
 
 ### Allocation
 | Check | Blocks on |
@@ -331,11 +332,11 @@ structured findings instead of re-parsing terminal prose.
 ```jsonl
 {"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (cap 200)","fix_hint":null,"ratchet_key":"src/foo.zig|parse","metric":246}
 {"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Auth - Validates tokens","fix_hint":null,"ratchet_key":null,"metric":null}
-{"type":"summary","passed":57,"failed":2,"skipped":3,"filtered":false}
+{"type":"summary","passed":58,"failed":2,"skipped":3,"filtered":false}
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 62 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 63 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -465,7 +466,7 @@ guardian: refusing to refresh file-size: ratchet would raise a value or add a ke
           fix the regressions or remove file-size from deny_growth
 ```
 
-**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state. A per-item ratchet also shows its worst offender:
+**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state, followed by an informational assert-density table (`assert()` calls per KLOC per top-level `src/` module, ascending — the most assert-starved modules first). A per-item ratchet also shows its worst offender:
 
 ```
 debt report — 2 tracked source(s), sorted by count (delta vs HEAD)

@@ -218,6 +218,10 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
         const start_tok = body_start_tok orelse continue;
         const start = tree.tokenStart(start_tok);
         const end_pos = tree.tokenStart(decl_last_tok) + tree.tokenSlice(decl_last_tok).len;
+        // The body's opening `{` (start_tok) is found by scanning up to
+        // decl_last_tok, so it precedes the decl's last token — the body slice is
+        // never inverted.
+        std.debug.assert(start <= end_pos);
         const body_text = tree.source[start..end_pos];
 
         const fn_kw_byte = tree.tokenStart(proto.ast.fn_token);

@@ -131,6 +131,10 @@ fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Alloca
         gop.value_ptr.* = line; // latest wins
         try map.put(arena, key, outcome);
     }
+    // Every unique identity is appended to `order` exactly once (the
+    // !found_existing branch) and put into `map`, so the compaction below has one
+    // reuse entry per emitted line.
+    std.debug.assert(order.items.len == map.count());
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     for (order.items) |k| {
         try buf.appendSlice(arena, latest.get(k).?);

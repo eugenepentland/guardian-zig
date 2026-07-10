@@ -73,10 +73,13 @@ const CycleFinder = struct {
         return null;
     }
 
-    // Records the cycle that closes at `target` (already gray on the stack).
-    // OOM propagates: silently dropping the recorded cycle would let the
-    // imports check pass on a graph that actually has one (fail open).
+    /// Records the cycle that closes at `target`. Asserts `target` is gray —
+    /// dfs only reaches here on a gray back-edge, so `target` must be somewhere
+    /// on the current DFS stack for the loop-slice below to find its start.
+    /// OOM propagates: silently dropping the recorded cycle would let the
+    /// imports check pass on a graph that actually has one (fail open).
     fn recordCycle(self: *CycleFinder, target: usize) Allocator.Error!void {
+        std.debug.assert(self.colors[target] == .gray);
         var loop: std.ArrayListUnmanaged(usize) = .empty;
         var found_start = false;
         for (self.stack.items) |s| {
@@ -87,8 +90,12 @@ const CycleFinder = struct {
         self.cycle = try loop.toOwnedSlice(self.allocator);
     }
 
+    /// Asserts `idx` is unvisited (white) on entry: findCycle seeds only white
+    /// roots and dfs recurses only into white children, so a 3-color DFS never
+    /// re-enters a gray/black node — re-entry would double-push the stack.
     fn dfs(self: *CycleFinder, idx: usize) Allocator.Error!void {
         if (self.cycle != null) return;
+        std.debug.assert(self.colors[idx] == .white);
         self.colors[idx] = .gray;
         try self.stack.append(self.allocator, idx);
         for (self.nodes[idx].edges) |edge| {
@@ -211,6 +218,23 @@ test "findCycle detects two-node cycle" {
     const cycle = try findCycle(a, nodes);
     try std.testing.expect(cycle != null);
     try std.testing.expect(cycle.?.len >= 2);
+}
+
+// spec: Assertion Discipline - Cycle detection visits a node reached by multiple import paths only once
+test "findCycle handles a diamond where two paths reach one node" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // a -> b, a -> c, b -> d, c -> d: d is reachable by two paths. The DFS marks
+    // d black after the first visit, so the second edge into it is a no-op — the
+    // white-on-entry invariant (dfs) holds and no false cycle is reported.
+    const nodes = &[_]Node{
+        .{ .path = "src/a.zig", .edges = &.{ "src/b.zig", "src/c.zig" } },
+        .{ .path = "src/b.zig", .edges = &.{"src/d.zig"} },
+        .{ .path = "src/c.zig", .edges = &.{"src/d.zig"} },
+        .{ .path = "src/d.zig", .edges = &.{} },
+    };
+    try std.testing.expect(try findCycle(a, nodes) == null);
 }
 
 test "findCycle ignores edges to unknown nodes" {

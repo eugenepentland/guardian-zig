@@ -41,6 +41,10 @@ pub const TestScope = struct {
             },
             else => {},
         }
+        // While inside a test body the opening brace's depth is never below the
+        // current depth: the closing brace clears in_test at depth == test_depth
+        // before decrementing, so depth never falls under test_depth while in_test.
+        std.debug.assert(!self.in_test or self.test_depth <= self.depth);
     }
 };
 

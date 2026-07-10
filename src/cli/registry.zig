@@ -62,6 +62,7 @@ const check_stringly_typed_switches = @import("../checks/stringly_typed_switches
 const check_repeated_switch_on_enum = @import("../checks/repeated_switch_on_enum.zig");
 const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
+const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
@@ -348,6 +349,12 @@ pub const all: []const Command = &.{
         .summary = "Reject returning the address of a stack local (dangling pointer)",
         .needs_ast = .yes,
         .run = check_stack_escape.run,
+    },
+    .{
+        .name = "assert-doc-consistency",
+        .summary = "Require a body assert() in any fn whose doc claims an Asserts precondition",
+        .needs_ast = .yes,
+        .run = check_assert_doc_consistency.run,
     },
     .{
         .name = "change-classification",

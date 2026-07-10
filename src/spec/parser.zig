@@ -44,7 +44,11 @@ const ParseState = struct {
         }
     }
 
+    /// Asserts `line` begins with the `## ` heading marker — parseContent only
+    /// dispatches here after matching that prefix, and the 3-byte slice below
+    /// relies on it.
     fn handleHeading(self: *ParseState, line: []const u8) ParseError!void {
+        std.debug.assert(std.mem.startsWith(u8, line, "## "));
         const name = std.mem.trim(u8, line[3..], &std.ascii.whitespace);
         try self.flushSection();
         self.current_section = null;
@@ -58,7 +62,10 @@ const ParseState = struct {
         self.current_section = name;
     }
 
+    /// Asserts `line` begins with the `### ` subheading marker — the caller
+    /// gates on that prefix and the 4-byte slice below depends on it.
     fn handleSubheading(self: *ParseState, line: []const u8) ParseError!void {
+        std.debug.assert(std.mem.startsWith(u8, line, "### "));
         const sub = std.mem.trim(u8, line[4..], &std.ascii.whitespace);
         if (self.current_section) |sec| {
             if (self.current_behaviors.items.len > 0) {
@@ -75,7 +82,10 @@ const ParseState = struct {
         self.current_behaviors = .empty;
     }
 
+    /// Asserts `line` begins with the `- ` bullet marker — parseContent only
+    /// routes bullet lines here, and the 2-byte slice below assumes it.
     fn handleBullet(self: *ParseState, line: []const u8) ParseError!void {
+        std.debug.assert(std.mem.startsWith(u8, line, "- "));
         const sec = self.current_section orelse return;
         const statement = std.mem.trim(u8, line[2..], &std.ascii.whitespace);
         // A `- completeness-waiver: ...` bullet is metadata for the opt-in

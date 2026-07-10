@@ -147,6 +147,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Sorts the debt rows by count descending
 - Formats a committed-state delta and omits it when unchanged or absent
 - Omits a clean source with zero debt and no committed change
+- Reports assert-call density per top-level src module sorted ascending
 
 ## Versioning
 
@@ -464,3 +465,16 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Ignores publishable and test vendor keys
 - Skips the entropy heuristic in test blocks and fixture paths
 - Redacts the matched secret in the violation message
+
+## Assertion Discipline
+
+- Cycle detection visits a node reached by multiple import paths only once
+- Snapshot diff merges two sorted inputs into their exact set difference
+- Deterministic mutant sampling never selects an out-of-range candidate
+
+## Assert Doc Consistency
+
+- Flags a fn whose doc claims an assertion but whose body has none
+- Accepts a claiming doc backed by an assert call
+- Ignores lowercase or mid-word marker prose
+- Reports the fn name and line of a missing assert

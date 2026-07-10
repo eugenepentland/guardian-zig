@@ -85,6 +85,9 @@ pub const Score = struct {
         const kills = self.killed + self.timed_out;
         const denom = self.viable();
         if (denom == 0) return 100;
+        // kills is a subset of viable (viable also counts survived), so the
+        // percentage can never exceed 100 — guards a future edit to viable().
+        std.debug.assert(kills <= denom);
         return kills * 100 / denom;
     }
 };
