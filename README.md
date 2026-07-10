@@ -35,7 +35,11 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
+<<<<<<< HEAD
 62 checks gate Guardian's own self-build; a 63rd, `stdout-flush`, is **report-only** — it runs on every build but surfaces findings without ever failing it (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+=======
+62 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+>>>>>>> fix/fuzzing-and-guards
 
 ### Spec workflow
 | Check | Blocks on |
@@ -88,7 +92,7 @@ zig build  # guardian gates every build
 | **stack-escape** | Returning `&local` / a slice of a stack array / `&local.field` / a `const` alias of `&local` — a dangling pointer into the dead frame |
 | **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
 | **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts, or `@setEvalBranchQuota` call count / max literal (snapshot) |
-| **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |
+| **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot). Casts inside a body of a `[int_from_float] guard_fns` wrapper don't count (the wrapper *is* the guard, e.g. a `checkedInt` that validates isFinite+range first); optional `require_guard` path globs additionally **hard-fail** any unguarded cast under them |
 | **unsafe-ops-budget** | Increase in any unsafe-cast builtin count (`@ptrCast`, `@alignCast`, `@bitCast`, `@ptrFromInt`, `@intFromPtr`, `@constCast`, `@volatileCast`) or in `undefined` re-assignments to a live lvalue; declaration-init and test blocks exempt (snapshot) |
 | **assert-doc-consistency** | A fn whose `///` doc carries the Zig-core `Asserts` precondition convention (whole word, case-sensitive) but whose body has no `assert(` call — the doc promises a guard the code never performs (exempt paths via `[[allow]]`) |
 | **fatal-exit** | A hand-rolled `std.process.exit(<nonzero>)` outside the process entry file (auto-detected by its `fn main`) or the designated fatal-helper file (`[[allow]] check = "fatal-exit"`). `exit(0)` / `std.process.cleanExit` are fine — route hard exits through `reporter.fatal` (Zig-core `std.process.fatal`), which keeps the `guardian:` prefix. Lexical `process.exit(` match, so string/comment mentions never fire |
@@ -132,6 +136,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **test-no-conditional** | `if` / `while` / `switch` or 2+ `for` loops at the top level of a test body |
 | **test-skip-ban** | A test whose body is empty or whose first statement is an unconditional `return error.SkipZigTest;` — it still satisfies its `// spec:` tag while never running (a conditional `if (…) return error.SkipZigTest;` is legal) |
 | **prod-imports-no-test** | Production code `@import`-ing a `*_test.zig` or `tests/` path |
+| **fuzz-presence** *(opt-in)* | A file in `[fuzz_presence] modules` that has no `std.testing.fuzz` call (or is missing/unreadable — fail-closed). Off unless `[fuzz_presence] modules` names at least one path; guardian points it at the parser/matcher/scanner cores it fuzzes |
 
 ### Complexity Bounds (Tier 1)
 | Check | Blocks on |
@@ -275,6 +280,27 @@ The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
 - **dup-tokens** — token-window hashing with snapshot ratchet. Designed but not implemented.
 - **port-implementations** — opt-in via `[[port]]` declarations. Designed but not implemented.
 
+## Fuzzing
+
+Guardian's hand-rolled scanners eat untrusted text — arbitrary `guardian.toml`
+bytes, config glob patterns, and whole source files — so the parser/matcher/
+scanner cores carry `std.testing.fuzz` harnesses (the guardian.toml parser, the
+`matchWildcard` glob cursor, and the `text.TestScope` brace tracker).
+
+```bash
+zig build test          # harnesses run once per corpus entry + empty input (smoke)
+zig build test --fuzz   # deep run: libFuzzer explores from the seed corpus
+```
+
+Under a plain `zig build test` each harness runs as a smoke test — the test
+runner calls it on every seeded corpus entry plus the empty string, so a
+regression in the reject paths reds the normal build. `--fuzz` turns the same
+harnesses into a coverage-guided search (it needs a toolchain whose fuzzer
+coverage instrumentation is working; the smoke path always runs). Each asserts
+an invariant rather than success: the parser may reject input, but a reject must
+populate its diagnostic; a star-free glob matches iff the candidate equals the
+pattern; the scope tracker never underflows and keeps `test_depth <= depth`.
+
 ## Spec-Driven Workflow
 
 ```markdown
@@ -339,7 +365,11 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
+<<<<<<< HEAD
   `passed` + `failed` + `skipped` sum to the 66 registry entries — `skipped` is
+=======
+  `passed` + `failed` + `skipped` sum to the 65 registry entries — `skipped` is
+>>>>>>> fix/fuzzing-and-guards
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -593,8 +623,10 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 
 ### Complete key reference
 
-Every setting `src/config_parser.zig` understands (unknown sections/keys are
-silently ignored, so a typo'd `[section]` is a no-op, not an error):
+Every setting `src/config_parser.zig` understands (the parser fails closed —
+an unknown section header or an unknown key inside a known section is a hard
+error with a `guardian.toml:line:` diagnostic, so a typo can't silently drop
+config):
 
 | Scope | Keys |
 |---|---|
@@ -622,6 +654,8 @@ silently ignored, so a typo'd `[section]` is a no-op, not an error):
 | `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `timeout_secs` |
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
+| `[fuzz_presence]` | `modules` |
+| `[int_from_float]` | `guard_fns`, `require_guard` |
 
 ## Tools
 

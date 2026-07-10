@@ -36,6 +36,13 @@ enabled = true
 [oom_discipline]
 enabled = true
 
+# fuzz-presence is opt-in: each listed module must keep a std.testing.fuzz
+# harness. Guardian's hand-rolled scanners eat untrusted text, so dogfood the
+# check on exactly the three cores that carry fuzz harnesses (see the README
+# "Fuzzing" section). A refactor that drops one of these harnesses reds the gate.
+[fuzz_presence]
+modules = ["src/config_parser.zig", "src/walk.zig", "src/text.zig"]
+
 # Guardian's own self-hosting exemptions. These used to be compiled into each
 # check's source, which silently punched the same holes into any downstream repo
 # sharing those paths. Moving them here keeps the checks honest for consumers and
@@ -49,7 +56,7 @@ enabled = true
 # appends its JSONL delivery-telemetry file.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/testing/*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
 
 # Delivery telemetry is guardian's one legitimate wall-clock consumer: the DORA
 # sink times each gate run with std.time.Timer to record duration_ms. This

@@ -241,7 +241,14 @@ const entries = [_]Entry{
     .{ .name = "int-from-float-budget", .text = 
     \\Why: every new `@intFromFloat` is a lossy cast that silently mishandles NaN
     \\/ out-of-range values unless guarded.
-    \\Fix: clamp/validate the float and document the range before casting.
+    \\Fix: clamp/validate the float and document the range before casting — or
+    \\route it through a guard fn that checks isFinite+range in float space first
+    \\(eda's `numeric.checkedInt` is the model consumer, guarding 95 raw sites vs
+    \\10 today). Name that fn in `[int_from_float] guard_fns = ["checkedInt"]` and
+    \\casts in its body stop counting toward the budget — the wrapper IS the guard.
+    \\Optional strict mode: `[int_from_float] require_guard = ["src/render/*"]`
+    \\hard-fails ANY unguarded cast under those path globs, so a chosen subtree can
+    \\be driven to zero (independent of the snapshot budget).
     \\Exempt: `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` after the guard review, then
     \\commit the snapshot.
     },
@@ -523,6 +530,16 @@ const entries = [_]Entry{
     \\OutOfMemory with "not found", dropping data an agent meant to keep.
     \\Fix: propagate the allocation error; handle domain-absence separately.
     \\Exempt: off unless `[oom_discipline] enabled = true`.
+    },
+    .{ .name = "fuzz-presence", .text = 
+    \\Why (opt-in): a hand-rolled parser/decoder that ate untrusted input loses
+    \\its fuzz harness in a refactor, so the coverage-guided net silently lapses.
+    \\Fix: add a `test { try std.testing.fuzz(ctx, testOne, .{}); }` harness to
+    \\each module listed in `[fuzz_presence] modules`. A listed file that is
+    \\missing/unreadable or carries no `std.testing.fuzz` call fails the gate —
+    \\fail-closed, so a stale path can't quietly pass.
+    \\Exempt: off unless `[fuzz_presence] modules` names at least one file; drop
+    \\a path from that list if it no longer needs a fuzz harness.
     },
     .{ .name = "commit", .text = 
     \\Why: a meta command, not a gate — brings guardian-zig into the sibling

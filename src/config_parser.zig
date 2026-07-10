@@ -79,6 +79,8 @@ const Section = enum {
     mutation,
     completeness,
     dora,
+    fuzz_presence,
+    int_from_float,
     unknown,
 };
 
@@ -344,6 +346,8 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .mutation => &.{ "min_score_pct", "min_mutants", "max_mutants", "timeout_secs" },
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
+        .fuzz_presence => &.{"modules"},
+        .int_from_float => &.{ "guard_fns", "require_guard" },
         .unknown => &.{},
     };
 }
@@ -381,6 +385,8 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .mutation => applyMutationKey(ctx, kv),
         .completeness => try applyCompletenessKey(ctx, kv),
         .dora => applyDoraKey(ctx, kv),
+        .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
+        .int_from_float => try applyIntFromFloatKey(ctx, kv),
         .unknown => {},
     }
 }
@@ -409,6 +415,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "mutation", Section.mutation },
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
+        .{ "fuzz_presence", Section.fuzz_presence },
+        .{ "int_from_float", Section.int_from_float },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -552,6 +560,21 @@ fn applyDoraKey(ctx: ApplyCtx, kv: KeyVal) void {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     } else if (std.mem.eql(u8, kv.key, "sink_path")) {
         if (parseString(kv.val)) |v| g.sink_path = v;
+    }
+}
+
+fn applyFuzzPresenceKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, "modules")) {
+        ctx.cfg.fuzz_presence.modules = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+fn applyIntFromFloatKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.int_from_float;
+    if (std.mem.eql(u8, kv.key, "guard_fns")) {
+        g.guard_fns = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, "require_guard")) {
+        g.require_guard = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -778,6 +801,43 @@ test "parse [dora] defaults on and reads enabled + sink_path" {
     try std.testing.expectEqualStrings("metrics/runs.jsonl", cfg.dora.sink_path);
 }
 
+// spec: Configuration - Parses the fuzz_presence modules list
+
+test "parse [fuzz_presence] defaults empty and reads the modules list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: no modules configured, so the check is a no-op.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.fuzz_presence.modules.len);
+    const cfg = try parse(arena.allocator(),
+        \\[fuzz_presence]
+        \\modules = ["src/config_parser.zig", "src/walk.zig"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.fuzz_presence.modules.len);
+    try std.testing.expectEqualStrings("src/config_parser.zig", cfg.fuzz_presence.modules[0]);
+    try std.testing.expectEqualStrings("src/walk.zig", cfg.fuzz_presence.modules[1]);
+}
+
+// spec: Configuration - Parses the int_from_float guard_fns and require_guard lists
+
+test "parse [int_from_float] defaults empty and reads guard_fns + require_guard" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: no guards, no strict paths — the plain count-everything budget.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.int_from_float.guard_fns.len);
+    try std.testing.expectEqual(@as(usize, 0), defaults.int_from_float.require_guard.len);
+    const cfg = try parse(arena.allocator(),
+        \\[int_from_float]
+        \\guard_fns = ["checkedInt"]
+        \\require_guard = ["src/render/*"]
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.int_from_float.guard_fns.len);
+    try std.testing.expectEqualStrings("checkedInt", cfg.int_from_float.guard_fns[0]);
+    try std.testing.expectEqual(@as(usize, 1), cfg.int_from_float.require_guard.len);
+    try std.testing.expectEqualStrings("src/render/*", cfg.int_from_float.require_guard[0]);
+}
+
 // spec: Configuration - Parses the change classification last-commit gate toggle
 
 test "parse reads [change_classification] gate_last_commit" {
@@ -994,4 +1054,42 @@ test "load hard-fails when guardian.toml exists but cannot be read" {
     try std.testing.expectError(error.ConfigUnreadable, load(a, dir));
     // The diagnostic carries exactly one "guardian: " prefix (reporter adds it).
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: guardian:") == null);
+}
+
+// Hand-picked malformed inputs so the default `zig build test` smoke run — which
+// calls the harness on every corpus entry plus the empty string — actually
+// exercises the reject paths, not just a trivial parse. `zig build test --fuzz`
+// explores past these.
+const config_fuzz_corpus = [_][]const u8{
+    "[[",
+    "[unknown_section]",
+    "[mutation]\nbogus = 1",
+    "spec_file = \"x",
+    "[[allow]]\ncheck =",
+};
+
+/// One fuzz iteration for the guardian.toml parser: arbitrary input bytes must
+/// never panic or overflow. A `ParseError` is a valid outcome — the invariant
+/// under test is that rejecting input never fails open: whenever the parser
+/// returns UnknownSection/UnknownKey it has also populated the diagnostic (a
+/// non-zero line and a non-empty message), so a misconfigured gate always
+/// reports where. OOM from a giant fuzzer input is not a parser bug.
+fn fuzzParseInto(allocator: Allocator, input: []const u8) anyerror!void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    _ = parseInto(arena.allocator(), input, &diag) catch |e| switch (e) {
+        error.OutOfMemory => return,
+        error.UnknownSection, error.UnknownKey => {
+            try std.testing.expect(diag.line != 0 and diag.message.len != 0);
+            return;
+        },
+    };
+}
+
+// spec: Fuzzing - Fuzzing the guardian.toml parser never panics and every reject populates its diagnostic
+test "fuzz: guardian.toml parser tolerates arbitrary bytes" {
+    // The allocator rides in as the fuzz context, so the global only appears in
+    // this (exempt) test block, not the helper body.
+    try std.testing.fuzz(std.testing.allocator, fuzzParseInto, .{ .corpus = &config_fuzz_corpus });
 }

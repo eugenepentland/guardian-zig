@@ -133,6 +133,7 @@ src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.Run
 src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.FunctionLengthCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/fuzz_presence.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/init_deinit_symmetry.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -230,6 +231,8 @@ src/config.zig::DoraCfg struct_
 src/config.zig::EscapeDisciplineCfg struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
+src/config.zig::FuzzPresenceCfg struct_
+src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
 src/config.zig::MutationCfg struct_
