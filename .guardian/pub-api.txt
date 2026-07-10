@@ -111,6 +111,8 @@ src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunErr
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/deprecated_alias.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/deprecated_alias.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.DocQualityCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/errdefer_in_init.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
@@ -375,7 +377,7 @@ src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocat
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
-src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayListUnmanaged(ModuleInfo), ) InitError!void
+src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayList(ModuleInfo), ) InitError!void
 src/spec/init.zig::extractPubFns | fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error![]const []const u8
 src/spec/init.zig::generateSpecContent | fn generateSpecContent( allocator: std.mem.Allocator, modules: []const ModuleInfo, ) std.mem.Allocator.Error![]const u8
 src/spec/matcher.zig::CoverageResult struct_

@@ -14,7 +14,7 @@ pub const Node = struct {
 
 const CollectCtx = struct {
     allocator: Allocator,
-    nodes: *std.ArrayListUnmanaged(Node),
+    nodes: *std.ArrayList(Node),
 };
 
 fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -22,7 +22,7 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     const a = ctx.allocator;
 
     const raw = ast.imports(a, entry.content);
-    var edges: std.ArrayListUnmanaged([]const u8) = .empty;
+    var edges: std.ArrayList([]const u8) = .empty;
     for (raw) |imp| {
         if (std.mem.eql(u8, imp.path, "std")) continue;
         if (std.mem.eql(u8, imp.path, "builtin")) continue;
@@ -49,7 +49,7 @@ pub const BuildError = anyerror;
 /// matching against other Node.path values. Edges that don't resolve to a
 /// node in the walk set are still kept (callers filter them).
 pub fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node {
-    var nodes: std.ArrayListUnmanaged(Node) = .empty;
+    var nodes: std.ArrayList(Node) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .nodes = &nodes };
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
@@ -63,7 +63,7 @@ const CycleFinder = struct {
     allocator: Allocator,
     nodes: []const Node,
     colors: []Color,
-    stack: std.ArrayListUnmanaged(usize),
+    stack: std.ArrayList(usize),
     cycle: ?[]const usize,
 
     fn nodeIndex(self: *CycleFinder, path: []const u8) ?usize {
@@ -75,7 +75,7 @@ const CycleFinder = struct {
 
     // Records the cycle that closes at `target` (already gray on the stack).
     fn recordCycle(self: *CycleFinder, target: usize) void {
-        var loop: std.ArrayListUnmanaged(usize) = .empty;
+        var loop: std.ArrayList(usize) = .empty;
         var found_start = false;
         for (self.stack.items) |s| {
             if (s == target) found_start = true;
@@ -129,7 +129,7 @@ fn indicesToPaths(
     nodes: []const Node,
     indices: []const usize,
 ) ?[]const []const u8 {
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     for (indices) |idx| out.append(allocator, nodes[idx].path) catch return null;
     return out.toOwnedSlice(allocator) catch null;
 }
@@ -153,7 +153,7 @@ pub fn reachableFrom(
         for (nodes[idx].edges) |edge| try bfs.enqueueByPath(edge);
     }
 
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     for (nodes, 0..) |n, i| {
         if (visited[i]) try out.append(allocator, n.path);
     }
@@ -167,7 +167,7 @@ const Bfs = struct {
     allocator: Allocator,
     nodes: []const Node,
     visited: []bool,
-    queue: std.ArrayListUnmanaged(usize),
+    queue: std.ArrayList(usize),
 
     // Marks and enqueues the first unvisited node whose path equals `path`.
     fn enqueueByPath(self: *Bfs, path: []const u8) Allocator.Error!void {

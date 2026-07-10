@@ -13,7 +13,7 @@ const fail = reporter.fail;
 const BoundaryCtx = struct {
     allocator: std.mem.Allocator,
     rules: []const config_mod.BoundaryRule,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -55,7 +55,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: BoundaryCtx = .{
         .allocator = allocator,
         .rules = cfg.boundary_rules,
@@ -78,7 +78,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 fn extractImports(allocator: std.mem.Allocator, content: []const u8, file_path: []const u8) ![]const []const u8 {
     const raw_imports = ast.imports(allocator, content);
-    var resolved: std.ArrayListUnmanaged([]const u8) = .empty;
+    var resolved: std.ArrayList([]const u8) = .empty;
     for (raw_imports) |imp| {
         if (std.mem.eql(u8, imp.path, "std")) continue;
         if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |dir_end| {
@@ -118,7 +118,7 @@ test "boundaryVisit detects violation" {
     const rules = &[_]config_mod.BoundaryRule{
         .{ .module_pattern = "src/core/*", .forbidden_imports = &.{"utils"} },
     };
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: BoundaryCtx = .{ .allocator = a, .rules = rules, .violations = &violations };
     try walk.walkZigFiles(a, "test-project/src", .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = boundaryVisit });
     try std.testing.expect(violations.items.len > 0);

@@ -12,7 +12,7 @@ const ScanCtx = struct {
     allocator: std.mem.Allocator,
     max_per_file: u32,
     exclude: []const []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 /// True when `rel_path` matches any exclude pattern (a legitimate
@@ -102,7 +102,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .max_per_file = cfg.anytype_budget.max_per_file,

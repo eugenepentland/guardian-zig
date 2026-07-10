@@ -60,9 +60,9 @@ pub const CoverageResult = struct {
 
 const ScanCtx = struct {
     allocator: Allocator,
-    tags: *std.ArrayListUnmanaged(SpecTag),
-    malformed: *std.ArrayListUnmanaged(MalformedTag),
-    unattached: *std.ArrayListUnmanaged(MalformedTag),
+    tags: *std.ArrayList(SpecTag),
+    malformed: *std.ArrayList(MalformedTag),
+    unattached: *std.ArrayList(MalformedTag),
 };
 
 fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -72,9 +72,9 @@ fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
 /// Recursively scans a directory for `// spec:` tags (and near-miss/unattached).
 pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult {
-    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
-    var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
-    var unattached: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    var tags: std.ArrayList(SpecTag) = .empty;
+    var malformed: std.ArrayList(MalformedTag) = .empty;
+    var unattached: std.ArrayList(MalformedTag) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
     try walk.walkZigFiles(allocator, dir_path, .{ .display_root = dir_path }, .{ .ctx = &ctx, .visit = scanVisit });
     return .{
@@ -100,7 +100,7 @@ fn looksLikeSpecTag(line: []const u8) bool {
 fn extractTags(ctx: *ScanCtx, path: []const u8, content: []const u8) !void {
     const allocator = ctx.allocator;
     // Collect lines so we can look ahead from a tag to the next code line.
-    var line_list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var line_list: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |raw| try line_list.append(allocator, std.mem.trim(u8, raw, &std.ascii.whitespace));
     const lines = line_list.items;
@@ -178,7 +178,7 @@ fn flattenBehaviors(
     allocator: Allocator,
     sections: []const parser.Section,
 ) Allocator.Error![]parser.Behavior {
-    var all_behaviors: std.ArrayListUnmanaged(parser.Behavior) = .empty;
+    var all_behaviors: std.ArrayList(parser.Behavior) = .empty;
     for (sections) |s| {
         for (s.behaviors) |b| {
             try all_behaviors.append(allocator, b);
@@ -201,7 +201,7 @@ fn collectUnverified(
     behaviors: []const parser.Behavior,
     tags: []const SpecTag,
 ) Allocator.Error![]parser.Behavior {
-    var unverified: std.ArrayListUnmanaged(parser.Behavior) = .empty;
+    var unverified: std.ArrayList(parser.Behavior) = .empty;
     for (behaviors) |b| {
         if (!tagCoversKey(tags, b.key)) try unverified.append(allocator, b);
     }
@@ -222,7 +222,7 @@ fn collectUnlinked(
     behaviors: []const parser.Behavior,
     tags: []const SpecTag,
 ) Allocator.Error![]SpecTag {
-    var unlinked: std.ArrayListUnmanaged(SpecTag) = .empty;
+    var unlinked: std.ArrayList(SpecTag) = .empty;
     for (tags) |t| {
         if (!behaviorHasKey(behaviors, t.key)) try unlinked.append(allocator, t);
     }
@@ -235,14 +235,14 @@ fn collectDuplicateTags(
     allocator: Allocator,
     tags: []const SpecTag,
 ) Allocator.Error![]DuplicateTag {
-    var by_key = std.StringArrayHashMap(std.ArrayListUnmanaged([]const u8)).init(allocator);
+    var by_key: std.StringArrayHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
     for (tags) |t| {
-        const gop = try by_key.getOrPut(t.key);
+        const gop = try by_key.getOrPut(allocator, t.key);
         if (!gop.found_existing) gop.value_ptr.* = .empty;
         try gop.value_ptr.append(allocator, t.file);
     }
 
-    var duplicates: std.ArrayListUnmanaged(DuplicateTag) = .empty;
+    var duplicates: std.ArrayList(DuplicateTag) = .empty;
     var it = by_key.iterator();
     while (it.next()) |e| {
         const files = e.value_ptr.items;
@@ -261,14 +261,14 @@ fn collectDuplicateBehaviors(
     allocator: Allocator,
     behaviors: []const parser.Behavior,
 ) Allocator.Error![]DuplicateBehavior {
-    var counts = std.StringArrayHashMap(usize).init(allocator);
+    var counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
     for (behaviors) |b| {
-        const gop = try counts.getOrPut(b.key);
+        const gop = try counts.getOrPut(allocator, b.key);
         if (!gop.found_existing) gop.value_ptr.* = 0;
         gop.value_ptr.* += 1;
     }
 
-    var dup_behaviors: std.ArrayListUnmanaged(DuplicateBehavior) = .empty;
+    var dup_behaviors: std.ArrayList(DuplicateBehavior) = .empty;
     var it = counts.iterator();
     while (it.next()) |e| {
         if (e.value_ptr.* <= 1) continue;
@@ -397,9 +397,9 @@ test "extractTags classifies tags by attachment, near-miss, and prose" {
         "const x = 1;\n" ++
         "//spec: Math - muls\n" ++ // malformed: no space after //
         "// species of birds: many\n"; // prose, not a tag
-    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
-    var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
-    var unattached: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    var tags: std.ArrayList(SpecTag) = .empty;
+    var malformed: std.ArrayList(MalformedTag) = .empty;
+    var unattached: std.ArrayList(MalformedTag) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
     try extractTags(&ctx, "x.zig", content);
     try std.testing.expectEqual(@as(usize, 1), tags.items.len);
@@ -420,9 +420,9 @@ test "extractTags accepts an in-body top tag but not a mid-body one" {
         "try expect(y);\n" ++
         "// spec: Math - subs\n" ++ // unattached — mid-body, not the top
         "}\n";
-    var tags: std.ArrayListUnmanaged(SpecTag) = .empty;
-    var malformed: std.ArrayListUnmanaged(MalformedTag) = .empty;
-    var unattached: std.ArrayListUnmanaged(MalformedTag) = .empty;
+    var tags: std.ArrayList(SpecTag) = .empty;
+    var malformed: std.ArrayList(MalformedTag) = .empty;
+    var unattached: std.ArrayList(MalformedTag) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
     try extractTags(&ctx, "x.zig", content);
     try std.testing.expectEqual(@as(usize, 1), tags.items.len);

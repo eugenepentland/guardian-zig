@@ -10,7 +10,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 const ChainState = enum {
@@ -38,7 +38,7 @@ fn isForbiddenHeap(name: []const u8) bool {
 // per-tag handlers can be private helpers instead of nested blocks.
 const ScanState = struct {
     depth: u32 = 0,
-    permissive: std.ArrayListUnmanaged(u32) = .empty,
+    permissive: std.ArrayList(u32) = .empty,
     pending_permissive: bool = false,
     saw_fn: bool = false,
     // Previous token, so an `error{...}` set in `pub fn main()`'s return type
@@ -205,7 +205,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -228,7 +228,7 @@ test "visit honors an allocator-ok justification comment" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     // Comment on the line above, and same-line — both suppress.
     const content =
@@ -248,7 +248,7 @@ test "visit flags page_allocator outside main and test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\fn helper() void {
@@ -264,7 +264,7 @@ test "visit allows page_allocator inside pub fn main" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\pub fn main() !void {
@@ -279,7 +279,7 @@ test "visit allows page_allocator in main with an explicit error set" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     // The error{...} return set used to consume the permissive scope, leaving
     // the real body non-permissive and flagging page_allocator.
@@ -297,7 +297,7 @@ test "visit allows testing.allocator inside test block" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\test "uses testing allocator" {
@@ -313,7 +313,7 @@ test "visit flags testing.allocator outside test block" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\fn helper() void {
@@ -329,7 +329,7 @@ test "visit ignores std.heap.ArenaAllocator (not a forbidden chain)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\fn helper(parent: std.mem.Allocator) void {
@@ -345,7 +345,7 @@ test "visit ignores forbidden chain inside string literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "const s = \"std.heap.page_allocator\";\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
@@ -356,7 +356,7 @@ test "visit flags GeneralPurposeAllocator outside main" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\fn helper() void {
@@ -372,7 +372,7 @@ test "visit handles non-main fn followed by allocator pattern" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\pub fn run() !void {

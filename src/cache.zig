@@ -28,7 +28,7 @@ fn lessThan(_: void, a: Item, b: Item) bool {
 
 const Collector = struct {
     arena: Allocator,
-    items: *std.ArrayListUnmanaged(Item),
+    items: *std.ArrayList(Item),
 };
 
 fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -41,7 +41,7 @@ fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
 fn readSingle(
     arena: Allocator,
-    items: *std.ArrayListUnmanaged(Item),
+    items: *std.ArrayList(Item),
     project_dir: []const u8,
     leaf: []const u8,
 ) Error!void {
@@ -85,7 +85,7 @@ fn digestWithBinaryId(
     spec_file: []const u8,
     binary_id: []const u8,
 ) Error!Digest {
-    var items: std.ArrayListUnmanaged(Item) = .empty;
+    var items: std.ArrayList(Item) = .empty;
     var ctx: Collector = .{ .arena = arena, .items = &items };
     const v: walk.Visitor = .{ .ctx = @ptrCast(&ctx), .visit = collect };
 
@@ -138,7 +138,7 @@ fn hashItems(version: []const u8, prefix: []const u8, items: []const Item) Diges
 /// result cache: any source or test edit changes this digest and so invalidates
 /// every cached outcome (correctness first; see mutation/cache.zig).
 pub fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest {
-    var items: std.ArrayListUnmanaged(Item) = .empty;
+    var items: std.ArrayList(Item) = .empty;
     var ctx: Collector = .{ .arena = arena, .items = &items };
     const v: walk.Visitor = .{ .ctx = @ptrCast(&ctx), .visit = collect };
 

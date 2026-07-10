@@ -68,7 +68,7 @@ pub fn imports(arena: Allocator, source: []const u8) []const Import {
 }
 
 fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
-    var result: std.ArrayListUnmanaged(Import) = .empty;
+    var result: std.ArrayList(Import) = .empty;
     const z = try arena.dupeZ(u8, source);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
@@ -102,7 +102,7 @@ pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
 /// and re-parsing the source for this query.
 pub fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubFn {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(PubFn) = .empty;
+    var result: std.ArrayList(PubFn) = .empty;
 
     for (try collectDecls(arena, &tree)) |decl| {
         var buf: [1]Ast.Node.Index = undefined;
@@ -136,7 +136,7 @@ fn fnProtoSource(tree: *const Ast, proto: Ast.full.FnProto) []const u8 {
 }
 
 fn collapseWhitespace(arena: Allocator, text: []const u8) ![]const u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     var prev_was_space = false;
     for (text) |c| {
         const is_space = c == ' ' or c == '\t' or c == '\n' or c == '\r';
@@ -171,7 +171,7 @@ pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
 /// caller holding a shared parse can skip re-parsing the source.
 pub fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnInfo {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(FnInfo) = .empty;
+    var result: std.ArrayList(FnInfo) = .empty;
 
     for (try collectDecls(arena, &tree)) |decl| {
         var buf: [1]Ast.Node.Index = undefined;

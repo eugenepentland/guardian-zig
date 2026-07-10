@@ -22,11 +22,11 @@ pub const FakeFs = struct {
     /// Allocator backing the map and every stored key / value copy.
     allocator: std.mem.Allocator,
     /// Path (key) -> file contents (value); both owned by `allocator`.
-    files: std.StringHashMap([]const u8),
+    files: std.StringHashMapUnmanaged([]const u8),
 
     /// Creates an empty in-memory filesystem backed by `allocator`.
     pub fn init(allocator: std.mem.Allocator) FakeFs {
-        return .{ .allocator = allocator, .files = std.StringHashMap([]const u8).init(allocator) };
+        return .{ .allocator = allocator, .files = .empty };
     }
 
     /// Frees every stored path and its contents, then the map itself.
@@ -36,7 +36,7 @@ pub const FakeFs = struct {
             self.allocator.free(entry.key_ptr.*);
             self.allocator.free(entry.value_ptr.*);
         }
-        self.files.deinit();
+        self.files.deinit(self.allocator);
     }
 
     /// Stores `bytes` at `path`, replacing any existing contents. Both the
@@ -52,7 +52,7 @@ pub const FakeFs = struct {
             self.allocator.free(value_copy);
             return err;
         };
-        self.files.put(key_copy, value_copy) catch |err| {
+        self.files.put(self.allocator, key_copy, value_copy) catch |err| {
             self.allocator.free(key_copy);
             self.allocator.free(value_copy);
             return err;
@@ -87,7 +87,7 @@ pub const FakeFs = struct {
         self: *const FakeFs,
         result_allocator: std.mem.Allocator,
     ) std.mem.Allocator.Error![]const []const u8 {
-        var paths: std.ArrayListUnmanaged([]const u8) = .empty;
+        var paths: std.ArrayList([]const u8) = .empty;
         var it = self.files.iterator();
         while (it.next()) |entry| {
             try paths.append(result_allocator, entry.key_ptr.*);

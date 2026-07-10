@@ -12,7 +12,7 @@ const max_methods: u32 = 20;
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
 };
 
 /// Pure-function entry: scans `content` for pub container declarations
@@ -22,7 +22,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .rel_path = rel_path,
@@ -129,7 +129,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -145,7 +145,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// Entry point for the struct-method-cap check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
@@ -164,7 +164,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
 test "analyzeContent flags struct with > 20 methods" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(arena.allocator());
     const a = arena.allocator();
     try buf.appendSlice(a, "pub const Big = struct {\n");
@@ -182,7 +182,7 @@ test "analyzeContent counts pub inline/extern methods toward the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     try buf.appendSlice(a, "pub const Big = struct {\n");
     // 21 `pub inline fn` methods: before the fix the modifier reset saw_pub
     // and none were counted.

@@ -34,7 +34,7 @@ const allowlist = [_][]const u8{
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 /// Pure-function entry: scans `content` for integer-literal tokens that
@@ -45,7 +45,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .rel_path = rel_path,
@@ -183,7 +183,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -203,7 +203,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("magic-number disabled by config (opt-in via [magic_number] enabled = true)", .{});
         return;
     }
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 

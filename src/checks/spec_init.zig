@@ -23,7 +23,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     } else |_| {}
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    var modules: std.ArrayListUnmanaged(spec_init.ModuleInfo) = .empty;
+    var modules: std.ArrayList(spec_init.ModuleInfo) = .empty;
     try spec_init.collectModules(allocator, src_path, "", &modules);
 
     if (modules.items.len == 0) {

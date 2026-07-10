@@ -167,7 +167,7 @@ fn onlySkipConflict(parsed: ParsedArgs) bool {
 /// null (no filter active).
 fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) []const []const u8 {
     const s = csv orelse return &.{};
-    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var list: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, s, ',');
     while (it.next()) |part| {
         const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
@@ -305,6 +305,7 @@ test {
     _ = @import("checks/completeness.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
+    _ = @import("checks/deprecated_alias.zig");
     _ = @import("checks/doc_comments.zig");
     _ = @import("checks/errdefer_in_init.zig");
     _ = @import("checks/error_discipline.zig");

@@ -15,11 +15,11 @@ pub const FakeEnv = struct {
     /// Allocator backing the map and every stored key / value copy.
     allocator: std.mem.Allocator,
     /// Variable name (key) -> value; both owned by `allocator`.
-    vars: std.StringHashMap([]const u8),
+    vars: std.StringHashMapUnmanaged([]const u8),
 
     /// Creates an empty environment backed by `allocator`.
     pub fn init(allocator: std.mem.Allocator) FakeEnv {
-        return .{ .allocator = allocator, .vars = std.StringHashMap([]const u8).init(allocator) };
+        return .{ .allocator = allocator, .vars = .empty };
     }
 
     /// Frees every stored name and value, then the map itself.
@@ -29,7 +29,7 @@ pub const FakeEnv = struct {
             self.allocator.free(entry.key_ptr.*);
             self.allocator.free(entry.value_ptr.*);
         }
-        self.vars.deinit();
+        self.vars.deinit(self.allocator);
     }
 
     /// Sets `key` to `value`, replacing any current value. Both are copied,
@@ -45,7 +45,7 @@ pub const FakeEnv = struct {
             self.allocator.free(value_copy);
             return err;
         };
-        self.vars.put(key_copy, value_copy) catch |err| {
+        self.vars.put(self.allocator, key_copy, value_copy) catch |err| {
             self.allocator.free(key_copy);
             self.allocator.free(value_copy);
             return err;

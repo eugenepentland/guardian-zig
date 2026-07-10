@@ -24,7 +24,7 @@ const Decl = struct {
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
-    decls: *std.ArrayListUnmanaged(Decl),
+    decls: *std.ArrayList(Decl),
 };
 
 fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -45,7 +45,7 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
 const RefCtx = struct {
     allocator: std.mem.Allocator,
-    counts: *std.StringHashMap(u32),
+    counts: *std.StringHashMapUnmanaged(u32),
     skip_tests: bool = false,
 };
 
@@ -63,7 +63,7 @@ fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// re-tokenizing. When `skip_tests` is set, identifiers inside `test {...}`
 /// blocks don't count, so a pub decl kept alive only by its own test is still
 /// seen as dead.
-fn tallyTree(tree: *const std.zig.Ast, counts: *std.StringHashMap(u32), skip_tests: bool) void {
+fn tallyTree(tree: *const std.zig.Ast, counts: *std.StringHashMapUnmanaged(u32), skip_tests: bool) void {
     const tags = tree.tokens.items(.tag);
     var scope: text.TestScope = .{};
     for (tags, 0..) |tag, i| {
@@ -79,7 +79,7 @@ fn tallyTree(tree: *const std.zig.Ast, counts: *std.StringHashMap(u32), skip_tes
 fn tallyIdentifiers(
     allocator: std.mem.Allocator,
     content: []const u8,
-    counts: *std.StringHashMap(u32),
+    counts: *std.StringHashMapUnmanaged(u32),
     skip_tests: bool,
 ) !void {
     const z = try allocator.dupeZ(u8, content);
@@ -92,9 +92,9 @@ fn tallyIdentifiers(
 fn findDead(
     allocator: std.mem.Allocator,
     decls: []const Decl,
-    counts: *std.StringHashMap(u32),
+    counts: *std.StringHashMapUnmanaged(u32),
 ) ![]const Decl {
-    var dead: std.ArrayListUnmanaged(Decl) = .empty;
+    var dead: std.ArrayList(Decl) = .empty;
     for (decls) |d| {
         const c = counts.get(d.name) orelse 0;
         if (c <= 1) try dead.append(allocator, d);
@@ -129,7 +129,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const project_dir = ctx_param.project_dir;
 
     // Pass 1: collect every pub decl in src/.
-    var decls: std.ArrayListUnmanaged(Decl) = .empty;
+    var decls: std.ArrayList(Decl) = .empty;
     var collect_ctx: CollectCtx = .{ .allocator = allocator, .decls = &decls };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{
         .ctx = &collect_ctx,
@@ -142,9 +142,9 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     // Pass 2: tally identifier-token references across src/ and test/.
-    var counts = std.StringHashMap(u32).init(allocator);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
     for (decls.items) |d| {
-        try counts.put(d.name, 0);
+        try counts.put(allocator, d.name, 0);
     }
     const ignore_test = ctx_param.cfg.dead_pub.ignore_test_refs;
     var ref_ctx: RefCtx = .{
@@ -191,8 +191,8 @@ test "findDead flags decl with no callers" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("orphan", 1); // 1 = the decl itself, no caller
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "orphan", 1); // 1 = the decl itself, no caller
 
     const decls = [_]Decl{.{ .file = "src/a.zig", .name = "orphan" }};
     const dead = try findDead(a, &decls, &counts);
@@ -205,8 +205,8 @@ test "findDead does not flag decl with at least one caller" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("alive", 2); // decl + 1 caller
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "alive", 2); // decl + 1 caller
 
     const decls = [_]Decl{.{ .file = "src/a.zig", .name = "alive" }};
     const dead = try findDead(a, &decls, &counts);
@@ -218,8 +218,8 @@ test "tallyIdentifiers counts identifiers and skips strings/comments" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("foo", 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "foo", 0);
 
     const content =
         \\fn caller() void {
@@ -238,8 +238,8 @@ test "tallyIdentifiers can skip test-block references" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("widget", 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "widget", 0);
 
     const content =
         \\pub fn widget() void {}
@@ -261,8 +261,8 @@ test "findDead known limitation: same-named decls in different files share a cou
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("shared", 3); // 2 decls (one in each file) + 1 caller
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "shared", 3); // 2 decls (one in each file) + 1 caller
 
     const decls = [_]Decl{
         .{ .file = "src/a.zig", .name = "shared" },

@@ -14,7 +14,7 @@ const lineOf = @import("../text.zig").lineOf;
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 /// True for a `print`/`allocPrint`/`bufPrint` call — the format-string sinks
@@ -135,7 +135,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .rel_path = rel_path, .violations = &violations };
     const z = try allocator.dupeZ(u8, content);
     try scan(&ctx, z);
@@ -158,7 +158,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .rel_path = "", .violations = &violations };
     const opts: walk.Visitor = .{ .ctx = &ctx, .visit = visit };
     try ast_index.runSrc(ctx_param.source_index, allocator, ctx_param.project_dir, opts);

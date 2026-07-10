@@ -74,7 +74,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// Walks `.guardian/` (minus the cache dir) and turns each recognized file into
 /// a Row. Unknown files are skipped. A missing `.guardian/` yields no rows.
 fn collectRows(allocator: Allocator, project_dir: []const u8) types.RunError![]Row {
-    var rows: std.ArrayListUnmanaged(Row) = .empty;
+    var rows: std.ArrayList(Row) = .empty;
     var ctx: Collector = .{ .arena = allocator, .project_dir = project_dir, .rows = &rows };
     const guardian_dir = try std.fmt.allocPrint(allocator, "{s}/.guardian", .{project_dir});
     try walk.walkZigFiles(allocator, guardian_dir, .{
@@ -90,7 +90,7 @@ fn collectRows(allocator: Allocator, project_dir: []const u8) types.RunError![]R
 const Collector = struct {
     arena: Allocator,
     project_dir: []const u8,
-    rows: *std.ArrayListUnmanaged(Row),
+    rows: *std.ArrayList(Row),
 };
 
 /// Visitor: classify one `.guardian/` file, summarize its current total, attach

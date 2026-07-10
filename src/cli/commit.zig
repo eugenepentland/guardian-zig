@@ -98,8 +98,8 @@ const StagePlan = struct {
 /// Partitions `changed` into the stage set and the skipped-forbidden set. Pure
 /// over its inputs so the rails are unit-tested without touching git.
 fn planStaging(a: Allocator, changed: []const []const u8, spec_file: []const u8) Allocator.Error!StagePlan {
-    var stage: std.ArrayListUnmanaged([]const u8) = .empty;
-    var skipped: std.ArrayListUnmanaged([]const u8) = .empty;
+    var stage: std.ArrayList([]const u8) = .empty;
+    var skipped: std.ArrayList([]const u8) = .empty;
     for (changed) |p| {
         switch (stagingDecision(p, spec_file)) {
             .stage => try stage.append(a, p),

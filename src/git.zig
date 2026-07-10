@@ -41,9 +41,9 @@ pub const DiffResult = union(enum) {
 /// new side is /dev/null (deletions) are dropped; deletion-only hunks
 /// contribute no spans.
 pub fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff {
-    var files: std.ArrayListUnmanaged(FileDiff) = .empty;
+    var files: std.ArrayList(FileDiff) = .empty;
     var cur_path: ?[]const u8 = null;
-    var cur_spans: std.ArrayListUnmanaged(LineSpan) = .empty;
+    var cur_spans: std.ArrayList(LineSpan) = .empty;
 
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |line| {
@@ -75,9 +75,9 @@ fn newFilePathLine(line: []const u8) ?[]const u8 {
 
 fn flushFile(
     allocator: Allocator,
-    files: *std.ArrayListUnmanaged(FileDiff),
+    files: *std.ArrayList(FileDiff),
     path: ?[]const u8,
-    spans: *std.ArrayListUnmanaged(LineSpan),
+    spans: *std.ArrayList(LineSpan),
 ) Allocator.Error!void {
     const p = path orelse return;
     if (p.len == 0) return; // deletion (/dev/null new side)
@@ -143,7 +143,7 @@ pub fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []con
 pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const []const u8 {
     const argv = [_][]const u8{ "git", "ls-files", "--others", "--exclude-standard" };
     const out = runGit(allocator, project_dir, &argv) orelse return &.{};
-    var paths: std.ArrayListUnmanaged([]const u8) = .empty;
+    var paths: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, out, '\n');
     while (it.next()) |line| {
         if (line.len > 0) try paths.append(allocator, line);
@@ -186,7 +186,7 @@ pub fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Err
 /// `<origpath>\0` token, so the new path is kept and the origin consumed. The
 /// NUL delimiter means paths with spaces or quotes need no unquoting. Pure.
 fn parsePorcelainZ(allocator: Allocator, out: []const u8) Allocator.Error![]const []const u8 {
-    var paths: std.ArrayListUnmanaged([]const u8) = .empty;
+    var paths: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, out, 0);
     while (it.next()) |entry| {
         if (entry.len < 4) continue; // "XY p" is the shortest real record
@@ -208,7 +208,7 @@ fn isRenameStatus(xy: []const u8) bool {
 /// success. The `--` guards a path that happens to look like a flag. Mutates the
 /// index — used only by the `commit` command after a green gate.
 pub fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool {
-    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(allocator, &.{ "git", "add", "--" });
     try argv.appendSlice(allocator, paths);
     return runGit(allocator, project_dir, argv.items) != null;

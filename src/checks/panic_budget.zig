@@ -139,7 +139,7 @@ fn countQuotas(allocator: std.mem.Allocator, content: []const u8) QuotaCounts {
 }
 
 fn stripUnderscores(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
-    var out: std.ArrayListUnmanaged(u8) = .empty;
+    var out: std.ArrayList(u8) = .empty;
     for (s) |ch| if (ch != '_') try out.append(allocator, ch);
     return out.toOwnedSlice(allocator);
 }
@@ -176,7 +176,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 }
 
 fn countsToLines(allocator: std.mem.Allocator, c: Counts) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "panics {d}", .{c.panics}));
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "unreachables {d}", .{c.unreachables}));
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "todos {d}", .{c.todos}));
@@ -230,7 +230,7 @@ fn collectFailures(
     totals: Counts,
     budget: Counts,
 ) ![]const []const u8 {
-    var failures: std.ArrayListUnmanaged([]const u8) = .empty;
+    var failures: std.ArrayList([]const u8) = .empty;
     for (metrics(totals, budget)) |m| {
         if (m.found <= m.budget) continue;
         const line = try std.fmt.allocPrint(

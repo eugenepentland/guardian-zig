@@ -60,6 +60,14 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Hard-fails any usingnamespace keyword outside test files
 
+## Deprecated Alias
+
+- Flags the std.ArrayListUnmanaged deprecated 0.15 alias
+- Flags a managed hashmap construction such as std.StringHashMap
+- Flags the usingnamespace keyword removed in 0.15
+- Flags the pre-0.15 getStdOut and getStdErr writer idioms
+- Allows the unmanaged and 0.15 replacement spellings
+
 ## Spec Quality
 
 - Flags vague behavior phrases in SPEC.md

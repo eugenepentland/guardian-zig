@@ -28,9 +28,9 @@ pub fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Sect
 /// Mutable state threaded through parseContent while it walks SPEC.md lines.
 const ParseState = struct {
     allocator: Allocator,
-    sections: std.ArrayListUnmanaged(Section) = .empty,
+    sections: std.ArrayList(Section) = .empty,
     current_section: ?[]const u8 = null,
-    current_behaviors: std.ArrayListUnmanaged(Behavior) = .empty,
+    current_behaviors: std.ArrayList(Behavior) = .empty,
     skipping: bool = false, // inside a skipped ## Overview / ## Planned section
 
     // Flush the section we were building so its bullets can't leak into a
@@ -140,7 +140,7 @@ fn isCompletenessWaiver(statement: []const u8) bool {
 /// coupling was too brittle for large hand-maintained SPEC.md files.
 pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8 {
     // Lowercase and collapse whitespace
-    var result: std.ArrayListUnmanaged(u8) = .empty;
+    var result: std.ArrayList(u8) = .empty;
     var prev_space = false;
     for (text) |c| {
         const lower = std.ascii.toLower(c);

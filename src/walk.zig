@@ -154,7 +154,7 @@ fn matchSegment(text: []const u8, ti: usize, part: []const u8, anchor: Anchor) ?
 
 /// Resolves `..` and `.` segments in a forward-slash path.
 pub fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8 {
-    var parts: std.ArrayListUnmanaged([]const u8) = .empty;
+    var parts: std.ArrayList([]const u8) = .empty;
     var iter = std.mem.splitScalar(u8, path, '/');
     while (iter.next()) |seg| {
         if (std.mem.eql(u8, seg, ".") or seg.len == 0) continue;
@@ -164,7 +164,7 @@ pub fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.E
             try parts.append(allocator, seg);
         }
     }
-    var result: std.ArrayListUnmanaged(u8) = .empty;
+    var result: std.ArrayList(u8) = .empty;
     for (parts.items, 0..) |part, i| {
         if (i > 0) try result.append(allocator, '/');
         try result.appendSlice(allocator, part);

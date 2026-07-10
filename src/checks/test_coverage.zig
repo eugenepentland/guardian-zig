@@ -17,7 +17,7 @@ const Decl = struct {
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
-    decls: *std.ArrayListUnmanaged(Decl),
+    decls: *std.ArrayList(Decl),
     exempt_names: []const []const u8,
 };
 
@@ -38,7 +38,7 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 
 const RefCtx = struct {
     allocator: std.mem.Allocator,
-    counts: *std.StringHashMap(u32),
+    counts: *std.StringHashMapUnmanaged(u32),
 };
 
 fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -56,7 +56,7 @@ fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// is non-empty, identifier tokens are recorded.
 const ScanState = struct {
     depth: u32 = 0,
-    test_scopes: std.ArrayListUnmanaged(u32) = .empty,
+    test_scopes: std.ArrayList(u32) = .empty,
     pending_test: bool = false,
 
     fn onLBrace(self: *ScanState, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
@@ -76,7 +76,7 @@ const ScanState = struct {
 fn tallyTestRefs(
     allocator: std.mem.Allocator,
     content: []const u8,
-    counts: *std.StringHashMap(u32),
+    counts: *std.StringHashMapUnmanaged(u32),
 ) std.mem.Allocator.Error!void {
     const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
@@ -105,9 +105,9 @@ fn tallyTestRefs(
 fn findUntested(
     allocator: std.mem.Allocator,
     decls: []const Decl,
-    counts: *std.StringHashMap(u32),
+    counts: *std.StringHashMapUnmanaged(u32),
 ) std.mem.Allocator.Error![]const Decl {
-    var untested: std.ArrayListUnmanaged(Decl) = .empty;
+    var untested: std.ArrayList(Decl) = .empty;
     for (decls) |d| {
         const c = counts.get(d.name) orelse 0;
         if (c == 0) try untested.append(allocator, d);
@@ -127,7 +127,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     // Pass 1: collect every pub fn in src/ (minus exempt names).
-    var decls: std.ArrayListUnmanaged(Decl) = .empty;
+    var decls: std.ArrayList(Decl) = .empty;
     var collect_ctx: CollectCtx = .{
         .allocator = allocator,
         .decls = &decls,
@@ -142,8 +142,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     // Pass 2: tally test-block references across src/ and test/.
-    var counts = std.StringHashMap(u32).init(allocator);
-    for (decls.items) |d| try counts.put(d.name, 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    for (decls.items) |d| try counts.put(allocator, d.name, 0);
     var ref_ctx: RefCtx = .{ .allocator = allocator, .counts = &counts };
     // `src` reuses the shared index's cached file contents; `test` is not
     // indexed, so it still walks.
@@ -182,8 +182,8 @@ test "tallyTestRefs counts only inside test blocks" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("foo", 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "foo", 0);
 
     const content =
         \\fn caller() void {
@@ -204,8 +204,8 @@ test "tallyTestRefs handles anonymous test block" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("bar", 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "bar", 0);
 
     const content =
         \\test {
@@ -221,8 +221,8 @@ test "tallyTestRefs ignores braces in strings" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("baz", 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "baz", 0);
 
     const content =
         \\test "fake test" {
@@ -241,8 +241,8 @@ test "findUntested flags pub fn with zero test refs" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("orphan", 0);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "orphan", 0);
 
     const decls = [_]Decl{.{ .file = "src/x.zig", .name = "orphan" }};
     const untested = try findUntested(a, &decls, &counts);
@@ -254,8 +254,8 @@ test "findUntested allows pub fn with at least one test ref" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var counts = std.StringHashMap(u32).init(a);
-    try counts.put("alive", 1);
+    var counts: std.StringHashMapUnmanaged(u32) = .empty;
+    try counts.put(a, "alive", 1);
 
     const decls = [_]Decl{.{ .file = "src/x.zig", .name = "alive" }};
     const untested = try findUntested(a, &decls, &counts);

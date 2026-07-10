@@ -11,7 +11,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 // Vague public identifiers (folded in from vague-name-blacklist). Exact match
@@ -116,7 +116,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -144,7 +144,7 @@ test "visit flags a vague public name" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     // PascalCase (naming OK) but a blacklisted vague name → flagged once.
     const content = "pub const Manager = struct { x: i32 };\n";
@@ -163,7 +163,7 @@ test "visit catches pascal fn that does not return type" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn DoThing() void {}\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
@@ -174,7 +174,7 @@ test "visit catches snake_case pub fn" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn do_the_thing() void {}\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
@@ -185,7 +185,7 @@ test "visit accepts pascal fn returning type" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub fn List(comptime T: type) type { return T; }\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
@@ -196,7 +196,7 @@ test "visit catches snake_case struct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub const my_struct = struct { x: i32 };\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });

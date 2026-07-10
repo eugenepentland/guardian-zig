@@ -20,7 +20,7 @@ const allowed_paths = [_][]const u8{};
 const FileScanCtx = struct {
     allocator: Allocator,
     seen: *std.StringHashMapUnmanaged([]const u8),
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 /// Pure-function entry: collects unique sets of leading enum prongs
@@ -33,7 +33,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     var seen: std.StringHashMapUnmanaged(void) = .empty;
     defer seen.deinit(allocator);
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -55,7 +55,7 @@ pub fn analyzeContent(
 }
 
 fn collectSwitchSignatures(arena: Allocator, content: []const u8) Allocator.Error![]const []const u8 {
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     const z = try arena.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
@@ -101,7 +101,7 @@ fn skipParenGroup(tok: *std.zig.Tokenizer) bool {
 }
 
 const ProngScan = struct {
-    prongs: std.ArrayListUnmanaged([]const u8) = .empty,
+    prongs: std.ArrayList([]const u8) = .empty,
     depth: u32 = 1,
     case_start: bool = true,
     expecting_ident: bool = false,
@@ -153,7 +153,7 @@ fn joinSorted(arena: Allocator, items: []const []const u8) Allocator.Error![]con
     const copy = try arena.alloc([]const u8, items.len);
     @memcpy(copy, items);
     std.mem.sort([]const u8, copy, {}, lessThan);
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (copy, 0..) |s, i| {
         if (i > 0) try buf.append(arena, ',');
         try buf.appendSlice(arena, s);
@@ -167,7 +167,7 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
 
 const ProjectCtx = struct {
     allocator: Allocator,
-    sig_to_files: *std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
+    sig_to_files: *std.StringHashMapUnmanaged(std.ArrayList([]const u8)),
     extra_allowed: []const []const u8 = &.{},
 };
 
@@ -197,7 +197,7 @@ fn projectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// Entry point for the repeated-switch-on-enum check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var sig_to_files: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
+    var sig_to_files: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
     var pctx: ProjectCtx = .{
         .allocator = allocator,
         .sig_to_files = &sig_to_files,
@@ -205,7 +205,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &pctx, .visit = projectVisit });
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var iter = sig_to_files.iterator();
     while (iter.next()) |e| {
         const files = e.value_ptr.*.items;

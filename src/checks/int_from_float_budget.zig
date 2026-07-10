@@ -43,7 +43,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 }
 
 fn countToLines(allocator: std.mem.Allocator, n: u32) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "casts {d}", .{n}));
     return lines.toOwnedSlice(allocator);
 }

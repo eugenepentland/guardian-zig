@@ -33,7 +33,7 @@ pub const Index = struct {
 
 const BuildCtx = struct {
     arena: Allocator,
-    files: *std.ArrayListUnmanaged(Entry),
+    files: *std.ArrayList(Entry),
 };
 
 fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -51,7 +51,7 @@ fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// the scan, so a file matching one never reaches any check that reads the
 /// shared index (see Config.exclude, walk.matchGlob).
 pub fn build(arena: Allocator, project_dir: []const u8, excludes: []const []const u8) walk.WalkError!Index {
-    var files: std.ArrayListUnmanaged(Entry) = .empty;
+    var files: std.ArrayList(Entry) = .empty;
     var ctx: BuildCtx = .{ .arena = arena, .files = &files };
     const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
     const opts: walk.WalkOpts = .{ .display_root = "src", .excludes = excludes };

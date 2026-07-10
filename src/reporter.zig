@@ -55,8 +55,8 @@ pub fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![
 /// `records` the structured Violations emitted through `Reporter.emit`.
 pub const Capture = struct {
     allocator: Allocator,
-    buf: std.ArrayListUnmanaged(u8) = .empty,
-    records: std.ArrayListUnmanaged(Violation) = .empty,
+    buf: std.ArrayList(u8) = .empty,
+    records: std.ArrayList(Violation) = .empty,
 
     /// Frees the captured buffer and structured records.
     pub fn deinit(self: *Capture) void {

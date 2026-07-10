@@ -105,7 +105,7 @@ fn suiteHex(ctx: *types.RunCtx) ?[]const u8 {
 fn collectCandidates(ctx: *types.RunCtx, idx: *const ast_index.Index) types.RunError!?Candidates {
     const a = ctx.allocator;
     if (ctx.full) {
-        var all: std.ArrayListUnmanaged(gen.Mutant) = .empty;
+        var all: std.ArrayList(gen.Mutant) = .empty;
         var waived: u32 = 0;
         for (idx.files) |f| {
             const gr = try gen.generate(a, f.rel_path, f.content);
@@ -138,7 +138,7 @@ fn diffCandidates(
     for (file_diffs) |fd| try span_map.put(a, fd.path, fd.spans);
     const untracked = try git.untrackedFiles(a, ctx.project_dir);
 
-    var out: std.ArrayListUnmanaged(gen.Mutant) = .empty;
+    var out: std.ArrayList(gen.Mutant) = .empty;
     var waived: u32 = 0;
     for (idx.files) |f| {
         if (span_map.get(f.rel_path)) |spans| {
@@ -211,7 +211,7 @@ fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u
 /// were reused from the result cache.
 const ScoredRun = struct {
     score: runner.Score = .{},
-    survivors: std.ArrayListUnmanaged(report_mod.Survivor) = .empty,
+    survivors: std.ArrayList(report_mod.Survivor) = .empty,
     cached: u32 = 0,
 
     /// Records a surviving mutant with the context the survivor report needs.

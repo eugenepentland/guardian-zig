@@ -96,7 +96,7 @@ fn writeInner(
     records: []const reporter.Violation,
     summary: Summary,
 ) !void {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (records) |v| {
         try buf.appendSlice(arena, try violationJson(arena, v));
         try buf.append(arena, '\n');

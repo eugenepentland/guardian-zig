@@ -65,11 +65,11 @@ const ParseState = struct {
     section: Section = .top,
     array_kind: ArrayKind = .none,
     cur_module: ?[]const u8 = null,
-    cur_forbidden: std.ArrayListUnmanaged([]const u8) = .empty,
-    boundaries: std.ArrayListUnmanaged(BoundaryRule) = .empty,
+    cur_forbidden: std.ArrayList([]const u8) = .empty,
+    boundaries: std.ArrayList(BoundaryRule) = .empty,
     cur_check: ?[]const u8 = null,
-    cur_paths: std.ArrayListUnmanaged([]const u8) = .empty,
-    allows: std.ArrayListUnmanaged(AllowRule) = .empty,
+    cur_paths: std.ArrayList([]const u8) = .empty,
+    allows: std.ArrayList(AllowRule) = .empty,
 
     /// Flushes the in-progress array-of-tables entry (if complete) into its list.
     fn flush(self: *ParseState, allocator: Allocator) Allocator.Error!void {
@@ -412,8 +412,8 @@ fn parseString(val: []const u8) ?[]const u8 {
     return null;
 }
 
-fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.ArrayListUnmanaged([]const u8) {
-    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.ArrayList([]const u8) {
+    var list: std.ArrayList([]const u8) = .empty;
     if (val.len < 2 or val[0] != '[' or val[val.len - 1] != ']') return list;
     const inner = val[1 .. val.len - 1];
     var iter = std.mem.splitScalar(u8, inner, ',');

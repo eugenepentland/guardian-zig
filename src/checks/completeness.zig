@@ -88,9 +88,9 @@ const CategoryStatus = enum { addressed, missing, waiver_no_reason };
 /// Splits SPEC.md into `## ` feature sections with their `- ` bullets, skipping
 /// fenced code blocks so an illustrative `## `/`- ` inside a fence is ignored.
 pub fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error![]const FeatureSection {
-    var sections: std.ArrayListUnmanaged(FeatureSection) = .empty;
+    var sections: std.ArrayList(FeatureSection) = .empty;
     var cur_name: ?[]const u8 = null;
-    var cur_bullets: std.ArrayListUnmanaged([]const u8) = .empty;
+    var cur_bullets: std.ArrayList([]const u8) = .empty;
     var in_fence = false;
 
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -115,9 +115,9 @@ pub fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error!
 
 fn flushSection(
     arena: Allocator,
-    sections: *std.ArrayListUnmanaged(FeatureSection),
+    sections: *std.ArrayList(FeatureSection),
     name: ?[]const u8,
-    bullets: *std.ArrayListUnmanaged([]const u8),
+    bullets: *std.ArrayList([]const u8),
 ) Allocator.Error!void {
     const n = name orelse return;
     try sections.append(arena, .{ .name = n, .bullets = try bullets.toOwnedSlice(arena) });
@@ -131,7 +131,7 @@ pub fn analyze(
     sections: []const FeatureSection,
     exempt: []const []const u8,
 ) Allocator.Error![]const []const u8 {
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     for (sections) |sec| {
         if (inList(exempt, sec.name)) continue;
         try checkSection(arena, sec, &out);
@@ -142,7 +142,7 @@ pub fn analyze(
 fn checkSection(
     arena: Allocator,
     sec: FeatureSection,
-    out: *std.ArrayListUnmanaged([]const u8),
+    out: *std.ArrayList([]const u8),
 ) Allocator.Error!void {
     const waivers = try collectWaivers(arena, sec);
     for (categories) |cat| {
@@ -170,7 +170,7 @@ fn categoryStatus(sec: FeatureSection, waivers: []const Waiver, cat: Category) C
 
 /// Collects the parsed waivers among a section's bullets.
 fn collectWaivers(arena: Allocator, sec: FeatureSection) Allocator.Error![]const Waiver {
-    var list: std.ArrayListUnmanaged(Waiver) = .empty;
+    var list: std.ArrayList(Waiver) = .empty;
     for (sec.bullets) |b| {
         if (parseWaiver(b)) |w| try list.append(arena, w);
     }

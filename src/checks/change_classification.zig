@@ -105,7 +105,7 @@ fn tallyLine(counts: *LineCounts, raw: []const u8, ranges: []const TestRange, ln
 }
 
 fn splitLines(allocator: Allocator, content: []const u8) Allocator.Error![]const []const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |line| try lines.append(allocator, line);
     return lines.toOwnedSlice(allocator);
@@ -125,7 +125,7 @@ fn inTestRange(ranges: []const TestRange, ln: u32) bool {
 /// Tokenizes `z` and records the line range of every test block, so added
 /// lines can be attributed to test code without a full AST walk.
 fn testLineRanges(allocator: Allocator, z: [:0]const u8, line_count: u32) Allocator.Error![]const TestRange {
-    var ranges: std.ArrayListUnmanaged(TestRange) = .empty;
+    var ranges: std.ArrayList(TestRange) = .empty;
     var tok = std.zig.Tokenizer.init(z);
     var scope = text.TestScope{};
     var line: u32 = 1;
@@ -247,7 +247,7 @@ fn classifyAndReport(
     }
 
     var totals: Totals = .{ .spec_changed = try specChanged(ctx, file_diffs, untracked) };
-    var offenders: std.ArrayListUnmanaged([]const u8) = .empty;
+    var offenders: std.ArrayList([]const u8) = .empty;
     try tallyIndexedFiles(ctx, &span_map, &totals, &offenders);
 
     try report(label, totals, offenders.items);
@@ -259,7 +259,7 @@ fn tallyIndexedFiles(
     ctx: *registry.RunCtx,
     span_map: *const std.StringHashMapUnmanaged([]const git.LineSpan),
     totals: *Totals,
-    offenders: *std.ArrayListUnmanaged([]const u8),
+    offenders: *std.ArrayList([]const u8),
 ) registry.RunError!void {
     const a = ctx.allocator;
     var storage: ast_index.Index = undefined;

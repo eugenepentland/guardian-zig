@@ -38,7 +38,7 @@ fn isPresenceExempt(name: []const u8, extra: []const []const u8) bool {
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
     // Quality sub-check config (min_chars, enabled). Presence is always
     // enforced; the empty/placeholder/too-short verdicts only apply when
     // `enabled` is true (folded in from the former doc-quality check).
@@ -121,7 +121,7 @@ pub fn analyzeContent(
     content: []const u8,
     cfg: config_mod.DocQualityCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
     const z = try allocator.dupeZ(u8, content);
     visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z }) catch |e| switch (e) {
@@ -137,7 +137,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const project_dir = ctx_param.project_dir;
     const cfg = ctx_param.cfg.doc_quality;
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -186,7 +186,7 @@ test "visit flags missing doc comment" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     // Quality off so this isolates the presence rule.
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations, .cfg = .{ .enabled = false } };
     const content =
@@ -203,7 +203,7 @@ test "visit flags missing doc comment on pub struct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations, .cfg = .{} };
     const content =
         \\pub const X = struct { x: i32 };
@@ -218,7 +218,7 @@ test "visit flags empty and placeholder doc on documented decls" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations, .cfg = .{ .enabled = true, .min_chars = 12 } };
     const content =
         \\///
@@ -234,7 +234,7 @@ test "quality verdicts are skipped when disabled but presence still enforced" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations, .cfg = .{ .enabled = false, .min_chars = 12 } };
     const content =
         \\/// hi

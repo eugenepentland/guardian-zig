@@ -138,7 +138,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 }
 
 fn countsToLines(allocator: std.mem.Allocator, c: Counts) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     for (unsafe_builtins, c.builtins) |name, n| {
         try lines.append(allocator, try std.fmt.allocPrint(allocator, "{s} {d}", .{ name, n }));
     }
@@ -167,7 +167,7 @@ fn linesToCounts(lines: []const []const u8) Counts {
 /// Builds one "name: N found, M budgeted" line per op whose count rose above
 /// its budget, so the failure names exactly which op increased.
 fn collectFailures(allocator: std.mem.Allocator, totals: Counts, budget: Counts) ![]const []const u8 {
-    var failures: std.ArrayListUnmanaged([]const u8) = .empty;
+    var failures: std.ArrayList([]const u8) = .empty;
     for (unsafe_builtins, totals.builtins, budget.builtins) |name, found, cap| {
         if (found <= cap) continue;
         try failures.append(allocator, try std.fmt.allocPrint(

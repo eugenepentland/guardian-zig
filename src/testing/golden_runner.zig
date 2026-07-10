@@ -46,7 +46,7 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
 fn formatViolations(allocator: Allocator, lines: [][]const u8) ![]const u8 {
     if (lines.len == 0) return "";
     std.mem.sort([]const u8, lines, {}, lessThan);
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (lines, 0..) |line, i| {
         if (i > 0) try buf.append(allocator, '\n');
         try buf.appendSlice(allocator, line);

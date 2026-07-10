@@ -56,7 +56,7 @@ fn isAllToken(v: []const u8) bool {
 /// blanks ("a,,b" -> {a,b}). Swallows OOM by returning what was collected so
 /// far — a refresh decision must never fail the build on allocator pressure.
 fn splitNames(allocator: Allocator, csv: []const u8) []const []const u8 {
-    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var list: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, csv, ',');
     while (it.next()) |part| {
         const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);

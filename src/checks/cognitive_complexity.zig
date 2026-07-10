@@ -12,7 +12,7 @@ const fail = reporter.fail;
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     threshold: u32,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
 };
 
 /// Branch-keyword tokens that contribute +1 to a function's score. We
@@ -100,7 +100,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .threshold = cfg.complexity.max_score,
@@ -183,7 +183,7 @@ test "visit scores every function in a file" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .threshold = 1, .violations = &violations };
     const content =
         \\fn small() void { if (true) {} }
@@ -197,7 +197,7 @@ test "visit scores methods nested inside a struct" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .threshold = 1, .violations = &violations };
     const content =
         \\pub const S = struct {

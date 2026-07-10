@@ -58,7 +58,7 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
     const version = try parseHeader(lines_iter.next(), expected_version);
 
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     while (lines_iter.next()) |line| {
         if (line.len == 0) continue;
         try lines.append(arena, line);
@@ -101,8 +101,8 @@ pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8)
 
 /// Compute added/removed sets between sorted snapshot lines and a new sorted slice.
 pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff {
-    var added: std.ArrayListUnmanaged([]const u8) = .empty;
-    var removed: std.ArrayListUnmanaged([]const u8) = .empty;
+    var added: std.ArrayList([]const u8) = .empty;
+    var removed: std.ArrayList([]const u8) = .empty;
 
     var i: usize = 0;
     var j: usize = 0;

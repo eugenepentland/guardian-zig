@@ -51,7 +51,7 @@ pub fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubC
 /// so a caller holding a shared parse can skip re-parsing the source.
 pub fn pubContainersFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubContainerInfo {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(PubContainerInfo) = .empty;
+    var result: std.ArrayList(PubContainerInfo) = .empty;
 
     for (try collectDecls(arena, &tree)) |decl| {
         const var_decl = tree.fullVarDecl(decl) orelse continue;
@@ -106,7 +106,7 @@ pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
 /// caller holding a shared parse can skip re-parsing the source.
 pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubConst {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(PubConst) = .empty;
+    var result: std.ArrayList(PubConst) = .empty;
 
     for (try collectDecls(arena, &tree)) |decl| {
         const var_decl = tree.fullVarDecl(decl) orelse continue;
@@ -179,7 +179,7 @@ pub fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDecl
 /// a caller holding a shared parse can skip re-parsing the source.
 pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnDeclInfo {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(FnDeclInfo) = .empty;
+    var result: std.ArrayList(FnDeclInfo) = .empty;
 
     const tags = tree.tokens.items(.tag);
     const newlines = try newlineOffsets(arena, tree.source); // O(log n) line lookups
@@ -240,7 +240,7 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
 /// Ascending byte offsets of every `\n` in `source`. Built once per file so
 /// line lookups can binary-search instead of rescanning from byte 0.
 fn newlineOffsets(arena: Allocator, source: []const u8) AstError![]const usize {
-    var offs: std.ArrayListUnmanaged(usize) = .empty;
+    var offs: std.ArrayList(usize) = .empty;
     for (source, 0..) |c, idx| {
         if (c == '\n') try offs.append(arena, idx);
     }

@@ -101,11 +101,11 @@ pub const Outcome = union(enum) {
 /// key or metric are skipped defensively. Result is sorted by key for
 /// deterministic output.
 pub fn aggregate(arena: Allocator, records: []const reporter.Violation, mode: AggMode) Allocator.Error![]Entry {
-    var map = std.StringHashMap(u64).init(arena);
+    var map: std.StringHashMapUnmanaged(u64) = .empty;
     for (records) |v| {
         const key = v.ratchet_key orelse continue;
         const metric = v.metric orelse continue;
-        const gop = try map.getOrPut(key);
+        const gop = try map.getOrPut(arena, key);
         if (!gop.found_existing) {
             gop.value_ptr.* = switch (mode) {
                 .max => metric,
@@ -120,7 +120,7 @@ pub fn aggregate(arena: Allocator, records: []const reporter.Violation, mode: Ag
 }
 
 /// Drains a key→value map into an Entry slice sorted by key.
-fn mapToSortedEntries(arena: Allocator, map: *std.StringHashMap(u64)) Allocator.Error![]Entry {
+fn mapToSortedEntries(arena: Allocator, map: *std.StringHashMapUnmanaged(u64)) Allocator.Error![]Entry {
     var out = try arena.alloc(Entry, map.count());
     var it = map.iterator();
     var i: usize = 0;
@@ -150,7 +150,7 @@ pub fn decodeLine(line: []const u8) ?Entry {
 
 /// Decodes every stored line into an Entry, dropping any that don't parse.
 pub fn decodeLines(arena: Allocator, lines: []const []const u8) Allocator.Error![]Entry {
-    var out: std.ArrayListUnmanaged(Entry) = .empty;
+    var out: std.ArrayList(Entry) = .empty;
     for (lines) |l| {
         if (decodeLine(l)) |e| try out.append(arena, e);
     }
@@ -160,7 +160,7 @@ pub fn decodeLines(arena: Allocator, lines: []const []const u8) Allocator.Error!
 /// Parses a ratchet file's raw contents (header skipped) into entries. Used by
 /// the debt report to summarize a committed ratchet file.
 pub fn parse(arena: Allocator, content: []const u8) Allocator.Error![]Entry {
-    var out: std.ArrayListUnmanaged(Entry) = .empty;
+    var out: std.ArrayList(Entry) = .empty;
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |line| {
         if (line.len == 0 or std.mem.startsWith(u8, line, "#")) continue;
@@ -233,13 +233,13 @@ pub fn lifecycle(
 /// (`new`): a raised value grows, an unseen key is a new offender (either fails
 /// the run), a lowered value or a vanished key improves it, else it matches.
 pub fn classify(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!Outcome {
-    var old_map = std.StringHashMap(u64).init(arena);
-    for (old) |e| try old_map.put(e.key, e.value);
-    var new_keys = std.StringHashMap(void).init(arena);
-    for (new) |e| try new_keys.put(e.key, {});
+    var old_map: std.StringHashMapUnmanaged(u64) = .empty;
+    for (old) |e| try old_map.put(arena, e.key, e.value);
+    var new_keys: std.StringHashMapUnmanaged(void) = .empty;
+    for (new) |e| try new_keys.put(arena, e.key, {});
 
-    var grown: std.ArrayListUnmanaged(GrownKey) = .empty;
-    var new_offenders: std.ArrayListUnmanaged(Entry) = .empty;
+    var grown: std.ArrayList(GrownKey) = .empty;
+    var new_offenders: std.ArrayList(Entry) = .empty;
     var lowered: usize = 0;
     for (new) |e| {
         if (old_map.get(e.key)) |ov| {
@@ -274,8 +274,8 @@ pub fn classify(arena: Allocator, old: []const Entry, new: []const Entry) Alloca
 /// add a key — the refusal condition for a `deny_growth` ratchet refresh. A
 /// refresh that only holds, lowers, or prunes values is allowed.
 pub fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool {
-    var old_map = std.StringHashMap(u64).init(arena);
-    for (old) |e| try old_map.put(e.key, e.value);
+    var old_map: std.StringHashMapUnmanaged(u64) = .empty;
+    for (old) |e| try old_map.put(arena, e.key, e.value);
     for (new) |e| {
         const ov = old_map.get(e.key) orelse return true; // new key
         if (e.value > ov) return true; // raised value

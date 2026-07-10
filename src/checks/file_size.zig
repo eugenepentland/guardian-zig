@@ -12,7 +12,7 @@ const lineOf = @import("../text.zig").lineOf;
 const FileSizeCtx = struct {
     allocator: std.mem.Allocator,
     max_lines: u32,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
 };
 
 /// Total source lines. Counts newlines, adding 1 only for a final unterminated
@@ -109,7 +109,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const cfg = ctx_param.cfg;
     const project_dir = ctx_param.project_dir;
 
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: FileSizeCtx = .{
         .allocator = allocator,
         .max_lines = cfg.max_file_lines,
@@ -145,7 +145,7 @@ test "fileSizeVisit is not off-by-one on the trailing newline" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: FileSizeCtx = .{ .allocator = a, .max_lines = 2, .violations = &violations };
     // Exactly 2 lines with the fmt-mandated trailing newline: at the cap, ok.
     try fileSizeVisit(@ptrCast(&ctx), .{ .rel_path = "x.zig", .content = "a\nb\n" });
@@ -159,7 +159,7 @@ test "fileSizeVisit accumulates violations" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: FileSizeCtx = .{ .allocator = a, .max_lines = 10, .violations = &violations };
     try walk.walkZigFiles(a, "test-project/src", .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = fileSizeVisit });
     try std.testing.expect(violations.items.len >= 3);

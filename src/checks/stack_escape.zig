@@ -71,7 +71,7 @@ fn analyzeWithTree(
     var tree = if (tree_opt) |t| t.* else Ast.parse(arena, try arena.dupeZ(u8, content), .zig) catch
         return &.{};
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     // Scanning every node index finds functions wherever they live — top level,
     // struct methods, and fns nested inside other fns (each is its own frame).
     var i: u32 = 0;
@@ -99,7 +99,7 @@ const Frame = struct {
 const Sink = struct {
     rel_path: []const u8,
     alloc: Allocator,
-    out: *std.ArrayListUnmanaged([]const u8),
+    out: *std.ArrayList([]const u8),
 };
 
 /// Scans one `fn_decl` for returns of a stack-local address, appending fully
@@ -119,7 +119,7 @@ fn scanFn(
     const frame: Frame = .{ .tree = tree, .span = span, .nested = try nestedFnSpans(arena, tree, fn_decl, span) };
 
     const locals = try collectLocals(arena, frame);
-    var escapes: std.ArrayListUnmanaged(Escape) = .empty;
+    var escapes: std.ArrayList(Escape) = .empty;
     try collectEscapes(arena, frame, locals, fn_name, &escapes);
 
     for (escapes.items) |e| {
@@ -170,7 +170,7 @@ fn nestedFnSpans(
     outer: Ast.Node.Index,
     outer_body: Span,
 ) Allocator.Error![]const Span {
-    var spans: std.ArrayListUnmanaged(Span) = .empty;
+    var spans: std.ArrayList(Span) = .empty;
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
@@ -187,7 +187,7 @@ fn nestedFnSpans(
 /// Every stack-local declaration statement directly in this frame.
 fn collectLocals(arena: Allocator, frame: Frame) Allocator.Error![]const Local {
     const tree = frame.tree;
-    var locals: std.ArrayListUnmanaged(Local) = .empty;
+    var locals: std.ArrayList(Local) = .empty;
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
@@ -233,7 +233,7 @@ fn collectEscapes(
     frame: Frame,
     locals: []const Local,
     fn_name: []const u8,
-    out: *std.ArrayListUnmanaged(Escape),
+    out: *std.ArrayList(Escape),
 ) Allocator.Error!void {
     const tree = frame.tree;
     var i: u32 = 0;
@@ -417,7 +417,7 @@ fn tokenLine(tree: *const Ast, tok: u32) u32 {
 /// Entry point for the stack-escape check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx_param.source_index, allocator, ctx_param.project_dir, .{ .ctx = &ctx, .visit = visit });
 
@@ -434,7 +434,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 const ScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {

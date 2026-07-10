@@ -40,7 +40,7 @@ pub const Outcome = union(enum) {
 /// The returned lines are dedented (leading whitespace stripped) and
 /// allocator-owned.
 pub fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8 {
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     var iter = std.mem.splitScalar(u8, output, '\n');
     var collected_any = false;
     while (iter.next()) |raw| {
@@ -119,8 +119,8 @@ fn diffByPosition(arena: Allocator, old: snapshot.Snapshot, current: []const []c
     std.mem.sort(Item, olds, {}, order);
     std.mem.sort(Item, news, {}, order);
 
-    var added: std.ArrayListUnmanaged([]const u8) = .empty;
-    var removed: std.ArrayListUnmanaged([]const u8) = .empty;
+    var added: std.ArrayList([]const u8) = .empty;
+    var removed: std.ArrayList([]const u8) = .empty;
     var i: usize = 0;
     var j: usize = 0;
     while (i < olds.len and j < news.len) {

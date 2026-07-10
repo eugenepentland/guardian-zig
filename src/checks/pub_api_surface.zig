@@ -16,7 +16,7 @@ const SNAPSHOT_VERSION: u32 = 2;
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
-    lines: *std.ArrayListUnmanaged([]const u8),
+    lines: *std.ArrayList([]const u8),
 };
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
@@ -43,7 +43,7 @@ fn collectLines(
     project_dir: []const u8,
     source_index: ?*const ast_index.Index,
 ) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
     try ast_index.runSrc(source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
     return lines.toOwnedSlice(allocator);
@@ -93,7 +93,7 @@ test "visit emits fn and struct entries" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = a, .lines = &lines };
     const content =
         \\pub fn run() void {}

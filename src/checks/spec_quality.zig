@@ -41,7 +41,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     else
         default_forbidden_phrases;
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     for (sections) |sec| {
         try collectSectionViolations(allocator, sec, phrases, &violations);
     }
@@ -54,7 +54,7 @@ fn collectSectionViolations(
     allocator: std.mem.Allocator,
     sec: spec_parser.Section,
     phrases: []const []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 ) !void {
     for (sec.behaviors) |b| {
         if (b.statement.len < min_behavior_chars) {

@@ -50,8 +50,8 @@ pub const GenResult = struct {
 /// Sites on a `// mutate-ok` line are recorded in `waived_lines` and skipped.
 pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8) Allocator.Error!GenResult {
     const z = try allocator.dupeZ(u8, content);
-    var out: std.ArrayListUnmanaged(Mutant) = .empty;
-    var waived: std.ArrayListUnmanaged(u32) = .empty;
+    var out: std.ArrayList(Mutant) = .empty;
+    var waived: std.ArrayList(u32) = .empty;
     var tok = std.zig.Tokenizer.init(z);
     var scope = text.TestScope{};
     var line: u32 = 1;
@@ -166,7 +166,7 @@ pub fn filterToSpans(
     mutants: []const Mutant,
     spans: []const git.LineSpan,
 ) Allocator.Error![]const Mutant {
-    var out: std.ArrayListUnmanaged(Mutant) = .empty;
+    var out: std.ArrayList(Mutant) = .empty;
     for (mutants) |m| {
         if (anySpanContains(spans, m.line)) try out.append(allocator, m);
     }

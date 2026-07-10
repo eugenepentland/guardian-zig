@@ -105,7 +105,7 @@ pub fn write(arena: Allocator, project_dir: []const u8, survivors: []const Survi
 }
 
 fn writeInner(arena: Allocator, project_dir: []const u8, survivors: []const Survivor, summary: Summary) !void {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (survivors) |s| {
         try buf.appendSlice(arena, try survivorJson(arena, s));
         try buf.append(arena, '\n');

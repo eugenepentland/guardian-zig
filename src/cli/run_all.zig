@@ -101,8 +101,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// `failed_checks` is the distinct registry names that failed, for the DORA
 /// telemetry record (names are static registry literals — no copy needed).
 const Sink = struct {
-    records: std.ArrayListUnmanaged(reporter.Violation) = .empty,
-    failed_checks: std.ArrayListUnmanaged([]const u8) = .empty,
+    records: std.ArrayList(reporter.Violation) = .empty,
+    failed_checks: std.ArrayList([]const u8) = .empty,
 };
 
 /// Writes the machine-readable last-run log for a real (non-skipped) run.

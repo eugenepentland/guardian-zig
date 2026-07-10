@@ -114,7 +114,7 @@ fn recordJson(arena: Allocator, suite_hex: []const u8, m: gen.Mutant, outcome: O
 /// records, one per line, insertion-ordered). Malformed lines are skipped.
 fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Allocator.Error!Loaded {
     var map: Map = .{};
-    var order: std.ArrayListUnmanaged([]const u8) = .empty; // unique keys, insertion order
+    var order: std.ArrayList([]const u8) = .empty; // unique keys, insertion order
     var latest: std.StringHashMapUnmanaged([]const u8) = .{}; // key -> latest raw JSON line
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |raw| {
@@ -131,7 +131,7 @@ fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Alloca
         gop.value_ptr.* = line; // latest wins
         try map.put(arena, key, outcome);
     }
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (order.items) |k| {
         try buf.appendSlice(arena, latest.get(k).?);
         try buf.append(arena, '\n');
