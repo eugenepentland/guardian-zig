@@ -1,22 +1,58 @@
 //! guardian.toml parser (types live in config.zig). Preserves defaults for
-//! unset fields; silently ignores unknown sections and malformed values.
+//! unset fields. Fails closed: a missing file is the zero-config default, but a
+//! file that exists yet can't be read, or that names an unknown section header
+//! or an unknown key inside a known section, is a hard error with a file:line
+//! diagnostic — a gate whose own config silently misparses can't be trusted at
+//! exactly the moment it's misconfigured. Malformed scalar *values* (a
+//! non-integer where a u32 is expected) still fall back to their default: that
+//! is the parser's deliberate lenient scope, not an unknown-input violation.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const config = @import("config.zig");
+const reporter = @import("reporter.zig");
 const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
 
-/// Reads guardian.toml from `dir`; returns defaults if missing/unreadable.
-pub fn load(allocator: Allocator, dir: []const u8) Config {
-    return loadInner(allocator, dir) catch .{};
-}
+/// A parse failure's location and message (arena-owned), filled by `parseInto`
+/// on an unknown section or key so `load` can render a `path:line: message`.
+pub const Diagnostic = struct {
+    line: u32 = 0,
+    message: []const u8 = "",
+};
 
-fn loadInner(allocator: Allocator, dir: []const u8) !Config {
+/// Errors `parse`/`parseInto` may raise: OOM, or an unknown section/key.
+pub const ParseError = Allocator.Error || error{ UnknownSection, UnknownKey };
+
+/// Errors `load` may raise on a present-but-broken config: the parse errors
+/// plus a read failure (any I/O error other than a missing file).
+pub const LoadError = ParseError || error{ConfigUnreadable};
+
+/// The `exempt_names` key, shared by [doc_quality] and [test_coverage]; a named
+/// const so the literal isn't repeated across the valid-key lists and appliers.
+const exempt_names_key = "exempt_names";
+
+/// Reads guardian.toml from `dir`. A missing file is the zero-config default; a
+/// present file that can't be read or parsed is a hard failure with a printed
+/// `guardian.toml:line: …` diagnostic, so a typo can't silently drop config.
+pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
     const path = try std.fmt.allocPrint(allocator, "{s}/guardian.toml", .{dir});
-    const content = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
-    return parse(allocator, content);
+    const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |e| switch (e) {
+        error.FileNotFound => return .{}, // zero-config: absent is fine
+        else => {
+            reporter.fail("guardian: cannot read {s}: {s}", .{ path, @errorName(e) });
+            return error.ConfigUnreadable;
+        },
+    };
+    var diag: Diagnostic = .{};
+    return parseInto(allocator, content, &diag) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.UnknownSection, error.UnknownKey => {
+            reporter.fail("guardian: {s}:{d}: {s}", .{ path, diag.line, diag.message });
+            return e;
+        },
+    };
 }
 
 const Section = enum {
@@ -143,16 +179,26 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     return .none;
 }
 
-/// Parses guardian.toml content; errors only on allocator failure (`load`
-/// swallows those into defaults).
-pub fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config {
+/// Parses guardian.toml content into a Config. Discards the diagnostic; use
+/// `parseInto` when the offending line/message is needed (see `load`).
+pub fn parse(allocator: Allocator, content: []const u8) ParseError!Config {
+    var diag: Diagnostic = .{};
+    return parseInto(allocator, content, &diag);
+}
+
+/// Parses guardian.toml content, filling `diag` on an unknown section or key.
+/// Unknown section headers and unknown keys inside a known section are hard
+/// errors; malformed scalar values still fall back to their default.
+pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) ParseError!Config {
     var cfg = Config{};
     var st: ParseState = .{};
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
+    var line_no: u32 = 0;
     while (lines_iter.next()) |raw_line| {
+        line_no += 1;
         const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
         if (line.len == 0 or line[0] == '#') continue;
-        try parseLine(allocator, &cfg, &st, line);
+        try parseLine(allocator, &cfg, &st, line, line_no, diag);
     }
     try st.flush(allocator);
     cfg.boundary_rules = try st.boundaries.toOwnedSlice(allocator);
@@ -160,10 +206,75 @@ pub fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config {
     return cfg;
 }
 
-fn parseLine(allocator: Allocator, cfg: *Config, st: *ParseState, line: []const u8) Allocator.Error!void {
-    if (arrayTableName(line)) |name| return st.beginArrayTable(allocator, name);
-    if (tableName(line)) |name| return st.beginTable(allocator, name);
-    try applyKeyValueLine(allocator, cfg, st, line);
+/// Records the offending `line_no` and a formatted message into `diag`.
+fn setDiag(
+    allocator: Allocator,
+    diag: *Diagnostic,
+    line_no: u32,
+    comptime fmt: []const u8,
+    args: anytype,
+) Allocator.Error!void {
+    diag.* = .{ .line = line_no, .message = try std.fmt.allocPrint(allocator, fmt, args) };
+}
+
+fn parseLine(
+    allocator: Allocator,
+    cfg: *Config,
+    st: *ParseState,
+    line: []const u8,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (arrayTableName(line)) |name| {
+        if (arrayKindFor(name) == .none) return unknownName(allocator, diag, line_no, "section", name, &.{});
+        return st.beginArrayTable(allocator, name);
+    }
+    if (tableName(line)) |name| {
+        if (sectionFor(name) == .unknown) return unknownName(allocator, diag, line_no, "section", name, &.{});
+        return st.beginTable(allocator, name);
+    }
+    try applyKeyValueLine(allocator, cfg, st, line, line_no, diag);
+}
+
+/// Fills `diag` for an unknown `kind` ("section"/"key") named `name`, appending
+/// a cheap "did you mean 'x'?" when `candidates` holds a close prefix match, and
+/// returns the matching error so the caller can `return` it.
+fn unknownName(
+    allocator: Allocator,
+    diag: *Diagnostic,
+    line_no: u32,
+    comptime kind: []const u8,
+    name: []const u8,
+    candidates: []const []const u8,
+) ParseError!void {
+    if (bestMatch(name, candidates)) |sug| {
+        try setDiag(allocator, diag, line_no, "unknown " ++ kind ++ " '{s}' (did you mean '{s}'?)", .{ name, sug });
+    } else {
+        try setDiag(allocator, diag, line_no, "unknown " ++ kind ++ " '{s}'", .{name});
+    }
+    return if (std.mem.eql(u8, kind, "section")) error.UnknownSection else error.UnknownKey;
+}
+
+/// The candidate name in `candidates` sharing the longest prefix (>= 3 chars)
+/// with `offender`, for a cheap did-you-mean, or null when none is close.
+fn bestMatch(offender: []const u8, candidates: []const []const u8) ?[]const u8 {
+    var best: ?[]const u8 = null;
+    var best_len: usize = 0;
+    for (candidates) |c| {
+        const p = commonPrefixLen(offender, c);
+        if (p > best_len) {
+            best_len = p;
+            best = c;
+        }
+    }
+    return if (best_len >= 3) best else null;
+}
+
+fn commonPrefixLen(a: []const u8, b: []const u8) usize {
+    const n = @min(a.len, b.len);
+    var i: usize = 0;
+    while (i < n and a[i] == b[i]) i += 1;
+    return i;
 }
 
 /// Returns the inner name of a `[[name]]` array-of-tables header, or null.
@@ -178,13 +289,71 @@ fn tableName(line: []const u8) ?[]const u8 {
     return line[1 .. line.len - 1];
 }
 
-fn applyKeyValueLine(allocator: Allocator, cfg: *Config, st: *ParseState, line: []const u8) Allocator.Error!void {
+fn applyKeyValueLine(
+    allocator: Allocator,
+    cfg: *Config,
+    st: *ParseState,
+    line: []const u8,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
     const eq_idx = std.mem.indexOfScalar(u8, line, '=') orelse return;
     const key = std.mem.trim(u8, line[0..eq_idx], &std.ascii.whitespace);
     const raw = std.mem.trim(u8, line[eq_idx + 1 ..], &std.ascii.whitespace);
     const kv: KeyVal = .{ .key = key, .val = stripInlineComment(raw) };
+    // A key the current section doesn't recognize is a typo, not a value to
+    // silently drop — name it (with a cheap suggestion) and fail.
+    const valid = if (st.array_kind != .none) validArrayKeys(st.array_kind) else validSectionKeys(st.section);
+    if (!inList(valid, key)) return unknownName(allocator, diag, line_no, "key", key, valid);
     if (st.array_kind != .none) return st.setArrayKey(allocator, kv);
     try applySectionKey(.{ .allocator = allocator, .cfg = cfg }, st.section, kv);
+}
+
+/// True when `name` appears in `list`.
+fn inList(list: []const []const u8, name: []const u8) bool {
+    for (list) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
+/// The `enabled` toggle plus the extra keys `section` accepts (mirrors the
+/// appliers in `applySectionKey`). A key outside this set is an unknown-key
+/// error. Keep in sync when an applier gains a key.
+fn validSectionKeys(section: Section) []const []const u8 {
+    return switch (section) {
+        .top => &.{
+            "spec_file",         "max_file_lines", "cache_enabled", "parallel",
+            "file_size_exclude", "exclude",        "disabled",
+        },
+        .spec_quality => &.{ "enabled", "forbidden_phrases" },
+        .function_size => &.{ "enabled", "max_params" },
+        .complexity => &.{ "enabled", "max_score" },
+        .anytype_budget => &.{ "enabled", "max_per_file", "exclude" },
+        .orphan_files => &.{ "enabled", "roots" },
+        .doc_quality => &.{ "enabled", "min_chars", exempt_names_key },
+        .type_size => &.{ "enabled", "max_fields", "exclude" },
+        .function_length => &.{ "enabled", "max_lines" },
+        .nesting_depth => &.{ "enabled", "max_depth" },
+        .test_coverage => &.{ "enabled", exempt_names_key },
+        .bool_ops => &.{ "enabled", "max_ops" },
+        .line_length => &.{ "enabled", "max_len" },
+        .baseline => &.{ "enabled", "deny_growth" },
+        .escape_discipline, .oom_discipline, .magic_number => &.{"enabled"},
+        .dead_pub => &.{"ignore_test_refs"},
+        .change_classification => &.{ "enabled", "against", "gate_last_commit" },
+        .mutation => &.{ "min_score_pct", "min_mutants", "max_mutants", "timeout_secs" },
+        .completeness => &.{ "enabled", "exempt_sections" },
+        .dora => &.{ "enabled", "sink_path" },
+        .unknown => &.{},
+    };
+}
+
+/// Keys accepted inside a `[[boundary]]` / `[[allow]]` array-of-tables entry.
+fn validArrayKeys(kind: ArrayKind) []const []const u8 {
+    return switch (kind) {
+        .boundary => &.{ "module", "forbidden" },
+        .allow => &.{ "check", "paths" },
+        .none => &.{},
+    };
 }
 
 fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!void {
@@ -192,7 +361,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .top => try applyTopLevelKey(ctx, kv),
         .spec_quality => try applyArrayCfg("spec_quality", "forbidden_phrases", ctx, kv),
         .orphan_files => try applyArrayCfg("orphan_files", "roots", ctx, kv),
-        .test_coverage => try applyArrayCfg("test_coverage", "exempt_names", ctx, kv),
+        .test_coverage => try applyArrayCfg("test_coverage", exempt_names_key, ctx, kv),
         .function_size => applyU32Cfg("function_size", "max_params", ctx, kv),
         .complexity => applyU32Cfg("complexity", "max_score", ctx, kv),
         .doc_quality => try applyDocQualityKey(ctx, kv),
@@ -329,7 +498,7 @@ fn applyDocQualityKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     } else if (std.mem.eql(u8, kv.key, "min_chars")) {
         g.min_chars = parseU32(kv.val, g.min_chars);
-    } else if (std.mem.eql(u8, kv.key, "exempt_names")) {
+    } else if (std.mem.eql(u8, kv.key, exempt_names_key)) {
         g.exempt_names = try toStrings(ctx.allocator, kv.val);
     }
 }
@@ -747,23 +916,37 @@ test "parse named section" {
     try std.testing.expectEqualStrings("properly", cfg.spec_quality.forbidden_phrases[0]);
 }
 
-test "parse unknown section silently ignored" {
+// spec: Configuration - Hard-fails on an unknown section header naming the offender
+test "parse rejects an unknown section header with a located diagnostic" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
+    var diag: Diagnostic = .{};
     const content =
         \\spec_file = "S.md"
         \\
         \\[future_check]
         \\some_key = "future_value"
-        \\
-        \\max_file_lines = 100
     ;
-    const cfg = try parse(arena.allocator(), content);
-    // top-level keys before the unknown section still apply
-    try std.testing.expectEqualStrings("S.md", cfg.spec_file);
-    // max_file_lines comes after [future_check]; section stays .unknown so it
-    // does not apply — accept the default.
-    try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
+    // A typo'd section is a loud failure, not a silent drop of its keys.
+    try std.testing.expectError(error.UnknownSection, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 3), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "future_check") != null);
+}
+
+// spec: Configuration - Hard-fails on an unknown key within a known section
+test "parse rejects an unknown key in a known section and names it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content =
+        \\[mutation]
+        \\min_mutant = 6
+    ;
+    try std.testing.expectError(error.UnknownKey, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    // The offender is named and a cheap prefix match is suggested.
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "min_mutant") != null);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "did you mean") != null);
 }
 
 test "parse named section then boundary" {
@@ -786,7 +969,26 @@ test "parse named section then boundary" {
 test "load falls back to defaults when guardian.toml is absent" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg = load(arena.allocator(), "definitely/not/a/real/dir");
+    const cfg = try load(arena.allocator(), "definitely/not/a/real/dir");
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
     try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
+}
+
+// spec: Configuration - Hard-fails when the config file exists but cannot be read
+test "load hard-fails when guardian.toml exists but cannot be read" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/config-unreadable-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    // A *directory* named guardian.toml exists but can't be read as a file.
+    try std.fs.cwd().makePath(dir ++ "/guardian.toml");
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cfg cleanup: {s}", .{@errorName(e)});
+    // load prints a diagnostic; capture it so the test log stays clean.
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    try std.testing.expectError(error.ConfigUnreadable, load(a, dir));
 }

@@ -227,8 +227,12 @@ src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
-src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
-src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config
+src/config_parser.zig::Diagnostic struct_
+src/config_parser.zig::LoadError value
+src/config_parser.zig::ParseError value
+src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) LoadError!Config
+src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) ParseError!Config
+src/config_parser.zig::parseInto | fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) ParseError!Config
 src/dora.zig::Outcome enum_
 src/dora.zig::RunRecord struct_
 src/dora.zig::Stopwatch struct_

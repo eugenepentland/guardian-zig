@@ -8,6 +8,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Loads guardian.toml from target directory
 - Falls back to defaults when no config file exists
+- Hard-fails when the config file exists but cannot be read
+- Hard-fails on an unknown section header naming the offender
+- Hard-fails on an unknown key within a known section
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
 - Parses the baseline deny_growth check list

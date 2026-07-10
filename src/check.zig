@@ -68,7 +68,12 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    const cfg = config_parser.load(allocator, parsed.project_dir);
+    // Fail closed on a broken guardian.toml: load prints a located diagnostic
+    // and we exit non-zero rather than silently running on all-defaults.
+    const cfg = config_parser.load(allocator, parsed.project_dir) catch |e| switch (e) {
+        error.OutOfMemory => return e,
+        else => std.process.exit(1),
+    };
     var ctx: registry.RunCtx = .{
         .allocator = allocator,
         .project_dir = parsed.project_dir,
