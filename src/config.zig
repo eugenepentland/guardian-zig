@@ -243,6 +243,20 @@ pub const FuzzPresenceCfg = struct {
     modules: []const []const u8 = &.{},
 };
 
+/// Per-check config for int-from-float-budget's sanctioned-wrapper mode. An
+/// `@intFromFloat` in the body of a function whose name is in `guard_fns` IS the
+/// sanctioned guard (e.g. eda's `numeric.checkedInt`, which validates
+/// isFinite+range in float space before converting), so it doesn't count toward
+/// the snapshot budget; every other site still does. `require_guard` is an
+/// optional strict mode: under those walker-relative path globs, ANY
+/// `@intFromFloat` outside a guard fn hard-fails (not just snapshot drift), so a
+/// chosen subtree can be driven to zero unguarded casts. Both empty by default,
+/// which preserves the plain count-every-site budget.
+pub const IntFromFloatCfg = struct {
+    guard_fns: []const []const u8 = &.{},
+    require_guard: []const []const u8 = &.{},
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -291,6 +305,7 @@ pub const Config = struct {
     completeness: CompletenessCfg = .{},
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},
+    int_from_float: IntFromFloatCfg = .{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 

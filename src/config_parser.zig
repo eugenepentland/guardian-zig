@@ -80,6 +80,7 @@ const Section = enum {
     completeness,
     dora,
     fuzz_presence,
+    int_from_float,
     unknown,
 };
 
@@ -346,6 +347,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
+        .int_from_float => &.{ "guard_fns", "require_guard" },
         .unknown => &.{},
     };
 }
@@ -384,6 +386,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .completeness => try applyCompletenessKey(ctx, kv),
         .dora => applyDoraKey(ctx, kv),
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
+        .int_from_float => try applyIntFromFloatKey(ctx, kv),
         .unknown => {},
     }
 }
@@ -413,6 +416,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
+        .{ "int_from_float", Section.int_from_float },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -562,6 +566,15 @@ fn applyDoraKey(ctx: ApplyCtx, kv: KeyVal) void {
 fn applyFuzzPresenceKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     if (std.mem.eql(u8, kv.key, "modules")) {
         ctx.cfg.fuzz_presence.modules = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+fn applyIntFromFloatKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.int_from_float;
+    if (std.mem.eql(u8, kv.key, "guard_fns")) {
+        g.guard_fns = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, "require_guard")) {
+        g.require_guard = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -803,6 +816,26 @@ test "parse [fuzz_presence] defaults empty and reads the modules list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.fuzz_presence.modules.len);
     try std.testing.expectEqualStrings("src/config_parser.zig", cfg.fuzz_presence.modules[0]);
     try std.testing.expectEqualStrings("src/walk.zig", cfg.fuzz_presence.modules[1]);
+}
+
+// spec: Configuration - Parses the int_from_float guard_fns and require_guard lists
+
+test "parse [int_from_float] defaults empty and reads guard_fns + require_guard" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: no guards, no strict paths — the plain count-everything budget.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.int_from_float.guard_fns.len);
+    try std.testing.expectEqual(@as(usize, 0), defaults.int_from_float.require_guard.len);
+    const cfg = try parse(arena.allocator(),
+        \\[int_from_float]
+        \\guard_fns = ["checkedInt"]
+        \\require_guard = ["src/render/*"]
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.int_from_float.guard_fns.len);
+    try std.testing.expectEqualStrings("checkedInt", cfg.int_from_float.guard_fns[0]);
+    try std.testing.expectEqual(@as(usize, 1), cfg.int_from_float.require_guard.len);
+    try std.testing.expectEqualStrings("src/render/*", cfg.int_from_float.require_guard[0]);
 }
 
 // spec: Configuration - Parses the change classification last-commit gate toggle

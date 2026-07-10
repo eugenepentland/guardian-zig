@@ -6,6 +6,8 @@ const ast_index = @import("../ast/index.zig");
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 
+const Allocator = std.mem.Allocator;
+const lineOf = @import("../text.zig").lineOf;
 const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
@@ -14,34 +16,130 @@ const snapshot_leaf = "int-from-float-budget.txt";
 const snapshot_version: u32 = 1;
 
 const ScanCtx = struct {
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     total: *u32,
+    guard_fns: []const []const u8,
+    require_guard: []const []const u8,
+    violations: *std.ArrayList([]const u8),
 };
 
-/// Counts `@intFromFloat` builtin calls. Float→int conversion truncates toward
-/// zero and is undefined behavior on NaN / out-of-range input in ReleaseFast
-/// and ReleaseSmall (the shipped server modes), so every site needs a
-/// deliberate isFinite + range guard. Token-based ⇒ zero false positives; the
-/// tokenizer skips strings and comments. New sites drift the snapshot, forcing
-/// a review — it does not judge existing ones.
-fn countCasts(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!u32 {
-    var n: u32 = 0;
-    // Propagate OOM: counting zero casts when we can't allocate would fail open
-    // (the snapshot budget must never pass on an undercount).
+/// Brace/fn-aware scan state that recognizes a sanctioned guard-fn body. A
+/// configured guard fn (e.g. eda's `numeric.checkedInt`, which validates
+/// isFinite+range in float space before converting) IS the guard, so an
+/// `@intFromFloat` in its body is exempt; casts anywhere else count. `paren_depth`
+/// gates body detection so a `.{}` default in the param list can't be mistaken
+/// for the opening body brace.
+const GuardScan = struct {
+    guard_fns: []const []const u8,
+    depth: u32 = 0,
+    paren_depth: u32 = 0,
+    expect_name: bool = false,
+    pending_guard: bool = false,
+    in_guard: bool = false,
+    guard_depth: u32 = 0,
+
+    fn step(self: *GuardScan, z: [:0]const u8, t: std.zig.Token) void {
+        switch (t.tag) {
+            .keyword_fn => self.expect_name = true,
+            .identifier => self.onIdent(z, t),
+            .l_paren => self.paren_depth += 1,
+            .r_paren => {
+                if (self.paren_depth > 0) self.paren_depth -= 1;
+            },
+            .l_brace => self.onLBrace(),
+            .r_brace => self.onRBrace(),
+            else => {},
+        }
+        // The name latch survives only from `fn` to the next identifier; any
+        // other token clears it (an anonymous `fn (…)` type has no name).
+        if (t.tag != .keyword_fn and t.tag != .identifier) self.expect_name = false;
+    }
+
+    fn onIdent(self: *GuardScan, z: [:0]const u8, t: std.zig.Token) void {
+        if (!self.expect_name) return;
+        self.expect_name = false;
+        if (inList(self.guard_fns, z[t.loc.start..t.loc.end])) self.pending_guard = true;
+    }
+
+    fn onLBrace(self: *GuardScan) void {
+        self.depth += 1;
+        // A guard fn's body opens at paren_depth 0 (not inside its param list).
+        if (self.pending_guard and self.paren_depth == 0) {
+            self.in_guard = true;
+            self.guard_depth = self.depth;
+            self.pending_guard = false;
+        }
+    }
+
+    fn onRBrace(self: *GuardScan) void {
+        if (self.in_guard and self.depth == self.guard_depth) self.in_guard = false;
+        if (self.depth > 0) self.depth -= 1;
+    }
+};
+
+/// True when `list` contains `name`.
+fn inList(list: []const []const u8, name: []const u8) bool {
+    for (list) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
+/// True when `path` matches any glob in `globs` (walk.matchGlob semantics).
+fn matchesAny(path: []const u8, globs: []const []const u8) bool {
+    for (globs) |g| if (walk.matchGlob(path, g)) return true;
+    return false;
+}
+
+/// 1-indexed source lines of every `@intFromFloat` NOT inside a guard-fn body.
+/// Float→int truncates toward zero and is UB on NaN / out-of-range in ReleaseFast
+/// / ReleaseSmall, so each unguarded site needs a deliberate isFinite+range guard.
+/// Token-based ⇒ strings/comments are skipped. Propagates OOM: undercounting on a
+/// failed allocation would let the budget pass open.
+fn unguardedCastLines(allocator: Allocator, content: []const u8, guard_fns: []const []const u8) Allocator.Error![]u32 {
+    var lines: std.ArrayList(u32) = .empty;
     const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
+    var st: GuardScan = .{ .guard_fns = guard_fns };
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
-        if (t.tag != .builtin) continue;
-        if (std.mem.eql(u8, z[t.loc.start..t.loc.end], "@intFromFloat")) n += 1;
+        st.step(z, t);
+        if (t.tag == .builtin and std.mem.eql(u8, z[t.loc.start..t.loc.end], "@intFromFloat")) {
+            if (!st.in_guard) try lines.append(allocator, lineOf(z, t.loc.start));
+        }
     }
-    return n;
+    return lines.toOwnedSlice(allocator);
+}
+
+/// Non-guard `@intFromFloat` count for `content` — the budget metric.
+fn countCasts(allocator: Allocator, content: []const u8, guard_fns: []const []const u8) Allocator.Error!u32 {
+    const lines = try unguardedCastLines(allocator, content, guard_fns);
+    return @intCast(lines.len);
+}
+
+/// One violation line per unguarded cast site in a require_guard file.
+fn requireGuardViolations(
+    allocator: Allocator,
+    rel_path: []const u8,
+    lines: []const u32,
+) Allocator.Error![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    for (lines) |ln| {
+        try out.append(allocator, try std.fmt.allocPrint(
+            allocator,
+            "{s}:{d}: unguarded @intFromFloat under require_guard — wrap it in a guard fn",
+            .{ rel_path, ln },
+        ));
+    }
+    return out.toOwnedSlice(allocator);
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    ctx.total.* += try countCasts(ctx.allocator, entry.content);
+    const lines = try unguardedCastLines(ctx.allocator, entry.content, ctx.guard_fns);
+    ctx.total.* += @intCast(lines.len);
+    if (ctx.require_guard.len == 0 or !matchesAny(entry.rel_path, ctx.require_guard)) return;
+    const viols = try requireGuardViolations(ctx.allocator, entry.rel_path, lines);
+    try ctx.violations.appendSlice(ctx.allocator, viols);
 }
 
 fn countToLines(allocator: std.mem.Allocator, n: u32) ![][]const u8 {
@@ -64,11 +162,23 @@ fn linesToCount(lines: []const []const u8) u32 {
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
+    const cfg = ctx_param.cfg.int_from_float;
 
     var total: u32 = 0;
-    var scan_ctx: ScanCtx = .{ .allocator = allocator, .total = &total };
+    var violations: std.ArrayList([]const u8) = .empty;
+    var scan_ctx: ScanCtx = .{
+        .allocator = allocator,
+        .total = &total,
+        .guard_fns = cfg.guard_fns,
+        .require_guard = cfg.require_guard,
+        .violations = &violations,
+    };
     const opts: walk.Visitor = .{ .ctx = &scan_ctx, .visit = visit };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, opts);
+
+    // Strict mode: any unguarded cast under a require_guard path hard-fails,
+    // independent of the snapshot budget — a stricter, path-scoped gate.
+    if (violations.items.len > 0) return reportRequireGuard(violations.items);
 
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, snapshot_leaf);
     const new_lines = try countToLines(allocator, total);
@@ -106,6 +216,14 @@ fn readBudget(
     return linesToCount(old.lines);
 }
 
+fn reportRequireGuard(violations: []const []const u8) registry.RunError!void {
+    fail("int-from-float require_guard FAILED ({d} unguarded cast(s))", .{violations.len});
+    for (violations) |v| print("  {s}\n", .{v});
+    print("  fix: wrap each site in a configured guard fn (isFinite + range check,\n", .{});
+    print("       see numeric.checkedInt), or drop the path from [int_from_float] require_guard.\n", .{});
+    return error.CheckFailed;
+}
+
 fn compareAndReport(total: u32, budget: u32) registry.RunError!void {
     if (total <= budget) {
         ok("int-from-float budget within limits (casts={d}/{d})", .{ total, budget });
@@ -128,7 +246,8 @@ test "countCasts counts @intFromFloat and skips strings" {
         \\fn b(y: f32) i32 { return @intFromFloat(y); }
         \\const s = "@intFromFloat(z)";
     ;
-    try std.testing.expectEqual(@as(u32, 2), try countCasts(a, content));
+    // No guard fns configured → every site counts, as before.
+    try std.testing.expectEqual(@as(u32, 2), try countCasts(a, content, &.{}));
 }
 
 test "linesToCount round-trips countToLines" {
@@ -137,4 +256,40 @@ test "linesToCount round-trips countToLines" {
     const a = arena.allocator();
     const lines = try countToLines(a, 7);
     try std.testing.expectEqual(@as(u32, 7), linesToCount(lines));
+}
+
+// spec: Int From Float Budget - Exempts an @intFromFloat inside a configured guard function body
+
+test "countCasts exempts a cast inside a guard fn body and counts the rest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\fn checkedInt(x: f64) i64 { return @intFromFloat(x); }
+        \\fn raw(y: f64) i64 { return @intFromFloat(y); }
+    ;
+    // The checkedInt-body cast is the sanctioned guard → excluded; raw's counts.
+    try std.testing.expectEqual(@as(u32, 1), try countCasts(a, content, &.{"checkedInt"}));
+    const lines = try unguardedCastLines(a, content, &.{"checkedInt"});
+    try std.testing.expectEqual(@as(usize, 1), lines.len);
+    try std.testing.expectEqual(@as(u32, 2), lines[0]);
+    // With no guard fns, both sites count.
+    try std.testing.expectEqual(@as(u32, 2), try countCasts(a, content, &.{}));
+}
+
+// spec: Int From Float Budget - Flags each unguarded cast under a require_guard path
+
+test "requireGuardViolations reports each unguarded cast line and skips guarded ones" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\fn checkedInt(x: f64) i64 { return @intFromFloat(x); }
+        \\fn draw(y: f64) i64 { return @intFromFloat(y); }
+    ;
+    const lines = try unguardedCastLines(a, content, &.{"checkedInt"});
+    const viols = try requireGuardViolations(a, "src/render/grid.zig", lines);
+    try std.testing.expectEqual(@as(usize, 1), viols.len);
+    try std.testing.expect(std.mem.indexOf(u8, viols[0], "src/render/grid.zig:2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, viols[0], "unguarded @intFromFloat") != null);
 }

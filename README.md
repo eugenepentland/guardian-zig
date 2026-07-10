@@ -87,7 +87,7 @@ zig build  # guardian gates every build
 | **stack-escape** | Returning `&local` / a slice of a stack array / `&local.field` / a `const` alias of `&local` — a dangling pointer into the dead frame |
 | **stub-body-ban** | Single-statement bodies that are `return undefined`, placeholder `@panic`, or `unreachable` in non-noreturn fns |
 | **panic-budget** | Increase in `@panic` / `unreachable` / `TODO` / `FIXME` counts, or `@setEvalBranchQuota` call count / max literal (snapshot) |
-| **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |
+| **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot). Casts inside a body of a `[int_from_float] guard_fns` wrapper don't count (the wrapper *is* the guard, e.g. a `checkedInt` that validates isFinite+range first); optional `require_guard` path globs additionally **hard-fail** any unguarded cast under them |
 | **unsafe-ops-budget** | Increase in any unsafe-cast builtin count (`@ptrCast`, `@alignCast`, `@bitCast`, `@ptrFromInt`, `@intFromPtr`, `@constCast`, `@volatileCast`) or in `undefined` re-assignments to a live lvalue; declaration-init and test blocks exempt (snapshot) |
 | **assert-doc-consistency** | A fn whose `///` doc carries the Zig-core `Asserts` precondition convention (whole word, case-sensitive) but whose body has no `assert(` call — the doc promises a guard the code never performs (exempt paths via `[[allow]]`) |
 
@@ -645,6 +645,7 @@ config):
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
 | `[fuzz_presence]` | `modules` |
+| `[int_from_float]` | `guard_fns`, `require_guard` |
 
 ## Tools
 

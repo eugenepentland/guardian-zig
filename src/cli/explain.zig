@@ -241,7 +241,14 @@ const entries = [_]Entry{
     .{ .name = "int-from-float-budget", .text = 
     \\Why: every new `@intFromFloat` is a lossy cast that silently mishandles NaN
     \\/ out-of-range values unless guarded.
-    \\Fix: clamp/validate the float and document the range before casting.
+    \\Fix: clamp/validate the float and document the range before casting — or
+    \\route it through a guard fn that checks isFinite+range in float space first
+    \\(eda's `numeric.checkedInt` is the model consumer, guarding 95 raw sites vs
+    \\10 today). Name that fn in `[int_from_float] guard_fns = ["checkedInt"]` and
+    \\casts in its body stop counting toward the budget — the wrapper IS the guard.
+    \\Optional strict mode: `[int_from_float] require_guard = ["src/render/*"]`
+    \\hard-fails ANY unguarded cast under those path globs, so a chosen subtree can
+    \\be driven to zero (independent of the snapshot budget).
     \\Exempt: `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` after the guard review, then
     \\commit the snapshot.
     },

@@ -23,6 +23,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Defaults completeness off and parses its enabled and exempt_sections settings
 - Parses the dora sink path and enabled toggle
 - Parses the fuzz_presence modules list
+- Parses the int_from_float guard_fns and require_guard lists
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
 - Parses the intent flag for the commit command
@@ -242,6 +243,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Int From Float Budget
 
 - Tracks @intFromFloat call count against a snapshot
+- Exempts an @intFromFloat inside a configured guard function body
+- Flags each unguarded cast under a require_guard path
 
 ## Unsafe Ops Budget
 
