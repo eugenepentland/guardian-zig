@@ -1,3 +1,8 @@
+//! Core types shared across the CLI: `RunCtx` (the per-invocation context handed
+//! to every check) and `RunError` (the one precise, named error set every
+//! command's `run` shares — not `anyerror`, so each failure space stays
+//! compile-time-exhaustive), plus the `Command` registry-entry shape.
+
 const std = @import("std");
 const config_mod = @import("../config.zig");
 const ast_index = @import("../ast/index.zig");

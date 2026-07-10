@@ -1,3 +1,7 @@
+//! `spec-init` generator (not a gate): walks src for public fn names and emits a
+//! starter SPEC.md — one `## ` section per module, a placeholder `- ` bullet per
+//! pub fn — so onboarding a project isn't a blank page.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const ast = @import("../ast/parser.zig");

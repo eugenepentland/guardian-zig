@@ -1,3 +1,8 @@
+//! The parse-once source index: reads and parses every src file exactly once
+//! per run so the AST-based checks share a single read+parse instead of each
+//! repeating it. Built once and handed to checks via `RunCtx.source_index`;
+//! `runSrc` falls back to a private index for a standalone single-check run.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
