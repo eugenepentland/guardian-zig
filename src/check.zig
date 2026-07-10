@@ -76,8 +76,8 @@ pub fn main() !void {
         .quiet = parsed.quiet,
         .against = parsed.against orelse nonEmpty(readEnv(allocator, AGAINST_ENV)),
         .full = parsed.full,
-        .only = splitCsv(allocator, parsed.only),
-        .skip = splitCsv(allocator, parsed.skip),
+        .only = try splitCsv(allocator, parsed.only),
+        .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
     };
 
@@ -165,16 +165,18 @@ fn onlySkipConflict(parsed: ParsedArgs) bool {
 /// Splits a comma-separated `--only`/`--skip` value into check names, trimming
 /// whitespace and dropping blank segments ("a,,b" -> {a,b}); empty slice when
 /// null (no filter active).
-fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) []const []const u8 {
+fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Error![]const []const u8 {
     const s = csv orelse return &.{};
     var list: std.ArrayListUnmanaged([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, s, ',');
     while (it.next()) |part| {
         const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
         if (trimmed.len == 0) continue;
-        list.append(allocator, trimmed) catch return list.items;
+        // Propagate OOM: a truncated --only/--skip list would silently narrow
+        // the suite, skipping checks the user asked to run (fail-open).
+        try list.append(allocator, trimmed);
     }
-    return list.toOwnedSlice(allocator) catch list.items;
+    return list.toOwnedSlice(allocator);
 }
 
 /// Reads an env var; null when unset (arena-owned when present).
@@ -409,12 +411,12 @@ test "splitCsv trims segments and returns empty for null" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const out = splitCsv(a, "spec, file-size ,,boundaries");
+    const out = try splitCsv(a, "spec, file-size ,,boundaries");
     try std.testing.expectEqual(@as(usize, 3), out.len);
     try std.testing.expectEqualStrings("spec", out[0]);
     try std.testing.expectEqualStrings("file-size", out[1]);
     try std.testing.expectEqualStrings("boundaries", out[2]);
-    try std.testing.expectEqual(@as(usize, 0), splitCsv(a, null).len);
+    try std.testing.expectEqual(@as(usize, 0), (try splitCsv(a, null)).len);
 }
 
 // spec: Configuration - Rejects combining the only and skip filters

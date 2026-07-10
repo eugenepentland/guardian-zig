@@ -419,6 +419,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Oom Discipline
 
 - Flags allocation errors dropped by a swallowing catch
+- Flags a dropped allocation error returned as a value expression
+- Allows returning the caught error payload or an error value
 
 ## Hidden Dependency Bans
 

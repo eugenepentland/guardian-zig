@@ -154,7 +154,8 @@ fn deltaVsHead(
     kind: Kind,
     current: u64,
 ) ?i64 {
-    const head = git.fileAtHead(arena, project_dir, rel_path) orelse return null;
+    // Best-effort debt delta: any failure (OOM or git-unavailable) just omits it.
+    const head = (git.fileAtHead(arena, project_dir, rel_path) catch return null) orelse return null;
     const before = summarize(kind, head);
     return @as(i64, @intCast(current)) - @as(i64, @intCast(before));
 }

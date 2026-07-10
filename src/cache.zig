@@ -174,9 +174,11 @@ fn parseHexDigest(hex: []const u8) ?Digest {
 }
 
 /// Digest recorded by the last all-green run, or null when none exists or
-/// the cache file is unreadable/malformed.
-pub fn readStored(arena: Allocator, project_dir: []const u8) ?Digest {
-    const path = std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF }) catch return null;
+/// the cache file is unreadable/malformed. OOM building the path propagates so
+/// the caller can decide (it maps any failure to a full, cache-miss run).
+pub fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest {
+    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF });
+    // A missing/unreadable cache file is a legitimate cache miss (first run).
     const raw = std.fs.cwd().readFileAlloc(arena, path, STORED_MAX_BYTES) catch return null;
     return parseHexDigest(std.mem.trim(u8, raw, &std.ascii.whitespace));
 }
@@ -257,7 +259,7 @@ test "writeStored then readStored round-trips the digest" {
     var d: Digest = undefined;
     Sha256.hash("hello", &d, .{});
     writeStored(a, dir, d);
-    const got = readStored(a, dir) orelse return error.TestExpectedStored;
+    const got = (try readStored(a, dir)) orelse return error.TestExpectedStored;
     try std.testing.expect(eql(d, got));
 }
 
@@ -291,7 +293,7 @@ test "a post-write .guardian digest stamps clean while the pre-write digest goes
     // Stamping the POST-write digest (d2) makes the next unchanged run a cache
     // hit; the pre-write digest (d1) would miss it.
     writeStored(a, dir, d2);
-    const stored = readStored(a, dir) orelse return error.TestExpectedStored;
+    const stored = (try readStored(a, dir)) orelse return error.TestExpectedStored;
     const current = try inputDigest(a, dir, "SPEC.md");
     try std.testing.expect(eql(stored, current));
     try std.testing.expect(!eql(d1, current));

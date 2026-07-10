@@ -24,9 +24,11 @@ const ScanCtx = struct {
 /// deliberate isFinite + range guard. Token-based ⇒ zero false positives; the
 /// tokenizer skips strings and comments. New sites drift the snapshot, forcing
 /// a review — it does not judge existing ones.
-fn countCasts(allocator: std.mem.Allocator, content: []const u8) u32 {
+fn countCasts(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!u32 {
     var n: u32 = 0;
-    const z = allocator.dupeZ(u8, content) catch return 0;
+    // Propagate OOM: counting zero casts when we can't allocate would fail open
+    // (the snapshot budget must never pass on an undercount).
+    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
@@ -39,7 +41,7 @@ fn countCasts(allocator: std.mem.Allocator, content: []const u8) u32 {
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    ctx.total.* += countCasts(ctx.allocator, entry.content);
+    ctx.total.* += try countCasts(ctx.allocator, entry.content);
 }
 
 fn countToLines(allocator: std.mem.Allocator, n: u32) ![][]const u8 {
@@ -126,7 +128,7 @@ test "countCasts counts @intFromFloat and skips strings" {
         \\fn b(y: f32) i32 { return @intFromFloat(y); }
         \\const s = "@intFromFloat(z)";
     ;
-    try std.testing.expectEqual(@as(u32, 2), countCasts(a, content));
+    try std.testing.expectEqual(@as(u32, 2), try countCasts(a, content));
 }
 
 test "linesToCount round-trips countToLines" {

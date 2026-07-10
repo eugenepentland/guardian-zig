@@ -74,26 +74,28 @@ const CycleFinder = struct {
     }
 
     // Records the cycle that closes at `target` (already gray on the stack).
-    fn recordCycle(self: *CycleFinder, target: usize) void {
+    // OOM propagates: silently dropping the recorded cycle would let the
+    // imports check pass on a graph that actually has one (fail open).
+    fn recordCycle(self: *CycleFinder, target: usize) Allocator.Error!void {
         var loop: std.ArrayListUnmanaged(usize) = .empty;
         var found_start = false;
         for (self.stack.items) |s| {
             if (s == target) found_start = true;
-            if (found_start) loop.append(self.allocator, s) catch return;
+            if (found_start) try loop.append(self.allocator, s);
         }
-        loop.append(self.allocator, target) catch return;
-        self.cycle = loop.toOwnedSlice(self.allocator) catch null;
+        try loop.append(self.allocator, target);
+        self.cycle = try loop.toOwnedSlice(self.allocator);
     }
 
-    fn dfs(self: *CycleFinder, idx: usize) void {
+    fn dfs(self: *CycleFinder, idx: usize) Allocator.Error!void {
         if (self.cycle != null) return;
         self.colors[idx] = .gray;
-        self.stack.append(self.allocator, idx) catch return;
+        try self.stack.append(self.allocator, idx);
         for (self.nodes[idx].edges) |edge| {
             const target = self.nodeIndex(edge) orelse continue;
             switch (self.colors[target]) {
-                .white => self.dfs(target),
-                .gray => self.recordCycle(target),
+                .white => try self.dfs(target),
+                .gray => try self.recordCycle(target),
                 .black => {},
             }
             if (self.cycle != null) return;
@@ -104,9 +106,10 @@ const CycleFinder = struct {
 };
 
 /// Returns the first cycle found in the graph, as an ordered list of node
-/// paths (start == end). Null if the graph is acyclic.
-pub fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8 {
-    const colors = allocator.alloc(Color, nodes.len) catch return null;
+/// paths (start == end). Null if the graph is acyclic. OOM propagates so the
+/// imports check can never pass by silently failing to detect a cycle.
+pub fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]const []const u8 {
+    const colors = try allocator.alloc(Color, nodes.len);
     @memset(colors, .white);
     var finder: CycleFinder = .{
         .allocator = allocator,
@@ -116,22 +119,22 @@ pub fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8 
         .cycle = null,
     };
     for (nodes, 0..) |_, i| {
-        if (finder.colors[i] == .white) finder.dfs(i);
+        if (finder.colors[i] == .white) try finder.dfs(i);
         if (finder.cycle != null) break;
     }
     const indices = finder.cycle orelse return null;
-    return indicesToPaths(allocator, nodes, indices);
+    return try indicesToPaths(allocator, nodes, indices);
 }
 
-// Maps a list of node indices to their paths; null on allocation failure.
+// Maps a list of node indices to their paths. OOM propagates.
 fn indicesToPaths(
     allocator: Allocator,
     nodes: []const Node,
     indices: []const usize,
-) ?[]const []const u8 {
+) Allocator.Error![]const []const u8 {
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
-    for (indices) |idx| out.append(allocator, nodes[idx].path) catch return null;
-    return out.toOwnedSlice(allocator) catch null;
+    for (indices) |idx| try out.append(allocator, nodes[idx].path);
+    return out.toOwnedSlice(allocator);
 }
 
 /// Returns the set of node paths reachable from any of `roots` via BFS.
@@ -193,7 +196,7 @@ test "findCycle returns null for acyclic graph" {
         .{ .path = "src/b.zig", .edges = &.{"src/c.zig"} },
         .{ .path = "src/c.zig", .edges = &.{} },
     };
-    try std.testing.expect(findCycle(a, nodes) == null);
+    try std.testing.expect((try findCycle(a, nodes)) == null);
 }
 
 // spec: Imports - Detects cycles in the @import graph
@@ -205,7 +208,7 @@ test "findCycle detects two-node cycle" {
         .{ .path = "src/a.zig", .edges = &.{"src/b.zig"} },
         .{ .path = "src/b.zig", .edges = &.{"src/a.zig"} },
     };
-    const cycle = findCycle(a, nodes);
+    const cycle = try findCycle(a, nodes);
     try std.testing.expect(cycle != null);
     try std.testing.expect(cycle.?.len >= 2);
 }
@@ -218,7 +221,7 @@ test "findCycle ignores edges to unknown nodes" {
         .{ .path = "src/a.zig", .edges = &.{ "src/external.zig", "src/b.zig" } },
         .{ .path = "src/b.zig", .edges = &.{} },
     };
-    try std.testing.expect(findCycle(a, nodes) == null);
+    try std.testing.expect((try findCycle(a, nodes)) == null);
 }
 
 test "reachableFrom finds transitively imported files" {

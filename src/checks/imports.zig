@@ -19,7 +19,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    const cycle = import_graph.findCycle(allocator, nodes);
+    const cycle = try import_graph.findCycle(allocator, nodes);
     if (cycle == null) {
         ok("import graph is acyclic ({d} files)", .{nodes.len});
         return;

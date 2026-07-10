@@ -132,8 +132,10 @@ pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u
 /// fails. The `:./` spec resolves the path relative to `project_dir` rather than
 /// the repo root. Used by the `debt` report to show a delta vs the committed
 /// `.guardian/` state; callers omit the delta on null.
-pub fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) ?[]const u8 {
-    const spec = std.fmt.allocPrint(allocator, "HEAD:./{s}", .{rel_path}) catch return null;
+pub fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8 {
+    // OOM building the rev spec propagates; git-unavailable stays null (the
+    // debt caller omits the delta either way, but OOM must not masquerade as it).
+    const spec = try std.fmt.allocPrint(allocator, "HEAD:./{s}", .{rel_path});
     const argv = [_][]const u8{ "git", "show", spec };
     return runGit(allocator, project_dir, &argv);
 }

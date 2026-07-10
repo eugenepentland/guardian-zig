@@ -39,9 +39,11 @@ const ScanCtx = struct {
     totals: *Counts,
 };
 
-fn countTokens(allocator: std.mem.Allocator, content: []const u8) Counts {
+fn countTokens(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!Counts {
     var c: Counts = .{};
-    const z = allocator.dupeZ(u8, content) catch return c;
+    // Propagate OOM: returning zeroed counts on allocation failure fails open
+    // (the panic/unreachable budget must never pass on an undercount).
+    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     // Chain state for `std . debug . panic`: 0=none, 1=std, 2=std., 3=std.debug,
     // 4=std.debug. — so std.debug.panic doesn't escape the budget by not being
@@ -117,9 +119,11 @@ const QuotaCounts = struct { calls: u32 = 0, max_value: u64 = 0 };
 /// Scans for `@setEvalBranchQuota(N)` calls: counts them and tracks the largest
 /// literal N. Non-literal args (a const reference) bump the count but not the
 /// max. Tokenizer skips strings/comments. (Folded in from comptime-quota.)
-fn countQuotas(allocator: std.mem.Allocator, content: []const u8) QuotaCounts {
+fn countQuotas(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!QuotaCounts {
     var q: QuotaCounts = .{};
-    const z = allocator.dupeZ(u8, content) catch return q;
+    // Propagate OOM: an undercount here would let a new @setEvalBranchQuota
+    // slip past the budget.
+    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
@@ -130,7 +134,8 @@ fn countQuotas(allocator: std.mem.Allocator, content: []const u8) QuotaCounts {
         const arg = tok.next();
         q.calls += 1;
         if (arg.tag == .number_literal) {
-            const cleaned = stripUnderscores(allocator, z[arg.loc.start..arg.loc.end]) catch continue;
+            // OOM propagates; only a malformed literal (parseUint) is skipped.
+            const cleaned = try stripUnderscores(allocator, z[arg.loc.start..arg.loc.end]);
             const v = parseUint(cleaned) catch continue;
             if (v > q.max_value) q.max_value = v;
         }
@@ -165,11 +170,11 @@ fn parseUint(s: []const u8) !u64 {
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    var c = countTokens(ctx.allocator, entry.content);
+    var c = try countTokens(ctx.allocator, entry.content);
     const cm = countCommentMarkers(entry.content);
     c.todos = cm.todos;
     c.fixmes = cm.fixmes;
-    const q = countQuotas(ctx.allocator, entry.content);
+    const q = try countQuotas(ctx.allocator, entry.content);
     c.comptime_calls = q.calls;
     c.comptime_max = q.max_value;
     ctx.totals.add(c);
@@ -342,7 +347,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 test "countQuotas counts @setEvalBranchQuota calls and tracks the max literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const q = countQuotas(arena.allocator(),
+    const q = try countQuotas(arena.allocator(),
         \\fn x() void { @setEvalBranchQuota(1000); }
         \\fn y() void { @setEvalBranchQuota(50_000); }
         \\const s = "@setEvalBranchQuota(99999)";
@@ -362,14 +367,14 @@ test "countTokens counts panics and unreachables" {
         \\fn z() void { unreachable; }
         \\const s = "@panic(\"in-string\")";
     ;
-    const c = countTokens(a, content);
+    const c = try countTokens(a, content);
     try std.testing.expectEqual(@as(u32, 1), c.panics);
     try std.testing.expectEqual(@as(u32, 2), c.unreachables);
 }
 test "countTokens counts std.debug.panic toward the panic budget" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const c = countTokens(arena.allocator(),
+    const c = try countTokens(arena.allocator(),
         \\fn a() void { @panic("x"); }
         \\fn b() void { std.debug.panic("y {d}", .{1}); }
     );

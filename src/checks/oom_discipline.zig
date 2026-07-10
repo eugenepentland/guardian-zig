@@ -41,18 +41,26 @@ const ScanState = struct {
     // After a `catch` on an alloc call: 0 = not armed, 1 = seeking handler
     // (skipping an optional `|payload|`), 2 = saw `return`, inspect next token.
     phase: u8 = 0,
+    // Set while inside the handler's `|payload|` capture, and the captured name
+    // once seen — so `catch |e| return e` (propagation) is not mistaken for a
+    // dropped `catch return <expr>`.
+    in_capture: bool = false,
+    payload: []const u8 = "",
 
     fn deinit(self: *ScanState, a: Allocator) void {
         self.methods.deinit(a);
     }
 };
 
-/// The token right after `return` means a dropped default (not `return err`):
-/// `;`, a literal, `&.{}`/`.{}` (`&`/`.`), or the identifier `null`.
-fn isDroppedReturnTok(t: std.zig.Token, z: [:0]const u8) bool {
+/// True when the token right after `return` *propagates* the caught error
+/// rather than dropping it: `return error.X` (the `error` keyword) or
+/// `return <payload>` where `<payload>` is the `|e|` capture name. Everything
+/// else — `;`, a literal, `null`, `.{}`/`&.{}`, or any other identifier/expr
+/// like `return c` / `return list.items` — is a dropped default.
+fn isPropagatedReturn(t: std.zig.Token, z: [:0]const u8, payload: []const u8) bool {
     return switch (t.tag) {
-        .semicolon, .string_literal, .number_literal, .ampersand, .period => true,
-        .identifier => std.mem.eql(u8, z[t.loc.start..t.loc.end], "null"),
+        .keyword_error => true,
+        .identifier => payload.len > 0 and std.mem.eql(u8, z[t.loc.start..t.loc.end], payload),
         else => false,
     };
 }
@@ -79,13 +87,17 @@ fn step(ctx: *ScanCtx, s: *ScanState, t: std.zig.Token, z: [:0]const u8, catch_l
         .r_paren => s.last_closed = if (s.methods.items.len > 0) s.methods.pop().? else "",
         .keyword_catch => if (s.prev_tag == .r_paren and isAllocMethod(s.last_closed)) {
             s.phase = 1;
+            s.in_capture = false;
+            s.payload = "";
         },
         else => {},
     }
 }
 
-/// Inspects the tokens after an armed `catch`: skip a `|payload|`, then flag if
-/// the handler drops the error (`continue`/`break`/`return <default>`).
+/// Inspects the tokens after an armed `catch`: record the `|payload|` capture
+/// name, then flag if the handler drops the error (`continue`/`break`/`return
+/// <default>`). A bare `catch <expr>` value handler (not a control keyword)
+/// disarms without flagging.
 fn handleHandler(
     ctx: *ScanCtx,
     s: *ScanState,
@@ -94,12 +106,19 @@ fn handleHandler(
     catch_line: u32,
 ) Allocator.Error!void {
     if (s.phase == 2) {
-        if (isDroppedReturnTok(t, z)) try record(ctx, catch_line);
+        if (!isPropagatedReturn(t, z, s.payload)) try record(ctx, catch_line);
         s.phase = 0;
         return;
     }
     switch (t.tag) {
-        .pipe, .identifier, .comma => {}, // `|e|` payload — keep seeking
+        .pipe => s.in_capture = !s.in_capture, // open/close the `|payload|`
+        .identifier => if (s.in_capture) {
+            if (s.payload.len == 0) s.payload = z[t.loc.start..t.loc.end];
+        } else {
+            // A value-expression handler (`catch fallback`) — not a drop.
+            s.phase = 0;
+        },
+        .comma => {}, // keep seeking (defensive; a capture has no comma)
         .keyword_return => s.phase = 2,
         .keyword_continue, .keyword_break => {
             try record(ctx, catch_line);
@@ -189,4 +208,36 @@ test "flags swallowed alloc errors, allows propagation and non-alloc catches" {
         \\}
     );
     try std.testing.expectEqual(@as(usize, 0), good.len);
+}
+
+// spec: Oom Discipline - Flags a dropped allocation error returned as a value expression
+test "flags catch-return of a value expression (identifier or field access)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Returning a plain identifier or a field — not the error — drops OOM just
+    // like `return 0`; the old check only caught literals/null, these are new.
+    const out = try analyzeContent(a, "src/x.zig",
+        \\fn f(al: std.mem.Allocator, list: *L, self: *S) void {
+        \\    const c: u32 = 0;
+        \\    list.append(al, 1) catch return c;
+        \\    _ = list.toOwnedSlice(al) catch return self.cached;
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 2), out.len);
+}
+
+// spec: Oom Discipline - Allows returning the caught error payload or an error value
+test "allows catch-return of the error payload or an error value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `catch |e| return e` and `catch return error.X` both re-raise the error.
+    const out = try analyzeContent(a, "src/x.zig",
+        \\fn g(al: std.mem.Allocator, list: *L) !void {
+        \\    list.append(al, 1) catch |e| return e;
+        \\    list.append(al, 2) catch return error.OutOfMemory;
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 0), out.len);
 }

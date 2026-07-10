@@ -125,15 +125,17 @@ fn tallyBuiltin(c: *Counts, slice: []const u8) void {
 }
 
 /// Content entry (tests / standalone with no shared tree): parse once, count.
-fn countFromContent(allocator: std.mem.Allocator, content: []const u8) Counts {
-    const z = allocator.dupeZ(u8, content) catch return .{};
-    var tree = std.zig.Ast.parse(allocator, z, .zig) catch return .{};
+fn countFromContent(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!Counts {
+    // Propagate OOM: zeroed counts on allocation failure would let a new unsafe
+    // op or undefined re-assignment slip past the snapshot budget.
+    const z = try allocator.dupeZ(u8, content);
+    var tree = try std.zig.Ast.parse(allocator, z, .zig);
     return countFromTree(&tree);
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    const c = if (entry.tree) |t| countFromTree(t) else countFromContent(ctx.allocator, entry.content);
+    const c = if (entry.tree) |t| countFromTree(t) else try countFromContent(ctx.allocator, entry.content);
     ctx.totals.add(c);
 }
 
@@ -296,7 +298,7 @@ test "countFromContent counts each unsafe-cast builtin" {
         \\fn e(p: *u8) *u32 { return @alignCast(@ptrCast(p)); }
         \\fn f(x: u32) f32 { return @bitCast(x); }
     ;
-    const c = countFromContent(arena.allocator(), content);
+    const c = try countFromContent(arena.allocator(), content);
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@ptrCast")]);
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@alignCast")]);
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@bitCast")]);
@@ -317,7 +319,7 @@ test "countFromContent skips declaration-init undefined but counts re-assignment
         \\    x = undefined;
         \\}
     ;
-    const c = countFromContent(arena.allocator(), content);
+    const c = try countFromContent(arena.allocator(), content);
     // The two declaration-inits are exempt; the two lvalue re-assignments count.
     try std.testing.expectEqual(@as(u32, 2), c.undefined_reassign);
 }
@@ -332,7 +334,7 @@ test "countFromContent excludes unsafe ops inside test blocks" {
         \\    z = undefined;
         \\}
     ;
-    const c = countFromContent(arena.allocator(), content);
+    const c = try countFromContent(arena.allocator(), content);
     // Only the production @bitCast counts; the test-block ops are excluded.
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@bitCast")]);
     try std.testing.expectEqual(@as(u32, 0), c.undefined_reassign);
@@ -344,7 +346,7 @@ test "countFromContent ignores builtins and undefined inside strings" {
     const content =
         \\const s = "@ptrCast and x = undefined";
     ;
-    const c = countFromContent(arena.allocator(), content);
+    const c = try countFromContent(arena.allocator(), content);
     try std.testing.expectEqual(@as(u32, 0), c.undefined_reassign);
     for (c.builtins) |n| try std.testing.expectEqual(@as(u32, 0), n);
 }

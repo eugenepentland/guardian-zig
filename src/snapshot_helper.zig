@@ -53,30 +53,31 @@ fn isAllToken(v: []const u8) bool {
 }
 
 /// Splits a comma-separated check-name list, trimming each segment and dropping
-/// blanks ("a,,b" -> {a,b}). Swallows OOM by returning what was collected so
-/// far — a refresh decision must never fail the build on allocator pressure.
-fn splitNames(allocator: Allocator, csv: []const u8) []const []const u8 {
+/// blanks ("a,,b" -> {a,b}). Propagates OOM: a truncated list would silently
+/// drop a check from the refresh set — the public entry points below turn OOM
+/// into the fail-closed "no refresh" default rather than a partial list.
+fn splitNames(allocator: Allocator, csv: []const u8) Allocator.Error![]const []const u8 {
     var list: std.ArrayListUnmanaged([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, csv, ',');
     while (it.next()) |part| {
         const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
         if (trimmed.len == 0) continue;
-        list.append(allocator, trimmed) catch return list.items;
+        try list.append(allocator, trimmed);
     }
-    return list.toOwnedSlice(allocator) catch list.items;
+    return list.toOwnedSlice(allocator);
 }
 
 /// Classifies a raw GUARDIAN_UPDATE_SNAPSHOT value into a Refresh request. Pure
 /// (no env read) so the none/all/named partition is unit-testable.
-fn classifyValue(allocator: Allocator, raw: []const u8) Refresh {
+fn classifyValue(allocator: Allocator, raw: []const u8) Allocator.Error!Refresh {
     const trimmed = std.mem.trim(u8, raw, &std.ascii.whitespace);
     if (trimmed.len == 0 or std.mem.eql(u8, trimmed, "0")) return .none;
     if (isAllToken(trimmed)) return .all;
-    return .{ .named = splitNames(allocator, trimmed) };
+    return .{ .named = try splitNames(allocator, trimmed) };
 }
 
 /// Reads and classifies GUARDIAN_UPDATE_SNAPSHOT; `.none` when unset/unreadable.
-fn parseRefresh(allocator: Allocator) Refresh {
+fn parseRefresh(allocator: Allocator) Allocator.Error!Refresh {
     const raw = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return .none;
     return classifyValue(allocator, raw);
 }
@@ -103,7 +104,11 @@ fn refreshIncludes(r: Refresh, check_name: []const u8) bool {
 /// baseline mode so `GUARDIAN_UPDATE_SNAPSHOT=<name[,name]>` refreshes only
 /// those checks (`=1`/`true`/`all` still refreshes everything).
 pub fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool {
-    return refreshIncludes(parseRefresh(allocator), check_name);
+    // OOM while parsing the refresh list collapses to "no refresh": the check
+    // then compares against its committed snapshot, so real drift still reds the
+    // build (fail closed) rather than being silently ratified.
+    const r = parseRefresh(allocator) catch return false;
+    return refreshIncludes(r, check_name);
 }
 
 /// The check names listed in a `named` GUARDIAN_UPDATE_SNAPSHOT request, or null
@@ -111,7 +116,7 @@ pub fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool {
 /// against the registry so a typo hard-fails instead of silently refreshing
 /// nothing.
 pub fn refreshTargets(allocator: Allocator) ?[]const []const u8 {
-    return switch (parseRefresh(allocator)) {
+    return switch (parseRefresh(allocator) catch return null) {
         .named => |names| names,
         else => null,
     };
@@ -285,7 +290,7 @@ test "classifyValue and refreshIncludes select only the named checks" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const r = classifyValue(a, "pub-api-surface, spec");
+    const r = try classifyValue(a, "pub-api-surface, spec");
     try testing.expect(r == .named);
     try testing.expectEqual(@as(usize, 2), r.named.len);
     // Only the two listed checks refresh; everything else is held back.
@@ -301,7 +306,7 @@ test "classifyValue treats 1, true, and all as a full refresh of every check" {
     defer arena.deinit();
     const a = arena.allocator();
     for ([_][]const u8{ "1", "true", "all" }) |token| {
-        const r = classifyValue(a, token);
+        const r = try classifyValue(a, token);
         try testing.expect(r == .all);
         // A full refresh includes any check name.
         try testing.expect(refreshIncludes(r, "pub-api-surface"));
@@ -316,7 +321,7 @@ test "classifyValue treats empty and zero as no refresh" {
     defer arena.deinit();
     const a = arena.allocator();
     for ([_][]const u8{ "", "   ", "0" }) |token| {
-        const r = classifyValue(a, token);
+        const r = try classifyValue(a, token);
         try testing.expect(r == .none);
         try testing.expect(!refreshIncludes(r, "pub-api-surface"));
     }

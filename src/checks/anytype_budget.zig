@@ -70,9 +70,11 @@ fn countAnytypeTree(tree: *const std.zig.Ast) u32 {
 }
 
 /// Content entry (tests / standalone with no shared tree): parse once, count.
-fn countAnytype(allocator: std.mem.Allocator, content: []const u8) u32 {
-    const z = allocator.dupeZ(u8, content) catch return 0;
-    var tree = std.zig.Ast.parse(allocator, z, .zig) catch return 0;
+fn countAnytype(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!u32 {
+    // Propagate OOM: a zero count on allocation failure would let anytype params
+    // slip past the per-file cap.
+    const z = try allocator.dupeZ(u8, content);
+    var tree = try std.zig.Ast.parse(allocator, z, .zig);
     return countAnytypeTree(&tree);
 }
 
@@ -80,7 +82,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isExcluded(entry.rel_path, ctx.exclude)) return;
     const a = ctx.allocator;
-    const count = if (entry.tree) |t| countAnytypeTree(t) else countAnytype(a, entry.content);
+    const count = if (entry.tree) |t| countAnytypeTree(t) else try countAnytype(a, entry.content);
     if (count > ctx.max_per_file) {
         const msg = try std.fmt.allocPrint(
             a,
@@ -134,7 +136,7 @@ test "countAnytype counts only the keyword" {
         \\const s = "anytype";
     ;
     // 3 anytype tokens total (1 + 2; string literal not counted)
-    try std.testing.expectEqual(@as(u32, 3), countAnytype(a, content));
+    try std.testing.expectEqual(@as(u32, 3), try countAnytype(a, content));
 }
 
 // spec: Anytype Budget - Excludes writer-typed anytype parameters
@@ -149,7 +151,7 @@ test "countAnytype skips writer-typed params" {
         \\pub fn d(x: anytype) void {}
     ;
     // 4 anytype params, 3 are writer-typed → only `x: anytype` counts.
-    try std.testing.expectEqual(@as(u32, 1), countAnytype(a, content));
+    try std.testing.expectEqual(@as(u32, 1), try countAnytype(a, content));
 
     // The broadened format-target idiom: exact sink names plus a
     // case-insensitive `writer` suffix. None of these count.
@@ -162,7 +164,7 @@ test "countAnytype skips writer-typed params" {
         \\pub fn render5(html_writer: anytype) void {}
         \\pub fn render6(htmlWriter: anytype) void {}
     ;
-    try std.testing.expectEqual(@as(u32, 0), countAnytype(a, sinks));
+    try std.testing.expectEqual(@as(u32, 0), try countAnytype(a, sinks));
 }
 
 // spec: Anytype Budget - Skips files matching the exclude patterns
