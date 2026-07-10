@@ -17,7 +17,7 @@ const run_all = @import("run_all.zig");
 const mutate = @import("mutate.zig");
 
 /// CLI name that check.zig dispatches to this command.
-pub const COMMAND_NAME = "nightly";
+pub const command_name = "nightly";
 
 /// Pure decision: a nightly run fails when the `all` suite failed or the
 /// whole-tree mutation ratchet failed. Separated from `run` so the

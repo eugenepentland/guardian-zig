@@ -56,6 +56,8 @@ pub const pubContainers = containers.pubContainers;
 pub const pubContainersFromTree = containers.pubContainersFromTree;
 pub const pubConsts = containers.pubConsts;
 pub const pubConstsFromTree = containers.pubConstsFromTree;
+pub const allConstNames = containers.allConstNames;
+pub const allConstNamesFromTree = containers.allConstNamesFromTree;
 
 /// Tokenizer-based @import extraction. Skips strings/comments correctly.
 /// Returns an empty slice on allocator failure (best-effort, for use in

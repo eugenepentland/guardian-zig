@@ -10,9 +10,9 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-const SNAPSHOT_LEAF = "panic-budget.txt";
+const snapshot_leaf = "panic-budget.txt";
 // v2: added comptime_calls / comptime_max (folded in comptime-quota).
-const SNAPSHOT_VERSION: u32 = 2;
+const snapshot_version: u32 = 2;
 
 const Counts = struct {
     panics: u32 = 0,
@@ -248,7 +248,7 @@ fn reportFailures(failures: []const []const u8) registry.RunError!void {
     for (failures) |line| print("  {s}\n", .{line});
     print(
         "  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n",
-        .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF },
+        .{ snapshot_helper.update_env, snapshot_leaf },
     );
 }
 
@@ -277,11 +277,11 @@ fn loadBudget(
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
     if (snapshot_helper.shouldUpdateFor(allocator, "panic-budget")) {
-        try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
+        try snapshot.write(snap_path, snapshot_version, new_lines);
         okCounts("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
         return null;
     }
-    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| {
+    const old = snapshot.read(allocator, snap_path, snapshot_version) catch |e| {
         return handleReadError(e, snap_path, totals, new_lines);
     };
     return linesToCounts(old.lines);
@@ -295,12 +295,12 @@ fn handleReadError(
 ) registry.RunError!?Counts {
     switch (e) {
         error.Missing => {
-            try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
+            try snapshot.write(snap_path, snapshot_version, new_lines);
             okCounts("panic budget created (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
             return null;
         },
         error.VersionMismatch => {
-            fail("panic budget version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.UPDATE_ENV});
+            fail("panic budget version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.update_env});
             return error.CheckFailed;
         },
         else => return e,
@@ -321,7 +321,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const totals = try scanTotals(ctx_param);
 
-    const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, SNAPSHOT_LEAF);
+    const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, snapshot_leaf);
     const new_lines = try countsToLines(allocator, totals);
 
     const budget = try loadBudget(allocator, snap_path, totals, new_lines) orelse return;

@@ -8,7 +8,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 /// Output cap for a captured `git` invocation (diffs on large repos).
-const MAX_GIT_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+const max_git_output_bytes: usize = 64 * 1024 * 1024;
 
 /// A run of added lines in the new side of a diff: 1-indexed `start`,
 /// `len` lines long. A pure deletion has no span.
@@ -246,7 +246,7 @@ fn runGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u
         .allocator = allocator,
         .argv = argv,
         .cwd = project_dir,
-        .max_output_bytes = MAX_GIT_OUTPUT_BYTES,
+        .max_output_bytes = max_git_output_bytes,
     }) catch return null;
     allocator.free(res.stderr);
     const exited_clean = res.term == .Exited and res.term.Exited == 0;

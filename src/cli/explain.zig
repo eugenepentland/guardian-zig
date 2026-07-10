@@ -121,12 +121,17 @@ const entries = [_]Entry{
     \\sections (Overview, Changelog) in `[completeness] exempt_sections`.
     },
     .{ .name = "naming", .text = 
-    \\Why: agents bleed Rust/Python casing into Zig or reach for placeholder
-    \\names (tmp/data/Manager) that describe nothing.
+    \\Why: agents bleed Rust/Python/C casing into Zig or reach for placeholder
+    \\names (tmp/data/Manager) that describe nothing. Zig std reserves
+    \\SCREAMING_SNAKE for C/OS-ABI mirrors (~97% of its all-caps hits) — a plain
+    \\const is snake_case (`std.fs.max_path_bytes`).
     \\Fix: PascalCase iff a fn returns `type`; camelCase fns; PascalCase types;
+    \\snake_case container-scope consts (PascalCase when the value is a type);
     \\rename vague identifiers to something concrete.
-    \\Exempt: top-level `disabled` list (the retired `vague-name-blacklist` name
-    \\is tolerated there too).
+    \\Exempt: a genuine C-ABI-mirror file whose SCREAMING casing matches the
+    \\foreign API opts out via `[[allow]] check = "naming"` path globs in
+    \\guardian.toml; or drop the whole check via the top-level `disabled` list
+    \\(the retired `vague-name-blacklist` name is tolerated there too).
     },
     .{ .name = "function-size", .text = 
     \\Why: a parameter list that keeps growing signals an agent bolting on args

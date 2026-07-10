@@ -16,7 +16,7 @@ const BodyKind = enum { other, empty, unconditional_skip };
 
 /// Tokens of a test body's first statement inspected to classify it: a
 /// `return error.SkipZigTest` prefix is exactly four tokens.
-const PREFIX_TOKENS = 4;
+const prefix_tokens = 4;
 
 const ScanCtx = struct {
     allocator: Allocator,
@@ -79,7 +79,7 @@ fn reachLBrace(tok: *std.zig.Tokenizer) bool {
 fn classifyBody(tok: *std.zig.Tokenizer, z: [:0]const u8) BodyKind {
     var depth: u32 = 1;
     var seen: usize = 0;
-    var tags: [PREFIX_TOKENS]std.zig.Token.Tag = undefined;
+    var tags: [prefix_tokens]std.zig.Token.Tag = undefined;
     var saw_skip_ident = false;
     while (true) {
         const t = tok.next();

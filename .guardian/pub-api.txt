@@ -3,6 +3,8 @@ src/ast/containers.zig::FnDeclInfo struct_
 src/ast/containers.zig::PubConst struct_
 src/ast/containers.zig::PubConstKind enum_
 src/ast/containers.zig::PubContainerInfo struct_
+src/ast/containers.zig::allConstNames | fn allConstNames(arena: Allocator, source: []const u8) AstError![]const []const u8
+src/ast/containers.zig::allConstNamesFromTree | fn allConstNamesFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const []const u8
 src/ast/containers.zig::fnDeclInfos | fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo
 src/ast/containers.zig::fnDeclInfosFromTree | fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnDeclInfo
 src/ast/containers.zig::pubConsts | fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
@@ -33,6 +35,8 @@ src/ast/parser.zig::PubConstKind value
 src/ast/parser.zig::PubContainerInfo value
 src/ast/parser.zig::PubFn struct_
 src/ast/parser.zig::ReturnKind enum_
+src/ast/parser.zig::allConstNames value
+src/ast/parser.zig::allConstNamesFromTree value
 src/ast/parser.zig::allFns | fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo
 src/ast/parser.zig::allFnsFromTree | fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnInfo
 src/ast/parser.zig::collectDecls value
@@ -46,11 +50,11 @@ src/ast/parser.zig::pubContainersFromTree value
 src/ast/parser.zig::pubFns | fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn
 src/ast/parser.zig::pubFnsFromTree | fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubFn
 src/baseline.zig::Outcome union_
-src/baseline.zig::VERSION value
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: [][]const u8, force_refresh: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
+src/baseline.zig::version value
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
 src/build_helper.zig::all_check_names value
@@ -104,10 +108,10 @@ src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) r
 src/checks/compile_error_explanation.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/compile_error_explanation.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/completeness.zig::FeatureSection struct_
-src/checks/completeness.zig::WAIVER_PREFIX value
 src/checks/completeness.zig::analyze | fn analyze( arena: Allocator, sections: []const FeatureSection, exempt: []const []const u8, ) Allocator.Error![]const []const u8
 src/checks/completeness.zig::parseFeatureSections | fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error![]const FeatureSection
 src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/completeness.zig::waiver_prefix value
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -177,16 +181,16 @@ src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.Run
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/cli/commit.zig::COMMAND_NAME value
+src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
-src/cli/debt.zig::COMMAND_NAME value
+src/cli/debt.zig::command_name value
 src/cli/debt.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/explain.zig::run | fn run(query: ?[]const u8) bool
-src/cli/mutate.zig::COMMAND_NAME value
+src/cli/mutate.zig::command_name value
 src/cli/mutate.zig::gatePasses | fn gatePasses(score_pct: u32, min_pct: u32) bool
 src/cli/mutate.zig::gatedByPercentage | fn gatedByPercentage(viable: u32, min_mutants: u32) bool
 src/cli/mutate.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
-src/cli/nightly.zig::COMMAND_NAME value
+src/cli/nightly.zig::command_name value
 src/cli/nightly.zig::mutateContext | fn mutateContext(ctx: *const types.RunCtx) types.RunCtx
 src/cli/nightly.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/registry.zig::Command value
@@ -196,7 +200,7 @@ src/cli/registry.zig::all value
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/registry.zig::summaryFor | fn summaryFor(name: []const u8) ?[]const u8
-src/cli/run_all.zig::COMMAND_NAME value
+src/cli/run_all.zig::command_name value
 src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
@@ -299,7 +303,6 @@ src/mutation/report.zig::summaryJson | fn summaryJson(arena: Allocator, s: Summa
 src/mutation/report.zig::survivorJson | fn survivorJson(arena: Allocator, s: Survivor) Allocator.Error![]u8
 src/mutation/report.zig::write | fn write(arena: Allocator, project_dir: []const u8, survivors: []const Survivor, summary: Summary) void
 src/mutation/runner.zig::ExecResult enum_
-src/mutation/runner.zig::MUTATION_ENV value
 src/mutation/runner.zig::Outcome enum_
 src/mutation/runner.zig::RatchetDecision enum_
 src/mutation/runner.zig::RunError value
@@ -307,6 +310,7 @@ src/mutation/runner.zig::RunOpts struct_
 src/mutation/runner.zig::Score struct_
 src/mutation/runner.zig::SpliceError value
 src/mutation/runner.zig::add | fn add(self: *Score, outcome: Outcome) void
+src/mutation/runner.zig::mutation_env value
 src/mutation/runner.zig::outcomeFor | fn outcomeFor(build_res: ExecResult, test_res: ExecResult) Outcome
 src/mutation/runner.zig::pct | fn pct(self: Score) u32
 src/mutation/runner.zig::ratchetDecision | fn ratchetDecision(old_pct: ?u32, new_pct: u32) RatchetDecision
@@ -320,7 +324,6 @@ src/ratchet.zig::Improved struct_
 src/ratchet.zig::LifecycleError value
 src/ratchet.zig::Outcome union_
 src/ratchet.zig::Regression struct_
-src/ratchet.zig::VERSION value
 src/ratchet.zig::aggregate | fn aggregate(arena: Allocator, records: []const reporter.Violation, mode: AggMode) Allocator.Error![]Entry
 src/ratchet.zig::classify | fn classify(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!Outcome
 src/ratchet.zig::decodeLine | fn decodeLine(line: []const u8) ?Entry
@@ -329,12 +332,9 @@ src/ratchet.zig::lifecycle | fn lifecycle( arena: Allocator, path: []const u8, e
 src/ratchet.zig::maxEntry | fn maxEntry(entries: []const Entry) ?Entry
 src/ratchet.zig::metricMode | fn metricMode(check_name: []const u8) ?AggMode
 src/ratchet.zig::parse | fn parse(arena: Allocator, content: []const u8) Allocator.Error![]Entry
+src/ratchet.zig::version value
 src/ratchet.zig::wouldGrow | fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool
 src/reporter.zig::Capture struct_
-src/reporter.zig::GREEN value
-src/reporter.zig::PREFIX value
-src/reporter.zig::RED value
-src/reporter.zig::RESET value
 src/reporter.zig::Reporter struct_
 src/reporter.zig::Violation struct_
 src/reporter.zig::default value
@@ -347,9 +347,13 @@ src/reporter.zig::fail | fn fail(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::fail | fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::flatLine | fn flatLine(arena: Allocator, v: Violation) Allocator.Error![]const u8
 src/reporter.zig::flatLines | fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![]const []const u8
+src/reporter.zig::green value
 src/reporter.zig::init | fn init(quiet: bool) void
 src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void
+src/reporter.zig::prefix value
+src/reporter.zig::red value
+src/reporter.zig::reset value
 src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
 src/sink.zig::Summary struct_
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
@@ -357,24 +361,24 @@ src/sink.zig::summaryJson | fn summaryJson(arena: Allocator, s: Summary) Allocat
 src/sink.zig::violationJson | fn violationJson(arena: Allocator, v: reporter.Violation) Allocator.Error![]u8
 src/sink.zig::write | fn write(arena: Allocator, project_dir: []const u8, records: []const reporter.Violation, summary: Summary) void
 src/snapshot.zig::Diff struct_
-src/snapshot.zig::MAGIC_PREFIX value
 src/snapshot.zig::ReadError value
 src/snapshot.zig::Snapshot struct_
 src/snapshot.zig::WriteError value
 src/snapshot.zig::diff | fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff
 src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
+src/snapshot.zig::magic_prefix value
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
 src/snapshot.zig::writePresorted | fn writePresorted(path: []const u8, version: u32, lines: []const []const u8) WriteError!void
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_
-src/snapshot_helper.zig::UPDATE_ENV value
 src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, ) LifecycleError!Outcome
 src/snapshot_helper.zig::refreshTargets | fn refreshTargets(allocator: Allocator) ?[]const []const u8
 src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
 src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
+src/snapshot_helper.zig::update_env value
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
 src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayList(ModuleInfo), ) InitError!void
@@ -397,9 +401,9 @@ src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, conten
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_
-src/testing/golden_runner.zig::UPDATE_ENV value
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void
 src/testing/golden_runner.zig::runWithCfg | fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype, cfg: anytype) GoldenError!void
+src/testing/golden_runner.zig::update_env value
 src/text.zig::TestScope struct_
 src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void

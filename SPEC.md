@@ -79,6 +79,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - camelCase pub fn must not return type
 - snake_case pub fn is rejected
 - pub const struct/enum/union with fields must be PascalCase
+- SCREAMING_SNAKE container-scope const is rejected
 
 ## Function Size
 

@@ -7,7 +7,7 @@ const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
 
 /// Baseline file format version. Bump if the format changes meaningfully.
-pub const VERSION: u32 = 1;
+pub const version: u32 = 1;
 
 /// Outcome of one check's baseline lifecycle. Maps to user-visible
 /// reporter output: `created`, `matched`, `shrunk` and `refreshed`
@@ -155,7 +155,7 @@ pub fn lifecycle(
     force_refresh: bool,
 ) (snapshot.WriteError || snapshot.ReadError)!Outcome {
     if (force_refresh) {
-        try snapshot.write(baseline_path, VERSION, current);
+        try snapshot.write(baseline_path, version, current);
         return .{ .refreshed = current.len };
     }
 
@@ -176,7 +176,7 @@ pub fn lifecycle(
     // and it retires the old "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune"
     // round-trip that generated a class of .guardian/ churn commits.
     switch (outcome) {
-        .shrunk => try snapshot.write(baseline_path, VERSION, current),
+        .shrunk => try snapshot.write(baseline_path, version, current),
         else => {},
     }
     return outcome;
@@ -198,7 +198,7 @@ fn readOrInit(
     baseline_path: []const u8,
     current: [][]const u8,
 ) (snapshot.WriteError || snapshot.ReadError)!Loaded {
-    const snap = snapshot.read(arena, baseline_path, VERSION) catch |e| {
+    const snap = snapshot.read(arena, baseline_path, version) catch |e| {
         // Missing → fresh `created`; stale version → re-record as `refreshed`.
         // Both write `current` as the new baseline; any other error propagates.
         const outcome: Outcome = switch (e) {
@@ -206,7 +206,7 @@ fn readOrInit(
             error.VersionMismatch => .{ .refreshed = current.len },
             else => return e,
         };
-        try snapshot.write(baseline_path, VERSION, current);
+        try snapshot.write(baseline_path, version, current);
         return .{ .initialized = outcome };
     };
     return .{ .existing = snap };
@@ -348,7 +348,7 @@ fn ratchetDenyGrowthGuard(
 ) types.RunError!void {
     if (!force_refresh) return;
     if (!nameInList(ctx.cfg.baseline.deny_growth, check_name)) return;
-    const snap = snapshot.read(a, path, ratchet.VERSION) catch return;
+    const snap = snapshot.read(a, path, ratchet.version) catch return;
     const old = try ratchet.decodeLines(a, snap.lines);
     if (!try ratchet.wouldGrow(a, old, entries)) return;
     reporter.fail(
@@ -441,7 +441,7 @@ fn growthDenied(
 /// Current recorded violation count in a baseline file, or null when it is
 /// absent/unreadable (so initial creation isn't treated as growth).
 fn baselineViolationCount(arena: Allocator, path: []const u8) ?usize {
-    const snap = snapshot.read(arena, path, VERSION) catch return null;
+    const snap = snapshot.read(arena, path, version) catch return null;
     return snap.lines.len;
 }
 

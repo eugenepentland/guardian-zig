@@ -16,7 +16,7 @@ const runner = @import("runner.zig");
 const Allocator = std.mem.Allocator;
 
 /// Basename of the machine-readable survivor log.
-const LOG_NAME = "last-mutate.jsonl";
+const log_name = "last-mutate.jsonl";
 
 /// One surviving mutant: the location, the operator swap, and the original
 /// source line — the exact context an agent needs to write the killing test.
@@ -92,7 +92,7 @@ pub fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8 {
 
 /// Path to the survivor log: `<project_dir>/.guardian/cache/last-mutate.jsonl`.
 pub fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(arena, "{s}/.guardian/cache/{s}", .{ project_dir, LOG_NAME });
+    return std.fmt.allocPrint(arena, "{s}/.guardian/cache/{s}", .{ project_dir, log_name });
 }
 
 /// Writes the survivor log: one `survivor` record per entry, then the `summary`

@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const parser = @import("parser.zig");
 const walk = @import("../walk.zig");
 
-const SPEC_PREFIX = "// spec: ";
+const spec_prefix = "// spec: ";
 
 /// One `// spec:` tag found in source.
 pub const SpecTag = struct {
@@ -106,8 +106,8 @@ fn extractTags(ctx: *ScanCtx, path: []const u8, content: []const u8) !void {
     const lines = line_list.items;
 
     for (lines, 0..) |line, i| {
-        if (std.mem.startsWith(u8, line, SPEC_PREFIX)) {
-            const tag_text = line[SPEC_PREFIX.len..];
+        if (std.mem.startsWith(u8, line, spec_prefix)) {
+            const tag_text = line[spec_prefix.len..];
             if (tagPrecedesTest(lines, i) or tagInsideTest(lines, i)) {
                 try ctx.tags.append(allocator, .{
                     .file = path,
@@ -139,7 +139,7 @@ fn tagPrecedesTest(lines: []const []const u8, i: usize) bool {
     while (j < lines.len) : (j += 1) {
         const s = lines[j];
         if (s.len == 0) continue;
-        if (std.mem.startsWith(u8, s, SPEC_PREFIX)) continue;
+        if (std.mem.startsWith(u8, s, spec_prefix)) continue;
         if (std.mem.startsWith(u8, s, "///")) continue;
         return startsWithTest(s);
     }
@@ -156,7 +156,7 @@ fn tagInsideTest(lines: []const []const u8, i: usize) bool {
         j -= 1;
         const s = lines[j];
         if (s.len == 0) continue;
-        if (std.mem.startsWith(u8, s, SPEC_PREFIX)) continue;
+        if (std.mem.startsWith(u8, s, spec_prefix)) continue;
         return opensTestBody(s);
     }
     return false;

@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const MAGIC_PREFIX = "# guardian-snapshot v";
+pub const magic_prefix = "# guardian-snapshot v";
 
 /// A read snapshot file, parsed into version + sorted lines.
 pub const Snapshot = struct {
@@ -39,8 +39,8 @@ fn parseHeader(header: ?[]const u8, expected_version: u32) ReadError!u32 {
 /// line is missing, lacks the magic prefix, or has a non-integer version.
 fn parseVersion(header: ?[]const u8) ReadError!u32 {
     const line = header orelse return error.BadFormat;
-    if (!std.mem.startsWith(u8, line, MAGIC_PREFIX)) return error.BadFormat;
-    const ver_str = line[MAGIC_PREFIX.len..];
+    if (!std.mem.startsWith(u8, line, magic_prefix)) return error.BadFormat;
+    const ver_str = line[magic_prefix.len..];
     return std.fmt.parseInt(u32, ver_str, 10) catch error.BadFormat;
 }
 
@@ -91,7 +91,7 @@ pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8)
     var buf: [4096]u8 = undefined;
     var fw = file.writer(&buf);
     var w = &fw.interface;
-    try w.print("{s}{d}\n", .{ MAGIC_PREFIX, version });
+    try w.print("{s}{d}\n", .{ magic_prefix, version });
     for (lines) |line| {
         try w.writeAll(line);
         try w.writeByte('\n');

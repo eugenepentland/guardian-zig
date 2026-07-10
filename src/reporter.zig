@@ -2,10 +2,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
-pub const GREEN = "\x1b[32m";
-pub const RED = "\x1b[31m";
-pub const RESET = "\x1b[0m";
-pub const PREFIX = "guardian: ";
+pub const green = "\x1b[32m";
+pub const red = "\x1b[31m";
+pub const reset = "\x1b[0m";
+pub const prefix = "guardian: ";
 
 /// A single check failure with optional location and fix hint.
 ///
@@ -90,26 +90,26 @@ pub const Reporter = struct {
     /// Reports a passing check (green when colored, suppressed in quiet mode).
     pub fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void {
         if (self.capture) |c| {
-            c.write(PREFIX ++ fmt ++ "\n", args);
+            c.write(prefix ++ fmt ++ "\n", args);
             return;
         }
         if (self.quiet) return;
         if (self.use_color)
-            print(GREEN ++ PREFIX ++ RESET ++ fmt ++ "\n", args)
+            print(green ++ prefix ++ reset ++ fmt ++ "\n", args)
         else
-            print(PREFIX ++ fmt ++ "\n", args);
+            print(prefix ++ fmt ++ "\n", args);
     }
 
     /// Reports a failing check (red when colored); always shown, even in quiet.
     pub fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void {
         if (self.capture) |c| {
-            c.write(PREFIX ++ fmt ++ "\n", args);
+            c.write(prefix ++ fmt ++ "\n", args);
             return;
         }
         if (self.use_color)
-            print(RED ++ PREFIX ++ RESET ++ fmt ++ "\n", args)
+            print(red ++ prefix ++ reset ++ fmt ++ "\n", args)
         else
-            print(PREFIX ++ fmt ++ "\n", args);
+            print(prefix ++ fmt ++ "\n", args);
     }
 
     /// Prints an indented detail line under a check (violation specifics,

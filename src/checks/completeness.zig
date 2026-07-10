@@ -18,10 +18,10 @@ const detail = reporter.detail;
 
 /// Bullet prefix that marks a category waiver instead of a real behavior. The
 /// spec parser skips these too, so a waiver never demands a `// spec:` tag.
-pub const WAIVER_PREFIX = "completeness-waiver:";
+pub const waiver_prefix = "completeness-waiver:";
 
 /// Cap on the SPEC.md read (matches the spec parser's own limit).
-const MAX_SPEC_BYTES = 1024 * 1024;
+const max_spec_bytes = 1024 * 1024;
 
 /// One required scenario category: its canonical name (shown in violations and
 /// matched in a waiver) and the lowercase keyword set that counts as addressing
@@ -182,7 +182,7 @@ fn collectWaivers(arena: Allocator, sec: FeatureSection) Allocator.Error![]const
 /// = false` (the check then fails it).
 fn parseWaiver(statement: []const u8) ?Waiver {
     if (!isWaiver(statement)) return null;
-    const rest = std.mem.trim(u8, statement[WAIVER_PREFIX.len..], &std.ascii.whitespace);
+    const rest = std.mem.trim(u8, statement[waiver_prefix.len..], &std.ascii.whitespace);
     const open = std.mem.indexOfScalar(u8, rest, '(') orelse
         return .{ .category = rest, .has_reason = false };
     const category = std.mem.trim(u8, rest[0..open], &std.ascii.whitespace);
@@ -193,8 +193,8 @@ fn parseWaiver(statement: []const u8) ?Waiver {
 
 /// True when a bullet is a completeness-waiver line (case-insensitive prefix).
 fn isWaiver(statement: []const u8) bool {
-    return statement.len >= WAIVER_PREFIX.len and
-        std.ascii.eqlIgnoreCase(statement[0..WAIVER_PREFIX.len], WAIVER_PREFIX);
+    return statement.len >= waiver_prefix.len and
+        std.ascii.eqlIgnoreCase(statement[0..waiver_prefix.len], waiver_prefix);
 }
 
 /// The waiver naming `cat_name` (case-insensitive), or null when none.
@@ -230,7 +230,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     const allocator = ctx.allocator;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ ctx.project_dir, ctx.cfg.spec_file });
-    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, MAX_SPEC_BYTES) catch {
+    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, max_spec_bytes) catch {
         reporter.ok("completeness: no readable {s} — nothing to check", .{ctx.cfg.spec_file});
         return;
     };

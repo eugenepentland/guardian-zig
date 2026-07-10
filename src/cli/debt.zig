@@ -18,16 +18,16 @@ const ratchet = @import("../ratchet.zig");
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
 
-pub const COMMAND_NAME = "debt";
+pub const command_name = "debt";
 
 /// Leading marker of a snapshot/baseline header line (`# guardian-snapshot v…`).
-const HEADER_PREFIX = "#";
+const header_prefix = "#";
 /// Path fragment identifying a per-check baseline file under `.guardian/`.
-const BASELINES_MARKER = "/baselines/";
+const baselines_marker = "/baselines/";
 /// Header of a per-item ratchet (baseline v2) file, whose lines are `<value>
 /// <key>` — the count still reads as one-per-line, and its worst offender
 /// (highest value) is reported as a note.
-const RATCHET_HEADER = "# guardian-snapshot v2";
+const ratchet_header = "# guardian-snapshot v2";
 
 /// How one `.guardian/` file's debt total is derived from its contents.
 const Kind = enum {
@@ -117,8 +117,8 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// for any other file. The count column already reads the key count (one line
 /// per key); this adds the single highest-value offender for context.
 fn ratchetNote(arena: Allocator, rel_path: []const u8, content: []const u8) ?[]const u8 {
-    if (std.mem.indexOf(u8, rel_path, BASELINES_MARKER) == null) return null;
-    if (!std.mem.startsWith(u8, content, RATCHET_HEADER)) return null;
+    if (std.mem.indexOf(u8, rel_path, baselines_marker) == null) return null;
+    if (!std.mem.startsWith(u8, content, ratchet_header)) return null;
     const entries = ratchet.parse(arena, content) catch return null;
     const worst = ratchet.maxEntry(entries) orelse return null;
     return std.fmt.allocPrint(arena, "  worst: {d} {s}", .{ worst.value, worst.key }) catch null;
@@ -136,7 +136,7 @@ fn reportable(count: u64, delta: ?i64) bool {
 /// Returns null for anything else (the cache dir is already excluded).
 fn classify(arena: Allocator, rel_path: []const u8) Allocator.Error!?Classified {
     const base = baseName(rel_path);
-    if (std.mem.indexOf(u8, rel_path, BASELINES_MARKER) != null) {
+    if (std.mem.indexOf(u8, rel_path, baselines_marker) != null) {
         return .{ .label = try arena.dupe(u8, stripTxt(base)), .kind = .lines };
     }
     for (snapshot_specs) |s| {
@@ -214,7 +214,7 @@ fn scoreOf(content: []const u8) u64 {
 /// True for a blank line or a snapshot header line (never a real entry).
 fn isSkippable(line: []const u8) bool {
     const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-    return trimmed.len == 0 or std.mem.startsWith(u8, trimmed, HEADER_PREFIX);
+    return trimmed.len == 0 or std.mem.startsWith(u8, trimmed, header_prefix);
 }
 
 /// The final path segment after the last `/` (the whole string if none).

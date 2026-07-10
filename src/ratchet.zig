@@ -21,7 +21,7 @@ const reporter = @import("reporter.zig");
 
 /// Ratchet baseline format version. Distinct from the v1 text baseline so an
 /// existing v1 file read as v2 raises `VersionMismatch` and self-migrates.
-pub const VERSION: u32 = 2;
+pub const version: u32 = 2;
 
 /// How a check's per-key ratchet value is derived when several violation records
 /// share one `ratchet_key`. `max` takes the largest metric (function length,
@@ -187,7 +187,7 @@ fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snap
     std.mem.sort(Entry, sorted, {}, byKey);
     const lines = try arena.alloc([]const u8, sorted.len);
     for (sorted, 0..) |e, i| lines[i] = try encode(arena, e);
-    try snapshot.writePresorted(path, VERSION, lines);
+    try snapshot.writePresorted(path, version, lines);
 }
 
 pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
@@ -206,7 +206,7 @@ pub fn lifecycle(
         try writeEntries(arena, path, entries);
         return .{ .refreshed = entries.len };
     }
-    const snap = snapshot.read(arena, path, VERSION) catch |e| switch (e) {
+    const snap = snapshot.read(arena, path, version) catch |e| switch (e) {
         error.Missing => {
             try writeEntries(arena, path, entries);
             return .{ .created = entries.len };

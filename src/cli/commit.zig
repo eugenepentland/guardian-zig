@@ -26,7 +26,7 @@ const git = @import("../git.zig");
 const Allocator = std.mem.Allocator;
 
 /// CLI name that check.zig dispatches to this command.
-pub const COMMAND_NAME = "commit";
+pub const command_name = "commit";
 
 /// Entry point for the commit command. Requires a non-empty `--intent`, runs
 /// the full gate, and on green stages + commits the eligible change set. On a

@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const print = std.debug.print;
 
-pub const UPDATE_ENV = "GUARDIAN_UPDATE_GOLDEN";
+pub const update_env = "GUARDIAN_UPDATE_GOLDEN";
 
 /// Errors propagated by `run` / `runWithCfg`. Aliasing anyerror so the
 /// signatures pass the error-discipline check while still accepting
@@ -31,7 +31,7 @@ pub const Scenario = struct {
 
 /// Returns true if the user set GUARDIAN_UPDATE_GOLDEN=1.
 fn shouldUpdate(allocator: Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
+    const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
     return v.len > 0 and !std.mem.eql(u8, v, "0");
 }
@@ -79,7 +79,7 @@ pub fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) Golde
     std.testing.expectEqualStrings(s.expected, actual) catch |e| {
         print(
             "\ngolden mismatch [{s}/{s}]\n  expected_path: {s}\n  re-run with {s}=1 to refresh.\n",
-            .{ s.check_name, s.name, s.expected_path, UPDATE_ENV },
+            .{ s.check_name, s.name, s.expected_path, update_env },
         );
         return e;
     };
@@ -104,7 +104,7 @@ pub fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype
     std.testing.expectEqualStrings(s.expected, actual) catch |e| {
         print(
             "\ngolden mismatch [{s}/{s}]\n  expected_path: {s}\n  re-run with {s}=1 to refresh.\n",
-            .{ s.check_name, s.name, s.expected_path, UPDATE_ENV },
+            .{ s.check_name, s.name, s.expected_path, update_env },
         );
         return e;
     };

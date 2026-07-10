@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 
-pub const UPDATE_ENV = "GUARDIAN_UPDATE_SNAPSHOT";
+pub const update_env = "GUARDIAN_UPDATE_SNAPSHOT";
 
 pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
 
@@ -29,7 +29,7 @@ pub const Outcome = union(enum) {
 /// the cache whenever a refresh might rewrite `.guardian/`; per-check refresh
 /// decisions go through `shouldUpdateFor`.
 pub fn shouldUpdate(allocator: Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
+    const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
     const t = std.mem.trim(u8, v, &std.ascii.whitespace);
     return t.len > 0 and !std.mem.eql(u8, t, "0");
@@ -77,7 +77,7 @@ fn classifyValue(allocator: Allocator, raw: []const u8) Refresh {
 
 /// Reads and classifies GUARDIAN_UPDATE_SNAPSHOT; `.none` when unset/unreadable.
 fn parseRefresh(allocator: Allocator) Refresh {
-    const raw = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return .none;
+    const raw = std.process.getEnvVarOwned(allocator, update_env) catch return .none;
     return classifyValue(allocator, raw);
 }
 

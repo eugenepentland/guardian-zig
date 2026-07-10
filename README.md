@@ -71,7 +71,7 @@ zig build  # guardian gates every build
 ### Code style
 | Check | Blocks on |
 |---|---|
-| **naming** | PascalCase fns that don't return `type`; lowercase types; vague public identifiers (`tmp` / `data` / `Manager` / `Util` etc.) |
+| **naming** | PascalCase fns that don't return `type`; lowercase types; SCREAMING_SNAKE container-scope consts (Zig consts are snake_case, or PascalCase for a type; a C-ABI mirror opts out via `[[allow]] check = "naming"`); vague public identifiers (`tmp` / `data` / `Manager` / `Util` etc.) |
 | **doc-comments** | `pub fn` or `pub struct/enum/union` missing a `///` doc comment (protocol names `deinit`/`format`/`next`/`reset` exempt, extend via `doc_quality.exempt_names`), or one that's empty / placeholder / under `min_chars` (default 12) |
 | **cognitive-complexity** | Per-function complexity score (default 25) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |

@@ -13,7 +13,7 @@ const mutation_runner = @import("mutation/runner.zig");
 
 /// Env var naming a git ref for diff-scoped checks; the --against flag
 /// takes precedence, guardian.toml's [change_classification] follows.
-const AGAINST_ENV = "GUARDIAN_AGAINST";
+const against_env = "GUARDIAN_AGAINST";
 
 /// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
@@ -27,7 +27,7 @@ pub fn main() !void {
     // A mutation run's child builds re-invoke guardian; gating the
     // deliberately-mutated tree would deadlock the tier on itself, so
     // every command no-ops until the mutant is restored.
-    if (envFlagActive(readEnv(allocator, mutation_runner.MUTATION_ENV))) {
+    if (envFlagActive(readEnv(allocator, mutation_runner.mutation_env))) {
         reporter.init(false);
         reporter.ok("checks skipped (mutation test run in progress)", .{});
         return;
@@ -74,7 +74,7 @@ pub fn main() !void {
         .project_dir = parsed.project_dir,
         .cfg = &cfg,
         .quiet = parsed.quiet,
-        .against = parsed.against orelse nonEmpty(readEnv(allocator, AGAINST_ENV)),
+        .against = parsed.against orelse nonEmpty(readEnv(allocator, against_env)),
         .full = parsed.full,
         .only = splitCsv(allocator, parsed.only),
         .skip = splitCsv(allocator, parsed.skip),
@@ -198,17 +198,17 @@ fn nonEmpty(value: ?[]const u8) ?[]const u8 {
 // Routes the parsed command to `all`, or to a registered command (optionally
 // wrapped in baseline mode). Propagates error.CheckFailed to the caller.
 fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []const u8) !void {
-    if (std.mem.eql(u8, command, run_all.COMMAND_NAME)) {
+    if (std.mem.eql(u8, command, run_all.command_name)) {
         return run_all.run(ctx);
     }
     // nightly composes `all` + `mutate --full`; dispatched specially (like
     // `all`) because it can't be a registry entry without an @import cycle.
-    if (std.mem.eql(u8, command, nightly.COMMAND_NAME)) {
+    if (std.mem.eql(u8, command, nightly.command_name)) {
         return nightly.run(ctx);
     }
     // commit gates the tree (`all`) then auto-commits on green; special-dispatched
     // for the same reason as nightly (commit.zig imports run_all → registry cycle).
-    if (std.mem.eql(u8, command, commit_cmd.COMMAND_NAME)) {
+    if (std.mem.eql(u8, command, commit_cmd.command_name)) {
         return commit_cmd.run(ctx);
     }
     const cmd = registry.find(command) orelse {

@@ -11,14 +11,14 @@ pub const Error = walk.WalkError;
 
 // Bump when the hashed input set below changes, so a stale cache written by
 // an older guardian can never produce a wrong skip.
-const VERSION = "guardian-cache-v2";
+const cache_version = "guardian-cache-v2";
 // Version tag for the mutation suite digest (see `suiteDigest`). Distinct from
-// VERSION so the two digests can never collide even over an identical item set.
-const SUITE_VERSION = "guardian-mutation-suite-v1";
-const CACHE_LEAF = ".guardian/cache/inputs.sha256";
-const MAX_FILE_BYTES = 16 * 1024 * 1024;
-const STORED_MAX_BYTES = 128;
-const HEX_LEN = Sha256.digest_length * 2;
+// cache_version so the two digests can never collide even over an identical item set.
+const suite_version = "guardian-mutation-suite-v1";
+const cache_leaf = ".guardian/cache/inputs.sha256";
+const max_file_bytes = 16 * 1024 * 1024;
+const stored_max_bytes = 128;
+const hex_len = Sha256.digest_length * 2;
 
 const Item = struct { path: []const u8, content: []const u8 };
 
@@ -46,7 +46,7 @@ fn readSingle(
     leaf: []const u8,
 ) Error!void {
     const p = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, leaf });
-    const content = std.fs.cwd().readFileAlloc(arena, p, MAX_FILE_BYTES) catch return;
+    const content = std.fs.cwd().readFileAlloc(arena, p, max_file_bytes) catch return;
     try items.append(arena, .{ .path = try arena.dupe(u8, leaf), .content = content });
 }
 
@@ -71,7 +71,7 @@ fn selfBinaryId(arena: Allocator) ![]const u8 {
 /// never affect it, which is what lets an unrelated edit skip the whole run.
 ///
 /// Keep this in sync with what the checks actually read: if a new check
-/// reads a new path, add it here and bump VERSION, or the cache could
+/// reads a new path, add it here and bump version, or the cache could
 /// wrongly skip a real change.
 pub fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest {
     return digestWithBinaryId(arena, project_dir, spec_file, try selfBinaryId(arena));
@@ -101,7 +101,7 @@ fn digestWithBinaryId(
     try readSingle(arena, &items, project_dir, "guardian.toml");
 
     std.mem.sort(Item, items.items, {}, lessThan);
-    return hashItems(VERSION, binary_id, items.items);
+    return hashItems(cache_version, binary_id, items.items);
 }
 
 /// SHA-256 over a `version` tag, a length-prefixed `prefix` string (the
@@ -152,7 +152,7 @@ pub fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest {
     try readSingle(arena, &items, project_dir, "guardian.toml");
 
     std.mem.sort(Item, items.items, {}, lessThan);
-    return hashItems(SUITE_VERSION, "", items.items);
+    return hashItems(suite_version, "", items.items);
 }
 
 /// True when two digests are equal.
@@ -163,7 +163,7 @@ pub fn eql(a: Digest, b: Digest) bool {
 /// Parses a trimmed hex string into a digest, or null when it is the wrong
 /// length or contains non-hex bytes.
 fn parseHexDigest(hex: []const u8) ?Digest {
-    if (hex.len != HEX_LEN) return null;
+    if (hex.len != hex_len) return null;
     var out: Digest = undefined;
     _ = std.fmt.hexToBytes(&out, hex) catch return null;
     return out;
@@ -172,8 +172,8 @@ fn parseHexDigest(hex: []const u8) ?Digest {
 /// Digest recorded by the last all-green run, or null when none exists or
 /// the cache file is unreadable/malformed.
 pub fn readStored(arena: Allocator, project_dir: []const u8) ?Digest {
-    const path = std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF }) catch return null;
-    const raw = std.fs.cwd().readFileAlloc(arena, path, STORED_MAX_BYTES) catch return null;
+    const path = std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf }) catch return null;
+    const raw = std.fs.cwd().readFileAlloc(arena, path, stored_max_bytes) catch return null;
     return parseHexDigest(std.mem.trim(u8, raw, &std.ascii.whitespace));
 }
 
@@ -182,7 +182,7 @@ pub fn readStored(arena: Allocator, project_dir: []const u8) ?Digest {
 fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest) !void {
     const dir = try std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir});
     try std.fs.cwd().makePath(dir);
-    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF });
+    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
     const hex = std.fmt.bytesToHex(digest, .lower);
     const f = try std.fs.cwd().createFile(path, .{});
     defer f.close();

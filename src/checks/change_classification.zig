@@ -26,20 +26,20 @@ const ast_index = @import("../ast/index.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-const SPEC_TAG_PREFIX = "// spec:";
-const COMMENT_PREFIX = "//";
-const SRC_PREFIX = "src/";
-const ZIG_EXT = ".zig";
+const spec_tag_prefix = "// spec:";
+const comment_prefix = "//";
+const src_prefix = "src/";
+const zig_ext = ".zig";
 /// How many offending files are listed before the report truncates.
-const MAX_REPORTED_FILES = 10;
+const max_reported_files = 10;
 /// Read cap for SPEC.md when checking for added behavior bullets.
-const MAX_SPEC_BYTES: usize = 1024 * 1024;
+const max_spec_bytes: usize = 1024 * 1024;
 /// Fenced-code delimiters (mirrors src/spec/parser.zig): a `- `/`## ` line
 /// inside a fence is illustrative markdown, never spec content.
-const FENCE_BACKTICKS = "```";
-const FENCE_TILDES = "~~~";
+const fence_backticks = "```";
+const fence_tildes = "~~~";
 /// The last-commit fallback diffs this committed range when the tree is clean.
-const LAST_COMMIT_RANGE = "HEAD~1..HEAD";
+const last_commit_range = "HEAD~1..HEAD";
 
 /// Added-line tallies for one file (or summed across files).
 pub const LineCounts = struct {
@@ -96,11 +96,11 @@ fn tallyLine(counts: *LineCounts, raw: []const u8, ranges: []const TestRange, ln
     }
     const trimmed = std.mem.trim(u8, raw, &std.ascii.whitespace);
     if (trimmed.len == 0) return;
-    if (std.mem.startsWith(u8, trimmed, SPEC_TAG_PREFIX)) {
+    if (std.mem.startsWith(u8, trimmed, spec_tag_prefix)) {
         counts.test_lines += 1;
         return;
     }
-    if (std.mem.startsWith(u8, trimmed, COMMENT_PREFIX)) return;
+    if (std.mem.startsWith(u8, trimmed, comment_prefix)) return;
     counts.behavioral += 1;
 }
 
@@ -162,7 +162,7 @@ fn advanceLine(z: []const u8, cursor: *usize, target: usize, line: u32) u32 {
 // ── Run entry ──────────────────────────────────────────────────────────
 
 /// A whole-file span for untracked (brand new) files: every line is added.
-const WHOLE_FILE = [_]git.LineSpan{.{ .start = 1, .len = std.math.maxInt(u32) }};
+const whole_file = [_]git.LineSpan{.{ .start = 1, .len = std.math.maxInt(u32) }};
 
 /// Entry point for the change-classification check. Diffs the working tree
 /// against the effective ref; when that base is HEAD and the tree is clean,
@@ -218,14 +218,14 @@ fn fallbackDecision(ref_is_head: bool, tree_clean: bool, gate_last_commit: bool,
 /// tree is clean here, so there are no untracked files to consider.
 fn gateLastCommit(ctx: *registry.RunCtx) registry.RunError!void {
     const a = ctx.allocator;
-    const rd = switch (try git.diffAgainst(a, ctx.project_dir, LAST_COMMIT_RANGE)) {
+    const rd = switch (try git.diffAgainst(a, ctx.project_dir, last_commit_range)) {
         .unavailable => |reason| {
             reporter.ok("change-classification: skipped — {s}", .{reason});
             return;
         },
         .ok => |fds| fds,
     };
-    return classifyAndReport(ctx, LAST_COMMIT_RANGE, rd, &.{});
+    return classifyAndReport(ctx, last_commit_range, rd, &.{});
 }
 
 /// Builds the per-file span map, resolves whether the spec changed, tallies the
@@ -243,7 +243,7 @@ fn classifyAndReport(
         if (isSrcZig(fd.path)) try span_map.put(a, fd.path, fd.spans);
     }
     for (untracked) |p| {
-        if (isSrcZig(p)) try span_map.put(a, p, &WHOLE_FILE);
+        if (isSrcZig(p)) try span_map.put(a, p, &whole_file);
     }
 
     var totals: Totals = .{ .spec_changed = try specChanged(ctx, file_diffs, untracked) };
@@ -292,11 +292,11 @@ fn report(against: []const u8, totals: Totals, offenders: []const []const u8) re
         .{ totals.counts.behavioral, against },
     );
     for (offenders, 0..) |o, i| {
-        if (i >= MAX_REPORTED_FILES) break;
+        if (i >= max_reported_files) break;
         detail("  {s}\n", .{o});
     }
-    if (offenders.len > MAX_REPORTED_FILES) {
-        detail("  ... and {d} more file(s)\n", .{offenders.len - MAX_REPORTED_FILES});
+    if (offenders.len > max_reported_files) {
+        detail("  ... and {d} more file(s)\n", .{offenders.len - max_reported_files});
     }
     detail("  fix: add or update a `// spec:`-tagged test covering the change (or update SPEC.md).\n", .{});
     detail("       a genuinely behavior-free refactor can disable via " ++
@@ -305,7 +305,7 @@ fn report(against: []const u8, totals: Totals, offenders: []const []const u8) re
 }
 
 fn isSrcZig(path: []const u8) bool {
-    return std.mem.startsWith(u8, path, SRC_PREFIX) and std.mem.endsWith(u8, path, ZIG_EXT);
+    return std.mem.startsWith(u8, path, src_prefix) and std.mem.endsWith(u8, path, zig_ext);
 }
 
 /// True when the SPEC.md side of the diff adds or modifies a behavior bullet
@@ -322,7 +322,7 @@ fn specChanged(
     for (untracked) |p| {
         if (std.mem.eql(u8, p, spec_file)) {
             const content = readSpec(a, ctx.project_dir, spec_file) orelse return false;
-            return specBulletsAdded(content, &WHOLE_FILE);
+            return specBulletsAdded(content, &whole_file);
         }
     }
     for (file_diffs) |fd| {
@@ -341,7 +341,7 @@ fn specChanged(
 /// so the disk read still matches the diffed content.
 fn readSpec(a: Allocator, project_dir: []const u8, spec_file: []const u8) ?[]const u8 {
     const path = std.fmt.allocPrint(a, "{s}/{s}", .{ project_dir, spec_file }) catch return null;
-    return std.fs.cwd().readFileAlloc(a, path, MAX_SPEC_BYTES) catch return null;
+    return std.fs.cwd().readFileAlloc(a, path, max_spec_bytes) catch return null;
 }
 
 /// True when any line covered by `spans` in SPEC.md `content` is a behavior
@@ -368,7 +368,7 @@ pub fn specBulletsAdded(content: []const u8, spans: []const git.LineSpan) bool {
 
 /// A fenced-code delimiter line (``` or ~~~), which toggles fence state.
 fn isFence(line: []const u8) bool {
-    return std.mem.startsWith(u8, line, FENCE_BACKTICKS) or std.mem.startsWith(u8, line, FENCE_TILDES);
+    return std.mem.startsWith(u8, line, fence_backticks) or std.mem.startsWith(u8, line, fence_tildes);
 }
 
 /// True when 1-indexed `ln` falls inside any added-line span.
@@ -381,7 +381,7 @@ fn spanCovers(spans: []const git.LineSpan, ln: u32) bool {
 
 const testing = std.testing;
 
-const SAMPLE =
+const sample =
     \\const std = @import("std");
     \\
     \\pub fn add(a: u32, b: u32) u32 {
@@ -401,7 +401,7 @@ test "classifyAdded attributes lines inside a test block to test changes" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     // Lines 9-11 are the test block (header through closing brace).
-    const c = try classifyAdded(arena.allocator(), SAMPLE, &.{.{ .start = 9, .len = 3 }});
+    const c = try classifyAdded(arena.allocator(), sample, &.{.{ .start = 9, .len = 3 }});
     try testing.expectEqual(@as(u32, 3), c.test_lines);
     try testing.expectEqual(@as(u32, 0), c.behavioral);
 }
@@ -412,7 +412,7 @@ test "classifyAdded counts an added // spec: tag as a test change" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     // Line 8 is the `// spec:` tag above the test block.
-    const c = try classifyAdded(arena.allocator(), SAMPLE, &.{.{ .start = 8, .len = 1 }});
+    const c = try classifyAdded(arena.allocator(), sample, &.{.{ .start = 8, .len = 1 }});
     try testing.expectEqual(@as(u32, 1), c.test_lines);
     try testing.expectEqual(@as(u32, 0), c.behavioral);
 }
@@ -423,7 +423,7 @@ test "classifyAdded ignores blank and comment-only lines" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     // Line 2 is blank; line 4 is a comment inside the function body.
-    const c = try classifyAdded(arena.allocator(), SAMPLE, &.{ .{ .start = 2, .len = 1 }, .{ .start = 4, .len = 1 } });
+    const c = try classifyAdded(arena.allocator(), sample, &.{ .{ .start = 2, .len = 1 }, .{ .start = 4, .len = 1 } });
     try testing.expectEqual(@as(u32, 0), c.test_lines);
     try testing.expectEqual(@as(u32, 0), c.behavioral);
 }
@@ -434,7 +434,7 @@ test "classifyAdded counts production code lines as behavioral" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     // Lines 3 and 5 are the fn header and return statement.
-    const c = try classifyAdded(arena.allocator(), SAMPLE, &.{ .{ .start = 3, .len = 1 }, .{ .start = 5, .len = 1 } });
+    const c = try classifyAdded(arena.allocator(), sample, &.{ .{ .start = 3, .len = 1 }, .{ .start = 5, .len = 1 } });
     try testing.expectEqual(@as(u32, 2), c.behavioral);
     try testing.expectEqual(@as(u32, 0), c.test_lines);
 }
@@ -454,7 +454,7 @@ test "verdictFor fails behavioral changes with no test or spec change" {
     try testing.expectEqual(Verdict.fail, verdictFor(.{ .counts = .{ .behavioral = 1 } }));
 }
 
-const SPEC_SAMPLE =
+const spec_sample =
     \\# Title
     \\
     \\## Section
@@ -472,19 +472,19 @@ const SPEC_SAMPLE =
 
 test "specBulletsAdded is true when an added span covers a behavior bullet" {
     // Line 4 is a real `- ` behavior bullet outside any fence.
-    try testing.expect(specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 4, .len = 1 }}));
+    try testing.expect(specBulletsAdded(spec_sample, &.{.{ .start = 4, .len = 1 }}));
     // The whole-file span used for a brand-new spec also counts it.
-    try testing.expect(specBulletsAdded(SPEC_SAMPLE, &WHOLE_FILE));
+    try testing.expect(specBulletsAdded(spec_sample, &whole_file));
 }
 
 // spec: Change Classification - Ignores SPEC.md edits confined to prose, headers, or fenced code
 
 test "specBulletsAdded is false for headers, prose, blanks, and fenced bullets" {
     // Header (3), fenced bullet (8), prose (11), blank (2) — none is a behavior bullet.
-    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 3, .len = 1 }}));
-    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 8, .len = 1 }}));
-    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 11, .len = 1 }}));
-    try testing.expect(!specBulletsAdded(SPEC_SAMPLE, &.{.{ .start = 2, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 3, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 8, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 11, .len = 1 }}));
+    try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 2, .len = 1 }}));
 }
 
 // spec: Change Classification - Gates the last commit when the working tree is clean against HEAD
