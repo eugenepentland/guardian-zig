@@ -276,7 +276,7 @@ fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bo
 const CheckResult = struct {
     ran: bool = false,
     failed: bool = false,
-    err: ?anyerror = null,
+    err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
 };
@@ -397,7 +397,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command, ba
 /// race-free even though checks ran in parallel.
 fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sink) types.RunError!u32 {
     var failed: u32 = 0;
-    var first_err: ?anyerror = null;
+    var first_err: ?types.RunError = null;
     for (results, registry.all) |r, cmd| {
         if (!r.ran) continue;
         ran.* += 1;

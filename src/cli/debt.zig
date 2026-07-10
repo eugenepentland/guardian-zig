@@ -95,7 +95,7 @@ const Collector = struct {
 
 /// Visitor: classify one `.guardian/` file, summarize its current total, attach
 /// the git delta, and append a Row. Unrecognized files are ignored.
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *Collector = @ptrCast(@alignCast(raw_ctx));
     const c = try classify(ctx.arena, entry.rel_path) orelse return;
     const current = summarize(c.kind, entry.content);

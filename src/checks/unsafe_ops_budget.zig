@@ -131,7 +131,7 @@ fn countFromContent(allocator: std.mem.Allocator, content: []const u8) Counts {
     return countFromTree(&tree);
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const c = if (entry.tree) |t| countFromTree(t) else countFromContent(ctx.allocator, entry.content);
     ctx.totals.add(c);
@@ -229,7 +229,7 @@ fn loadBudget(
 }
 
 fn handleReadError(
-    e: anyerror,
+    e: snapshot.ReadError,
     snap_path: []const u8,
     totals: Counts,
     new_lines: [][]const u8,

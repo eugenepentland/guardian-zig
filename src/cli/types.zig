@@ -1,14 +1,22 @@
 const std = @import("std");
 const config_mod = @import("../config.zig");
 const ast_index = @import("../ast/index.zig");
+const walk = @import("../walk.zig");
+const snapshot = @import("../snapshot.zig");
+const mutation_runner = @import("../mutation/runner.zig");
 
-/// Errors any check `run` function may propagate. The walker's visitor
-/// callback is `anyerror!void` so checks can return arbitrary errors;
-/// `RunError = anyerror` accepts any of them. The error-discipline check
-/// reads the source text (`RunError!void`) and treats this as an
-/// explicit named set — using `anyerror` directly in a signature is
-/// still rejected.
-pub const RunError = anyerror;
+/// Errors any registered command's `run` function may propagate. Every command
+/// shares this one function-pointer type, so the set is the union of what they
+/// all raise: `error.CheckFailed` (a check failed after printing its own
+/// diagnostic), the walker's filesystem/OOM/visitor errors, the snapshot
+/// read/write errors the budget checks surface, and the mutation runner's
+/// process/fs errors the `mutate` command surfaces. A precise named set (not
+/// `anyerror`) makes every `run`'s failure space compile-time-exhaustive.
+pub const RunError = error{CheckFailed} ||
+    walk.WalkError ||
+    snapshot.ReadError ||
+    snapshot.WriteError ||
+    mutation_runner.RunError;
 
 /// Per-invocation context handed to every check's `run` function.
 pub const RunCtx = struct {

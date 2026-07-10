@@ -26,7 +26,7 @@ fn isExempt(exempt: []const []const u8, name: []const u8) bool {
     return false;
 }
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
     const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
@@ -41,7 +41,7 @@ const RefCtx = struct {
     counts: *std.StringHashMap(u32),
 };
 
-fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *RefCtx = @ptrCast(@alignCast(raw_ctx));
     try tallyTestRefs(ctx.allocator, entry.content, ctx.counts);
 }

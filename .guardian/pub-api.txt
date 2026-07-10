@@ -390,7 +390,7 @@ src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []con
 src/spec/parser.zig::Behavior struct_
 src/spec/parser.zig::ParseError value
 src/spec/parser.zig::Section struct_
-src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8
+src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/testing/golden_runner.zig::GoldenError value
@@ -403,6 +403,7 @@ src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/version.zig::string value
 src/walk.zig::FileEntry struct_
+src/walk.zig::VisitError value
 src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_
 src/walk.zig::WalkError value

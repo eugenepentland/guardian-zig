@@ -102,7 +102,7 @@ const Scanner = struct {
     }
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
 
     // Tokenizer-based scan for catch patterns that hide failures:

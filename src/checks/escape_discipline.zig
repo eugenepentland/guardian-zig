@@ -142,7 +142,7 @@ pub fn analyzeContent(
     return violations.toOwnedSlice(allocator);
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     ctx.rel_path = entry.rel_path;
     const z = try ctx.allocator.dupeZ(u8, entry.content);

@@ -230,7 +230,7 @@ const FileScanCtx = struct {
     opts: ScanOpts,
 };
 
-fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
     for (ctx.opts.allowed_paths) |pat| {
         if (walk.matchGlob(entry.rel_path, pat)) return;

@@ -76,7 +76,7 @@ fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) u32 {
     return state.max_depth;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
@@ -109,10 +109,7 @@ pub fn analyzeContent(
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
-    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
-    };
+    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return reporter.flatLines(allocator, violations.items);
 }
 

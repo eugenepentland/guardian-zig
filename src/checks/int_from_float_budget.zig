@@ -37,7 +37,7 @@ fn countCasts(allocator: std.mem.Allocator, content: []const u8) u32 {
     return n;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     ctx.total.* += countCasts(ctx.allocator, entry.content);
 }

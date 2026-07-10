@@ -25,7 +25,7 @@ fn isExcluded(rel_path: []const u8, patterns: []const []const u8) bool {
     return false;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isExcluded(entry.rel_path, ctx.cfg.exclude)) return;
     const a = ctx.allocator;
@@ -65,10 +65,7 @@ pub fn analyzeContent(
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
-    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
-    };
+    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return reporter.flatLines(allocator, violations.items);
 }
 

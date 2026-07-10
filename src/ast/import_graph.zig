@@ -17,7 +17,7 @@ const CollectCtx = struct {
     nodes: *std.ArrayListUnmanaged(Node),
 };
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
@@ -40,9 +40,9 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
     });
 }
 
-/// Errors propagated out of `build`. The walker visitor uses `anyerror` so
-/// arbitrary I/O / allocator failures surface; we accept that here.
-pub const BuildError = anyerror;
+/// Errors propagated out of `build`: it walks `src/` and appends one Node per
+/// file, so its failure surface is exactly the walker's (fs + OOM).
+pub const BuildError = walk.WalkError;
 
 /// Walks `<project_dir>/src/`, parses every .zig file's @import paths, and
 /// returns one Node per file. Edges are normalized rel_paths suitable for

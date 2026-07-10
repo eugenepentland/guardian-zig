@@ -6,8 +6,12 @@ const walk = @import("walk.zig");
 /// SHA-256 digest of guardian's input set.
 pub const Digest = [Sha256.digest_length]u8;
 
-/// Errors from computing or persisting the skip-cache digest.
-pub const Error = walk.WalkError;
+/// Errors from computing or persisting the skip-cache digest: the walker's
+/// (fs + OOM) surface, plus the extra failures of resolving and stat-ing the
+/// running guardian binary (`selfExePathAlloc` + `statFile`) mixed into the
+/// digest. Callers in run_all catch these and fall back to a full run.
+pub const Error = walk.WalkError ||
+    error{ NotSupported, FileSystem, NotLink, UnrecognizedVolume, UnknownName };
 
 // Bump when the hashed input set below changes, so a stale cache written by
 // an older guardian can never produce a wrong skip.
@@ -31,7 +35,7 @@ const Collector = struct {
     items: *std.ArrayListUnmanaged(Item),
 };
 
-fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *Collector = @ptrCast(@alignCast(raw_ctx));
     try ctx.items.append(ctx.arena, .{
         .path = try ctx.arena.dupe(u8, entry.rel_path),

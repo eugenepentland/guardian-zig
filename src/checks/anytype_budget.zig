@@ -76,7 +76,7 @@ fn countAnytype(allocator: std.mem.Allocator, content: []const u8) u32 {
     return countAnytypeTree(&tree);
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isExcluded(entry.rel_path, ctx.exclude)) return;
     const a = ctx.allocator;

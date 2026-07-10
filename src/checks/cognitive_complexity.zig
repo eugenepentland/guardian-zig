@@ -78,7 +78,7 @@ fn scoreTree(ctx: *ScanCtx, rel_path: []const u8, tree_ptr: *const std.zig.Ast) 
     }
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     // Reuse the shared parse when the index provides it; only parse standalone.
     if (entry.tree) |t| {

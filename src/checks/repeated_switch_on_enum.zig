@@ -179,7 +179,7 @@ fn isAllowed(rel_path: []const u8, extra: []const []const u8) bool {
     return false;
 }
 
-fn projectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn projectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ProjectCtx = @ptrCast(@alignCast(raw_ctx));
     if (isAllowed(entry.rel_path, ctx.extra_allowed)) return;
     const a = ctx.allocator;

@@ -27,7 +27,7 @@ const CollectCtx = struct {
     decls: *std.ArrayListUnmanaged(Decl),
 };
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
     const fns = if (entry.tree) |t| try ast.pubFnsFromTree(a, t) else try ast.pubFns(a, entry.content);
@@ -49,7 +49,7 @@ const RefCtx = struct {
     skip_tests: bool = false,
 };
 
-fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn refVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *RefCtx = @ptrCast(@alignCast(raw_ctx));
     if (entry.tree) |t| {
         tallyTree(t, ctx.counts, ctx.skip_tests);

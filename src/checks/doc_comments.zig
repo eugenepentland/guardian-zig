@@ -85,7 +85,7 @@ fn declIssue(name: []const u8, has_doc: bool, doc_text: ?[]const u8, cfg: config
     };
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
@@ -124,10 +124,7 @@ pub fn analyzeContent(
     var violations: std.ArrayListUnmanaged([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
     const z = try allocator.dupeZ(u8, content);
-    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z }) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
-    };
+    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z });
     return violations.toOwnedSlice(allocator);
 }
 

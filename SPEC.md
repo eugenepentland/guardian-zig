@@ -185,6 +185,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects inferred error sets on pub fn
 - Rejects anyerror on pub fn
+- Rejects a const that aliases anyerror and any pub fn returning that alias
 
 ## Cognitive Complexity
 

@@ -88,7 +88,7 @@ fn codeLines(allocator: std.mem.Allocator, content: []const u8) u32 {
     return if (test_lines <= total) total - test_lines else total;
 }
 
-fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
     const lines = codeLines(ctx.allocator, entry.content);
     if (lines > ctx.max_lines) {

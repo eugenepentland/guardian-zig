@@ -16,7 +16,7 @@ const BoundaryCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn boundaryVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *BoundaryCtx = @ptrCast(@alignCast(raw_ctx));
     const imports = try extractImports(ctx.allocator, entry.content, entry.rel_path);
     for (ctx.rules) |rule| {
@@ -30,7 +30,7 @@ fn recordRuleViolations(
     rel_path: []const u8,
     imports: []const []const u8,
     rule: config_mod.BoundaryRule,
-) anyerror!void {
+) !void {
     for (imports) |imp| {
         for (rule.forbidden_imports) |f| {
             if (std.mem.indexOf(u8, imp, f) == null) continue;

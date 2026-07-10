@@ -163,7 +163,7 @@ fn parseUint(s: []const u8) !u64 {
     return std.fmt.parseInt(u64, digits, base);
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     var c = countTokens(ctx.allocator, entry.content);
     const cm = countCommentMarkers(entry.content);
@@ -288,7 +288,7 @@ fn loadBudget(
 }
 
 fn handleReadError(
-    e: anyerror,
+    e: snapshot.ReadError,
     snap_path: []const u8,
     totals: Counts,
     new_lines: [][]const u8,

@@ -4,4 +4,4 @@ comptime_max 0
 fixmes 2
 panics 0
 todos 3
-unreachables 5
+unreachables 0

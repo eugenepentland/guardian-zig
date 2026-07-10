@@ -13,7 +13,7 @@ const CollectCtx = struct {
     modules: *std.ArrayListUnmanaged(ModuleInfo),
 };
 
-fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const fns = try extractPubFns(ctx.allocator, entry.content);
     if (fns.len == 0) return;
