@@ -55,7 +55,9 @@ const entries = [_]Entry{
     .{ .name = "debt", .text = 
     \\Why: not a gate — a report of accumulated ratchet debt (per-check baseline
     \\counts, snapshot totals, mutation score) so frozen debt growth is a visible
-    \\decision, not a side effect smeared across `.guardian/` churn commits.
+    \\decision, not a side effect smeared across `.guardian/` churn commits. It
+    \\also prints an informational assert-density table: assert() calls per KLOC
+    \\per top-level src module, ascending, to surface the most assert-starved code.
     \\Fix: nothing to fix — it always exits 0. Use it to decide what to pay down;
     \\the delta column shows the change vs the committed `.guardian/` state.
     \\Exempt: n/a — run `guardian-check debt [dir]`; never part of `all`.

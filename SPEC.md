@@ -144,6 +144,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Sorts the debt rows by count descending
 - Formats a committed-state delta and omits it when unchanged or absent
 - Omits a clean source with zero debt and no committed change
+- Reports assert-call density per top-level src module sorted ascending
 
 ## Versioning
 

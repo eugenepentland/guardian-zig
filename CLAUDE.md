@@ -142,7 +142,8 @@ and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` is now *selective*: `=1`
 one accepted change no longer ratifies unrelated drift. An unknown name in the
 list hard-fails the run. The non-gating `guardian-check debt [dir]` (`zig build
 debt`) reports every baseline/snapshot total, sorted by count, with the delta
-vs the committed `.guardian/` state.
+vs the committed `.guardian/` state, then an informational assert-density table
+(assert() calls per KLOC per top-level src module, ascending).
 
 Two features diff the working tree against a git ref (`--against` flag,
 `GUARDIAN_AGAINST` env var, or `[change_classification] against`; default

@@ -466,7 +466,7 @@ guardian: refusing to refresh file-size: ratchet would raise a value or add a ke
           fix the regressions or remove file-size from deny_growth
 ```
 
-**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state. A per-item ratchet also shows its worst offender:
+**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state, followed by an informational assert-density table (`assert()` calls per KLOC per top-level `src/` module, ascending — the most assert-starved modules first). A per-item ratchet also shows its worst offender:
 
 ```
 debt report — 2 tracked source(s), sorted by count (delta vs HEAD)
