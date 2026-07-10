@@ -462,3 +462,10 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Cycle detection visits a node reached by multiple import paths only once
 - Snapshot diff merges two sorted inputs into their exact set difference
 - Deterministic mutant sampling never selects an out-of-range candidate
+
+## Assert Doc Consistency
+
+- Flags a fn whose doc claims an assertion but whose body has none
+- Accepts a claiming doc backed by an assert call
+- Ignores lowercase or mid-word marker prose
+- Reports the fn name and line of a missing assert

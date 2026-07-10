@@ -64,6 +64,9 @@ src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []con
 src/check.zig::main | fn main() !void
 src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/assert_doc_consistency.zig::CHECK_NAME value
+src/checks/assert_doc_consistency.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
+src/checks/assert_doc_consistency.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/ban_env.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/ban_env.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/ban_fs.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, ) std.mem.Allocator.Error![]const []const u8

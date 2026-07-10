@@ -435,6 +435,16 @@ const entries = [_]Entry{
     \\Fix: return by value, or accept an out-param/allocator the caller owns.
     \\Exempt: none — it's undefined behavior. Restructure the return.
     },
+    .{ .name = "assert-doc-consistency", .text = 
+    \\Why: an agent writes the Zig-core `/// Asserts <precondition>` doc but never
+    \\adds the guard, so the doc promises a check the body never performs — a
+    \\precondition that reads as enforced yet isn't.
+    \\Fix: add the `assert(` the doc promises (`std.debug.assert(...)`), or reword
+    \\the doc so it no longer claims an `Asserts` precondition.
+    \\Exempt: add paths via `[[allow]] check = "assert-doc-consistency"`; the
+    \\trigger is the whole word `Asserts` (case-sensitive), so lowercase prose
+    \\never fires.
+    },
     .{ .name = "change-classification", .text = 
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
     \\no regression test" pattern that lets the same bug return.
