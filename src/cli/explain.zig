@@ -320,11 +320,15 @@ const entries = [_]Entry{
     \\`[[allow]] check = "ban-sleep"`.
     },
     .{ .name = "ban-globals", .text = 
-    \\Why: a mutable `pub var` global is shared hidden state — an agent's quick
-    \\stash that causes spooky action at a distance.
+    \\Why: a mutable file-scope `var` (pub or not, `threadlocal` included) — or a
+    \\`pub var` at container scope — is shared hidden global state, an agent's
+    \\quick stash that causes spooky action at a distance. zig-core's library core
+    \\has ~zero of these; process-lifetime globals live only in the entry layer.
     \\Fix: pass the state explicitly, or own it in a struct with a lifetime.
-    \\Exempt: allowed in `wiring`/`main`; add paths via
-    \\`[[allow]] check = "ban-globals"`.
+    \\Exempt: allowed in `wiring`/`main` and test files; add paths via
+    \\`[[allow]] check = "ban-globals"` (Guardian exempts its own reporter.zig
+    \\threadlocal singleton this way). A struct-scope non-pub container `var` is
+    \\out of scope.
     },
     .{ .name = "ban-hardcoded-paths", .text = 
     \\Why: a literal `/etc`, a Windows drive path, or `http://host` is an
@@ -471,6 +475,35 @@ const entries = [_]Entry{
     \\Exempt: add paths via `[[allow]] check = "assert-doc-consistency"`; the
     \\trigger is the whole word `Asserts` (case-sensitive), so lowercase prose
     \\never fires.
+    },
+    .{ .name = "fatal-exit", .text = 
+    \\Why: a raw `std.process.exit(1)` scattered through the code fragments the
+    \\termination path an agent should route through one helper. Zig core funnels
+    \\every hard exit through `std.process.fatal` (×281); Guardian carries
+    \\`reporter.fatal`, which keeps the "guardian: " prefix and coloring that
+    \\`std.process.fatal` drops. `exit(0)` and `std.process.cleanExit` are fine —
+    \\a clean success exit isn't the fragmentation this targets.
+    \\Fix: replace `std.process.exit(<nonzero>)` with `reporter.fatal("...", .{})`
+    \\(or your project's fatal helper). Detection is the lexical `process.exit(`
+    \\chain, so string/comment mentions never fire.
+    \\Exempt: the process entry file is auto-detected by its `fn main` (a
+    \\downstream `src/main.zig` needs no config); designate the fatal helper's own
+    \\file via `[[allow]] check = "fatal-exit"` (Guardian points it at
+    \\`src/reporter.zig`).
+    },
+    .{ .name = "stdout-flush", .text = 
+    \\Why (report-only): in 0.15 a buffered `std.fs.File.stdout()/stderr()` writer
+    \\that is never `flush()`ed silently TRUNCATES its output — the buffered bytes
+    \\vanish when the writer leaves scope. This surfaces a function that builds
+    \\such a writer (`.writer(...)` / `.writerStreaming(...)`) with no `flush(` in
+    \\its body. It NEVER fails the build: the heuristic is intra-procedural, so a
+    \\flush done by a called helper reads as a false positive and a flush on an
+    \\untaken branch reads as a false negative — precision unproven, so report
+    \\only.
+    \\Fix: call `w.interface.flush()` (or `w.flush()`) before the function
+    \\returns, on every path that wrote.
+    \\Exempt: add paths via `[[allow]] check = "stdout-flush"`. A config-gated
+    \\hard-block promotion is deferred until the heuristic's signal is validated.
     },
     .{ .name = "change-classification", .text = 
     \\Why: agents ship a behavioral src change with no test — the "quick fix,

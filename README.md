@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-61 checks gate Guardian's own self-build (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+62 checks gate Guardian's own self-build; a 63rd, `stdout-flush`, is **report-only** — it runs on every build but surfaces findings without ever failing it (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, and `completeness` are opt-in (default off — Guardian turns `magic-number` and `test-coverage` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -77,6 +77,7 @@ zig build  # guardian gates every build
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
 | **deprecated-alias** | Deprecated 0.15 std spellings by token match: `std.ArrayListUnmanaged` (→ `std.ArrayList`), `std.array_list.Managed`, managed `std.StringHashMap`/`AutoHashMap`(`+Array`) constructions (→ the `*Unmanaged` maps — discouraged, not deprecated; `[[allow]]` opts out per path), `usingnamespace` (removed in 0.15), and pre-Writergate `getStdOut`/`getStdErr`. String/comment mentions are never flagged |
+| **stdout-flush** *(report-only)* | A function that builds a buffered `std.fs.File.stdout()`/`stderr()` writer (`.writer` / `.writerStreaming`) but has no reachable `flush()` — in 0.15 a missing flush truncates the output. Intra-procedural heuristic (a flush in a called helper reads as a false positive), so it **never fails the build**; it surfaces findings only. Exempt paths via `[[allow]] check = "stdout-flush"` |
 
 ### Error handling
 | Check | Blocks on |
@@ -90,6 +91,7 @@ zig build  # guardian gates every build
 | **int-from-float-budget** | Increase in the `@intFromFloat` count — each new lossy float→int cast needs a NaN/range guard review (snapshot) |
 | **unsafe-ops-budget** | Increase in any unsafe-cast builtin count (`@ptrCast`, `@alignCast`, `@bitCast`, `@ptrFromInt`, `@intFromPtr`, `@constCast`, `@volatileCast`) or in `undefined` re-assignments to a live lvalue; declaration-init and test blocks exempt (snapshot) |
 | **assert-doc-consistency** | A fn whose `///` doc carries the Zig-core `Asserts` precondition convention (whole word, case-sensitive) but whose body has no `assert(` call — the doc promises a guard the code never performs (exempt paths via `[[allow]]`) |
+| **fatal-exit** | A hand-rolled `std.process.exit(<nonzero>)` outside the process entry file (auto-detected by its `fn main`) or the designated fatal-helper file (`[[allow]] check = "fatal-exit"`). `exit(0)` / `std.process.cleanExit` are fine — route hard exits through `reporter.fatal` (Zig-core `std.process.fatal`), which keeps the `guardian:` prefix. Lexical `process.exit(` match, so string/comment mentions never fire |
 
 ### Allocation
 | Check | Blocks on |
@@ -109,7 +111,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **ban-net** | `std.net.*` / `std.http.*` outside `adapters/http` or `infra/net` |
 | **ban-env** | `std.process.getEnvVarOwned` etc. outside `config` or `main` |
 | **ban-sleep** | `std.Thread.sleep` / `std.time.sleep` outside test infrastructure |
-| **ban-globals** | top-level `pub var` outside `wiring` / `main` |
+| **ban-globals** | A file-scope `var` (pub or not, `threadlocal` included) or a `pub var` at container scope, outside `wiring` / `main` — mutable process-lifetime global state. Test files exempt; `[[allow]] check = "ban-globals"` grants path exemptions (Guardian's own `reporter.zig` threadlocal singleton). Struct-scope non-pub container `var`s are out of scope |
 | **ban-hardcoded-paths** | absolute `/etc`, `/usr`, Windows `C:\`, `http://`, `https://` literals |
 | **ban-secrets** | hardcoded credentials — known vendor token formats (AWS/GitHub/Slack/Google/OpenAI/Stripe-live/JWT), PEM private-key headers, and entropy-gated `password`/`token`/`secret`-named assignments (precision-first: publishable/test keys and placeholders are ignored) |
 | **debug-print-ban** | `std.debug.print` and `std.log.*` outside `pub fn main` / tests / CLI command modules (`cli/*`, `commands*`) |
@@ -337,7 +339,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 64 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 66 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,

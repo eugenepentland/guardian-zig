@@ -126,11 +126,12 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-61 checks gate the build (most hard-block; completeness/test-coverage/
-escape-discipline/oom-discipline/magic-number are opt-in, default off) plus
+62 checks gate the build (most hard-block; completeness/test-coverage/
+escape-discipline/oom-discipline/magic-number are opt-in, default off;
+stdout-flush is report-only — it runs in `all` but never fails the build) plus
 `zig fmt --check`. Three more registry entries are non-gating steps, never part
 of `all`: the `spec-init` generator, the `mutate` command, and the `debt`
-report (64 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
+report (66 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are

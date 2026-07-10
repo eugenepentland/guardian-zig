@@ -8,7 +8,11 @@ const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
 // Architectural defaults: mutable globals live in main/wiring. Guardian's own
-// reporter singleton is exempted via [[allow]] in Guardian's guardian.toml.
+// reporter singleton (a `threadlocal var`) is exempted via [[allow]] in
+// Guardian's guardian.toml. zig-core's 400k-LOC library core has ~zero
+// file-scope `var`s — they exist only in main.zig as process-lifetime
+// singletons — so this default holds any global mutable state to the entry/
+// wiring layer.
 const allowed_paths = [_][]const u8{
     "src/main*",
     "src/wiring*",
@@ -20,7 +24,10 @@ const ScanCtx = struct {
     violations: *std.ArrayList([]const u8),
 };
 
-/// Pure-function entry: scans `content` for top-level `pub var` declarations.
+/// Pure-function entry: scans `content` for mutable global `var` declarations —
+/// every file-scope `var` (pub or not, `threadlocal` included) plus any `pub
+/// var` at container scope. Function-local `var`s are ignored; a struct-scope
+/// non-pub container `var` is out of scope (see `scan`).
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
@@ -63,7 +70,13 @@ fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
             },
             .keyword_pub => saw_pub = true,
             .keyword_var => {
-                if (saw_pub and !in_test) try report(ctx, z, t.loc.start);
+                // Flag a mutable global: any file-scope `var` (depth 0 — pub or
+                // not, `threadlocal` included) or any `pub var` at container
+                // scope. A function-local `var` (depth > 0, no `pub`) is fine. A
+                // struct-scope non-pub container `var` is out of scope: telling
+                // it apart from a fn-local needs brace-kind tracking, it's rare,
+                // and zig-core has ~zero of it — file-scope is the S9 target.
+                if (!in_test and (saw_pub or depth == 0)) try report(ctx, z, t.loc.start);
                 saw_pub = false;
             },
             .keyword_const, .keyword_fn => saw_pub = false,
@@ -76,7 +89,7 @@ fn report(ctx: *ScanCtx, z: []const u8, byte: usize) Allocator.Error!void {
     const line = lineOf(z, byte);
     const msg = try std.fmt.allocPrint(
         ctx.allocator,
-        "{s}:{d}: pub var (mutable global) outside wiring/main",
+        "{s}:{d}: mutable global var outside wiring/main",
         .{ ctx.rel_path, line },
     );
     try ctx.violations.append(ctx.allocator, msg);
@@ -121,7 +134,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
     if (violations.items.len == 0) {
-        reporter.ok("ban-globals: no pub var declarations outside wiring/main", .{});
+        reporter.ok("ban-globals: no mutable global var declarations outside wiring/main", .{});
         return;
     }
     reporter.fail("ban-globals FAILED ({d} occurrence(s))", .{violations.items.len});
@@ -168,11 +181,35 @@ test "analyzeContent allows pub var inside test block" {
     try std.testing.expectEqual(@as(usize, 0), out.len);
 }
 
-test "analyzeContent ignores private var" {
+// spec: Hidden Dependency Bans - Rejects non-pub file-scope var globals outside wiring/main
+
+test "analyzeContent flags a non-pub file-scope var" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const out = try analyzeContent(arena.allocator(), "src/x.zig",
         \\var local_state: u32 = 0;
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+test "analyzeContent flags a threadlocal file-scope var" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\threadlocal var counter: u32 = 0;
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+test "analyzeContent ignores a function-local var" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // A `var` inside a fn body (depth > 0, no pub) is a local, not a global.
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\fn f() void {
+        \\    var local: u32 = 0;
+        \\    _ = &local;
+        \\}
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
 }

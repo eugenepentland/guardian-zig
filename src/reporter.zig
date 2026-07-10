@@ -193,6 +193,21 @@ pub fn emit(v: Violation) void {
     default.emit(v);
 }
 
+/// Prints a red guardian-prefixed failure line, then terminates the process
+/// with exit code 1. The single fatal path for an unrecoverable CLI error — bad
+/// argv, a guardian.toml that won't parse, a spec-init write failure — that
+/// centralizes the `fail(...) + std.process.exit(1)` pattern hand-rolled across
+/// the CLI. `std.process.fatal` is the std reference but routes a bare message
+/// through `std.log`, dropping both the "guardian: " prefix and the reporter's
+/// coloring, so this keeps them instead. main's `error.CheckFailed -> exit(1)`
+/// mapping is intentionally left alone: a failed check has already printed its
+/// own diagnostic, so it exits without a second line. The `fatal-exit` check
+/// enforces that no other file hand-rolls a nonzero `std.process.exit`.
+pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
+    fail(fmt, args);
+    std.process.exit(1);
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 // spec: Reporter - Renders a Violation to the same indented line the emitter prints

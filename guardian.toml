@@ -69,6 +69,13 @@ paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation
 check = "ban-globals"
 paths = ["src/reporter.zig"]
 
+# reporter.zig defines the fatal helper (reporter.fatal), so its own
+# std.process.exit(1) is the one sanctioned raw exit outside the pub-fn-main
+# entry file (check.zig, which fatal-exit auto-detects via `fn main`).
+[[allow]]
+check = "fatal-exit"
+paths = ["src/reporter.zig"]
+
 # SeededRandom is the injection point ban-rng exists to force: the fake IS the
 # deterministic Random a test puts behind the port, so its one
 # std.Random.DefaultPrng.init call is legitimate here (and only here). The other
@@ -107,10 +114,11 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # classify/refreshIncludes cores are tested), config validation shell
 # (validateSelectiveConfig — validateDenyGrowth is tested), the ban-family
 # orchestration shell (scan), baseline orchestration (runWithBaseline),
-# reporter output (fail, detail, emit), and the git/mutation process shells
-# (diffAgainst, untrackedFiles, fileAtHead, runOne, parentCount, changedPaths,
-# addPaths, commit, headHash, currentBranch — their pure cores
-# countParents/parsePorcelainZ are tested) are exempt.
+# reporter output (fail, detail, emit) and the noreturn fatal path (fatal —
+# it exits the process, so it cannot be called from a test), and the
+# git/mutation process shells (diffAgainst, untrackedFiles, fileAtHead, runOne,
+# parentCount, changedPaths, addPaths, commit, headHash, currentBranch — their
+# pure cores countParents/parsePorcelainZ are tested) are exempt.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch"]

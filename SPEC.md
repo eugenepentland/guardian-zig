@@ -446,6 +446,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects environment-variable reads outside config or main
 - Rejects sleep calls outside test infrastructure
 - Rejects mutable pub var globals outside wiring/main
+- Rejects non-pub file-scope var globals outside wiring/main
 - Rejects hardcoded absolute paths and URLs in string literals
 
 ## Fakes
@@ -487,3 +488,15 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Accepts a claiming doc backed by an assert call
 - Ignores lowercase or mid-word marker prose
 - Reports the fn name and line of a missing assert
+
+## Fatal Exit
+
+- Flags a nonzero std.process.exit outside the entry file
+- Allows std.process.exit(0)
+- Exempts a file that defines pub fn main
+
+## Stdout Flush
+
+- Flags a buffered stdout writer with no flush
+- Allows a buffered stdout writer that flushes before returning
+- Ignores a stdout write that never buffers

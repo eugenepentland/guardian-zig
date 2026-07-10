@@ -5,7 +5,6 @@ const registry = @import("../cli/types.zig");
 
 const print = std.debug.print;
 const ok = reporter.ok;
-const fail = reporter.fail;
 
 /// Entry point for the spec-init generator.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
@@ -17,9 +16,10 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, spec_file });
 
     if (std.fs.cwd().access(spec_path, .{})) |_| {
-        fail("{s} already exists — refusing to overwrite", .{spec_file});
-        print("  Delete it first if you want to regenerate.\n", .{});
-        std.process.exit(1);
+        reporter.fatal(
+            "{s} already exists — refusing to overwrite\n  Delete it first if you want to regenerate.",
+            .{spec_file},
+        );
     } else |_| {}
 
     const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
@@ -27,20 +27,15 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     try spec_init.collectModules(allocator, src_path, "", &modules);
 
     if (modules.items.len == 0) {
-        fail("no pub fn declarations found in src/", .{});
-        std.process.exit(1);
+        reporter.fatal("no pub fn declarations found in src/", .{});
     }
 
     const content = try spec_init.generateSpecContent(allocator, modules.items);
-    const file = std.fs.cwd().createFile(spec_path, .{}) catch {
-        fail("failed to write {s}", .{spec_path});
-        std.process.exit(1);
-    };
+    const file = std.fs.cwd().createFile(spec_path, .{}) catch
+        reporter.fatal("failed to write {s}", .{spec_path});
     defer file.close();
-    file.writeAll(content) catch {
-        fail("failed to write {s}", .{spec_path});
-        std.process.exit(1);
-    };
+    file.writeAll(content) catch
+        reporter.fatal("failed to write {s}", .{spec_path});
 
     var total_fns: usize = 0;
     for (modules.items) |m| total_fns += m.pub_fns.len;
