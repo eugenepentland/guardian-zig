@@ -11,8 +11,8 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-const SNAPSHOT_LEAF = "unsafe-ops-budget.txt";
-const SNAPSHOT_VERSION: u32 = 1;
+const snapshot_leaf = "unsafe-ops-budget.txt";
+const snapshot_version: u32 = 1;
 
 /// The unsafe-cast builtins tracked, each written as its own snapshot line so a
 /// drift diff names exactly which op grew. `undefined` re-assignment is tracked
@@ -140,7 +140,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 }
 
 fn countsToLines(allocator: std.mem.Allocator, c: Counts) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     for (unsafe_builtins, c.builtins) |name, n| {
         try lines.append(allocator, try std.fmt.allocPrint(allocator, "{s} {d}", .{ name, n }));
     }
@@ -169,7 +169,7 @@ fn linesToCounts(lines: []const []const u8) Counts {
 /// Builds one "name: N found, M budgeted" line per op whose count rose above
 /// its budget, so the failure names exactly which op increased.
 fn collectFailures(allocator: std.mem.Allocator, totals: Counts, budget: Counts) ![]const []const u8 {
-    var failures: std.ArrayListUnmanaged([]const u8) = .empty;
+    var failures: std.ArrayList([]const u8) = .empty;
     for (unsafe_builtins, totals.builtins, budget.builtins) |name, found, cap| {
         if (found <= cap) continue;
         try failures.append(allocator, try std.fmt.allocPrint(
@@ -193,7 +193,7 @@ fn reportFailures(failures: []const []const u8) void {
     for (failures) |line| print("  {s}\n", .{line});
     print(
         "  fix: justify the new unsafe op, OR if intentional, re-run with {s}=1 and commit .guardian/{s}\n",
-        .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF },
+        .{ snapshot_helper.update_env, snapshot_leaf },
     );
 }
 
@@ -218,13 +218,13 @@ fn loadBudget(
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
     if (snapshot_helper.shouldUpdateFor(allocator, "unsafe-ops-budget")) {
-        try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
+        try snapshot.write(snap_path, snapshot_version, new_lines);
         ok("unsafe-ops budget updated (casts={d}, undefined_reassign={d})", .{
             totals.castTotal(), totals.undefined_reassign,
         });
         return null;
     }
-    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| {
+    const old = snapshot.read(allocator, snap_path, snapshot_version) catch |e| {
         return handleReadError(e, snap_path, totals, new_lines);
     };
     return linesToCounts(old.lines);
@@ -238,14 +238,14 @@ fn handleReadError(
 ) registry.RunError!?Counts {
     switch (e) {
         error.Missing => {
-            try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
+            try snapshot.write(snap_path, snapshot_version, new_lines);
             ok("unsafe-ops budget created (casts={d}, undefined_reassign={d})", .{
                 totals.castTotal(), totals.undefined_reassign,
             });
             return null;
         },
         error.VersionMismatch => {
-            fail("unsafe-ops budget: stale snapshot, re-run {s}=1", .{snapshot_helper.UPDATE_ENV});
+            fail("unsafe-ops budget: stale snapshot, re-run {s}=1", .{snapshot_helper.update_env});
             return error.CheckFailed;
         },
         else => return e,
@@ -257,7 +257,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const totals = try scanTotals(ctx_param);
 
-    const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, SNAPSHOT_LEAF);
+    const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, snapshot_leaf);
     const new_lines = try countsToLines(allocator, totals);
 
     const budget = try loadBudget(allocator, snap_path, totals, new_lines) orelse return;

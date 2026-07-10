@@ -18,18 +18,18 @@ const ratchet = @import("../ratchet.zig");
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
 
-pub const COMMAND_NAME = "debt";
+pub const command_name = "debt";
 
 /// Leading marker of a snapshot/baseline header line (`# guardian-snapshot v…`).
-const HEADER_PREFIX = "#";
+const header_prefix = "#";
 /// Path fragment identifying a per-check baseline file under `.guardian/`.
-const BASELINES_MARKER = "/baselines/";
+const baselines_marker = "/baselines/";
 /// Header of a per-item ratchet (baseline v2) file, whose lines are `<value>
 /// <key>` — the count still reads as one-per-line, and its worst offender
 /// (highest value) is reported as a note.
-const RATCHET_HEADER = "# guardian-snapshot v2";
+const ratchet_header = "# guardian-snapshot v2";
 /// Lines per KLOC — the denominator scale for the assert-density metric.
-const LINES_PER_KLOC: u64 = 1000;
+const lines_per_kloc: u64 = 1000;
 
 /// How one `.guardian/` file's debt total is derived from its contents.
 const Kind = enum {
@@ -79,7 +79,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// Walks `.guardian/` (minus the cache dir) and turns each recognized file into
 /// a Row. Unknown files are skipped. A missing `.guardian/` yields no rows.
 fn collectRows(allocator: Allocator, project_dir: []const u8) types.RunError![]Row {
-    var rows: std.ArrayListUnmanaged(Row) = .empty;
+    var rows: std.ArrayList(Row) = .empty;
     var ctx: Collector = .{ .arena = allocator, .project_dir = project_dir, .rows = &rows };
     const guardian_dir = try std.fmt.allocPrint(allocator, "{s}/.guardian", .{project_dir});
     try walk.walkZigFiles(allocator, guardian_dir, .{
@@ -95,7 +95,7 @@ fn collectRows(allocator: Allocator, project_dir: []const u8) types.RunError![]R
 const Collector = struct {
     arena: Allocator,
     project_dir: []const u8,
-    rows: *std.ArrayListUnmanaged(Row),
+    rows: *std.ArrayList(Row),
 };
 
 /// Visitor: classify one `.guardian/` file, summarize its current total, attach
@@ -122,8 +122,8 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 /// for any other file. The count column already reads the key count (one line
 /// per key); this adds the single highest-value offender for context.
 fn ratchetNote(arena: Allocator, rel_path: []const u8, content: []const u8) ?[]const u8 {
-    if (std.mem.indexOf(u8, rel_path, BASELINES_MARKER) == null) return null;
-    if (!std.mem.startsWith(u8, content, RATCHET_HEADER)) return null;
+    if (std.mem.indexOf(u8, rel_path, baselines_marker) == null) return null;
+    if (!std.mem.startsWith(u8, content, ratchet_header)) return null;
     const entries = ratchet.parse(arena, content) catch return null;
     const worst = ratchet.maxEntry(entries) orelse return null;
     return std.fmt.allocPrint(arena, "  worst: {d} {s}", .{ worst.value, worst.key }) catch null;
@@ -141,7 +141,7 @@ fn reportable(count: u64, delta: ?i64) bool {
 /// Returns null for anything else (the cache dir is already excluded).
 fn classify(arena: Allocator, rel_path: []const u8) Allocator.Error!?Classified {
     const base = baseName(rel_path);
-    if (std.mem.indexOf(u8, rel_path, BASELINES_MARKER) != null) {
+    if (std.mem.indexOf(u8, rel_path, baselines_marker) != null) {
         return .{ .label = try arena.dupe(u8, stripTxt(base)), .kind = .lines };
     }
     for (snapshot_specs) |s| {
@@ -220,7 +220,7 @@ fn scoreOf(content: []const u8) u64 {
 /// True for a blank line or a snapshot header line (never a real entry).
 fn isSkippable(line: []const u8) bool {
     const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-    return trimmed.len == 0 or std.mem.startsWith(u8, trimmed, HEADER_PREFIX);
+    return trimmed.len == 0 or std.mem.startsWith(u8, trimmed, header_prefix);
 }
 
 /// The final path segment after the last `/` (the whole string if none).
@@ -328,7 +328,7 @@ fn physicalLines(content: []const u8) u64 {
 /// Assert calls per KLOC for one module (0 when it has no lines).
 fn perKloc(asserts: u64, lines: u64) u64 {
     if (lines == 0) return 0;
-    return asserts * LINES_PER_KLOC / lines;
+    return asserts * lines_per_kloc / lines;
 }
 
 /// Visitor: fold one src/ file's assert-call and line counts into its module.
@@ -348,7 +348,7 @@ fn collectDensityRows(arena: Allocator, project_dir: []const u8) types.RunError!
     const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
     try walk.walkZigFiles(arena, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = densityVisit });
 
-    var rows: std.ArrayListUnmanaged(DensityRow) = .empty;
+    var rows: std.ArrayList(DensityRow) = .empty;
     var it = tallies.iterator();
     while (it.next()) |e| {
         try rows.append(arena, .{ .module = e.key_ptr.*, .asserts = e.value_ptr.asserts, .lines = e.value_ptr.lines });

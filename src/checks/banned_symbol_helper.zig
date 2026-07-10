@@ -83,7 +83,7 @@ const ScanState = struct {
     z: []const u8,
     states: []Match,
     depth: u32 = 0,
-    permissive: std.ArrayListUnmanaged(u32) = .empty,
+    permissive: std.ArrayList(u32) = .empty,
     pending_permissive: bool = false,
     saw_fn: bool = false,
 };
@@ -91,7 +91,7 @@ const ScanState = struct {
 const Ctx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
     opts: ScanOpts,
 };
 
@@ -103,7 +103,7 @@ pub fn analyzeContent(
     content: []const u8,
     opts: ScanOpts,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     for (opts.allowed_paths) |pat| {
         if (walk.matchGlob(rel_path, pat)) return violations.toOwnedSlice(allocator);
     }
@@ -226,7 +226,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
     opts: ScanOpts,
 };
 
@@ -260,7 +260,7 @@ fn mergeAllowed(
     extra: []const []const u8,
 ) Allocator.Error![]const []const u8 {
     if (extra.len == 0) return base;
-    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var list: std.ArrayList([]const u8) = .empty;
     try list.appendSlice(allocator, base);
     try list.appendSlice(allocator, extra);
     return list.toOwnedSlice(allocator);
@@ -282,7 +282,7 @@ pub fn scan(
     var merged = opts;
     merged.allowed_paths = try mergeAllowed(allocator, opts.allowed_paths, ctx_param.cfg.extraAllowed(check_name));
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,

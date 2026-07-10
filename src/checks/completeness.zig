@@ -18,10 +18,10 @@ const detail = reporter.detail;
 
 /// Bullet prefix that marks a category waiver instead of a real behavior. The
 /// spec parser skips these too, so a waiver never demands a `// spec:` tag.
-pub const WAIVER_PREFIX = "completeness-waiver:";
+pub const waiver_prefix = "completeness-waiver:";
 
 /// Cap on the SPEC.md read (matches the spec parser's own limit).
-const MAX_SPEC_BYTES = 1024 * 1024;
+const max_spec_bytes = 1024 * 1024;
 
 /// One required scenario category: its canonical name (shown in violations and
 /// matched in a waiver) and the lowercase keyword set that counts as addressing
@@ -88,9 +88,9 @@ const CategoryStatus = enum { addressed, missing, waiver_no_reason };
 /// Splits SPEC.md into `## ` feature sections with their `- ` bullets, skipping
 /// fenced code blocks so an illustrative `## `/`- ` inside a fence is ignored.
 pub fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error![]const FeatureSection {
-    var sections: std.ArrayListUnmanaged(FeatureSection) = .empty;
+    var sections: std.ArrayList(FeatureSection) = .empty;
     var cur_name: ?[]const u8 = null;
-    var cur_bullets: std.ArrayListUnmanaged([]const u8) = .empty;
+    var cur_bullets: std.ArrayList([]const u8) = .empty;
     var in_fence = false;
 
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -115,9 +115,9 @@ pub fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error!
 
 fn flushSection(
     arena: Allocator,
-    sections: *std.ArrayListUnmanaged(FeatureSection),
+    sections: *std.ArrayList(FeatureSection),
     name: ?[]const u8,
-    bullets: *std.ArrayListUnmanaged([]const u8),
+    bullets: *std.ArrayList([]const u8),
 ) Allocator.Error!void {
     const n = name orelse return;
     try sections.append(arena, .{ .name = n, .bullets = try bullets.toOwnedSlice(arena) });
@@ -131,7 +131,7 @@ pub fn analyze(
     sections: []const FeatureSection,
     exempt: []const []const u8,
 ) Allocator.Error![]const []const u8 {
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     for (sections) |sec| {
         if (inList(exempt, sec.name)) continue;
         try checkSection(arena, sec, &out);
@@ -142,7 +142,7 @@ pub fn analyze(
 fn checkSection(
     arena: Allocator,
     sec: FeatureSection,
-    out: *std.ArrayListUnmanaged([]const u8),
+    out: *std.ArrayList([]const u8),
 ) Allocator.Error!void {
     const waivers = try collectWaivers(arena, sec);
     for (categories) |cat| {
@@ -170,7 +170,7 @@ fn categoryStatus(sec: FeatureSection, waivers: []const Waiver, cat: Category) C
 
 /// Collects the parsed waivers among a section's bullets.
 fn collectWaivers(arena: Allocator, sec: FeatureSection) Allocator.Error![]const Waiver {
-    var list: std.ArrayListUnmanaged(Waiver) = .empty;
+    var list: std.ArrayList(Waiver) = .empty;
     for (sec.bullets) |b| {
         if (parseWaiver(b)) |w| try list.append(arena, w);
     }
@@ -182,7 +182,7 @@ fn collectWaivers(arena: Allocator, sec: FeatureSection) Allocator.Error![]const
 /// = false` (the check then fails it).
 fn parseWaiver(statement: []const u8) ?Waiver {
     if (!isWaiver(statement)) return null;
-    const rest = std.mem.trim(u8, statement[WAIVER_PREFIX.len..], &std.ascii.whitespace);
+    const rest = std.mem.trim(u8, statement[waiver_prefix.len..], &std.ascii.whitespace);
     const open = std.mem.indexOfScalar(u8, rest, '(') orelse
         return .{ .category = rest, .has_reason = false };
     const category = std.mem.trim(u8, rest[0..open], &std.ascii.whitespace);
@@ -193,8 +193,8 @@ fn parseWaiver(statement: []const u8) ?Waiver {
 
 /// True when a bullet is a completeness-waiver line (case-insensitive prefix).
 fn isWaiver(statement: []const u8) bool {
-    return statement.len >= WAIVER_PREFIX.len and
-        std.ascii.eqlIgnoreCase(statement[0..WAIVER_PREFIX.len], WAIVER_PREFIX);
+    return statement.len >= waiver_prefix.len and
+        std.ascii.eqlIgnoreCase(statement[0..waiver_prefix.len], waiver_prefix);
 }
 
 /// The waiver naming `cat_name` (case-insensitive), or null when none.
@@ -230,7 +230,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     const allocator = ctx.allocator;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ ctx.project_dir, ctx.cfg.spec_file });
-    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, MAX_SPEC_BYTES) catch {
+    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, max_spec_bytes) catch {
         reporter.ok("completeness: no readable {s} — nothing to check", .{ctx.cfg.spec_file});
         return;
     };

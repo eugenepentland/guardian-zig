@@ -34,13 +34,13 @@ const snapshot_helper = @import("../snapshot_helper.zig");
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 
-pub const COMMAND_NAME = "mutate";
+pub const command_name = "mutate";
 
-const SNAPSHOT_LEAF = "mutation.txt";
-const SNAPSHOT_VERSION: u32 = 1;
-const SCORE_KEY = "score_pct=";
+const snapshot_leaf = "mutation.txt";
+const snapshot_version: u32 = 1;
+const score_key = "score_pct=";
 /// How many surviving mutants are listed before the report truncates.
-const MAX_REPORTED_SURVIVORS = 20;
+const max_reported_survivors = 20;
 
 /// Pure gate: a run passes when its kill percentage meets the configured
 /// minimum score.
@@ -105,7 +105,7 @@ fn suiteHex(ctx: *types.RunCtx) ?[]const u8 {
 fn collectCandidates(ctx: *types.RunCtx, idx: *const ast_index.Index) types.RunError!?Candidates {
     const a = ctx.allocator;
     if (ctx.full) {
-        var all: std.ArrayListUnmanaged(gen.Mutant) = .empty;
+        var all: std.ArrayList(gen.Mutant) = .empty;
         var waived: u32 = 0;
         for (idx.files) |f| {
             const gr = try gen.generate(a, f.rel_path, f.content);
@@ -138,7 +138,7 @@ fn diffCandidates(
     for (file_diffs) |fd| try span_map.put(a, fd.path, fd.spans);
     const untracked = try git.untrackedFiles(a, ctx.project_dir);
 
-    var out: std.ArrayListUnmanaged(gen.Mutant) = .empty;
+    var out: std.ArrayList(gen.Mutant) = .empty;
     var waived: u32 = 0;
     for (idx.files) |f| {
         if (span_map.get(f.rel_path)) |spans| {
@@ -211,7 +211,7 @@ fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u
 /// were reused from the result cache.
 const ScoredRun = struct {
     score: runner.Score = .{},
-    survivors: std.ArrayListUnmanaged(report_mod.Survivor) = .empty,
+    survivors: std.ArrayList(report_mod.Survivor) = .empty,
     cached: u32 = 0,
 
     /// Records a surviving mutant with the context the survivor report needs.
@@ -287,42 +287,42 @@ fn writeMachineReport(ctx: *types.RunCtx, scored: ScoredRun, waived: u32, gated:
 /// below-floor run never records a meaningless score.
 fn ratchet(ctx: *types.RunCtx, pct: u32) types.RunError!bool {
     const a = ctx.allocator;
-    const path = try snapshot_helper.snapshotPath(a, ctx.project_dir, SNAPSHOT_LEAF);
+    const path = try snapshot_helper.snapshotPath(a, ctx.project_dir, snapshot_leaf);
     const old = readScore(a, path);
     const force = snapshot_helper.shouldUpdateFor(a, "mutate");
     const decision = runner.ratchetDecision(old, pct);
     if (decision == .regressed and !force) {
         reporter.fail("mutate FAILED: score {d}% regressed below the snapshot ratchet {d}%", .{ pct, old.? });
-        detail("  accept deliberately with {s}=1, or strengthen the tests.\n", .{snapshot_helper.UPDATE_ENV});
+        detail("  accept deliberately with {s}=1, or strengthen the tests.\n", .{snapshot_helper.update_env});
         return false;
     }
     try writeScore(a, path, pct);
-    reporter.ok("mutate: score ratchet {s} at {d}% ({s})", .{ @tagName(decision), pct, SNAPSHOT_LEAF });
+    reporter.ok("mutate: score ratchet {s} at {d}% ({s})", .{ @tagName(decision), pct, snapshot_leaf });
     return true;
 }
 
 /// Reads the prior score from the snapshot file; null when absent/unreadable.
 fn readScore(a: Allocator, path: []const u8) ?u32 {
-    const snap = snapshot.read(a, path, SNAPSHOT_VERSION) catch return null;
+    const snap = snapshot.read(a, path, snapshot_version) catch return null;
     for (snap.lines) |line| {
-        if (std.mem.startsWith(u8, line, SCORE_KEY)) {
-            return std.fmt.parseInt(u32, line[SCORE_KEY.len..], 10) catch null;
+        if (std.mem.startsWith(u8, line, score_key)) {
+            return std.fmt.parseInt(u32, line[score_key.len..], 10) catch null;
         }
     }
     return null;
 }
 
 fn writeScore(a: Allocator, path: []const u8, pct: u32) types.RunError!void {
-    var lines = [_][]const u8{try std.fmt.allocPrint(a, "{s}{d}", .{ SCORE_KEY, pct })};
-    try snapshot.write(path, SNAPSHOT_VERSION, &lines);
+    var lines = [_][]const u8{try std.fmt.allocPrint(a, "{s}{d}", .{ score_key, pct })};
+    try snapshot.write(path, snapshot_version, &lines);
 }
 
 /// Prints each survivor: file:line, the operator swap, and the original source
 /// line — the exact context an agent needs to write the killing test.
 fn listSurvivors(survivors: []const report_mod.Survivor) void {
     for (survivors, 0..) |s, i| {
-        if (i >= MAX_REPORTED_SURVIVORS) {
-            detail("  ... and {d} more survivor(s)\n", .{survivors.len - MAX_REPORTED_SURVIVORS});
+        if (i >= max_reported_survivors) {
+            detail("  ... and {d} more survivor(s)\n", .{survivors.len - max_reported_survivors});
             return;
         }
         detail("  {s}:{d}: `{s}` -> `{s}` survived\n      {s}\n", .{

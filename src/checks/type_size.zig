@@ -12,7 +12,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
     cfg: config_mod.TypeSizeCfg,
 };
 
@@ -63,7 +63,7 @@ pub fn analyzeContent(
     content: []const u8,
     cfg: config_mod.TypeSizeCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
     try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return reporter.flatLines(allocator, violations.items);
@@ -80,7 +80,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -102,7 +102,7 @@ test "visit flags oversized struct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -124,7 +124,7 @@ test "visit allows struct at the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -145,7 +145,7 @@ test "visit ignores private structs" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -166,7 +166,7 @@ test "visit exempts enums regardless of variant count" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -184,7 +184,7 @@ test "visit skips excluded files" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -201,7 +201,7 @@ test "visit doesn't count methods toward the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,

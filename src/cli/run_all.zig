@@ -12,14 +12,14 @@ const dora = @import("../dora.zig");
 const print = std.debug.print;
 const fail = reporter.fail;
 
-pub const COMMAND_NAME = "all";
+pub const command_name = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
 // mutant; debt is a non-gating report; nightly composes `all` + `mutate --full`;
 // commit gates then auto-commits. None is a build gate. (nightly and commit are
 // dispatched specially and never appear in the registry, so their entries here
 // are defensive — mirroring the long-standing `all` exclusion in build_helper —
 // and guarantee they can never be run as a check.)
-const SKIP = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
+const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
 
 /// Runs every registered hard-block check in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
@@ -101,8 +101,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// `failed_checks` is the distinct registry names that failed, for the DORA
 /// telemetry record (names are static registry literals — no copy needed).
 const Sink = struct {
-    records: std.ArrayListUnmanaged(reporter.Violation) = .empty,
-    failed_checks: std.ArrayListUnmanaged([]const u8) = .empty,
+    records: std.ArrayList(reporter.Violation) = .empty,
+    failed_checks: std.ArrayList([]const u8) = .empty,
 };
 
 /// Writes the machine-readable last-run log for a real (non-skipped) run.
@@ -137,7 +137,7 @@ fn isFiltered(ctx: *const types.RunCtx) bool {
 /// validate --only / --skip names before running.
 pub fn isAllCheck(name: []const u8) bool {
     if (registry.find(name) == null) return false;
-    for (SKIP) |s| if (std.mem.eql(u8, name, s)) return false;
+    for (non_gate_commands) |s| if (std.mem.eql(u8, name, s)) return false;
     return true;
 }
 
@@ -206,7 +206,7 @@ pub fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void {
 /// modes (refreshTargets returns null).
 fn validateRefreshTargets(allocator: std.mem.Allocator) types.RunError!void {
     const names = snapshot_helper.refreshTargets(allocator) orelse return;
-    for (names) |name| try requireKnownCheck(name, snapshot_helper.UPDATE_ENV);
+    for (names) |name| try requireKnownCheck(name, snapshot_helper.update_env);
 }
 
 /// Rejects a [baseline] deny_growth list with an unknown check name.
@@ -464,7 +464,7 @@ fn shouldEmit(quiet: bool, r: CheckResult) bool {
 }
 
 fn shouldSkip(name: []const u8, disabled: []const []const u8) bool {
-    for (SKIP) |s| if (std.mem.eql(u8, name, s)) return true;
+    for (non_gate_commands) |s| if (std.mem.eql(u8, name, s)) return true;
     for (disabled) |s| if (std.mem.eql(u8, name, s)) return true;
     return false;
 }

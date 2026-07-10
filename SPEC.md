@@ -63,6 +63,14 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Hard-fails any usingnamespace keyword outside test files
 
+## Deprecated Alias
+
+- Flags the std.ArrayListUnmanaged deprecated 0.15 alias
+- Flags a managed hashmap construction such as std.StringHashMap
+- Flags the usingnamespace keyword removed in 0.15
+- Flags the pre-0.15 getStdOut and getStdErr writer idioms
+- Allows the unmanaged and 0.15 replacement spellings
+
 ## Spec Quality
 
 - Flags vague behavior phrases in SPEC.md
@@ -74,6 +82,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - camelCase pub fn must not return type
 - snake_case pub fn is rejected
 - pub const struct/enum/union with fields must be PascalCase
+- SCREAMING_SNAKE container-scope const is rejected
 
 ## Function Size
 

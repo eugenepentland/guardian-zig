@@ -26,26 +26,26 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 /// Registry name (also the [[allow]] key).
-pub const CHECK_NAME = "assert-doc-consistency";
+pub const check_name = "assert-doc-consistency";
 /// The capitalized doc-marker word that signals a precondition claim.
-const DOC_MARKER = "Asserts";
+const doc_marker = "Asserts";
 /// The call substring that satisfies the claim in a fn body.
-const ASSERT_CALL = "assert(";
+const assert_call = "assert(";
 
 /// True when `c` is an identifier character — the word-boundary test.
 fn isIdentChar(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
-/// True when `doc` carries the precondition marker (`DOC_MARKER`) as a whole
+/// True when `doc` carries the precondition marker (`doc_marker`) as a whole
 /// word: case-sensitive, bounded on both sides by a non-identifier char (or the
 /// string edge). Whole-word + case-sensitive is what keeps this zero-noise —
 /// lowercase prose or a longer word never counts as a claim.
 fn docClaimsMarker(doc: []const u8) bool {
     var i: usize = 0;
-    while (std.mem.indexOfPos(u8, doc, i, DOC_MARKER)) |at| {
+    while (std.mem.indexOfPos(u8, doc, i, doc_marker)) |at| {
         const before_ok = at == 0 or !isIdentChar(doc[at - 1]);
-        const after = at + DOC_MARKER.len;
+        const after = at + doc_marker.len;
         const after_ok = after == doc.len or !isIdentChar(doc[after]);
         if (before_ok and after_ok) return true;
         i = at + 1;
@@ -57,12 +57,12 @@ fn docClaimsMarker(doc: []const u8) bool {
 /// an `assert(` call. A substring is enough: zig fmt normalizes the call form,
 /// so every real call carries `assert(` exactly while `assertFoo(` does not.
 fn bodyHasAssertCall(decl_source: []const u8) bool {
-    return std.mem.indexOf(u8, decl_source, ASSERT_CALL) != null;
+    return std.mem.indexOf(u8, decl_source, assert_call) != null;
 }
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
     /// [[allow]] path globs for this check; a matching file is skipped whole.
     allowed_paths: []const []const u8 = &.{},
 };
@@ -89,7 +89,7 @@ fn scanTree(ctx: *ScanCtx, rel_path: []const u8, tree_ptr: *const Ast) std.mem.A
         try ctx.violations.append(a, try std.fmt.allocPrint(
             a,
             "{s}:{d}: fn {s} doc claims a precondition ({s}) but its body has no {s} call",
-            .{ rel_path, lineOf(tree.source, start), tree.tokenSlice(name_tok), DOC_MARKER, ASSERT_CALL },
+            .{ rel_path, lineOf(tree.source, start), tree.tokenSlice(name_tok), doc_marker, assert_call },
         ));
     }
 }
@@ -114,7 +114,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) std.mem.Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
     const z = try allocator.dupeZ(u8, content);
     var tree = try Ast.parse(allocator, z, .zig);
@@ -125,23 +125,23 @@ pub fn analyzeContent(
 /// Entry point for the assert-doc-consistency check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
-        .allowed_paths = ctx_param.cfg.extraAllowed(CHECK_NAME),
+        .allowed_paths = ctx_param.cfg.extraAllowed(check_name),
     };
     try ast_index.runSrc(ctx_param.source_index, allocator, ctx_param.project_dir, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
-        ok("assert-doc-consistency: every '{s}' doc has a matching {s} call", .{ DOC_MARKER, ASSERT_CALL });
+        ok("assert-doc-consistency: every '{s}' doc has a matching {s} call", .{ doc_marker, assert_call });
         return;
     }
     fail("assert-doc-consistency FAILED ({d} doc(s) without a body assert)", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
     print(
         "  fix: add the {s} the doc promises, or reword the doc to drop the '{s}' claim.\n",
-        .{ ASSERT_CALL, DOC_MARKER },
+        .{ assert_call, doc_marker },
     );
     return error.CheckFailed;
 }

@@ -16,12 +16,12 @@ const BodyKind = enum { other, empty, unconditional_skip };
 
 /// Tokens of a test body's first statement inspected to classify it: a
 /// `return error.SkipZigTest` prefix is exactly four tokens.
-const PREFIX_TOKENS = 4;
+const prefix_tokens = 4;
 
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 /// Pure-function entry: scans `content` for `test { ... }` blocks whose body
@@ -31,7 +31,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .rel_path = rel_path,
@@ -79,7 +79,7 @@ fn reachLBrace(tok: *std.zig.Tokenizer) bool {
 fn classifyBody(tok: *std.zig.Tokenizer, z: [:0]const u8) BodyKind {
     var depth: u32 = 1;
     var seen: usize = 0;
-    var tags: [PREFIX_TOKENS]std.zig.Token.Tag = undefined;
+    var tags: [prefix_tokens]std.zig.Token.Tag = undefined;
     var saw_skip_ident = false;
     while (true) {
         const t = tok.next();
@@ -118,7 +118,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -134,7 +134,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 /// Entry point for the test-skip-ban check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 

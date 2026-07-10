@@ -10,7 +10,7 @@ const detail = reporter.detail;
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
     max_ops: u32,
 };
 
@@ -22,7 +22,7 @@ pub fn analyzeContentWithLimit(
     content: []const u8,
     max_ops: u32,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .rel_path = rel_path,
@@ -112,7 +112,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
     max_ops: u32,
 };
 
@@ -135,7 +135,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("bool-ops-per-condition disabled by config", .{});
         return;
     }
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,

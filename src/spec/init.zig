@@ -10,7 +10,7 @@ pub const ModuleInfo = struct {
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
-    modules: *std.ArrayListUnmanaged(ModuleInfo),
+    modules: *std.ArrayList(ModuleInfo),
 };
 
 fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -35,7 +35,7 @@ pub fn collectModules(
     allocator: std.mem.Allocator,
     dir_path: []const u8,
     prefix: []const u8,
-    modules: *std.ArrayListUnmanaged(ModuleInfo),
+    modules: *std.ArrayList(ModuleInfo),
 ) InitError!void {
     var ctx: CollectCtx = .{ .allocator = allocator, .modules = modules };
     try walk.walkZigFiles(allocator, dir_path, .{ .display_root = prefix }, .{ .ctx = &ctx, .visit = collectVisit });
@@ -44,7 +44,7 @@ pub fn collectModules(
 /// Returns the names of every `pub fn` in `content`, excluding main/build.
 pub fn extractPubFns(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error![]const []const u8 {
     const pubs = try ast.pubFns(allocator, content);
-    var fns: std.ArrayListUnmanaged([]const u8) = .empty;
+    var fns: std.ArrayList([]const u8) = .empty;
     for (pubs) |p| {
         if (std.mem.eql(u8, p.name, "main")) continue;
         if (std.mem.eql(u8, p.name, "build")) continue;
@@ -60,7 +60,7 @@ pub fn generateSpecContent(
     allocator: std.mem.Allocator,
     modules: []const ModuleInfo,
 ) std.mem.Allocator.Error![]const u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     try buf.appendSlice(allocator, "# Project Specification\n\n");
     try buf.appendSlice(allocator, "## Overview\n\nDescribe the project here.\n\n");
 

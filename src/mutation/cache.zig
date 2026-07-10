@@ -27,9 +27,9 @@ const Outcome = runner.Outcome;
 
 /// Cache file leaf under the project dir. `cache/` is git-ignored and
 /// digest-excluded, so rewriting it never churns git or the skip-cache.
-const CACHE_LEAF = ".guardian/cache/mutants.jsonl";
+const cache_leaf = ".guardian/cache/mutants.jsonl";
 /// Read cap for the cache file (mirrors the other sinks' generous cap).
-const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+const max_cache_bytes = 64 * 1024 * 1024;
 
 /// Maps a mutant identity key to its cached outcome for the current suite state.
 pub const Map = std.StringHashMapUnmanaged(Outcome);
@@ -61,7 +61,7 @@ const Loaded = struct {
 
 /// The cache file path: `<project_dir>/.guardian/cache/mutants.jsonl`.
 fn path(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_LEAF });
+    return std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
 }
 
 /// Parses an outcome name (an `@tagName` of `Outcome`) back to the enum, or null
@@ -114,7 +114,7 @@ fn recordJson(arena: Allocator, suite_hex: []const u8, m: gen.Mutant, outcome: O
 /// records, one per line, insertion-ordered). Malformed lines are skipped.
 fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Allocator.Error!Loaded {
     var map: Map = .{};
-    var order: std.ArrayListUnmanaged([]const u8) = .empty; // unique keys, insertion order
+    var order: std.ArrayList([]const u8) = .empty; // unique keys, insertion order
     var latest: std.StringHashMapUnmanaged([]const u8) = .{}; // key -> latest raw JSON line
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |raw| {
@@ -135,7 +135,7 @@ fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Alloca
     // !found_existing branch) and put into `map`, so the compaction below has one
     // reuse entry per emitted line.
     std.debug.assert(order.items.len == map.count());
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (order.items) |k| {
         try buf.appendSlice(arena, latest.get(k).?);
         try buf.append(arena, '\n');
@@ -160,7 +160,7 @@ fn overwrite(p: []const u8, data: []const u8) !void {
 pub fn load(arena: Allocator, project_dir: []const u8, suite_hex: []const u8, mode: Reuse) Map {
     if (mode == .fresh) return .{};
     const p = path(arena, project_dir) catch return .{};
-    const content = std.fs.cwd().readFileAlloc(arena, p, MAX_CACHE_BYTES) catch return .{};
+    const content = std.fs.cwd().readFileAlloc(arena, p, max_cache_bytes) catch return .{};
     const loaded = buildMap(arena, content, suite_hex) catch return .{};
     overwrite(p, loaded.compacted) catch |e|
         std.log.warn("guardian mutate cache compaction failed: {s}", .{@errorName(e)});

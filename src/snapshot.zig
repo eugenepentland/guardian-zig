@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const MAGIC_PREFIX = "# guardian-snapshot v";
+pub const magic_prefix = "# guardian-snapshot v";
 
 /// A read snapshot file, parsed into version + sorted lines.
 pub const Snapshot = struct {
@@ -39,8 +39,8 @@ fn parseHeader(header: ?[]const u8, expected_version: u32) ReadError!u32 {
 /// line is missing, lacks the magic prefix, or has a non-integer version.
 fn parseVersion(header: ?[]const u8) ReadError!u32 {
     const line = header orelse return error.BadFormat;
-    if (!std.mem.startsWith(u8, line, MAGIC_PREFIX)) return error.BadFormat;
-    const ver_str = line[MAGIC_PREFIX.len..];
+    if (!std.mem.startsWith(u8, line, magic_prefix)) return error.BadFormat;
+    const ver_str = line[magic_prefix.len..];
     return std.fmt.parseInt(u32, ver_str, 10) catch error.BadFormat;
 }
 
@@ -58,7 +58,7 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
     const version = try parseHeader(lines_iter.next(), expected_version);
 
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     while (lines_iter.next()) |line| {
         if (line.len == 0) continue;
         try lines.append(arena, line);
@@ -91,7 +91,7 @@ pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8)
     var buf: [4096]u8 = undefined;
     var fw = file.writer(&buf);
     var w = &fw.interface;
-    try w.print("{s}{d}\n", .{ MAGIC_PREFIX, version });
+    try w.print("{s}{d}\n", .{ magic_prefix, version });
     for (lines) |line| {
         try w.writeAll(line);
         try w.writeByte('\n');
@@ -106,8 +106,8 @@ pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8)
 pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff {
     std.debug.assert(std.sort.isSorted([]const u8, old.lines, {}, lessThan));
     std.debug.assert(std.sort.isSorted([]const u8, new_lines, {}, lessThan));
-    var added: std.ArrayListUnmanaged([]const u8) = .empty;
-    var removed: std.ArrayListUnmanaged([]const u8) = .empty;
+    var added: std.ArrayList([]const u8) = .empty;
+    var removed: std.ArrayList([]const u8) = .empty;
 
     var i: usize = 0;
     var j: usize = 0;

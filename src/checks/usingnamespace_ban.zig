@@ -10,7 +10,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -49,7 +49,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
 
     // Scan src/ but not test/ — usingnamespace in test files is grandfathered.
@@ -77,7 +77,7 @@ test "visit flags usingnamespace at correct line" {
     const a = arena.allocator();
 
     // Simulate a file by giving the visitor an in-memory entry.
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\const std = @import("std");
@@ -95,7 +95,7 @@ test "visit ignores usingnamespace in comments and strings" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content =
         \\// usingnamespace bar;

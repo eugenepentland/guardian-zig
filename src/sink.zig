@@ -14,9 +14,9 @@ const Allocator = std.mem.Allocator;
 const reporter = @import("reporter.zig");
 
 /// Cache subdirectory (relative to the project dir) that holds the sink log.
-const CACHE_SUBDIR = ".guardian/cache";
+const cache_subdir = ".guardian/cache";
 /// Basename of the machine-readable last-run log.
-const LOG_NAME = "last-run.jsonl";
+const log_name = "last-run.jsonl";
 
 /// Wire form of one violation record. Private DTO: the field order here is the
 /// emitted JSON key order, and `type` discriminates it from a summary line.
@@ -78,7 +78,7 @@ pub fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8 {
 
 /// Path to the last-run log: `<project_dir>/.guardian/cache/last-run.jsonl`.
 pub fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(arena, "{s}/{s}/{s}", .{ project_dir, CACHE_SUBDIR, LOG_NAME });
+    return std.fmt.allocPrint(arena, "{s}/{s}/{s}", .{ project_dir, cache_subdir, log_name });
 }
 
 /// Writes the last-run log: one violation record per entry, then a summary
@@ -96,7 +96,7 @@ fn writeInner(
     records: []const reporter.Violation,
     summary: Summary,
 ) !void {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (records) |v| {
         try buf.appendSlice(arena, try violationJson(arena, v));
         try buf.append(arena, '\n');
@@ -104,7 +104,7 @@ fn writeInner(
     try buf.appendSlice(arena, try summaryJson(arena, summary));
     try buf.append(arena, '\n');
 
-    const dir = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, CACHE_SUBDIR });
+    const dir = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_subdir });
     try std.fs.cwd().makePath(dir);
     const path = try pathFor(arena, project_dir);
     const f = try std.fs.cwd().createFile(path, .{});

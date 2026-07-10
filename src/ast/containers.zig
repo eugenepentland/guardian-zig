@@ -51,7 +51,7 @@ pub fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubC
 /// so a caller holding a shared parse can skip re-parsing the source.
 pub fn pubContainersFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubContainerInfo {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(PubContainerInfo) = .empty;
+    var result: std.ArrayList(PubContainerInfo) = .empty;
 
     for (try collectDecls(arena, &tree)) |decl| {
         const var_decl = tree.fullVarDecl(decl) orelse continue;
@@ -106,7 +106,7 @@ pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst
 /// caller holding a shared parse can skip re-parsing the source.
 pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubConst {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(PubConst) = .empty;
+    var result: std.ArrayList(PubConst) = .empty;
 
     for (try collectDecls(arena, &tree)) |decl| {
         const var_decl = tree.fullVarDecl(decl) orelse continue;
@@ -132,6 +132,30 @@ pub fn pubConstsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]cons
         });
     }
     return result.toOwnedSlice(arena);
+}
+
+/// Every container-scope `const` name (pub and private), including those nested
+/// inside a `pub const T = struct { ... }`. Unlike `pubConstsFromTree` this keeps
+/// private consts and filters to `const` (not `var`), so the naming check can
+/// inspect the casing of every constant regardless of visibility. Function-body
+/// locals are not reached (collectDecls descends into containers, not fn bodies).
+pub fn allConstNamesFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const []const u8 {
+    var tree = tree_ptr.*;
+    var result: std.ArrayList([]const u8) = .empty;
+    const tags = tree.tokens.items(.tag);
+    for (try collectDecls(arena, &tree)) |decl| {
+        const var_decl = tree.fullVarDecl(decl) orelse continue;
+        if (tags[var_decl.ast.mut_token] != .keyword_const) continue; // skip `var`
+        try result.append(arena, tree.tokenSlice(var_decl.ast.mut_token + 1));
+    }
+    return result.toOwnedSlice(arena);
+}
+
+/// Source-string convenience wrapper over `allConstNamesFromTree`.
+pub fn allConstNames(arena: Allocator, source: []const u8) AstError![]const []const u8 {
+    const z = try arena.dupeZ(u8, source);
+    var tree = try Ast.parse(arena, z, .zig);
+    return allConstNamesFromTree(arena, &tree);
 }
 
 fn classifyContainer(tree: *const Ast, node: Ast.Node.Index) PubConstKind {
@@ -179,7 +203,7 @@ pub fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDecl
 /// a caller holding a shared parse can skip re-parsing the source.
 pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const FnDeclInfo {
     var tree = tree_ptr.*;
-    var result: std.ArrayListUnmanaged(FnDeclInfo) = .empty;
+    var result: std.ArrayList(FnDeclInfo) = .empty;
 
     const tags = tree.tokens.items(.tag);
     const newlines = try newlineOffsets(arena, tree.source); // O(log n) line lookups
@@ -244,7 +268,7 @@ pub fn fnDeclInfosFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]co
 /// Ascending byte offsets of every `\n` in `source`. Built once per file so
 /// line lookups can binary-search instead of rescanning from byte 0.
 fn newlineOffsets(arena: Allocator, source: []const u8) AstError![]const usize {
-    var offs: std.ArrayListUnmanaged(usize) = .empty;
+    var offs: std.ArrayList(usize) = .empty;
     for (source, 0..) |c, idx| {
         if (c == '\n') try offs.append(arena, idx);
     }
@@ -329,6 +353,32 @@ test "pubConsts classifies container kinds" {
     try std.testing.expectEqual(PubConstKind.enum_, consts[1].kind);
     try std.testing.expectEqual(PubConstKind.union_, consts[2].kind);
     try std.testing.expectEqual(PubConstKind.value, consts[3].kind);
+}
+
+test "allConstNames returns pub and private container-scope const names only" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source: [:0]const u8 =
+        \\pub const Public = 1;
+        \\const private_max = 2;
+        \\var mutable = 3;
+        \\pub const Wrapper = struct {
+        \\    const nested = 4;
+        \\};
+        \\pub fn f() void {
+        \\    const local_only = 5;
+        \\    _ = local_only;
+        \\}
+    ;
+    // Public, private_max, Wrapper, nested — the `var` and the fn-body local drop out.
+    const names = try allConstNames(a, source);
+    try std.testing.expectEqual(@as(usize, 4), names.len);
+
+    // The *FromTree variant yields the same set from a shared parse.
+    var tree = try Ast.parse(a, source, .zig);
+    const from_tree = try allConstNamesFromTree(a, &tree);
+    try std.testing.expectEqual(@as(usize, 4), from_tree.len);
 }
 
 test "fnDeclInfos extracts body, return-type, and line span" {

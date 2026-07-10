@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const print = std.debug.print;
 
-pub const UPDATE_ENV = "GUARDIAN_UPDATE_GOLDEN";
+pub const update_env = "GUARDIAN_UPDATE_GOLDEN";
 
 /// Errors propagated by `run` / `runWithCfg`: the analyze callback's OOM, the
 /// atomic-write path when refreshing a golden file, and the test-assertion
@@ -36,7 +36,7 @@ pub const Scenario = struct {
 
 /// Returns true if the user set GUARDIAN_UPDATE_GOLDEN=1.
 fn shouldUpdate(allocator: Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
+    const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
     return v.len > 0 and !std.mem.eql(u8, v, "0");
 }
@@ -51,7 +51,7 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
 fn formatViolations(allocator: Allocator, lines: [][]const u8) ![]const u8 {
     if (lines.len == 0) return "";
     std.mem.sort([]const u8, lines, {}, lessThan);
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     for (lines, 0..) |line, i| {
         if (i > 0) try buf.append(allocator, '\n');
         try buf.appendSlice(allocator, line);
@@ -84,7 +84,7 @@ pub fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) Golde
     std.testing.expectEqualStrings(s.expected, actual) catch |e| {
         print(
             "\ngolden mismatch [{s}/{s}]\n  expected_path: {s}\n  re-run with {s}=1 to refresh.\n",
-            .{ s.check_name, s.name, s.expected_path, UPDATE_ENV },
+            .{ s.check_name, s.name, s.expected_path, update_env },
         );
         return e;
     };
@@ -109,7 +109,7 @@ pub fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype
     std.testing.expectEqualStrings(s.expected, actual) catch |e| {
         print(
             "\ngolden mismatch [{s}/{s}]\n  expected_path: {s}\n  re-run with {s}=1 to refresh.\n",
-            .{ s.check_name, s.name, s.expected_path, UPDATE_ENV },
+            .{ s.check_name, s.name, s.expected_path, update_env },
         );
         return e;
     };

@@ -14,7 +14,7 @@ const fail = reporter.fail;
 /// every node whose path is a top-level src/* file (no further slash
 /// after "src/").
 fn defaultRoots(allocator: Allocator, nodes: []const import_graph.Node) ![]const []const u8 {
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    var out: std.ArrayList([]const u8) = .empty;
     for (nodes) |n| {
         if (!std.mem.startsWith(u8, n.path, "src/")) continue;
         const rest = n.path["src/".len..];
@@ -33,7 +33,7 @@ pub fn findOrphans(
     roots: []const []const u8,
 ) Allocator.Error![]const []const u8 {
     const reached = try import_graph.reachableFrom(allocator, nodes, roots);
-    var orphans: std.ArrayListUnmanaged([]const u8) = .empty;
+    var orphans: std.ArrayList([]const u8) = .empty;
     for (nodes) |n| {
         var found = false;
         for (reached) |r| {

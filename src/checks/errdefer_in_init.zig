@@ -26,7 +26,7 @@ fn analyzeWithTree(
     content: []const u8,
     tree: ?*const std.zig.Ast,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -72,7 +72,7 @@ fn needsErrdefer(arena: Allocator, body: []const u8) Allocator.Error!bool {
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -84,7 +84,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 /// Entry point for the errdefer-in-init check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{ .allocator = allocator, .violations = &violations };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 

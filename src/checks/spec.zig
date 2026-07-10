@@ -11,8 +11,8 @@ const fail = reporter.fail;
 /// Bundles the near-miss tag lists collected while scanning directories.
 const TagScan = struct {
     tags: []const spec_matcher.SpecTag,
-    malformed: std.ArrayListUnmanaged(spec_matcher.MalformedTag),
-    unattached: std.ArrayListUnmanaged(spec_matcher.MalformedTag),
+    malformed: std.ArrayList(spec_matcher.MalformedTag),
+    unattached: std.ArrayList(spec_matcher.MalformedTag),
 };
 
 /// Entry point for the spec coverage check.
@@ -74,9 +74,9 @@ fn collectTags(allocator: std.mem.Allocator, project_dir: []const u8) !TagScan {
     const test_dir = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
     const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
 
-    var all_tags: std.ArrayListUnmanaged(spec_matcher.SpecTag) = .empty;
-    var malformed: std.ArrayListUnmanaged(spec_matcher.MalformedTag) = .empty;
-    var unattached: std.ArrayListUnmanaged(spec_matcher.MalformedTag) = .empty;
+    var all_tags: std.ArrayList(spec_matcher.SpecTag) = .empty;
+    var malformed: std.ArrayList(spec_matcher.MalformedTag) = .empty;
+    var unattached: std.ArrayList(spec_matcher.MalformedTag) = .empty;
     for ([_][]const u8{ test_dir, src_dir }) |dir| {
         const scan = try spec_matcher.scanDir(allocator, dir);
         for (scan.tags) |t| try all_tags.append(allocator, t);

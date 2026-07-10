@@ -12,7 +12,7 @@ const fail = reporter.fail;
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     max_params: u32,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
 };
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -46,7 +46,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .max_params = cfg.function_size.max_params,
@@ -79,7 +79,7 @@ test "visit catches over-budget functions" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = a, .max_params = 3, .violations = &violations };
     const content =
         \\pub fn ok_fn(a: i32, b: i32, c: i32) void {}

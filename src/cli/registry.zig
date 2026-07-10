@@ -6,6 +6,7 @@ const check_spec_init = @import("../checks/spec_init.zig");
 const check_file_size = @import("../checks/file_size.zig");
 const check_boundaries = @import("../checks/boundaries.zig");
 const check_usingnamespace_ban = @import("../checks/usingnamespace_ban.zig");
+const check_deprecated_alias = @import("../checks/deprecated_alias.zig");
 const check_spec_quality = @import("../checks/spec_quality.zig");
 const check_completeness = @import("../checks/completeness.zig");
 const check_naming = @import("../checks/naming.zig");
@@ -93,6 +94,12 @@ pub const all: []const Command = &.{
         .name = "usingnamespace-ban",
         .summary = "Reject usingnamespace declarations in src/",
         .run = check_usingnamespace_ban.run,
+    },
+    .{
+        .name = "deprecated-alias",
+        .summary = "Reject deprecated 0.15 std spellings " ++
+            "(ArrayListUnmanaged, managed hashmaps, usingnamespace, getStdOut)",
+        .run = check_deprecated_alias.run,
     },
     .{
         .name = "spec-quality",

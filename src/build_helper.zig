@@ -1,17 +1,17 @@
 const std = @import("std");
 const registry = @import("cli/registry.zig");
 
-const GENERATOR_NAME = "spec-init"; // generator, not a gate
-const MUTATE_NAME = "mutate"; // explicit step, not a gate
-const DEBT_NAME = "debt"; // non-gating debt report, invoked directly
-const NIGHTLY_NAME = "nightly"; // composed scheduled tier, dispatched specially
-const COMMIT_NAME = "commit"; // gate + auto-commit, dispatched specially
-const RUN_ALL_NAME = "all";
+const generator_name = "spec-init"; // generator, not a gate
+const mutate_name = "mutate"; // explicit step, not a gate
+const debt_name = "debt"; // non-gating debt report, invoked directly
+const nightly_name = "nightly"; // composed scheduled tier, dispatched specially
+const commit_name = "commit"; // gate + auto-commit, dispatched specially
+const run_all_name = "all";
 
 // Comptime branch budget for the registry-iteration loop in
 // all_check_names. Bumped manually if the registry grows enough to
 // exhaust it.
-const REGISTRY_EVAL_QUOTA: u32 = 20000;
+const registry_eval_quota: u32 = 20000;
 
 /// Hard-block checks that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
@@ -21,15 +21,15 @@ const REGISTRY_EVAL_QUOTA: u32 = 20000;
 /// they are dispatched specially and don't appear in the registry, mirroring
 /// the existing `all` exclusion).
 pub const all_check_names: []const []const u8 = blk: {
-    @setEvalBranchQuota(REGISTRY_EVAL_QUOTA);
+    @setEvalBranchQuota(registry_eval_quota);
     var names: []const []const u8 = &.{};
     for (registry.all) |cmd| {
-        if (std.mem.eql(u8, cmd.name, GENERATOR_NAME)) continue;
-        if (std.mem.eql(u8, cmd.name, MUTATE_NAME)) continue;
-        if (std.mem.eql(u8, cmd.name, DEBT_NAME)) continue;
-        if (std.mem.eql(u8, cmd.name, NIGHTLY_NAME)) continue;
-        if (std.mem.eql(u8, cmd.name, COMMIT_NAME)) continue;
-        if (std.mem.eql(u8, cmd.name, RUN_ALL_NAME)) continue;
+        if (std.mem.eql(u8, cmd.name, generator_name)) continue;
+        if (std.mem.eql(u8, cmd.name, mutate_name)) continue;
+        if (std.mem.eql(u8, cmd.name, debt_name)) continue;
+        if (std.mem.eql(u8, cmd.name, nightly_name)) continue;
+        if (std.mem.eql(u8, cmd.name, commit_name)) continue;
+        if (std.mem.eql(u8, cmd.name, run_all_name)) continue;
         names = names ++ [_][]const u8{cmd.name};
     }
     break :blk names;
@@ -70,9 +70,9 @@ pub fn addAllChecks(
     if (opts.single_process) {
         const run = b.addRunArtifact(check_exe);
         if (opts.quiet) {
-            run.addArgs(&.{ RUN_ALL_NAME, ".", "--quiet" });
+            run.addArgs(&.{ run_all_name, ".", "--quiet" });
         } else {
-            run.addArgs(&.{ RUN_ALL_NAME, "." });
+            run.addArgs(&.{ run_all_name, "." });
         }
         if (opts.cwd) |cwd| run.setCwd(cwd);
         target_step.dependOn(&run.step);
@@ -97,11 +97,11 @@ pub fn addAllChecks(
 /// gate). Idempotent so it survives multiple addAllChecks calls and a
 /// consumer's own hand-rolled steps.
 fn registerMutateSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
-    ensureMutateStep(b, check_exe, opts, MUTATE_NAME, "Mutation-test changed lines (fast tier)", &.{
-        MUTATE_NAME, ".",
+    ensureMutateStep(b, check_exe, opts, mutate_name, "Mutation-test changed lines (fast tier)", &.{
+        mutate_name, ".",
     });
     ensureMutateStep(b, check_exe, opts, "mutate-full", "Mutation-test whole tree + score ratchet", &.{
-        MUTATE_NAME, ".", "--full",
+        mutate_name, ".", "--full",
     });
 }
 

@@ -28,7 +28,7 @@ fn scanLines(
     content: []const u8,
     max_len: u32,
 ) Allocator.Error![]reporter.Violation {
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var line_num: u32 = 1;
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| : (line_num += 1) {
@@ -66,7 +66,7 @@ pub fn analyzeContent(
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
     cap: u32,
 };
 
@@ -84,7 +84,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("line-length disabled by config", .{});
         return;
     }
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,

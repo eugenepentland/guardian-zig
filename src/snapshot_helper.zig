@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 
-pub const UPDATE_ENV = "GUARDIAN_UPDATE_SNAPSHOT";
+pub const update_env = "GUARDIAN_UPDATE_SNAPSHOT";
 
 pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
 
@@ -29,7 +29,7 @@ pub const Outcome = union(enum) {
 /// the cache whenever a refresh might rewrite `.guardian/`; per-check refresh
 /// decisions go through `shouldUpdateFor`.
 pub fn shouldUpdate(allocator: Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return false;
+    const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
     const t = std.mem.trim(u8, v, &std.ascii.whitespace);
     return t.len > 0 and !std.mem.eql(u8, t, "0");
@@ -57,7 +57,7 @@ fn isAllToken(v: []const u8) bool {
 /// drop a check from the refresh set — the public entry points below turn OOM
 /// into the fail-closed "no refresh" default rather than a partial list.
 fn splitNames(allocator: Allocator, csv: []const u8) Allocator.Error![]const []const u8 {
-    var list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var list: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, csv, ',');
     while (it.next()) |part| {
         const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
@@ -78,7 +78,7 @@ fn classifyValue(allocator: Allocator, raw: []const u8) Allocator.Error!Refresh 
 
 /// Reads and classifies GUARDIAN_UPDATE_SNAPSHOT; `.none` when unset/unreadable.
 fn parseRefresh(allocator: Allocator) Allocator.Error!Refresh {
-    const raw = std.process.getEnvVarOwned(allocator, UPDATE_ENV) catch return .none;
+    const raw = std.process.getEnvVarOwned(allocator, update_env) catch return .none;
     return classifyValue(allocator, raw);
 }
 

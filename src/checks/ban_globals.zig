@@ -17,7 +17,7 @@ const allowed_paths = [_][]const u8{
 const ScanCtx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
 };
 
 /// Pure-function entry: scans `content` for top-level `pub var` declarations.
@@ -26,7 +26,7 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: []const u8,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     for (allowed_paths) |pat| {
         if (walk.matchGlob(rel_path, pat)) return violations.toOwnedSlice(allocator);
     }
@@ -86,7 +86,7 @@ const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
+    violations: *std.ArrayList([]const u8),
     extra_allowed: []const []const u8 = &.{},
 };
 
@@ -112,7 +112,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 /// Entry point for the ban-globals check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,

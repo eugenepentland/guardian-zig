@@ -12,7 +12,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
-    violations: *std.ArrayListUnmanaged(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
     cfg: config_mod.FunctionLengthCfg,
 };
 
@@ -46,7 +46,7 @@ pub fn analyzeContent(
     content: []const u8,
     cfg: config_mod.FunctionLengthCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
     try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return reporter.flatLines(allocator, violations.items);
@@ -63,7 +63,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
@@ -86,7 +86,7 @@ test "visit flags fn over the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -107,7 +107,7 @@ test "visit allows fn at the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,
@@ -126,7 +126,7 @@ test "visit reports correct start_line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
         .violations = &violations,

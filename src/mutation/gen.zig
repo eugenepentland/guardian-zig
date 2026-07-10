@@ -12,14 +12,14 @@ const git = @import("../git.zig");
 
 const Allocator = std.mem.Allocator;
 
-const TRUE_LIT = "true";
-const FALSE_LIT = "false";
+const true_lit = "true";
+const false_lit = "false";
 
 /// Waiver marker: a source line containing this string is excluded from mutant
 /// generation. For known *equivalent* mutants — e.g. `>` vs `>=` on a min/max
 /// scan — that no test could ever kill, so gating on them is pure noise. An
 /// optional reason may follow (`// mutate-ok: boundary equivalence`).
-const WAIVER_MARKER = "// mutate-ok";
+const waiver_marker = "// mutate-ok";
 
 /// One candidate mutation: replace `content[start..end]` (which reads
 /// `original`) with `replacement`. `line` is 1-indexed for reporting and
@@ -50,8 +50,8 @@ pub const GenResult = struct {
 /// Sites on a `// mutate-ok` line are recorded in `waived_lines` and skipped.
 pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8) Allocator.Error!GenResult {
     const z = try allocator.dupeZ(u8, content);
-    var out: std.ArrayListUnmanaged(Mutant) = .empty;
-    var waived: std.ArrayListUnmanaged(u32) = .empty;
+    var out: std.ArrayList(Mutant) = .empty;
+    var waived: std.ArrayList(u32) = .empty;
     var tok = std.zig.Tokenizer.init(z);
     var scope = text.TestScope{};
     var line: u32 = 1;
@@ -98,7 +98,7 @@ pub fn waivedInSpans(waived_lines: []const u32, spans: []const git.LineSpan) u32
 
 /// True when `src_line` carries the `// mutate-ok` waiver marker.
 fn isWaived(src_line: []const u8) bool {
-    return std.mem.indexOf(u8, src_line, WAIVER_MARKER) != null;
+    return std.mem.indexOf(u8, src_line, waiver_marker) != null;
 }
 
 /// The full source line (no trailing newline) containing byte `offset`, sliced
@@ -144,8 +144,8 @@ fn endsValue(tag: std.zig.Token.Tag) bool {
 
 /// `true` ↔ `false` for the boolean literal identifiers; null otherwise.
 fn boolFlip(name: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, name, TRUE_LIT)) return FALSE_LIT;
-    if (std.mem.eql(u8, name, FALSE_LIT)) return TRUE_LIT;
+    if (std.mem.eql(u8, name, true_lit)) return false_lit;
+    if (std.mem.eql(u8, name, false_lit)) return true_lit;
     return null;
 }
 
@@ -169,7 +169,7 @@ pub fn filterToSpans(
     mutants: []const Mutant,
     spans: []const git.LineSpan,
 ) Allocator.Error![]const Mutant {
-    var out: std.ArrayListUnmanaged(Mutant) = .empty;
+    var out: std.ArrayList(Mutant) = .empty;
     for (mutants) |m| {
         if (anySpanContains(spans, m.line)) try out.append(allocator, m);
     }
@@ -272,8 +272,8 @@ test "generate flips boolean literals" {
         \\pub const ON = true;
         \\pub fn off() bool { return false; }
     )).mutants;
-    try testing.expectEqual(@as(usize, 1), countReplacement(out, FALSE_LIT));
-    try testing.expectEqual(@as(usize, 1), countReplacement(out, TRUE_LIT));
+    try testing.expectEqual(@as(usize, 1), countReplacement(out, false_lit));
+    try testing.expectEqual(@as(usize, 1), countReplacement(out, true_lit));
 }
 
 // spec: Mutation Testing - Excludes a mutate-ok waived line from generation and counts the waiver

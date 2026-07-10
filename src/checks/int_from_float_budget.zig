@@ -10,8 +10,8 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-const SNAPSHOT_LEAF = "int-from-float-budget.txt";
-const SNAPSHOT_VERSION: u32 = 1;
+const snapshot_leaf = "int-from-float-budget.txt";
+const snapshot_version: u32 = 1;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
@@ -45,7 +45,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 }
 
 fn countToLines(allocator: std.mem.Allocator, n: u32) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     try lines.append(allocator, try std.fmt.allocPrint(allocator, "casts {d}", .{n}));
     return lines.toOwnedSlice(allocator);
 }
@@ -70,11 +70,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const opts: walk.Visitor = .{ .ctx = &scan_ctx, .visit = visit };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, opts);
 
-    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
+    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, snapshot_leaf);
     const new_lines = try countToLines(allocator, total);
 
     if (snapshot_helper.shouldUpdateFor(allocator, "int-from-float-budget")) {
-        try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
+        try snapshot.write(snap_path, snapshot_version, new_lines);
         ok("int-from-float budget updated (casts={d})", .{total});
         return;
     }
@@ -91,14 +91,14 @@ fn readBudget(
     new_lines: [][]const u8,
     total: u32,
 ) registry.RunError!?u32 {
-    const old = snapshot.read(allocator, snap_path, SNAPSHOT_VERSION) catch |e| {
+    const old = snapshot.read(allocator, snap_path, snapshot_version) catch |e| {
         if (e == error.Missing) {
-            try snapshot.write(snap_path, SNAPSHOT_VERSION, new_lines);
+            try snapshot.write(snap_path, snapshot_version, new_lines);
             ok("int-from-float budget created (casts={d})", .{total});
             return null;
         }
         if (e == error.VersionMismatch) {
-            fail("int-from-float budget: stale snapshot, re-run {s}=1", .{snapshot_helper.UPDATE_ENV});
+            fail("int-from-float budget: stale snapshot, re-run {s}=1", .{snapshot_helper.update_env});
             return error.CheckFailed;
         }
         return e;
@@ -113,7 +113,7 @@ fn compareAndReport(total: u32, budget: u32) registry.RunError!void {
     }
     fail("int-from-float budget FAILED (casts: {d} found, {d} budgeted)", .{ total, budget });
     print("  fix: guard the new @intFromFloat (isFinite + range check, see numeric.checkedInt),\n", .{});
-    print("       or re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF });
+    print("       or re-run with {s}=1 and commit .guardian/{s}\n", .{ snapshot_helper.update_env, snapshot_leaf });
     return error.CheckFailed;
 }
 

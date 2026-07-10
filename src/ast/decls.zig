@@ -39,7 +39,7 @@ pub fn isContainerNode(tree: *const Ast, node: Ast.Node.Index) bool {
 /// struct. Containers returned from a function body (generic type
 /// constructors) are not reached — those live inside expressions, not decls.
 pub fn collectDecls(arena: Allocator, tree: *const Ast) AstError![]const Ast.Node.Index {
-    var out: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
+    var out: std.ArrayList(Ast.Node.Index) = .empty;
     try collectDeclsInto(arena, tree, tree.rootDecls(), &out);
     return out.toOwnedSlice(arena);
 }
@@ -48,7 +48,7 @@ fn collectDeclsInto(
     arena: Allocator,
     tree: *const Ast,
     members: []const Ast.Node.Index,
-    out: *std.ArrayListUnmanaged(Ast.Node.Index),
+    out: *std.ArrayList(Ast.Node.Index),
 ) AstError!void {
     for (members) |decl| {
         try out.append(arena, decl);
@@ -75,7 +75,7 @@ pub fn precedingDocText(arena: Allocator, tree: *const Ast, decl: Ast.Node.Index
     var start: u32 = first_tok;
     while (start > 0 and tags[start - 1] == .doc_comment) start -= 1;
 
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: std.ArrayList(u8) = .empty;
     var i: u32 = start;
     while (i < first_tok) : (i += 1) {
         const slice = tree.tokenSlice(i);

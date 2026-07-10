@@ -105,7 +105,7 @@ fn collectViolations(
     rel_path: []const u8,
     counts: *std.StringHashMapUnmanaged(u32),
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
     var iter = counts.iterator();
     while (iter.next()) |e| {
         if (e.value_ptr.* < min_occurrences) continue;
@@ -171,7 +171,7 @@ fn markAfterEq(state: *ConstScanState) void {
 const Sink = struct {
     allocator: Allocator,
     file: []const u8,
-    out: *std.ArrayListUnmanaged(Decl),
+    out: *std.ArrayList(Decl),
 };
 
 /// Appends a completed `NAME = "value"` decl when `raw` is a quoted literal.
@@ -207,7 +207,7 @@ fn extractConstsTree(
     tree: *const std.zig.Ast,
     allocator: Allocator,
     file: []const u8,
-    out: *std.ArrayListUnmanaged(Decl),
+    out: *std.ArrayList(Decl),
 ) !void {
     var state: ConstScanState = .{};
     const sink: Sink = .{ .allocator = allocator, .file = file, .out = out };
@@ -224,7 +224,7 @@ fn extractFileScopeStringConsts(
     allocator: Allocator,
     file: []const u8,
     content: []const u8,
-    out: *std.ArrayListUnmanaged(Decl),
+    out: *std.ArrayList(Decl),
 ) !void {
     const z = try allocator.dupeZ(u8, content);
     var tree = try std.zig.Ast.parse(allocator, z, .zig);
@@ -246,13 +246,13 @@ const Group = struct {
 };
 
 fn findDuplicates(allocator: Allocator, decls: []const Decl) ![]const Group {
-    var groups: std.ArrayListUnmanaged(Group) = .empty;
-    var seen: std.ArrayListUnmanaged(usize) = .empty;
+    var groups: std.ArrayList(Group) = .empty;
+    var seen: std.ArrayList(usize) = .empty;
     defer seen.deinit(allocator);
 
     for (decls, 0..) |d, i| {
         if (indexSeen(seen.items, i)) continue;
-        var matches: std.ArrayListUnmanaged([]const u8) = .empty;
+        var matches: std.ArrayList([]const u8) = .empty;
         try matches.append(allocator, d.file);
         try seen.append(allocator, i);
         for (decls[i + 1 ..], i + 1..) |d2, j| {
@@ -281,8 +281,8 @@ fn indexSeen(seen: []const usize, i: usize) bool {
 
 const MergedCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayListUnmanaged([]const u8),
-    decls: *std.ArrayListUnmanaged(Decl),
+    violations: *std.ArrayList([]const u8),
+    decls: *std.ArrayList(Decl),
 };
 
 fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -317,8 +317,8 @@ fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) !vo
 /// cross-file duplicate named consts).
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayListUnmanaged([]const u8) = .empty;
-    var decls: std.ArrayListUnmanaged(Decl) = .empty;
+    var violations: std.ArrayList([]const u8) = .empty;
+    var decls: std.ArrayList(Decl) = .empty;
     var mctx: MergedCtx = .{ .allocator = allocator, .violations = &violations, .decls = &decls };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &mctx, .visit = mergedVisit });
 
@@ -370,7 +370,7 @@ test "extractFileScopeStringConsts finds top-level consts and keeps real names" 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var decls: std.ArrayListUnmanaged(Decl) = .empty;
+    var decls: std.ArrayList(Decl) = .empty;
     const content =
         \\const A = "alpha";
         \\pub const Greeting: []const u8 = "hi";

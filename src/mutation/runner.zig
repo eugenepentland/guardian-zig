@@ -14,10 +14,10 @@ const Allocator = std.mem.Allocator;
 
 /// Env var set on child builds during mutation runs. guardian-check exits
 /// immediately when it sees this, so the mutated tree isn't gated.
-pub const MUTATION_ENV = "GUARDIAN_MUTATION_RUN";
+pub const mutation_env = "GUARDIAN_MUTATION_RUN";
 
 /// Cap on a source file read before splicing (mirrors the walker's cap).
-const MAX_SRC_BYTES: usize = 10 * 1024 * 1024;
+const max_src_bytes: usize = 10 * 1024 * 1024;
 
 /// Error surface of a mutant run: the runner reads/splices/restores source
 /// files, clones the environment, and spawns child `zig build` processes, so
@@ -131,7 +131,7 @@ pub const RunOpts = struct {
 /// and `git checkout <file>` is the recovery.
 pub fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outcome {
     const abs = try std.fs.path.join(allocator, &.{ opts.project_dir, m.path });
-    const original = try std.fs.cwd().readFileAlloc(allocator, abs, MAX_SRC_BYTES);
+    const original = try std.fs.cwd().readFileAlloc(allocator, abs, max_src_bytes);
     const mutated = try spliced(allocator, original, m);
 
     try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
@@ -145,13 +145,13 @@ pub fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outco
     return outcomeFor(build_res, test_res);
 }
 
-/// Spawns `argv` in the project dir with MUTATION_ENV set, killing it if it
+/// Spawns `argv` in the project dir with mutation_env set, killing it if it
 /// outlives the timeout (a watchdog thread waits on an event the normal
 /// path sets — no polling, no sleep).
 fn execWithTimeout(allocator: Allocator, argv: []const []const u8, opts: RunOpts) RunError!ExecResult {
     var env = try std.process.getEnvMap(allocator);
     defer env.deinit();
-    try env.put(MUTATION_ENV, "1");
+    try env.put(mutation_env, "1");
 
     var child = std.process.Child.init(argv, allocator);
     child.cwd = opts.project_dir;

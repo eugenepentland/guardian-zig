@@ -10,13 +10,13 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-const SNAPSHOT_LEAF = "pub-api.txt";
+const snapshot_leaf = "pub-api.txt";
 // v2: fn entries now include the full prototype (folded in spec-drift).
-const SNAPSHOT_VERSION: u32 = 2;
+const snapshot_version: u32 = 2;
 
 const CollectCtx = struct {
     allocator: std.mem.Allocator,
-    lines: *std.ArrayListUnmanaged([]const u8),
+    lines: *std.ArrayList([]const u8),
 };
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -43,7 +43,7 @@ fn collectLines(
     project_dir: []const u8,
     source_index: ?*const ast_index.Index,
 ) ![][]const u8 {
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .lines = &lines };
     try ast_index.runSrc(source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
     return lines.toOwnedSlice(allocator);
@@ -54,11 +54,11 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
     const project_dir = ctx_param.project_dir;
 
-    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, SNAPSHOT_LEAF);
+    const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, snapshot_leaf);
     const lines = try collectLines(allocator, project_dir, ctx_param.source_index);
 
     const force = snapshot_helper.shouldUpdateFor(allocator, "pub-api-surface");
-    const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = SNAPSHOT_VERSION };
+    const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = snapshot_version };
     const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force);
     return reportOutcome(outcome);
 }
@@ -69,7 +69,7 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
         .updated => |n| ok("pub-api snapshot updated ({d} entries)", .{n}),
         .unchanged => |n| ok("pub-api unchanged ({d} entries)", .{n}),
         .version_mismatch => {
-            fail("pub-api snapshot version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.UPDATE_ENV});
+            fail("pub-api snapshot version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.update_env});
             return error.CheckFailed;
         },
         .drift => |d| {
@@ -78,7 +78,7 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
             for (d.added) |line| print("  + {s}\n", .{line});
             print(
                 "  fix: if intentional, re-run with {s}=1 and commit .guardian/{s}\n",
-                .{ snapshot_helper.UPDATE_ENV, SNAPSHOT_LEAF },
+                .{ snapshot_helper.update_env, snapshot_leaf },
             );
             return error.CheckFailed;
         },
@@ -93,7 +93,7 @@ test "visit emits fn and struct entries" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    var lines: std.ArrayList([]const u8) = .empty;
     var ctx: CollectCtx = .{ .allocator = a, .lines = &lines };
     const content =
         \\pub fn run() void {}

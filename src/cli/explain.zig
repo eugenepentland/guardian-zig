@@ -84,6 +84,26 @@ const entries = [_]Entry{
     \\Exempt: none in src/; test files are already allowed. Disable via the
     \\top-level `disabled` list only as a last resort.
     },
+    .{ .name = "deprecated-alias", .text = 
+    \\Why: Zig 0.15 renamed a batch of std containers/idioms and kept the old
+    \\names as `/// Deprecated` aliases. `std.ArrayListUnmanaged` (= `std.ArrayList`
+    \\today), `std.array_list.Managed`, `usingnamespace` (removed from the grammar),
+    \\and the pre-Writergate `getStdOut`/`getStdErr` all compile now but are a
+    \\guaranteed tree-wide breaking diff on 0.16 — and agents trained on older Zig
+    \\reach for them by reflex. Managed `std.StringHashMap`/`AutoHashMap`(+Array)
+    \\are not deprecated, only discouraged (std moved to the unmanaged maps that
+    \\keep the allocator on the owning struct); they ride this check because
+    \\`[[allow]]` is a clean per-path opt-out. Detection is lexical, so a banned
+    \\name inside a string/comment is never flagged.
+    \\Fix: std.ArrayListUnmanaged -> std.ArrayList; managed std.*HashMap(...) ->
+    \\the *Unmanaged map, passing the allocator per call (`put(gpa, k, v)`,
+    \\`deinit(gpa)`) with an `= .empty` decl-literal init; drop usingnamespace for
+    \\explicit re-exports (`pub const x = mod.x;`); getStdOut/getStdErr ->
+    \\std.fs.File.stdout()/stderr() + a buffered writer with an explicit flush().
+    \\Exempt: add a `[[allow]] check = "deprecated-alias"` path glob in
+    \\guardian.toml (the C-ABI/vendor escape hatch — e.g. a file that mirrors an
+    \\old API on purpose), or drop the check via the top-level `disabled` list.
+    },
     .{ .name = "spec-quality", .text = 
     \\Why: vague spec bullets ("handles input properly") can't drive a real test,
     \\so the 1:1 map becomes theater.
@@ -103,12 +123,17 @@ const entries = [_]Entry{
     \\sections (Overview, Changelog) in `[completeness] exempt_sections`.
     },
     .{ .name = "naming", .text = 
-    \\Why: agents bleed Rust/Python casing into Zig or reach for placeholder
-    \\names (tmp/data/Manager) that describe nothing.
+    \\Why: agents bleed Rust/Python/C casing into Zig or reach for placeholder
+    \\names (tmp/data/Manager) that describe nothing. Zig std reserves
+    \\SCREAMING_SNAKE for C/OS-ABI mirrors (~97% of its all-caps hits) — a plain
+    \\const is snake_case (`std.fs.max_path_bytes`).
     \\Fix: PascalCase iff a fn returns `type`; camelCase fns; PascalCase types;
+    \\snake_case container-scope consts (PascalCase when the value is a type);
     \\rename vague identifiers to something concrete.
-    \\Exempt: top-level `disabled` list (the retired `vague-name-blacklist` name
-    \\is tolerated there too).
+    \\Exempt: a genuine C-ABI-mirror file whose SCREAMING casing matches the
+    \\foreign API opts out via `[[allow]] check = "naming"` path globs in
+    \\guardian.toml; or drop the whole check via the top-level `disabled` list
+    \\(the retired `vague-name-blacklist` name is tolerated there too).
     },
     .{ .name = "function-size", .text = 
     \\Why: a parameter list that keeps growing signals an agent bolting on args
