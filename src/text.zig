@@ -70,3 +70,40 @@ test "TestScope is in_test only inside a test body" {
     scope.update(.r_brace); // leave test body
     try std.testing.expect(!scope.in_test);
 }
+
+// Brace/test-keyword shapes (balanced, nested, and deliberately unbalanced) so
+// the default `zig build test` smoke run walks the tracker through real token
+// streams before `zig build test --fuzz` explores further.
+const test_scope_fuzz_corpus = [_][]const u8{
+    "test { }",
+    "test { test { } }",
+    "}}}{{{",
+    "test {",
+    "fn f() void { if (x) {} }",
+};
+
+/// One fuzz iteration for the inline-test scope tracker: feeding the token tags
+/// of arbitrary source through `update` must never crash — the closing-brace
+/// path is guarded against underflow — and must uphold the same invariant
+/// `update` asserts, `test_depth <= depth` while `in_test`. The internal assert
+/// traps in Debug; re-checking it here turns a fuzz counterexample into a named
+/// test failure rather than a bare panic.
+fn fuzzTestScope(allocator: std.mem.Allocator, input: []const u8) anyerror!void {
+    const z = try allocator.dupeZ(u8, input);
+    defer allocator.free(z);
+    var tok = std.zig.Tokenizer.init(z);
+    var scope = TestScope{};
+    while (true) {
+        const t = tok.next();
+        if (t.tag == .eof) break;
+        scope.update(t.tag);
+        try std.testing.expect(!scope.in_test or scope.test_depth <= scope.depth);
+    }
+}
+
+// spec: Fuzzing - Fuzzing the inline-test scope tracker never crashes and holds its depth invariant
+test "fuzz: TestScope tracker tolerates arbitrary source tokens" {
+    // The allocator rides in as the fuzz context, so the global only appears in
+    // this (exempt) test block, not the helper body.
+    try std.testing.fuzz(std.testing.allocator, fuzzTestScope, .{ .corpus = &test_scope_fuzz_corpus });
+}

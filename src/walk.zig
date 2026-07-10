@@ -221,3 +221,34 @@ test "normalizePath resolves parent refs" {
     try std.testing.expectEqualStrings("src/main.zig", try normalizePath(a, "src/./main.zig"));
     try std.testing.expectEqualStrings("foo.zig", try normalizePath(a, "a/b/../../foo.zig"));
 }
+
+// Split-in-half candidates so the default `zig build test` smoke run exercises
+// the star-splitting cursor with a few shapes (empty, bare stars, anchored
+// literals) before `--fuzz` explores further.
+const wildcard_fuzz_corpus = [_][]const u8{
+    "",
+    "**",
+    "*abc",
+    "src/x.zigsrc/*.zig",
+    "a.zig.zig",
+};
+
+/// One fuzz iteration for the wildcard matcher: an arbitrary pattern and
+/// candidate must never overflow the segment-cursor arithmetic (a bad slice
+/// index would panic in Debug). The input is split in half into (text, pattern).
+/// Cheap oracle: a pattern with no `*` collapses to a whole-string anchor, so
+/// matchWildcard matches iff text equals the pattern.
+fn fuzzMatchWildcard(_: void, input: []const u8) anyerror!void {
+    const half = input.len / 2;
+    const text = input[0..half];
+    const pattern = input[half..];
+    const matched = matchWildcard(text, pattern);
+    if (std.mem.indexOfScalar(u8, pattern, '*') == null) {
+        try std.testing.expectEqual(std.mem.eql(u8, text, pattern), matched);
+    }
+}
+
+// spec: Fuzzing - Fuzzing the wildcard matcher never crashes and a star-free pattern matches iff equal
+test "fuzz: wildcard matcher tolerates arbitrary pattern and candidate" {
+    try std.testing.fuzz({}, fuzzMatchWildcard, .{ .corpus = &wildcard_fuzz_corpus });
+}

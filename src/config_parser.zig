@@ -995,3 +995,41 @@ test "load hard-fails when guardian.toml exists but cannot be read" {
     // The diagnostic carries exactly one "guardian: " prefix (reporter adds it).
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: guardian:") == null);
 }
+
+// Hand-picked malformed inputs so the default `zig build test` smoke run — which
+// calls the harness on every corpus entry plus the empty string — actually
+// exercises the reject paths, not just a trivial parse. `zig build test --fuzz`
+// explores past these.
+const config_fuzz_corpus = [_][]const u8{
+    "[[",
+    "[unknown_section]",
+    "[mutation]\nbogus = 1",
+    "spec_file = \"x",
+    "[[allow]]\ncheck =",
+};
+
+/// One fuzz iteration for the guardian.toml parser: arbitrary input bytes must
+/// never panic or overflow. A `ParseError` is a valid outcome — the invariant
+/// under test is that rejecting input never fails open: whenever the parser
+/// returns UnknownSection/UnknownKey it has also populated the diagnostic (a
+/// non-zero line and a non-empty message), so a misconfigured gate always
+/// reports where. OOM from a giant fuzzer input is not a parser bug.
+fn fuzzParseInto(allocator: Allocator, input: []const u8) anyerror!void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    _ = parseInto(arena.allocator(), input, &diag) catch |e| switch (e) {
+        error.OutOfMemory => return,
+        error.UnknownSection, error.UnknownKey => {
+            try std.testing.expect(diag.line != 0 and diag.message.len != 0);
+            return;
+        },
+    };
+}
+
+// spec: Fuzzing - Fuzzing the guardian.toml parser never panics and every reject populates its diagnostic
+test "fuzz: guardian.toml parser tolerates arbitrary bytes" {
+    // The allocator rides in as the fuzz context, so the global only appears in
+    // this (exempt) test block, not the helper body.
+    try std.testing.fuzz(std.testing.allocator, fuzzParseInto, .{ .corpus = &config_fuzz_corpus });
+}

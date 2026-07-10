@@ -273,6 +273,27 @@ The plan to mechanise FRAMEWORK.md into Guardian leaves a few rules deferred:
 - **dup-tokens** — token-window hashing with snapshot ratchet. Designed but not implemented.
 - **port-implementations** — opt-in via `[[port]]` declarations. Designed but not implemented.
 
+## Fuzzing
+
+Guardian's hand-rolled scanners eat untrusted text — arbitrary `guardian.toml`
+bytes, config glob patterns, and whole source files — so the parser/matcher/
+scanner cores carry `std.testing.fuzz` harnesses (the guardian.toml parser, the
+`matchWildcard` glob cursor, and the `text.TestScope` brace tracker).
+
+```bash
+zig build test          # harnesses run once per corpus entry + empty input (smoke)
+zig build test --fuzz   # deep run: libFuzzer explores from the seed corpus
+```
+
+Under a plain `zig build test` each harness runs as a smoke test — the test
+runner calls it on every seeded corpus entry plus the empty string, so a
+regression in the reject paths reds the normal build. `--fuzz` turns the same
+harnesses into a coverage-guided search (it needs a toolchain whose fuzzer
+coverage instrumentation is working; the smoke path always runs). Each asserts
+an invariant rather than success: the parser may reject input, but a reject must
+populate its diagnostic; a star-free glob matches iff the candidate equals the
+pattern; the scope tracker never underflows and keeps `test_depth <= depth`.
+
 ## Spec-Driven Workflow
 
 ```markdown

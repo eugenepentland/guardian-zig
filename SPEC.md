@@ -487,3 +487,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Accepts a claiming doc backed by an assert call
 - Ignores lowercase or mid-word marker prose
 - Reports the fn name and line of a missing assert
+
+## Fuzzing
+
+- Fuzzing the guardian.toml parser never panics and every reject populates its diagnostic
+- Fuzzing the wildcard matcher never crashes and a star-free pattern matches iff equal
+- Fuzzing the inline-test scope tracker never crashes and holds its depth invariant
