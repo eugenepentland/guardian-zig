@@ -16,7 +16,7 @@ src/ast/decls.zig::precedingDocText | fn precedingDocText(arena: Allocator, tree
 src/ast/import_graph.zig::BuildError value
 src/ast/import_graph.zig::Node struct_
 src/ast/import_graph.zig::build | fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node
-src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) ?[]const []const u8
+src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]const []const u8
 src/ast/import_graph.zig::reachableFrom | fn reachableFrom( allocator: Allocator, nodes: []const Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/ast/index.zig::Entry struct_
 src/ast/index.zig::Index struct_
@@ -58,7 +58,7 @@ src/cache.zig::Digest value
 src/cache.zig::Error value
 src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
 src/cache.zig::inputDigest | fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest
-src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) ?Digest
+src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
 src/check.zig::main | fn main() !void
@@ -227,8 +227,12 @@ src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
-src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) Config
-src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) Allocator.Error!Config
+src/config_parser.zig::Diagnostic struct_
+src/config_parser.zig::LoadError value
+src/config_parser.zig::ParseError value
+src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) LoadError!Config
+src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) ParseError!Config
+src/config_parser.zig::parseInto | fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) ParseError!Config
 src/dora.zig::Outcome enum_
 src/dora.zig::RunRecord struct_
 src/dora.zig::Stopwatch struct_
@@ -266,19 +270,20 @@ src/fakes/random.zig::init | fn init(seed: u64) SeededRandom
 src/fakes/random.zig::random | fn random(self: *SeededRandom) std.Random
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
+src/git.zig::GitError value
 src/git.zig::LineSpan struct_
 src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool
 src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const []const u8
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
 src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
 src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8
-src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) Allocator.Error!DiffResult
-src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) ?[]const u8
+src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult
+src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8
-src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) ?u32
+src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) GitError!?u32
 src/git.zig::parseHunkHeader | fn parseHunkHeader(line: []const u8) ?LineSpan
 src/git.zig::parseUnifiedDiff | fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff
-src/git.zig::untrackedFiles | fn untrackedFiles(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const []const u8
+src/git.zig::untrackedFiles | fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]const []const u8
 src/mutation/cache.zig::Map value
 src/mutation/cache.zig::Reuse enum_
 src/mutation/cache.zig::append | fn append( arena: Allocator, project_dir: []const u8, suite_hex: []const u8, m: gen.Mutant, outcome: Outcome, ) void
@@ -390,7 +395,7 @@ src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []con
 src/spec/parser.zig::Behavior struct_
 src/spec/parser.zig::ParseError value
 src/spec/parser.zig::Section struct_
-src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8
+src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/testing/golden_runner.zig::GoldenError value
@@ -403,6 +408,7 @@ src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/version.zig::string value
 src/walk.zig::FileEntry struct_
+src/walk.zig::VisitError value
 src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_
 src/walk.zig::WalkError value

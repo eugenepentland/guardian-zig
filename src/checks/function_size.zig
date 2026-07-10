@@ -15,7 +15,7 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged(reporter.Violation),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
     const fns = if (entry.tree) |t| try ast.allFnsFromTree(a, t) else try ast.allFns(a, entry.content);

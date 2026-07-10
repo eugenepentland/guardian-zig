@@ -116,7 +116,7 @@ const FileScanCtx = struct {
     max_ops: u32,
 };
 
-fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
     var local: ScanCtx = .{
         .allocator = ctx.allocator,

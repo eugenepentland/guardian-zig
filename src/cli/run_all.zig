@@ -248,7 +248,9 @@ fn shouldSkipRun(ctx: *types.RunCtx) bool {
 /// True when the current input digest equals the last green run's stored digest.
 fn digestMatchesStored(ctx: *types.RunCtx) bool {
     const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch return false;
-    const stored = cache.readStored(ctx.allocator, ctx.project_dir) orelse return false;
+    // Any failure to read the stored digest (OOM or absent) means "can't confirm
+    // a match" — run the full suite (fail closed), never skip.
+    const stored = (cache.readStored(ctx.allocator, ctx.project_dir) catch return false) orelse return false;
     return cache.eql(stored, d);
 }
 
@@ -276,7 +278,7 @@ fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bo
 const CheckResult = struct {
     ran: bool = false,
     failed: bool = false,
-    err: ?anyerror = null,
+    err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
 };
@@ -397,7 +399,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command, ba
 /// race-free even though checks ran in parallel.
 fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sink) types.RunError!u32 {
     var failed: u32 = 0;
-    var first_err: ?anyerror = null;
+    var first_err: ?types.RunError = null;
     for (results, registry.all) |r, cmd| {
         if (!r.ran) continue;
         ran.* += 1;
@@ -423,13 +425,18 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
 /// check name. Best-effort — a copy/append OOM drops the record, never fails.
 fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckResult) void {
     if (r.records.len > 0) {
-        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch return;
+        // Best-effort telemetry: a dropped sink record is logged, not swallowed
+        // silently, and never fails the gate (the check's own verdict already
+        // stands). log is fine here — cli/ is exempt from debug-print-ban.
+        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
+            std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
         return;
     }
     // Unmigrated check: scrape indented violation lines (baseline.extract shares
     // the same indentation rules), tagging each with the check name.
     const lines = baseline.extract(ctx.allocator, r.output) catch return;
-    for (lines) |line| acc.records.append(ctx.allocator, .{ .check = check_name, .message = line }) catch return;
+    for (lines) |line| acc.records.append(ctx.allocator, .{ .check = check_name, .message = line }) catch |e|
+        std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
 }
 
 /// Copies a Violation's borrowed string fields into `a` so a record produced in

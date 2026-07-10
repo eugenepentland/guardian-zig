@@ -8,6 +8,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Loads guardian.toml from target directory
 - Falls back to defaults when no config file exists
+- Hard-fails when the config file exists but cannot be read
+- Hard-fails on an unknown section header naming the offender
+- Hard-fails on an unknown key within a known section
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
 - Parses the baseline deny_growth check list
@@ -185,6 +188,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Rejects inferred error sets on pub fn
 - Rejects anyerror on pub fn
+- Rejects a const that aliases anyerror and any pub fn returning that alias
 
 ## Cognitive Complexity
 
@@ -342,6 +346,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Returns no spans for deletion-only hunks and deleted files
 - Counts a commit's parents from a rev-list line
 - Extracts changed and untracked paths from porcelain status resolving renames
+- Classifies a not-a-git-repository failure as a skip, not a hard error
+- Hard-fails a diff-scoped git command that fails for any other reason
 
 ## Change Classification
 
@@ -418,6 +424,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Oom Discipline
 
 - Flags allocation errors dropped by a swallowing catch
+- Flags a dropped allocation error returned as a value expression
+- Allows returning the caught error payload or an error value
 
 ## Hidden Dependency Bans
 

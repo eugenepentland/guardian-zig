@@ -179,7 +179,7 @@ fn isAllowed(rel_path: []const u8, extra: []const []const u8) bool {
     return false;
 }
 
-fn projectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn projectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ProjectCtx = @ptrCast(@alignCast(raw_ctx));
     if (isAllowed(entry.rel_path, ctx.extra_allowed)) return;
     const a = ctx.allocator;
@@ -209,7 +209,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     var iter = sig_to_files.iterator();
     while (iter.next()) |e| {
         const files = e.value_ptr.*.items;
-        const unique = uniqueFileCount(allocator, files);
+        const unique = try uniqueFileCount(allocator, files);
         if (unique < 2) continue;
         const msg = try std.fmt.allocPrint(
             allocator,
@@ -229,11 +229,13 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
-fn uniqueFileCount(allocator: Allocator, files: []const []const u8) usize {
+fn uniqueFileCount(allocator: Allocator, files: []const []const u8) Allocator.Error!usize {
     var seen: std.StringHashMapUnmanaged(void) = .empty;
     defer seen.deinit(allocator);
     for (files) |f| {
-        seen.put(allocator, f, {}) catch return files.len;
+        // Propagate OOM: returning files.len over-counts, which could turn a
+        // non-violation into a false failure — surface the allocation error.
+        try seen.put(allocator, f, {});
     }
     return seen.count();
 }

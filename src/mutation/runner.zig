@@ -19,10 +19,18 @@ pub const MUTATION_ENV = "GUARDIAN_MUTATION_RUN";
 /// Cap on a source file read before splicing (mirrors the walker's cap).
 const MAX_SRC_BYTES: usize = 10 * 1024 * 1024;
 
-/// Named alias (see cli/types.RunError precedent): the runner shells out to
-/// the zig build system and touches the filesystem, so its error surface is
-/// the union of fs, process, and thread failures plus StaleMutant.
-pub const RunError = anyerror;
+/// Error surface of a mutant run: the runner reads/splices/restores source
+/// files, clones the environment, and spawns child `zig build` processes, so
+/// the set unions filesystem, env, and process-spawn failures with OOM and
+/// `StaleMutant` (the source moved out from under a generated mutant). A
+/// precise named set instead of `anyerror` keeps the error space explicit.
+pub const RunError = Allocator.Error ||
+    std.fs.File.OpenError ||
+    std.fs.File.ReadError ||
+    std.fs.File.WriteError ||
+    std.fs.File.GetSeekPosError ||
+    std.process.Child.SpawnError ||
+    error{ StaleMutant, FileTooBig, StreamTooLong };
 
 /// What one mutant did to the suite.
 pub const Outcome = enum { killed, survived, unviable, timed_out };

@@ -42,8 +42,10 @@ const TestLineScan = struct {
 /// forced over the same limit as a genuine god-file by its own test suite
 /// (audit: erc.zig was 62% test code). Tokenizer skips strings/comments, so a
 /// `test` word inside a literal never opens a phantom block.
-fn testBlockLines(allocator: std.mem.Allocator, content: []const u8) u32 {
-    const z = allocator.dupeZ(u8, content) catch return 0;
+fn testBlockLines(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!u32 {
+    // Propagate OOM: a zero test-line count on allocation failure would
+    // over-count code lines (harmless here) but the swallow hides a real OOM.
+    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     var s: TestLineScan = .{};
     while (true) {
@@ -82,15 +84,15 @@ fn closeBrace(s: *TestLineScan, z: [:0]const u8, byte: usize) void {
 }
 
 /// Production line count: total lines minus lines inside `test {...}` blocks.
-fn codeLines(allocator: std.mem.Allocator, content: []const u8) u32 {
+fn codeLines(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!u32 {
     const total = totalLines(content);
-    const test_lines = testBlockLines(allocator, content);
+    const test_lines = try testBlockLines(allocator, content);
     return if (test_lines <= total) total - test_lines else total;
 }
 
-fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
-    const lines = codeLines(ctx.allocator, entry.content);
+    const lines = try codeLines(ctx.allocator, entry.content);
     if (lines > ctx.max_lines) {
         try ctx.violations.append(ctx.allocator, .{
             .check = "file-size",
@@ -178,6 +180,6 @@ test "testBlockLines excludes test bodies from the count" {
         \\}
     ;
     // 6 total lines; the test block spans lines 3-6 (4 lines) → 2 code lines.
-    try std.testing.expectEqual(@as(u32, 4), testBlockLines(a, content));
-    try std.testing.expectEqual(@as(u32, 2), codeLines(a, content));
+    try std.testing.expectEqual(@as(u32, 4), try testBlockLines(a, content));
+    try std.testing.expectEqual(@as(u32, 2), try codeLines(a, content));
 }

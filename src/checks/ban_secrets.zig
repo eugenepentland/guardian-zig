@@ -432,7 +432,7 @@ fn isAllowed(rel_path: []const u8, extra: []const []const u8) bool {
     return false;
 }
 
-fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isAllowed(entry.rel_path, ctx.extra_allowed)) return;
     var local: Ctx = .{

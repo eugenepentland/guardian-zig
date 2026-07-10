@@ -138,7 +138,7 @@ fn isCompletenessWaiver(statement: []const u8) bool {
 /// in `.`/`!` still links to its tag, and two keys that differ only in casing,
 /// spacing, or a trailing period are treated as the same — the exact-string
 /// coupling was too brittle for large hand-maintained SPEC.md files.
-pub fn normalizeKey(allocator: Allocator, text: []const u8) ParseError![]const u8 {
+pub fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]const u8 {
     // Lowercase and collapse whitespace
     var result: std.ArrayListUnmanaged(u8) = .empty;
     var prev_space = false;

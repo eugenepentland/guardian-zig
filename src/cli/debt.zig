@@ -95,7 +95,7 @@ const Collector = struct {
 
 /// Visitor: classify one `.guardian/` file, summarize its current total, attach
 /// the git delta, and append a Row. Unrecognized files are ignored.
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *Collector = @ptrCast(@alignCast(raw_ctx));
     const c = try classify(ctx.arena, entry.rel_path) orelse return;
     const current = summarize(c.kind, entry.content);
@@ -154,7 +154,8 @@ fn deltaVsHead(
     kind: Kind,
     current: u64,
 ) ?i64 {
-    const head = git.fileAtHead(arena, project_dir, rel_path) orelse return null;
+    // Best-effort debt delta: any failure (OOM or git-unavailable) just omits it.
+    const head = (git.fileAtHead(arena, project_dir, rel_path) catch return null) orelse return null;
     const before = summarize(kind, head);
     return @as(i64, @intCast(current)) - @as(i64, @intCast(before));
 }

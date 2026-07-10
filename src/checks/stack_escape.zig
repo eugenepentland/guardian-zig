@@ -437,7 +437,7 @@ const ScanCtx = struct {
     violations: *std.ArrayListUnmanaged([]const u8),
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const out = try analyzeWithTree(ctx.allocator, entry.rel_path, entry.content, entry.tree);
     for (out) |line| try ctx.violations.append(ctx.allocator, line);

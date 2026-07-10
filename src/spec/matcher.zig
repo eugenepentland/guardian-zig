@@ -45,8 +45,9 @@ pub const DuplicateBehavior = struct {
     count: usize,
 };
 
-/// Errors that scanDir may propagate (visitor-induced).
-pub const ScanError = anyerror;
+/// Errors that scanDir may propagate: it walks the tree and appends what its
+/// visitor finds, so its surface is exactly the walker's (fs + OOM).
+pub const ScanError = walk.WalkError;
 
 /// Coverage analysis result reported by `analyze`.
 pub const CoverageResult = struct {
@@ -65,7 +66,7 @@ const ScanCtx = struct {
     unattached: *std.ArrayListUnmanaged(MalformedTag),
 };
 
-fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     try extractTags(ctx, entry.rel_path, entry.content);
 }

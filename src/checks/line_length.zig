@@ -70,7 +70,7 @@ const FileScanCtx = struct {
     cap: u32,
 };
 
-fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
     const out = try scanLines(ctx.allocator, entry.rel_path, entry.content, ctx.cap);
     for (out) |v| try ctx.violations.append(ctx.allocator, v);

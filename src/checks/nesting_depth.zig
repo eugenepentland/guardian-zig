@@ -54,10 +54,11 @@ const DepthState = struct {
 /// `ast.fnDeclInfos.body_text`. The body's own opening `{` is depth 1;
 /// each nested block adds 1.
 ///
-/// Tokenizer-based to skip strings and comments correctly. Allocator
-/// failure during tokenizer init returns 0 (treated as no violation).
-fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) u32 {
-    const z = allocator.dupeZ(u8, body_text) catch return 0;
+/// Tokenizer-based to skip strings and comments correctly. Allocator failure
+/// propagates: returning depth 0 on OOM would fail open (a deeply nested fn
+/// would silently pass the cap).
+fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) std.mem.Allocator.Error!u32 {
+    const z = try allocator.dupeZ(u8, body_text);
     defer allocator.free(z);
     var tok = std.zig.Tokenizer.init(z);
     var state: DepthState = .{};
@@ -67,7 +68,7 @@ fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) u32 {
         const t = tok.next();
         if (t.tag == .eof) break;
         switch (t.tag) {
-            .l_brace => state.openBrace(allocator, prev_tag) catch break,
+            .l_brace => try state.openBrace(allocator, prev_tag),
             .r_brace => state.closeBrace(),
             else => {},
         }
@@ -76,13 +77,13 @@ fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) u32 {
     return state.max_depth;
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 
     const fns = if (entry.tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, entry.content);
     for (fns) |f| {
-        const depth = maxNestingDepth(a, f.body_text);
+        const depth = try maxNestingDepth(a, f.body_text);
         if (depth <= ctx.cfg.max_depth) continue;
         try ctx.violations.append(a, .{
             .check = "nesting-depth",
@@ -109,10 +110,7 @@ pub fn analyzeContent(
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayListUnmanaged(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
-    visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content }) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => unreachable,
-    };
+    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return reporter.flatLines(allocator, violations.items);
 }
 
@@ -149,31 +147,31 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 test "maxNestingDepth flat body is depth 1" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(arena.allocator(), "{ return; }"));
+    try std.testing.expectEqual(@as(u32, 1), try maxNestingDepth(arena.allocator(), "{ return; }"));
 }
 
 test "maxNestingDepth nested if reaches 2" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try std.testing.expectEqual(@as(u32, 2), maxNestingDepth(arena.allocator(), "{ if (x) { return; } }"));
+    try std.testing.expectEqual(@as(u32, 2), try maxNestingDepth(arena.allocator(), "{ if (x) { return; } }"));
 }
 test "maxNestingDepth ignores data-literal braces" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     // A nested anonymous struct literal is data, not control-flow nesting.
-    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(a, "{ const c = .{ .a = .{ .b = 1 } }; }"));
+    try std.testing.expectEqual(@as(u32, 1), try maxNestingDepth(a, "{ const c = .{ .a = .{ .b = 1 } }; }"));
     // Typed struct/array literals likewise don't add depth.
-    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(a, "{ const c = Foo{ .a = 1 }; }"));
+    try std.testing.expectEqual(@as(u32, 1), try maxNestingDepth(a, "{ const c = Foo{ .a = 1 }; }"));
     // Control-flow still counts through/around a literal.
-    try std.testing.expectEqual(@as(u32, 2), maxNestingDepth(a, "{ if (x) { const c = .{ .a = 1 }; } }"));
+    try std.testing.expectEqual(@as(u32, 2), try maxNestingDepth(a, "{ if (x) { const c = .{ .a = 1 }; } }"));
 }
 
 test "maxNestingDepth deeply nested reaches 4" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const body = "{ if (a) { while (b) { for (c) |_| { return; } } } }";
-    try std.testing.expectEqual(@as(u32, 4), maxNestingDepth(arena.allocator(), body));
+    try std.testing.expectEqual(@as(u32, 4), try maxNestingDepth(arena.allocator(), body));
 }
 
 test "maxNestingDepth: switch-prong body inherits the switch level" {
@@ -183,13 +181,14 @@ test "maxNestingDepth: switch-prong body inherits the switch level" {
     // body(1) -> switch(2) -> prong `{` inherits 2 -> inner if(3). Without the
     // prong discount this would read as depth 4.
     const body = "{ switch (x) { .a => { if (y) { z(); } }, else => {} } }";
-    try std.testing.expectEqual(@as(u32, 3), maxNestingDepth(a, body));
+    try std.testing.expectEqual(@as(u32, 3), try maxNestingDepth(a, body));
 }
 
 test "maxNestingDepth ignores braces in strings" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    try std.testing.expectEqual(@as(u32, 1), maxNestingDepth(arena.allocator(), "{ const s = \"{{nope}}\"; _ = s; }"));
+    const depth = try maxNestingDepth(arena.allocator(), "{ const s = \"{{nope}}\"; _ = s; }");
+    try std.testing.expectEqual(@as(u32, 1), depth);
 }
 
 test "visit flags fn over depth cap" {

@@ -36,7 +36,7 @@ const BuildCtx = struct {
     files: *std.ArrayListUnmanaged(Entry),
 };
 
-fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *BuildCtx = @ptrCast(@alignCast(raw_ctx));
     // entry.content is already null-terminated by the walker — parse it in
     // place instead of copying the whole file again for the sentinel.
@@ -99,7 +99,7 @@ const CountCtx = struct {
     all_have_tree: bool = true,
 };
 
-fn countVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn countVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *CountCtx = @ptrCast(@alignCast(raw_ctx));
     ctx.seen += 1;
     if (entry.tree == null) ctx.all_have_tree = false;

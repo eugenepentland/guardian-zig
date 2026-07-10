@@ -186,7 +186,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const ref_is_head = std.mem.eql(u8, effective, "HEAD");
     const tree_clean = wt.len == 0 and untracked.len == 0;
     const gate_last = ctx.cfg.change_classification.gate_last_commit;
-    const parents = git.parentCount(a, ctx.project_dir, "HEAD");
+    const parents = try git.parentCount(a, ctx.project_dir, "HEAD");
     switch (fallbackDecision(ref_is_head, tree_clean, gate_last, parents)) {
         .working_tree => return classifyAndReport(ctx, effective, wt, untracked),
         .last_commit => return gateLastCommit(ctx),
@@ -321,13 +321,13 @@ fn specChanged(
     const spec_file = ctx.cfg.spec_file;
     for (untracked) |p| {
         if (std.mem.eql(u8, p, spec_file)) {
-            const content = readSpec(a, ctx.project_dir, spec_file) orelse return false;
+            const content = (try readSpec(a, ctx.project_dir, spec_file)) orelse return false;
             return specBulletsAdded(content, &WHOLE_FILE);
         }
     }
     for (file_diffs) |fd| {
         if (std.mem.eql(u8, fd.path, spec_file)) {
-            const content = readSpec(a, ctx.project_dir, spec_file) orelse return false;
+            const content = (try readSpec(a, ctx.project_dir, spec_file)) orelse return false;
             return specBulletsAdded(content, fd.spans);
         }
     }
@@ -339,9 +339,11 @@ fn specChanged(
 /// git's object store — this reads it from disk directly. ban-fs is granted for
 /// this check in guardian.toml. In the clean-tree fallback the tree equals HEAD,
 /// so the disk read still matches the diffed content.
-fn readSpec(a: Allocator, project_dir: []const u8, spec_file: []const u8) ?[]const u8 {
-    const path = std.fmt.allocPrint(a, "{s}/{s}", .{ project_dir, spec_file }) catch return null;
-    return std.fs.cwd().readFileAlloc(a, path, MAX_SPEC_BYTES) catch return null;
+fn readSpec(a: Allocator, project_dir: []const u8, spec_file: []const u8) Allocator.Error!?[]const u8 {
+    const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ project_dir, spec_file });
+    // A missing/unreadable spec is "no spec change" (fail closed for the test
+    // requirement); only OOM building the path propagates.
+    return std.fs.cwd().readFileAlloc(a, path, MAX_SPEC_BYTES) catch null;
 }
 
 /// True when any line covered by `spans` in SPEC.md `content` is a behavior

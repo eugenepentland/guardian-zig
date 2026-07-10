@@ -27,7 +27,7 @@ fn isVague(name: []const u8) bool {
     return false;
 }
 
-fn checkVagueName(ctx: *ScanCtx, rel_path: []const u8, kind: []const u8, name: []const u8) anyerror!void {
+fn checkVagueName(ctx: *ScanCtx, rel_path: []const u8, kind: []const u8, name: []const u8) !void {
     if (!isVague(name)) return;
     const msg = try std.fmt.allocPrint(ctx.allocator, "{s}: {s} '{s}' uses a vague name", .{ rel_path, kind, name });
     try ctx.violations.append(ctx.allocator, msg);
@@ -48,7 +48,7 @@ fn caseKind(name: []const u8) CaseKind {
     return if (std.ascii.isLower(first)) lowerLeadCase(name) else .other;
 }
 
-fn checkFn(ctx: *ScanCtx, rel_path: []const u8, f: ast.PubFn) anyerror!void {
+fn checkFn(ctx: *ScanCtx, rel_path: []const u8, f: ast.PubFn) !void {
     const a = ctx.allocator;
     const kind = caseKind(f.name);
     if (f.return_kind == .type_kw) {
@@ -79,7 +79,7 @@ fn checkFn(ctx: *ScanCtx, rel_path: []const u8, f: ast.PubFn) anyerror!void {
     }
 }
 
-fn checkConst(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubConst) anyerror!void {
+fn checkConst(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubConst) !void {
     const a = ctx.allocator;
     switch (c.kind) {
         .struct_, .enum_, .union_, .opaque_ => {},
@@ -94,7 +94,7 @@ fn checkConst(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubConst) anyerror!voi
     try ctx.violations.append(a, msg);
 }
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;
 

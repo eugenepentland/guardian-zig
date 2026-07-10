@@ -1,11 +1,15 @@
 //! Git diff helpers shared by the change-classification check and the
 //! mutate command's fast tier. The parsers are pure functions over diff
-//! text; the process shell-outs are thin wrappers around the `git` binary
-//! that degrade to an `unavailable` result, so a non-git checkout skips
-//! diff-scoped features instead of failing the build.
+//! text; the process shell-outs wrap the `git` binary. A run outside a git
+//! repository is a documented skip (the diff-scoped feature degrades), but a
+//! git that can't be spawned or that fails for any other reason is a hard error
+//! surfacing git's stderr — a silent skip on a broken git would let a real
+//! change slip past change-classification unnoticed. The commit/telemetry paths
+//! stay best-effort (they degrade quietly) via `runGit`.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const reporter = @import("reporter.zig");
 
 /// Output cap for a captured `git` invocation (diffs on large repos).
 const MAX_GIT_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
@@ -30,8 +34,9 @@ pub const FileDiff = struct {
     spans: []const LineSpan,
 };
 
-/// Result of asking git for a diff: parsed per-file spans, or a short
-/// reason the diff could not be produced (not a repo, bad ref, no git).
+/// Result of asking git for a diff: parsed per-file spans, or a short reason it
+/// was skipped. `.unavailable` now means only "not a git repository"; a bad ref
+/// or an unspawnable git is a hard `GitError`, not a silent skip.
 pub const DiffResult = union(enum) {
     ok: []const FileDiff,
     unavailable: []const u8,
@@ -113,17 +118,17 @@ fn parseDigits(line: []const u8, i: *usize) ?u32 {
     return value;
 }
 
-/// Runs `git diff -U0 --relative <ref>` in `project_dir` and parses it.
-/// Any git failure (not a repo, unknown ref, git missing) is returned as
-/// `.unavailable` with a short reason — callers skip, never fail.
-pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) Allocator.Error!DiffResult {
+/// Runs `git diff -U0 --relative <ref>` in `project_dir` and parses it. Outside
+/// a git repository the result is `.unavailable` (a skip); a bad ref or an
+/// unspawnable git is a hard `GitError` with git's stderr surfaced.
+pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult {
     const argv = [_][]const u8{
         "git",        "-c",  "core.quotepath=false", "diff",
         "--no-color", "-U0", "--relative",           ref,
         "--",
     };
-    const out = runGit(allocator, project_dir, &argv) orelse
-        return .{ .unavailable = "git diff unavailable (not a git repo, unknown ref, or git missing)" };
+    const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
+        return .{ .unavailable = "not a git repository — diff-scoped checks skipped" };
     return .{ .ok = try parseUnifiedDiff(allocator, out) };
 }
 
@@ -132,17 +137,19 @@ pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u
 /// fails. The `:./` spec resolves the path relative to `project_dir` rather than
 /// the repo root. Used by the `debt` report to show a delta vs the committed
 /// `.guardian/` state; callers omit the delta on null.
-pub fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) ?[]const u8 {
-    const spec = std.fmt.allocPrint(allocator, "HEAD:./{s}", .{rel_path}) catch return null;
+pub fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8 {
+    // OOM building the rev spec propagates; git-unavailable stays null (the
+    // debt caller omits the delta either way, but OOM must not masquerade as it).
+    const spec = try std.fmt.allocPrint(allocator, "HEAD:./{s}", .{rel_path});
     const argv = [_][]const u8{ "git", "show", spec };
     return runGit(allocator, project_dir, &argv);
 }
 
-/// Lists untracked (not ignored) files via `git ls-files`. Best-effort:
-/// returns an empty slice when git is unavailable.
-pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const []const u8 {
+/// Lists untracked (not ignored) files via `git ls-files`. An empty slice when
+/// there is no git repository (a skip); a hard `GitError` on any other failure.
+pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]const []const u8 {
     const argv = [_][]const u8{ "git", "ls-files", "--others", "--exclude-standard" };
-    const out = runGit(allocator, project_dir, &argv) orelse return &.{};
+    const out = (try checkedOutput(allocator, project_dir, &argv)) orelse return &.{};
     var paths: std.ArrayListUnmanaged([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, out, '\n');
     while (it.next()) |line| {
@@ -152,11 +159,11 @@ pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) Allocator.E
 }
 
 /// Number of parents of `rev` — 0 for the root commit, 1 for a normal commit,
-/// ≥2 for a merge — or null when git is unavailable or `rev` doesn't resolve.
-/// Drives the change-classification last-commit fallback's merge/root skip.
-pub fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) ?u32 {
+/// ≥2 for a merge — null outside a git repository (a skip), a hard `GitError`
+/// on any other failure. Drives the change-classification merge/root skip.
+pub fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) GitError!?u32 {
     const argv = [_][]const u8{ "git", "rev-list", "--parents", "-n", "1", rev };
-    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const out = (try checkedOutput(allocator, project_dir, &argv)) orelse return null;
     return countParents(out);
 }
 
@@ -239,22 +246,76 @@ pub fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8 
     return name;
 }
 
-/// Spawns git with `argv` in `project_dir`, returning trimmed stdout on
-/// exit 0 and null on any spawn failure or non-zero exit.
-fn runGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) ?[]const u8 {
+/// Errors from a *checked* git run: git could not be spawned, or it ran and
+/// failed for a reason other than "not a git repository". A no-repo failure is
+/// a documented skip (null), never one of these.
+pub const GitError = error{ GitSpawnFailed, GitCommandFailed } || Allocator.Error;
+
+/// Classified outcome of one git invocation.
+const GitOutcome = union(enum) {
+    /// Exit 0; stdout.
+    ok: []const u8,
+    /// Non-zero exit whose stderr names a missing repository — a documented skip.
+    no_repo,
+    /// Non-zero exit for any other reason; the trimmed stderr for the diagnostic.
+    failed: []const u8,
+    /// git could not be spawned at all (missing binary, etc.); the error name.
+    spawn_error: []const u8,
+};
+
+/// True when `stderr` is git's "not a git repository" fatal — the one failure
+/// diff-scoped checks treat as a skip rather than a hard error. Pure, so the
+/// skip-vs-fail partition is unit-tested without git.
+fn isNotARepo(stderr: []const u8) bool {
+    return std.mem.indexOf(u8, stderr, "not a git repository") != null;
+}
+
+/// Spawns git with `argv` in `project_dir` and classifies the result: stdout on
+/// exit 0; a no-repo fatal is `.no_repo`; any other non-zero exit is `.failed`
+/// (with trimmed stderr); an unspawnable git is `.spawn_error`.
+fn spawnGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) Allocator.Error!GitOutcome {
     const res = std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .cwd = project_dir,
         .max_output_bytes = MAX_GIT_OUTPUT_BYTES,
-    }) catch return null;
-    allocator.free(res.stderr);
-    const exited_clean = res.term == .Exited and res.term.Exited == 0;
-    if (!exited_clean) {
-        allocator.free(res.stdout);
-        return null;
-    }
-    return res.stdout;
+    }) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return .{ .spawn_error = @errorName(e) },
+    };
+    if (res.term == .Exited and res.term.Exited == 0) return .{ .ok = res.stdout };
+    if (isNotARepo(res.stderr)) return .no_repo;
+    return .{ .failed = std.mem.trim(u8, res.stderr, &std.ascii.whitespace) };
+}
+
+/// Runs a *diff-scoped* git command that must fail loud. Returns stdout on
+/// success; null when there is no git repository (a documented skip); a hard
+/// error surfacing git's stderr on a spawn failure or any other non-zero exit.
+fn checkedOutput(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) GitError!?[]const u8 {
+    return switch (try spawnGit(allocator, project_dir, argv)) {
+        .ok => |o| o,
+        .no_repo => null,
+        .failed => |stderr| {
+            // reporter.fail already prefixes "guardian: " — don't double it.
+            reporter.fail("git command failed: {s}", .{stderr});
+            return error.GitCommandFailed;
+        },
+        .spawn_error => |name| {
+            reporter.fail("could not run git ({s}) — is it installed and on PATH?", .{name});
+            return error.GitSpawnFailed;
+        },
+    };
+}
+
+/// Best-effort git for the commit/telemetry paths: stdout on exit 0, null on any
+/// failure (no-repo, command failure, or unspawnable). Used where a git problem
+/// should degrade quietly (refuse to commit, omit a metric), not fail the gate —
+/// the diff-scoped checks use `checkedOutput` instead.
+fn runGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) ?[]const u8 {
+    return switch (spawnGit(allocator, project_dir, argv) catch return null) {
+        .ok => |o| o,
+        else => null,
+    };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -348,4 +409,31 @@ test "parsePorcelainZ lists paths and consumes rename origins" {
     try testing.expectEqualStrings("src/a.zig", paths[0]);
     try testing.expectEqualStrings("new.txt", paths[1]);
     try testing.expectEqualStrings("src/renamed.zig", paths[2]);
+}
+
+// spec: Git Diff - Classifies a not-a-git-repository failure as a skip, not a hard error
+
+test "isNotARepo matches only git's no-repository fatal" {
+    try testing.expect(isNotARepo("fatal: not a git repository (or any of the parent directories): .git"));
+    // A bad ref, a spawn error name, or empty stderr are all hard failures.
+    try testing.expect(!isNotARepo("fatal: bad revision 'nope'"));
+    try testing.expect(!isNotARepo(""));
+}
+
+// spec: Git Diff - Hard-fails a diff-scoped git command that fails for any other reason
+
+test "diffAgainst hard-fails on a bad ref inside a real repository" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Capture the stderr diagnostic so the failing git run doesn't spam the log.
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    // Tests run at the guardian repo root; a nonexistent ref is a command
+    // failure (not a missing repository), so it must surface as a hard error
+    // rather than a silent `.unavailable` skip.
+    try testing.expectError(error.GitCommandFailed, diffAgainst(a, ".", "guardian-no-such-ref-zzz"));
 }

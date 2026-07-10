@@ -22,7 +22,7 @@ const Sink = struct {
     rel_path: []const u8,
 };
 
-fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
 
     // Flag the optional-unwrap forms that turn a null into a crash or UB

@@ -23,9 +23,15 @@ pub const WalkOpts = struct {
     extension: []const u8 = ".zig",
 };
 
-/// Function signature of a walker visitor callback. Errors propagate
-/// up through walkZigFiles so checks see real I/O / OOM failures.
-pub const VisitFn = *const fn (ctx: *anyopaque, entry: FileEntry) anyerror!void;
+/// Errors a walker visitor callback may propagate. Every check's visitor only
+/// allocates — parses the file's AST, formats and appends violation lines — so
+/// its whole failure surface is OutOfMemory. A visitor that does more must
+/// widen this set (and, transitively, `WalkError`/`RunError`).
+pub const VisitError = Allocator.Error;
+
+/// Function signature of a walker visitor callback. Errors propagate up through
+/// walkZigFiles so checks see real OOM failures at a compile-time-known set.
+pub const VisitFn = *const fn (ctx: *anyopaque, entry: FileEntry) VisitError!void;
 
 /// Bundle of (context pointer, callback) supplied to walkZigFiles.
 pub const Visitor = struct {
@@ -33,9 +39,17 @@ pub const Visitor = struct {
     visit: VisitFn,
 };
 
-/// Errors propagated by walkZigFiles. `anyerror` because the visitor
-/// callback may itself fail with arbitrary errors (OOM, format errors, etc.).
-pub const WalkError = anyerror;
+/// Errors propagated by walkZigFiles: the filesystem errors from opening a
+/// directory, iterating it, and reading each file, unioned with whatever the
+/// visitor callback returns (`VisitError`). Naming the set instead of aliasing
+/// `anyerror` gives every caller a compile-time-exhaustive error space.
+pub const WalkError = std.fs.Dir.OpenError ||
+    std.fs.Dir.Iterator.Error ||
+    std.fs.File.OpenError ||
+    std.fs.File.GetSeekPosError ||
+    std.fs.File.ReadError ||
+    error{ FileTooBig, StreamTooLong } ||
+    VisitError;
 
 /// Immutable state threaded through the recursive walk (everything except the
 /// current directory + path prefix, which change per level).

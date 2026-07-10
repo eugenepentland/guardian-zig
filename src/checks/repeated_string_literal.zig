@@ -285,7 +285,7 @@ const MergedCtx = struct {
     decls: *std.ArrayListUnmanaged(Decl),
 };
 
-fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
+fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *MergedCtx = @ptrCast(@alignCast(raw_ctx));
     if (entry.tree) |t| {
         try scanFile(ctx, t, entry.rel_path);
@@ -299,7 +299,7 @@ fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) anyerror!void {
 /// Runs both analyses over one file's pre-parsed tree: per-file repeated
 /// literals (emitted now) and its file-scope string consts (accumulated for the
 /// cross-file duplicate pass in `run`).
-fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) anyerror!void {
+fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const fa = arena.allocator();

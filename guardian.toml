@@ -29,6 +29,13 @@ exclude = ["config.zig", "cli/types.zig"]
 [magic_number]
 enabled = true
 
+# oom-discipline is opt-in: it flags allocation errors dropped by a swallowing
+# catch (`alloc catch return <benign>` / `catch continue` / `catch break`),
+# which fail the gate open. A hard gate must fail closed on OOM, so guardian
+# dogfoods it — every gate-relevant path propagates allocation failure.
+[oom_discipline]
+enabled = true
+
 # Guardian's own self-hosting exemptions. These used to be compiled into each
 # check's source, which silently punched the same holes into any downstream repo
 # sharing those paths. Moving them here keeps the checks honest for consumers and

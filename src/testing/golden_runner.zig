@@ -5,10 +5,15 @@ const print = std.debug.print;
 
 pub const UPDATE_ENV = "GUARDIAN_UPDATE_GOLDEN";
 
-/// Errors propagated by `run` / `runWithCfg`. Aliasing anyerror so the
-/// signatures pass the error-discipline check while still accepting
-/// arbitrary errors from the analyze callback.
-pub const GoldenError = anyerror;
+/// Errors propagated by `run` / `runWithCfg`: the analyze callback's OOM, the
+/// atomic-write path when refreshing a golden file, and the test-assertion
+/// failure that `expectEqualStrings` raises on a mismatch. A precise named set
+/// instead of `anyerror` (both fns take `anytype`, so error-discipline exempts
+/// them, but the alias decl itself is banned).
+pub const GoldenError = Allocator.Error ||
+    std.fs.File.OpenError ||
+    std.fs.File.WriteError ||
+    error{ WriteFailed, TestExpectedEqual };
 
 /// One golden test scenario: an input file pinned via @embedFile and the
 /// expected violation output. `expected_path` is a writable disk path
