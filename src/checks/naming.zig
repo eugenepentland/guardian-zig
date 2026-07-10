@@ -1,3 +1,8 @@
+//! naming check: enforce Zig casing — PascalCase iff a pub fn returns `type`,
+//! camelCase pub fns otherwise, PascalCase field-bearing types, and snake_case
+//! container-scope consts (SCREAMING_SNAKE rejected, matching zig-std which
+//! reserves all-caps for C/OS-ABI mirrors).
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

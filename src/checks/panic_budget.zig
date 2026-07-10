@@ -1,3 +1,9 @@
+//! panic-budget check: track counts of `@panic`, `unreachable`, the two
+//! deferred-work comment markers, and `@setEvalBranchQuota` (call count + max
+//! literal) against a committed snapshot, so each only grows deliberately.
+//! Undercounting on OOM would fail open, so the tallying allocations propagate.
+//! Folded-in comptime-quota.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -39,11 +45,8 @@ const ScanCtx = struct {
     totals: *Counts,
 };
 
-fn countTokens(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!Counts {
+fn countTokens(z: [:0]const u8) std.mem.Allocator.Error!Counts {
     var c: Counts = .{};
-    // Propagate OOM: returning zeroed counts on allocation failure fails open
-    // (the panic/unreachable budget must never pass on an undercount).
-    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     // Chain state for `std . debug . panic`: 0=none, 1=std, 2=std., 3=std.debug,
     // 4=std.debug. — so std.debug.panic doesn't escape the budget by not being
@@ -119,11 +122,8 @@ const QuotaCounts = struct { calls: u32 = 0, max_value: u64 = 0 };
 /// Scans for `@setEvalBranchQuota(N)` calls: counts them and tracks the largest
 /// literal N. Non-literal args (a const reference) bump the count but not the
 /// max. Tokenizer skips strings/comments. (Folded in from comptime-quota.)
-fn countQuotas(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!QuotaCounts {
+fn countQuotas(allocator: std.mem.Allocator, z: [:0]const u8) std.mem.Allocator.Error!QuotaCounts {
     var q: QuotaCounts = .{};
-    // Propagate OOM: an undercount here would let a new @setEvalBranchQuota
-    // slip past the budget.
-    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
@@ -170,7 +170,7 @@ fn parseUint(s: []const u8) !u64 {
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    var c = try countTokens(ctx.allocator, entry.content);
+    var c = try countTokens(entry.content);
     const cm = countCommentMarkers(entry.content);
     c.todos = cm.todos;
     c.fixmes = cm.fixmes;
@@ -358,23 +358,18 @@ test "countQuotas counts @setEvalBranchQuota calls and tracks the max literal" {
 }
 
 test "countTokens counts panics and unreachables" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
     const content =
         \\fn x() void { @panic("a"); }
         \\fn y() void { unreachable; }
         \\fn z() void { unreachable; }
         \\const s = "@panic(\"in-string\")";
     ;
-    const c = try countTokens(a, content);
+    const c = try countTokens(content);
     try std.testing.expectEqual(@as(u32, 1), c.panics);
     try std.testing.expectEqual(@as(u32, 2), c.unreachables);
 }
 test "countTokens counts std.debug.panic toward the panic budget" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const c = try countTokens(arena.allocator(),
+    const c = try countTokens(
         \\fn a() void { @panic("x"); }
         \\fn b() void { std.debug.panic("y {d}", .{1}); }
     );

@@ -1,3 +1,12 @@
+//! int-from-float-budget: snapshot-ratcheted count of `@intFromFloat` sites.
+//! An unguarded float→int cast is a NaN/∞ time bomb — checked UB in safe
+//! builds, silent memory unsafety in ReleaseFast/Small. The committed snapshot
+//! only shrinks; growth fails the build. Two config refinements:
+//! `[int_from_float] guard_fns` names sanctioned wrapper fns (e.g. a
+//! `checkedInt` that validates finiteness/range in float space) whose bodies
+//! are exempt — the wrapper IS the guard; `require_guard` path globs hard-fail
+//! any cast outside a guard fn under those paths, independent of the budget.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

@@ -70,11 +70,10 @@ fn countAnytypeTree(tree: *const std.zig.Ast) u32 {
 }
 
 /// Content entry (tests / standalone with no shared tree): parse once, count.
-fn countAnytype(allocator: std.mem.Allocator, content: []const u8) std.mem.Allocator.Error!u32 {
+fn countAnytype(allocator: std.mem.Allocator, content: [:0]const u8) std.mem.Allocator.Error!u32 {
     // Propagate OOM: a zero count on allocation failure would let anytype params
     // slip past the per-file cap.
-    const z = try allocator.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .zig);
     return countAnytypeTree(&tree);
 }
 

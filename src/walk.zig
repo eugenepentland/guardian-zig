@@ -1,3 +1,9 @@
+//! Recursive `.zig` file walker (visitor pattern): yields each source file as a
+//! sentinel-terminated `FileEntry` to a check's callback. Fail-loud — a missing
+//! root is simply nothing to scan, but any other read error (permissions,
+//! oversize) is a hard error: a silently skipped file would be exempt from
+//! every check.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -8,8 +14,10 @@ const Allocator = std.mem.Allocator;
 pub const FileEntry = struct {
     rel_path: []const u8,
     /// Null-terminated so std.zig.Ast.parse (and any tokenizer) can consume it
-    /// directly — no per-check dupeZ. Coerces to []const u8 where a plain slice
-    /// is wanted.
+    /// directly with no whole-file copy — checks take `[:0]const u8` and pass
+    /// this straight through. (A check that tokenizes a *substring*, e.g. one
+    /// function body, still sentinel-terminates that slice itself.) Coerces to
+    /// []const u8 where a plain slice is wanted.
     content: [:0]const u8,
     tree: ?*const std.zig.Ast = null,
 };

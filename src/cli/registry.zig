@@ -1,3 +1,9 @@
+//! The check registry: the `all` table mapping each CLI name to its one-line
+//! summary and `run` fn, plus `find`/`summaryFor`/`printHelp`. Adding a check
+//! here wires it everywhere (build_helper derives the gate list from this at
+//! comptime). The composed commands (all/nightly/commit/explain/version) are
+//! dispatched outside the table to avoid an @import cycle with run_all.
+
 const std = @import("std");
 const types = @import("types.zig");
 
@@ -67,6 +73,7 @@ const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.z
 const check_fatal_exit = @import("../checks/fatal_exit.zig");
 const check_stdout_flush = @import("../checks/stdout_flush.zig");
 const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
+const check_module_doc_header = @import("../checks/module_doc_header.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
@@ -398,6 +405,11 @@ pub const all: []const Command = &.{
         .name = "fuzz-presence",
         .summary = "Require a std.testing.fuzz call in each configured module (opt-in)",
         .run = check_fuzz_presence.run,
+    },
+    .{
+        .name = "module-doc-header",
+        .summary = "Require a //! module doc header on src files over 200 lines",
+        .run = check_module_doc_header.run,
     },
 };
 

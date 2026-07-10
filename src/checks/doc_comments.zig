@@ -1,3 +1,8 @@
+//! doc-comments check: require a real `///` doc comment on every public fn and
+//! type — presence plus quality, so empty or stub docs are rejected too.
+//! Protocol and trivial method names (deinit, format, …) are exempt from the
+//! presence rule. Folded-in from the retired doc-quality check.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -118,13 +123,12 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 pub fn analyzeContent(
     allocator: std.mem.Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
     cfg: config_mod.DocQualityCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
-    const z = try allocator.dupeZ(u8, content);
-    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z });
+    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return violations.toOwnedSlice(allocator);
 }
 

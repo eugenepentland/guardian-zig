@@ -1,3 +1,8 @@
+//! error-discipline check: require an explicit named error set on every pub fn
+//! — reject an inferred `!T`, a bare `anyerror!T`, and (closing the loophole) a
+//! `const X = anyerror;` alias plus any pub fn returning it. Forces the public
+//! failure surface to be compile-time-exhaustive.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

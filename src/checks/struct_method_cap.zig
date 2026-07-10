@@ -1,3 +1,7 @@
+//! struct-method-cap check: cap the number of `pub fn` methods on a single pub
+//! container (struct/enum/union) — a god-object taking on too many jobs.
+//! Per-container ratchet key, so an existing offender only has to stop growing.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -20,7 +24,7 @@ const ScanCtx = struct {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
@@ -32,9 +36,8 @@ pub fn analyzeContent(
     return reporter.flatLines(allocator, violations.items);
 }
 
-fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
+fn scan(ctx: *ScanCtx, z: [:0]const u8) Allocator.Error!void {
     const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
     while (true) {
@@ -174,7 +177,8 @@ test "analyzeContent flags struct with > 20 methods" {
         try buf.appendSlice(a, line);
     }
     try buf.appendSlice(a, "};\n");
-    const out = try analyzeContent(a, "src/x.zig", buf.items);
+    const src = try a.dupeZ(u8, buf.items);
+    const out = try analyzeContent(a, "src/x.zig", src);
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }
 
@@ -190,7 +194,8 @@ test "analyzeContent counts pub inline/extern methods toward the cap" {
         try buf.appendSlice(a, try std.fmt.allocPrint(a, "    pub inline fn m{d}() void {{}}\n", .{i}));
     }
     try buf.appendSlice(a, "};\n");
-    const out = try analyzeContent(a, "src/x.zig", buf.items);
+    const src = try a.dupeZ(u8, buf.items);
+    const out = try analyzeContent(a, "src/x.zig", src);
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }
 test "analyzeContent allows struct with few methods" {

@@ -126,19 +126,13 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-62 checks gate the build (most hard-block; completeness/test-coverage/
-<<<<<<< HEAD
-escape-discipline/oom-discipline/magic-number are opt-in, default off;
-stdout-flush is report-only — it runs in `all` but never fails the build) plus
-`zig fmt --check`. Three more registry entries are non-gating steps, never part
-of `all`: the `spec-init` generator, the `mutate` command, and the `debt`
-report (66 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
-=======
+64 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
-off) plus `zig fmt --check`. Three more registry entries are non-gating steps,
-never part of `all`: the `spec-init` generator, the `mutate` command, and the
-`debt` report (65 registry entries total; `all`/`nightly`/`commit`/`explain`/`version`
->>>>>>> fix/fuzzing-and-guards
+off; a 65th check, stdout-flush, is report-only — it runs in `all` but never
+fails the build) plus `zig fmt --check`. Three more registry entries are
+non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
+command, and the `debt` report (68 registry entries total;
+`all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are

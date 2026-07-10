@@ -1,3 +1,7 @@
+//! test-coverage check (opt-in): require every `pub fn` to be referenced from
+//! at least one test block — public behavior no test exercises is behavior an
+//! agent shipped unverified. Identifier references inside test blocks count.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -75,10 +79,9 @@ const ScanState = struct {
 
 fn tallyTestRefs(
     allocator: std.mem.Allocator,
-    content: []const u8,
+    z: [:0]const u8,
     counts: *std.StringHashMapUnmanaged(u32),
 ) std.mem.Allocator.Error!void {
-    const z = try allocator.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
     var state: ScanState = .{};

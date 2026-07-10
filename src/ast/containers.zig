@@ -1,3 +1,8 @@
+//! Classifies each `pub const` initializer (struct / enum / union / opaque /
+//! fn-proto / plain value) and extracts container field and method shape from a
+//! parsed tree — the raw material for the naming, type-size, struct-method-cap
+//! and doc-comment checks.
+
 const std = @import("std");
 const Ast = std.zig.Ast;
 const Allocator = std.mem.Allocator;

@@ -133,20 +133,18 @@ fn record(ctx: *ScanCtx, line: u32) Allocator.Error!void {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .rel_path = rel_path, .violations = &violations };
-    const z = try allocator.dupeZ(u8, content);
-    try scan(&ctx, z);
+    try scan(&ctx, content);
     return violations.toOwnedSlice(allocator);
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     ctx.rel_path = entry.rel_path;
-    const z = try ctx.allocator.dupeZ(u8, entry.content);
-    try scan(ctx, z);
+    try scan(ctx, entry.content);
 }
 
 /// Entry point for the escape-discipline check (opt-in).

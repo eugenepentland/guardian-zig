@@ -1,3 +1,8 @@
+//! Downstream integration surface: `addAllChecks` wires every hard-block check
+//! (and the mutate steps) into a consumer's build in one call, and
+//! `all_check_names` is derived from the registry at comptime so a newly
+//! registered check is gated automatically with no edit here.
+
 const std = @import("std");
 const registry = @import("cli/registry.zig");
 

@@ -1,3 +1,10 @@
+//! ban-globals: no file-scope mutable state outside the entry file. Flags
+//! every container-level `var` — pub, private, or threadlocal — because hidden
+//! globals are untestable seams and data races in waiting; zig-core's 400k-LOC
+//! compiler library keeps them to process-lifetime singletons in main.zig.
+//! Escape hatch: a `[[allow]] check = "ban-globals"` path glob for a justified
+//! singleton (guardian's own threadlocal Reporter default rides one).
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

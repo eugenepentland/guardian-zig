@@ -1,3 +1,8 @@
+//! catch-discipline check: reject error-swallowing catches in production code —
+//! `catch unreachable` (crash on error), an empty `catch {}` block (silent
+//! swallow), and `catch undefined`. Tokenizer-based, so the pattern is flagged
+//! only in real code, never in a comment or string.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

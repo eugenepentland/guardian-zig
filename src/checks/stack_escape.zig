@@ -1,3 +1,8 @@
+//! stack-escape check: reject returning the address of a stack local — `&local`,
+//! a slice of a stack array, `&local.field`, or a const alias bound to such an
+//! address — i.e. a dangling pointer. Addresses derived from parameters,
+//! function-call results, comptime locals, or already-pointer locals are safe.
+
 const std = @import("std");
 const Ast = std.zig.Ast;
 const walk = @import("../walk.zig");
@@ -53,7 +58,7 @@ const Span = struct { first: u32, last: u32 };
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     return analyzeWithTree(allocator, rel_path, content, null);
 }
@@ -61,14 +66,14 @@ pub fn analyzeContent(
 fn analyzeWithTree(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
     tree_opt: ?*const std.zig.Ast,
 ) Allocator.Error![]const []const u8 {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var tree = if (tree_opt) |t| t.* else Ast.parse(arena, try arena.dupeZ(u8, content), .zig) catch
+    var tree = if (tree_opt) |t| t.* else Ast.parse(arena, content, .zig) catch
         return &.{};
 
     var violations: std.ArrayList([]const u8) = .empty;
@@ -448,7 +453,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 const testing = std.testing;
 
 /// Analyzes `src` and returns the violation count for the assertions below.
-fn countFlags(a: Allocator, src: []const u8) !usize {
+fn countFlags(a: Allocator, src: [:0]const u8) !usize {
     const out = try analyzeContent(a, "src/x.zig", src);
     return out.len;
 }

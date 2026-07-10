@@ -1,3 +1,8 @@
+//! cognitive-complexity check: cap a per-function branch score (if/while/for/
+//! switch each +1; `and`/`or`/`catch` are taxed by other checks so they don't
+//! double-count here). A flat count that under- rather than over-estimates
+//! deep nesting; the threshold compensates. Per-fn ratchet key.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -128,9 +133,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
 const testing = std.testing;
 
-fn scoreSource(allocator: std.mem.Allocator, source: []const u8) !u32 {
-    const z = try allocator.dupeZ(u8, source);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+fn scoreSource(allocator: std.mem.Allocator, source: [:0]const u8) !u32 {
+    var tree = try std.zig.Ast.parse(allocator, source, .zig);
     const tags = tree.tokens.items(.tag);
     for (tree.rootDecls()) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;

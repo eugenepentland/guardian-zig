@@ -1,3 +1,8 @@
+//! Snapshot file format: read, write, and set-diff the sorted `<value>` lines
+//! under a `# guardian-snapshot v<N>` header that the budget/surface checks
+//! ratchet against. Pure format layer — lifecycle and pass/fail policy live in
+//! snapshot_helper.zig.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 

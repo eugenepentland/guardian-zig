@@ -1,3 +1,8 @@
+//! static-factory-ban check: reject static factory / singleton patterns in
+//! business logic — a fn that constructs and returns the very type it lives on
+//! via hidden global state, defeating dependency injection. `[[allow]]` path
+//! globs exempt legitimate wiring.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -36,7 +41,7 @@ const ScanCtx = struct {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     for (allowed_paths) |pat| {
@@ -82,8 +87,7 @@ fn onLParen(ctx: *ScanCtx, z: []const u8, state: *ScanState) Allocator.Error!voi
     state.prev_was_period = false;
 }
 
-fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
-    const z = try ctx.allocator.dupeZ(u8, content);
+fn scan(ctx: *ScanCtx, z: [:0]const u8) Allocator.Error!void {
     var tok = std.zig.Tokenizer.init(z);
     var state: ScanState = .{};
 

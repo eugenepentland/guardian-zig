@@ -1,3 +1,8 @@
+//! repeated-switch-on-enum check: flag the same enum dot-prong set (`.a`, `.b`,
+//! …) switched on in 2+ files — a duplicated dispatch that drifts when one copy
+//! gains a prong the other forgets. An architectural-fitness signal, not a
+//! per-switch rule.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -31,7 +36,7 @@ const FileScanCtx = struct {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var lines: std.ArrayList([]const u8) = .empty;
     var seen: std.StringHashMapUnmanaged(void) = .empty;
@@ -54,9 +59,8 @@ pub fn analyzeContent(
     return lines.toOwnedSlice(allocator);
 }
 
-fn collectSwitchSignatures(arena: Allocator, content: []const u8) Allocator.Error![]const []const u8 {
+fn collectSwitchSignatures(arena: Allocator, z: [:0]const u8) Allocator.Error![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
-    const z = try arena.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();

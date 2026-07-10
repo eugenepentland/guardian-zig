@@ -541,6 +541,16 @@ const entries = [_]Entry{
     \\Exempt: off unless `[fuzz_presence] modules` names at least one file; drop
     \\a path from that list if it no longer needs a fuzz harness.
     },
+    .{ .name = "module-doc-header", .text = 
+    \\Why: a src file over 200 lines is where a reader arrives cold and needs
+    \\orientation, yet an agent rarely writes the `//!` module doc. Calibrated to
+    \\zig-core reality — its own tree carries `//!` on only ~25-28% of files, but
+    \\consistently on the large, load-bearing ones — so the gate targets the big
+    \\modules, not every file.
+    \\Fix: add a `//!` block at line 1 (2+ lines or 60+ chars) naming the module
+    \\and its one key contract (ownership rule, fail-loud polarity, an invariant).
+    \\Exempt: add paths via `[[allow]] check = "module-doc-header"`.
+    },
     .{ .name = "commit", .text = 
     \\Why: a meta command, not a gate — brings guardian-zig into the sibling
     \\guardians' intent-driven flow: run the whole gate, then commit the change

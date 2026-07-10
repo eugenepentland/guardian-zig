@@ -1,3 +1,8 @@
+//! magic-number check (opt-in, default off): reject a bare integer literal
+//! outside a small allowlist (0/1/2, hex/oct/bin, float-idiom positions) — an
+//! unexplained constant an agent should have named. `[[allow]]` and the
+//! allowlist keep it from firing on the obvious cases.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -43,7 +48,7 @@ const ScanCtx = struct {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{
@@ -119,8 +124,7 @@ const ScanState = struct {
     }
 };
 
-fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
-    const z = try ctx.allocator.dupeZ(u8, content);
+fn scan(ctx: *ScanCtx, z: [:0]const u8) Allocator.Error!void {
     var tok = std.zig.Tokenizer.init(z);
 
     var state: ScanState = .{};

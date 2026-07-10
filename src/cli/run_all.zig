@@ -1,3 +1,9 @@
+//! The `all` command — the whole-suite runner. Loads config, honors the skip-
+//! cache and `--only`/`--skip` filters, builds the shared AST index once when
+//! any to-run check needs it, invokes each check, and aggregates pass/fail plus
+//! the machine-readable JSONL sinks. A filtered run never writes the green
+//! skip-cache stamp (it isn't the full suite).
+
 const std = @import("std");
 const types = @import("types.zig");
 const registry = @import("registry.zig");

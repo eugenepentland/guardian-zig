@@ -1,3 +1,8 @@
+//! SPEC.md parser: splits the file into `##` sections and their `- ` behavior
+//! bullets, each carrying a normalized lookup key (whitespace-collapsed,
+//! trailing sentence punctuation stripped) so a `// spec:` tag matches a bullet
+//! regardless of incidental formatting.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 

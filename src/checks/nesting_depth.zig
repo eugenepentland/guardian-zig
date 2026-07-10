@@ -1,3 +1,8 @@
+//! nesting-depth check: cap brace-nesting depth inside fn bodies. Data literals
+//! (`.{…}`, `Foo{…}`) and switch-prong bodies add no level (Sonar-style), so
+//! the metric tracks real control-flow nesting. Per-fn ratchet key; OOM on the
+//! body scan propagates (a zero-depth fail-open would let a deep fn pass).
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");

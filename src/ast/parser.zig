@@ -1,3 +1,8 @@
+//! Zig-AST extraction helpers over `std.zig.Ast`: pull @import paths and public
+//! fn/const declarations (name, return kind, doc text, signature span) plus
+//! per-fn body info that the structural checks consume. `...FromTree` variants
+//! reuse the shared parse; the plain variants parse the passed source once.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;

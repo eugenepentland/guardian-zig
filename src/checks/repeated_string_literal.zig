@@ -1,3 +1,7 @@
+//! repeated-string-literal check: flag a string literal repeated 3+ times in
+//! one file (extract it to a named const) and the same file-scope string const
+//! duplicated across files. Folded-in from the retired dup-const check.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -20,13 +24,12 @@ const min_length: usize = 8;
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const z = try a.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(a, z, .zig);
+    var tree = try std.zig.Ast.parse(a, content, .zig);
 
     var counts: std.StringHashMapUnmanaged(u32) = .empty;
     defer counts.deinit(a);
@@ -223,11 +226,10 @@ fn extractConstsTree(
 fn extractFileScopeStringConsts(
     allocator: Allocator,
     file: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
     out: *std.ArrayList(Decl),
 ) !void {
-    const z = try allocator.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .zig);
     try extractConstsTree(&tree, allocator, file, out);
 }
 
@@ -290,8 +292,7 @@ fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     if (entry.tree) |t| {
         try scanFile(ctx, t, entry.rel_path);
     } else {
-        const z = try ctx.allocator.dupeZ(u8, entry.content);
-        var tree = try std.zig.Ast.parse(ctx.allocator, z, .zig);
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
         try scanFile(ctx, &tree, entry.rel_path);
     }
 }

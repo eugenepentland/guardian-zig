@@ -504,6 +504,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Flags a buffered stdout writer with no flush
 - Allows a buffered stdout writer that flushes before returning
 - Ignores a stdout write that never buffers
+
 ## Fuzzing
 
 - Fuzzing the guardian.toml parser never panics and every reject populates its diagnostic
@@ -515,3 +516,11 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Passes each configured module that contains a std.testing.fuzz call
 - Flags a configured module whose source has no fuzz call
 - Hard-fails a configured module that is missing or unreadable
+## Module Doc Header
+
+- Flags a module over the line threshold with no module doc header
+- Accepts an over-threshold module opening with a multi-line module doc
+- Accepts a single module-doc line meeting the character minimum
+- Rejects an over-threshold module whose lone header line is too short
+- Exempts a module at or below the line threshold
+- Skips a file matching a configured allow path

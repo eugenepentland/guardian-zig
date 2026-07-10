@@ -112,12 +112,11 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) walk.VisitError!void {
 pub fn analyzeContent(
     allocator: std.mem.Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
-    const z = try allocator.dupeZ(u8, content);
-    var tree = try Ast.parse(allocator, z, .zig);
+    var tree = try Ast.parse(allocator, content, .zig);
     try scanTree(&ctx, rel_path, &tree);
     return violations.toOwnedSlice(allocator);
 }

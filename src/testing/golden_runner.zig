@@ -24,8 +24,10 @@ pub const Scenario = struct {
     check_name: []const u8,
     /// Logical name of the scenario (used only in failure messages).
     name: []const u8,
-    /// Source under test, embedded at compile time.
-    input: []const u8,
+    /// Source under test, embedded at compile time. Sentinel-terminated
+    /// (`@embedFile` and string literals both satisfy this) so it feeds each
+    /// check's `analyzeContent(…, content: [:0]const u8, …)` with no copy.
+    input: [:0]const u8,
     /// Expected violation output, embedded at compile time. Sorted lines
     /// joined with `\n` and a trailing newline. Empty = pass.
     expected: []const u8,

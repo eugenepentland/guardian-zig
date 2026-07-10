@@ -1,3 +1,8 @@
+//! stub-body-ban check: reject an obvious placeholder fn body — a lone `return
+//! undefined`, a placeholder `@panic("not implemented")`, or an `unreachable`
+//! standing in for a value in a value-returning fn — code an agent left
+//! unfinished but that still compiles.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -110,14 +115,13 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 pub fn analyzeContent(
     allocator: std.mem.Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
-    // Test-harness entry (production walks via the shared index); terminate the
-    // borrowed content so it fits FileEntry's [:0]const u8 contract.
-    const z = try allocator.dupeZ(u8, content);
-    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = z });
+    // Test-harness entry (production walks via the shared index); content is
+    // already [:0]const u8, matching FileEntry's contract, so no copy is needed.
+    try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return violations.toOwnedSlice(allocator);
 }
 

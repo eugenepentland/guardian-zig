@@ -19,7 +19,7 @@ const ScanCtx = struct {
 pub fn analyzeContentWithLimit(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
     max_ops: u32,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList(reporter.Violation) = .empty;
@@ -37,14 +37,13 @@ pub fn analyzeContentWithLimit(
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     return analyzeContentWithLimit(allocator, rel_path, content, 3);
 }
 
-fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
+fn scan(ctx: *ScanCtx, z: [:0]const u8) Allocator.Error!void {
     const a = ctx.allocator;
-    const z = try a.dupeZ(u8, content);
     var tok = std.zig.Tokenizer.init(z);
 
     // Attribute each condition to the most recent `fn <name>` so item 5 can key

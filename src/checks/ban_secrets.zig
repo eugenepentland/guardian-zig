@@ -1,3 +1,9 @@
+//! ban-secrets check: reject hardcoded credentials — known vendor token formats
+//! (AWS/GitHub/Slack/Stripe/…), PEM private-key headers, and high-entropy values
+//! assigned to secret-named identifiers. Placeholders, env-var names, and
+//! publishable/test keys are ignored; the entropy heuristic is off in test and
+//! fixture paths; the matched secret is redacted in the violation message.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -288,7 +294,7 @@ const Ctx = struct {
 pub fn analyzeContent(
     allocator: Allocator,
     rel_path: []const u8,
-    content: []const u8,
+    content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     for (allowed_paths) |pat| {
@@ -300,8 +306,7 @@ pub fn analyzeContent(
         .violations = &violations,
         .fixture_path = isFixturePath(rel_path),
     };
-    const z = try allocator.dupeZ(u8, content);
-    var tree = try std.zig.Ast.parse(allocator, z, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .zig);
     try scanTree(&ctx, &tree);
     return violations.toOwnedSlice(allocator);
 }
