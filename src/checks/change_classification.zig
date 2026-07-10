@@ -186,7 +186,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const ref_is_head = std.mem.eql(u8, effective, "HEAD");
     const tree_clean = wt.len == 0 and untracked.len == 0;
     const gate_last = ctx.cfg.change_classification.gate_last_commit;
-    const parents = git.parentCount(a, ctx.project_dir, "HEAD");
+    const parents = try git.parentCount(a, ctx.project_dir, "HEAD");
     switch (fallbackDecision(ref_is_head, tree_clean, gate_last, parents)) {
         .working_tree => return classifyAndReport(ctx, effective, wt, untracked),
         .last_commit => return gateLastCommit(ctx),

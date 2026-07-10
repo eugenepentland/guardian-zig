@@ -3,19 +3,22 @@ const config_mod = @import("../config.zig");
 const ast_index = @import("../ast/index.zig");
 const walk = @import("../walk.zig");
 const snapshot = @import("../snapshot.zig");
+const git = @import("../git.zig");
 const mutation_runner = @import("../mutation/runner.zig");
 
 /// Errors any registered command's `run` function may propagate. Every command
 /// shares this one function-pointer type, so the set is the union of what they
 /// all raise: `error.CheckFailed` (a check failed after printing its own
 /// diagnostic), the walker's filesystem/OOM/visitor errors, the snapshot
-/// read/write errors the budget checks surface, and the mutation runner's
-/// process/fs errors the `mutate` command surfaces. A precise named set (not
-/// `anyerror`) makes every `run`'s failure space compile-time-exhaustive.
+/// read/write errors the budget checks surface, the git shell-out errors the
+/// diff-scoped checks surface, and the mutation runner's process/fs errors the
+/// `mutate` command surfaces. A precise named set (not `anyerror`) makes every
+/// `run`'s failure space compile-time-exhaustive.
 pub const RunError = error{CheckFailed} ||
     walk.WalkError ||
     snapshot.ReadError ||
     snapshot.WriteError ||
+    git.GitError ||
     mutation_runner.RunError;
 
 /// Per-invocation context handed to every check's `run` function.

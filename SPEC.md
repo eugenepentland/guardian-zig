@@ -346,6 +346,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Returns no spans for deletion-only hunks and deleted files
 - Counts a commit's parents from a rev-list line
 - Extracts changed and untracked paths from porcelain status resolving renames
+- Classifies a not-a-git-repository failure as a skip, not a hard error
+- Hard-fails a diff-scoped git command that fails for any other reason
 
 ## Change Classification
 
