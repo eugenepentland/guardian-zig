@@ -74,6 +74,7 @@ const Section = enum {
     escape_discipline,
     oom_discipline,
     magic_number,
+    stdout_flush,
     dead_pub,
     change_classification,
     mutation,
@@ -340,7 +341,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .bool_ops => &.{ "enabled", "max_ops" },
         .line_length => &.{ "enabled", "max_len" },
         .baseline => &.{ "enabled", "deny_growth" },
-        .escape_discipline, .oom_discipline, .magic_number => &.{"enabled"},
+        .escape_discipline, .oom_discipline, .magic_number, .stdout_flush => &.{"enabled"},
         .dead_pub => &.{"ignore_test_refs"},
         .change_classification => &.{ "enabled", "against", "gate_last_commit" },
         .mutation => &.{ "min_score_pct", "min_mutants", "max_mutants", "timeout_secs" },
@@ -380,6 +381,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .magic_number => applyEnabledCfg("magic_number", ctx, kv),
+        .stdout_flush => applyEnabledCfg("stdout_flush", ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
         .mutation => applyMutationKey(ctx, kv),
@@ -410,6 +412,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "escape_discipline", Section.escape_discipline },
         .{ "oom_discipline", Section.oom_discipline },
         .{ "magic_number", Section.magic_number },
+        .{ "stdout_flush", Section.stdout_flush },
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
@@ -944,6 +947,21 @@ test "magic-number defaults off and opts in via config" {
         \\enabled = true
     );
     try std.testing.expectEqual(true, opted.magic_number.enabled);
+}
+
+// spec: Configuration - Defaults stdout_flush off and promotes it to a hard block via [stdout_flush] enabled
+test "stdout_flush defaults off and opts into gating via config" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: off, so the check stays report-only.
+    const default_cfg = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(false, default_cfg.stdout_flush.enabled);
+    // Opt in to promote the check to a gating hard-block.
+    const opted = try parse(arena.allocator(),
+        \\[stdout_flush]
+        \\enabled = true
+    );
+    try std.testing.expectEqual(true, opted.stdout_flush.enabled);
 }
 
 test "parse per-check exclude arrays" {

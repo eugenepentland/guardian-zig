@@ -241,6 +241,7 @@ src/config.zig::NestingDepthCfg struct_
 src/config.zig::OomDisciplineCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_
+src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8

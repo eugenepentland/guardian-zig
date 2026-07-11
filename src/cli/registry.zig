@@ -380,7 +380,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "stdout-flush",
-        .summary = "Report-only: a buffered stdout/stderr writer with no reachable flush (0.15 truncation)",
+        .summary = "A buffered stdout/stderr writer with no reachable flush; gates only if [stdout_flush] enabled",
         .run = check_stdout_flush.run,
     },
     .{

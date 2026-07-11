@@ -157,6 +157,15 @@ pub const MagicNumberCfg = struct {
     enabled: bool = false,
 };
 
+/// Per-check config for the stdout-flush check. Default off keeps the check
+/// REPORT-ONLY: it surfaces a buffered stdout/stderr writer with no reachable
+/// flush but never fails the build, because the intra-procedural heuristic has
+/// unproven precision. `[stdout_flush] enabled = true` promotes it to a gating
+/// hard-block once a project trusts the signal.
+pub const StdoutFlushCfg = struct {
+    enabled: bool = false,
+};
+
 /// Per-check config for the dead-pub check.
 pub const DeadPubCfg = struct {
     /// When true, references from inside `test {...}` blocks (and the test/
@@ -299,6 +308,7 @@ pub const Config = struct {
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
     magic_number: MagicNumberCfg = .{},
+    stdout_flush: StdoutFlushCfg = .{},
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},

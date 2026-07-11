@@ -499,18 +499,20 @@ const entries = [_]Entry{
     \\`src/reporter.zig`).
     },
     .{ .name = "stdout-flush", .text = 
-    \\Why (report-only): in 0.15 a buffered `std.fs.File.stdout()/stderr()` writer
-    \\that is never `flush()`ed silently TRUNCATES its output — the buffered bytes
-    \\vanish when the writer leaves scope. This surfaces a function that builds
-    \\such a writer (`.writer(...)` / `.writerStreaming(...)`) with no `flush(` in
-    \\its body. It NEVER fails the build: the heuristic is intra-procedural, so a
-    \\flush done by a called helper reads as a false positive and a flush on an
-    \\untaken branch reads as a false negative — precision unproven, so report
-    \\only.
+    \\Why (report-only by default): in 0.15 a buffered `std.fs.File.stdout()/
+    \\stderr()` writer that is never `flush()`ed silently TRUNCATES its output —
+    \\the buffered bytes vanish when the writer leaves scope. This surfaces a
+    \\function that builds such a writer (`.writer(...)` / `.writerStreaming(...)`)
+    \\with no `flush(` in its body. By default it NEVER fails the build: the
+    \\heuristic is intra-procedural, so a flush done by a called helper reads as a
+    \\false positive and a flush on an untaken branch reads as a false negative —
+    \\precision unproven, so report-only until a project trusts the signal.
     \\Fix: call `w.interface.flush()` (or `w.flush()`) before the function
     \\returns, on every path that wrote.
-    \\Exempt: add paths via `[[allow]] check = "stdout-flush"`. A config-gated
-    \\hard-block promotion is deferred until the heuristic's signal is validated.
+    \\Enable gating: set `[stdout_flush] enabled = true` to promote it to a
+    \\hard-block — a finding then fails the build. The default (absent/`false`)
+    \\stays report-only.
+    \\Exempt: add paths via `[[allow]] check = "stdout-flush"`.
     },
     .{ .name = "change-classification", .text = 
     \\Why: agents ship a behavioral src change with no test — the "quick fix,

@@ -128,8 +128,9 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 64 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
-off; a 65th check, stdout-flush, is report-only — it runs in `all` but never
-fails the build) plus `zig fmt --check`. Three more registry entries are
+off; a 65th check, stdout-flush, is report-only by default — it runs in `all`
+but never fails the build unless `[stdout_flush] enabled = true` promotes it to a
+gating hard-block, which Guardian leaves off) plus `zig fmt --check`. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
 command, and the `debt` report (68 registry entries total;
 `all`/`nightly`/`commit`/`explain`/`version`
