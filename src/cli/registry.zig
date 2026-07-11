@@ -380,7 +380,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "stdout-flush",
-        .summary = "Report-only: a buffered stdout/stderr writer with no reachable flush (0.15 truncation)",
+        .summary = "A buffered stdout/stderr writer with no reachable flush; gates only if [stdout_flush] enabled",
         .run = check_stdout_flush.run,
     },
     .{
@@ -408,7 +408,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "module-doc-header",
-        .summary = "Require a //! module doc header on src files over 200 lines",
+        .summary = "Require a //! module doc header on src files over [module_doc_header] min_lines (default 200)",
         .run = check_module_doc_header.run,
     },
 };

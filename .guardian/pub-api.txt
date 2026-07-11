@@ -236,11 +236,13 @@ src/config.zig::FuzzPresenceCfg struct_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
+src/config.zig::ModuleDocHeaderCfg struct_
 src/config.zig::MutationCfg struct_
 src/config.zig::NestingDepthCfg struct_
 src/config.zig::OomDisciplineCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::SpecQualityCfg struct_
+src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8

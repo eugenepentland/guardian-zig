@@ -499,18 +499,20 @@ const entries = [_]Entry{
     \\`src/reporter.zig`).
     },
     .{ .name = "stdout-flush", .text = 
-    \\Why (report-only): in 0.15 a buffered `std.fs.File.stdout()/stderr()` writer
-    \\that is never `flush()`ed silently TRUNCATES its output — the buffered bytes
-    \\vanish when the writer leaves scope. This surfaces a function that builds
-    \\such a writer (`.writer(...)` / `.writerStreaming(...)`) with no `flush(` in
-    \\its body. It NEVER fails the build: the heuristic is intra-procedural, so a
-    \\flush done by a called helper reads as a false positive and a flush on an
-    \\untaken branch reads as a false negative — precision unproven, so report
-    \\only.
+    \\Why (report-only by default): in 0.15 a buffered `std.fs.File.stdout()/
+    \\stderr()` writer that is never `flush()`ed silently TRUNCATES its output —
+    \\the buffered bytes vanish when the writer leaves scope. This surfaces a
+    \\function that builds such a writer (`.writer(...)` / `.writerStreaming(...)`)
+    \\with no `flush(` in its body. By default it NEVER fails the build: the
+    \\heuristic is intra-procedural, so a flush done by a called helper reads as a
+    \\false positive and a flush on an untaken branch reads as a false negative —
+    \\precision unproven, so report-only until a project trusts the signal.
     \\Fix: call `w.interface.flush()` (or `w.flush()`) before the function
     \\returns, on every path that wrote.
-    \\Exempt: add paths via `[[allow]] check = "stdout-flush"`. A config-gated
-    \\hard-block promotion is deferred until the heuristic's signal is validated.
+    \\Enable gating: set `[stdout_flush] enabled = true` to promote it to a
+    \\hard-block — a finding then fails the build. The default (absent/`false`)
+    \\stays report-only.
+    \\Exempt: add paths via `[[allow]] check = "stdout-flush"`.
     },
     .{ .name = "change-classification", .text = 
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
@@ -542,13 +544,16 @@ const entries = [_]Entry{
     \\a path from that list if it no longer needs a fuzz harness.
     },
     .{ .name = "module-doc-header", .text = 
-    \\Why: a src file over 200 lines is where a reader arrives cold and needs
-    \\orientation, yet an agent rarely writes the `//!` module doc. Calibrated to
-    \\zig-core reality — its own tree carries `//!` on only ~25-28% of files, but
-    \\consistently on the large, load-bearing ones — so the gate targets the big
-    \\modules, not every file.
+    \\Why: a src file over the line threshold (`[module_doc_header] min_lines`,
+    \\default 200) is where a reader arrives cold and needs orientation, yet an
+    \\agent rarely writes the `//!` module doc. Calibrated to zig-core reality —
+    \\its own tree carries `//!` on only ~25-28% of files, but consistently on the
+    \\large, load-bearing ones — so the gate targets the big modules, not every
+    \\file.
     \\Fix: add a `//!` block at line 1 (2+ lines or 60+ chars) naming the module
     \\and its one key contract (ownership rule, fail-loud polarity, an invariant).
+    \\Tune: lower `[module_doc_header] min_lines` to require headers on smaller
+    \\files (default 200).
     \\Exempt: add paths via `[[allow]] check = "module-doc-header"`.
     },
     .{ .name = "commit", .text = 

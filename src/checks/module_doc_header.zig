@@ -14,10 +14,12 @@ const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
 
-/// Files at or below this many total lines are exempt: a short module reads at
-/// a glance, so an orientation header would be noise. Hardcoded this wave — a
-/// config knob would collide with the config-owning agent (follow-up).
-const line_threshold: u32 = 200;
+/// Default line threshold: files at or below this many total lines are exempt,
+/// since a short module reads at a glance and an orientation header would be
+/// noise. This is the default for `[module_doc_header] min_lines`; a project
+/// lowers the knob to require headers on smaller files. The effective threshold
+/// is read from config per run (see `ScanCtx.min_lines`).
+const default_line_threshold: u32 = 200;
 
 /// A header qualifies once it reaches either bound: two `//!` lines, or a
 /// single substantive line (>= 60 bytes). One terse `//! wip` line does not
@@ -28,6 +30,9 @@ const min_header_bytes: usize = 60;
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     allowed_paths: []const []const u8,
+    /// Effective line threshold for this run (`[module_doc_header] min_lines`,
+    /// default `default_line_threshold`). Files at or below it are exempt.
+    min_lines: u32,
     violations: *std.ArrayList([]const u8),
 };
 
@@ -82,12 +87,12 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isAllowed(entry.rel_path, ctx.allowed_paths)) return;
     const lines = totalLines(entry.content);
-    if (lines <= line_threshold) return;
+    if (lines <= ctx.min_lines) return;
     if (hasQualifyingHeader(entry.content)) return;
     const msg = try std.fmt.allocPrint(
         ctx.allocator,
         "{s}: {d}-line module has no `//!` header (over {d} lines needs a 2+-line or 60+-char module doc)",
-        .{ entry.rel_path, lines, line_threshold },
+        .{ entry.rel_path, lines, ctx.min_lines },
     );
     try ctx.violations.append(ctx.allocator, msg);
 }
@@ -101,19 +106,20 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     var ctx: ScanCtx = .{
         .allocator = allocator,
         .allowed_paths = ctx_param.cfg.extraAllowed("module-doc-header"),
+        .min_lines = ctx_param.cfg.module_doc_header.min_lines,
         .violations = &violations,
     };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
 
     if (violations.items.len == 0) {
-        ok("all modules over {d} lines carry a //! header", .{line_threshold});
+        ok("all modules over {d} lines carry a //! header", .{ctx.min_lines});
         return;
     }
 
     fail(
         "module-doc-header FAILED ({d} module(s) over {d} lines lack a //! header)",
-        .{ violations.items.len, line_threshold },
+        .{ violations.items.len, ctx.min_lines },
     );
     for (violations.items) |v| print("  {s}\n", .{v});
     print("  fix: add a `//!` block (2+ lines or 60+ chars) at line 1 for the module.\n", .{});
@@ -126,13 +132,13 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 const testing = std.testing;
 
 /// Builds a module: `header` verbatim, then enough filler lines to push the
-/// total past `line_threshold`. The filler is code so the file is realistic;
-/// the header measurement only reads the leading `//!` block.
+/// total past `default_line_threshold`. The filler is code so the file is
+/// realistic; the header measurement only reads the leading `//!` block.
 fn overThreshold(a: std.mem.Allocator, header: []const u8) ![:0]const u8 {
     var buf: std.ArrayList(u8) = .empty;
     try buf.appendSlice(a, header);
     var i: u32 = 0;
-    while (i <= line_threshold) : (i += 1) try buf.appendSlice(a, "const filler = 0;\n");
+    while (i <= default_line_threshold) : (i += 1) try buf.appendSlice(a, "const filler = 0;\n");
     return buf.toOwnedSliceSentinel(a, 0);
 }
 
@@ -141,9 +147,15 @@ fn violationCount(
     rel_path: []const u8,
     content: [:0]const u8,
     allowed: []const []const u8,
+    min_lines: u32,
 ) !usize {
     var violations: std.ArrayList([]const u8) = .empty;
-    var ctx: ScanCtx = .{ .allocator = a, .allowed_paths = allowed, .violations = &violations };
+    var ctx: ScanCtx = .{
+        .allocator = a,
+        .allowed_paths = allowed,
+        .min_lines = min_lines,
+        .violations = &violations,
+    };
     try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return violations.items.len;
 }
@@ -154,7 +166,7 @@ test "over-threshold module without a //! header is flagged" {
     defer arena.deinit();
     const a = arena.allocator();
     const content = try overThreshold(a, "const std = @import(\"std\");\n");
-    try testing.expectEqual(@as(usize, 1), try violationCount(a, "src/big.zig", content, &.{}));
+    try testing.expectEqual(@as(usize, 1), try violationCount(a, "src/big.zig", content, &.{}, default_line_threshold));
 }
 
 // spec: Module Doc Header - Accepts an over-threshold module opening with a multi-line module doc
@@ -163,7 +175,7 @@ test "over-threshold module with a two-line //! header passes" {
     defer arena.deinit();
     const a = arena.allocator();
     const content = try overThreshold(a, "//! Line one.\n//! Line two.\n");
-    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/big.zig", content, &.{}));
+    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/big.zig", content, &.{}, default_line_threshold));
 }
 
 // spec: Module Doc Header - Accepts a single module-doc line meeting the character minimum
@@ -172,7 +184,7 @@ test "single long //! line meeting the byte minimum passes" {
     defer arena.deinit();
     const a = arena.allocator();
     const content = try overThreshold(a, "//! A single padded header line kept just past the sixty-byte floor.\n");
-    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/big.zig", content, &.{}));
+    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/big.zig", content, &.{}, default_line_threshold));
 }
 
 // spec: Module Doc Header - Rejects an over-threshold module whose lone header line is too short
@@ -181,7 +193,7 @@ test "single short //! line below the byte minimum is flagged" {
     defer arena.deinit();
     const a = arena.allocator();
     const content = try overThreshold(a, "//! wip\n");
-    try testing.expectEqual(@as(usize, 1), try violationCount(a, "src/big.zig", content, &.{}));
+    try testing.expectEqual(@as(usize, 1), try violationCount(a, "src/big.zig", content, &.{}, default_line_threshold));
 }
 
 // spec: Module Doc Header - Exempts a module at or below the line threshold
@@ -190,7 +202,7 @@ test "short module without a header is exempt" {
     defer arena.deinit();
     const a = arena.allocator();
     const small: [:0]const u8 = "const x = 1;\nfn f() void {}\n";
-    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/small.zig", small, &.{}));
+    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/small.zig", small, &.{}, default_line_threshold));
 }
 
 // spec: Module Doc Header - Skips a file matching a configured allow path
@@ -200,5 +212,21 @@ test "an allowed path escapes the header requirement" {
     const a = arena.allocator();
     const content = try overThreshold(a, "const std = @import(\"std\");\n");
     const allowed: []const []const u8 = &.{"src/generated/*"};
-    try testing.expectEqual(@as(usize, 0), try violationCount(a, "src/generated/big.zig", content, allowed));
+    const n = try violationCount(a, "src/generated/big.zig", content, allowed, default_line_threshold);
+    try testing.expectEqual(@as(usize, 0), n);
+}
+
+// spec: Module Doc Header - Flags a module over a lowered min_lines threshold
+test "a module over a lowered min_lines threshold is flagged" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Six code lines, no //! header: exempt at the 200-line default, but flagged
+    // once min_lines is lowered below the file's size.
+    const content: [:0]const u8 =
+        "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;\nconst f = 6;\n";
+    const at_default = try violationCount(a, "src/mid.zig", content, &.{}, default_line_threshold);
+    try testing.expectEqual(@as(usize, 0), at_default);
+    const at_low = try violationCount(a, "src/mid.zig", content, &.{}, 5);
+    try testing.expectEqual(@as(usize, 1), at_low);
 }

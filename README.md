@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-64 checks gate Guardian's own self-build; a 65th, `stdout-flush`, is **report-only** — it runs on every build but surfaces findings without ever failing it (plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report). Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+64 checks gate Guardian's own self-build; a 65th, `stdout-flush`, is **report-only by default** — it runs on every build and surfaces findings without failing it unless `[stdout_flush] enabled = true` promotes it to a gating hard-block (Guardian leaves it off, so the 64-gating count holds for its own build). (Plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report.) Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -53,7 +53,7 @@ zig build  # guardian gates every build
 | Check | Blocks on |
 |---|---|
 | **file-size** | Any .zig file exceeding `max_file_lines` (default 1000) |
-| **module-doc-header** | Any src file over 200 lines that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); exempt paths via `[[allow]]` |
+| **module-doc-header** | Any src file over `[module_doc_header] min_lines` lines (default 200) that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); lower `min_lines` to require headers on smaller files; exempt paths via `[[allow]]` |
 | **function-size** | Any function with more than `max_params` parameters (default 6) |
 | **function-length** | Any fn over `max_lines` source lines (default 120) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
@@ -78,7 +78,7 @@ zig build  # guardian gates every build
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
 | **usingnamespace-ban** | Any `usingnamespace` in `src/` |
 | **deprecated-alias** | Deprecated 0.15 std spellings by token match: `std.ArrayListUnmanaged` (→ `std.ArrayList`), `std.array_list.Managed`, managed `std.StringHashMap`/`AutoHashMap`(`+Array`) constructions (→ the `*Unmanaged` maps — discouraged, not deprecated; `[[allow]]` opts out per path), `usingnamespace` (removed in 0.15), and pre-Writergate `getStdOut`/`getStdErr`. String/comment mentions are never flagged |
-| **stdout-flush** *(report-only)* | A function that builds a buffered `std.fs.File.stdout()`/`stderr()` writer (`.writer` / `.writerStreaming`) but has no reachable `flush()` — in 0.15 a missing flush truncates the output. Intra-procedural heuristic (a flush in a called helper reads as a false positive), so it **never fails the build**; it surfaces findings only. Exempt paths via `[[allow]] check = "stdout-flush"` |
+| **stdout-flush** *(report-only by default)* | A function that builds a buffered `std.fs.File.stdout()`/`stderr()` writer (`.writer` / `.writerStreaming`) but has no reachable `flush()` — in 0.15 a missing flush truncates the output. Intra-procedural heuristic (a flush in a called helper reads as a false positive), so it is **report-only by default** — findings surface without failing the build. Set `[stdout_flush] enabled = true` to promote it to a gating hard-block; the default (absent/`false`) keeps the report-only behavior. Exempt paths via `[[allow]] check = "stdout-flush"` |
 
 ### Error handling
 | Check | Blocks on |

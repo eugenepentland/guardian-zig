@@ -17,6 +17,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
 - Defaults magic-number off and enables it via [magic_number] enabled
+- Defaults stdout_flush off and promotes it to a hard block via [stdout_flush] enabled
+- Parses the module_doc_header min_lines threshold
 - Parses the mutation section score and budget settings
 - Parses the change classification toggle and against ref
 - Parses the change classification last-commit gate toggle
@@ -504,6 +506,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Flags a buffered stdout writer with no flush
 - Allows a buffered stdout writer that flushes before returning
 - Ignores a stdout write that never buffers
+- Hard-blocks a missing flush when the enabled toggle is on
+- Stays report-only for a missing flush when the toggle is off
 
 ## Fuzzing
 
@@ -524,3 +528,4 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Rejects an over-threshold module whose lone header line is too short
 - Exempts a module at or below the line threshold
 - Skips a file matching a configured allow path
+- Flags a module over a lowered min_lines threshold

@@ -14,10 +14,11 @@
 //!   * a flush performed by a called helper is invisible (false positive), and
 //!   * it does not prove the flush is on the *same* writer or reachable on every
 //!     path (a flush in an untaken branch still counts — false negative).
-//! Because that precision is unproven, this check is REPORT-ONLY: it surfaces
-//! findings but never returns `error.CheckFailed`, so it can't red a build. A
-//! future `[stdout_flush] enabled` toggle can promote it to a hard block once
-//! the signal is validated (the config surface is out of scope this wave).
+//! Because that precision is unproven, this check is REPORT-ONLY BY DEFAULT: it
+//! surfaces findings but never returns `error.CheckFailed`, so it can't red a
+//! build. A project that trusts the signal promotes it to a gating hard-block
+//! with `[stdout_flush] enabled = true`; the default (absent or `false`) keeps
+//! today's report-only behavior exactly.
 //!
 //! Detection is lexical (call-target identifiers), so a name inside a string or
 //! comment never fires. Guardian's own human output is unbuffered
@@ -151,8 +152,16 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     for (found) |msg| try ctx.findings.append(ctx.allocator, msg);
 }
 
-/// Entry point for the stdout-flush check. Report-only: it surfaces findings
-/// but always returns success, so it never fails the build.
+/// Whether the run must hard-fail: only when a finding exists AND the
+/// `[stdout_flush] enabled` gate is on. Off (the default) keeps the check
+/// report-only, so findings surface without ever failing the build.
+fn shouldGate(finding_count: usize, enabled: bool) bool {
+    return enabled and finding_count > 0;
+}
+
+/// Entry point for the stdout-flush check. Report-only by default: it surfaces
+/// findings but returns success. When `[stdout_flush] enabled = true`, a finding
+/// instead fails the build with `error.CheckFailed`.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     var findings: std.ArrayList([]const u8) = .empty;
@@ -167,13 +176,23 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("stdout-flush: no buffered stdout/stderr writer missing a flush", .{});
         return;
     }
-    reporter.ok(
-        "stdout-flush: {d} function(s) buffer stdout/stderr with no reachable flush (report-only, not gating)",
-        .{findings.items.len},
-    );
+
+    const gating = shouldGate(findings.items.len, ctx.cfg.stdout_flush.enabled);
+    if (gating) {
+        reporter.fail(
+            "stdout-flush FAILED ({d} function(s) buffer stdout/stderr with no reachable flush)",
+            .{findings.items.len},
+        );
+    } else {
+        reporter.ok(
+            "stdout-flush: {d} function(s) buffer stdout/stderr with no reachable flush (report-only, not gating)",
+            .{findings.items.len},
+        );
+    }
     for (findings.items) |f| detail("  {s}\n", .{f});
     detail("  note: a missing flush() truncates output in 0.15 — add " ++
-        "w.interface.flush() before returning. report-only: never fails the build.\n", .{});
+        "w.interface.flush() before returning.\n", .{});
+    if (gating) return error.CheckFailed;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -261,4 +280,18 @@ test "analyzeContent attributes flush to the right function region" {
         \\}
     );
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+// spec: Stdout Flush - Hard-blocks a missing flush when the enabled toggle is on
+
+test "a finding gates the build when the enabled toggle is on" {
+    try std.testing.expect(shouldGate(1, true));
+}
+
+// spec: Stdout Flush - Stays report-only for a missing flush when the toggle is off
+
+test "a finding stays report-only when the enabled toggle is off" {
+    try std.testing.expect(!shouldGate(1, false));
+    // A clean tree never gates, on or off.
+    try std.testing.expect(!shouldGate(0, true));
 }

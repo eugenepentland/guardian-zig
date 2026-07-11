@@ -157,6 +157,24 @@ pub const MagicNumberCfg = struct {
     enabled: bool = false,
 };
 
+/// Per-check config for the stdout-flush check. Default off keeps the check
+/// REPORT-ONLY: it surfaces a buffered stdout/stderr writer with no reachable
+/// flush but never fails the build, because the intra-procedural heuristic has
+/// unproven precision. `[stdout_flush] enabled = true` promotes it to a gating
+/// hard-block once a project trusts the signal.
+pub const StdoutFlushCfg = struct {
+    enabled: bool = false,
+};
+
+/// Per-check config for the module-doc-header check. `min_lines` is the line
+/// count above which a file must open with a `//!` module doc block; files at
+/// or below it are exempt. Default 200 — calibrated to zig-core reality, where
+/// `//!` headers land consistently on the large, load-bearing modules. Lower it
+/// to require headers on smaller files.
+pub const ModuleDocHeaderCfg = struct {
+    min_lines: u32 = 200,
+};
+
 /// Per-check config for the dead-pub check.
 pub const DeadPubCfg = struct {
     /// When true, references from inside `test {...}` blocks (and the test/
@@ -299,6 +317,8 @@ pub const Config = struct {
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
     magic_number: MagicNumberCfg = .{},
+    stdout_flush: StdoutFlushCfg = .{},
+    module_doc_header: ModuleDocHeaderCfg = .{},
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},
