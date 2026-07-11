@@ -544,13 +544,16 @@ const entries = [_]Entry{
     \\a path from that list if it no longer needs a fuzz harness.
     },
     .{ .name = "module-doc-header", .text = 
-    \\Why: a src file over 200 lines is where a reader arrives cold and needs
-    \\orientation, yet an agent rarely writes the `//!` module doc. Calibrated to
-    \\zig-core reality — its own tree carries `//!` on only ~25-28% of files, but
-    \\consistently on the large, load-bearing ones — so the gate targets the big
-    \\modules, not every file.
+    \\Why: a src file over the line threshold (`[module_doc_header] min_lines`,
+    \\default 200) is where a reader arrives cold and needs orientation, yet an
+    \\agent rarely writes the `//!` module doc. Calibrated to zig-core reality —
+    \\its own tree carries `//!` on only ~25-28% of files, but consistently on the
+    \\large, load-bearing ones — so the gate targets the big modules, not every
+    \\file.
     \\Fix: add a `//!` block at line 1 (2+ lines or 60+ chars) naming the module
     \\and its one key contract (ownership rule, fail-loud polarity, an invariant).
+    \\Tune: lower `[module_doc_header] min_lines` to require headers on smaller
+    \\files (default 200).
     \\Exempt: add paths via `[[allow]] check = "module-doc-header"`.
     },
     .{ .name = "commit", .text = 

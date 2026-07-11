@@ -166,6 +166,15 @@ pub const StdoutFlushCfg = struct {
     enabled: bool = false,
 };
 
+/// Per-check config for the module-doc-header check. `min_lines` is the line
+/// count above which a file must open with a `//!` module doc block; files at
+/// or below it are exempt. Default 200 — calibrated to zig-core reality, where
+/// `//!` headers land consistently on the large, load-bearing modules. Lower it
+/// to require headers on smaller files.
+pub const ModuleDocHeaderCfg = struct {
+    min_lines: u32 = 200,
+};
+
 /// Per-check config for the dead-pub check.
 pub const DeadPubCfg = struct {
     /// When true, references from inside `test {...}` blocks (and the test/
@@ -309,6 +318,7 @@ pub const Config = struct {
     oom_discipline: OomDisciplineCfg = .{},
     magic_number: MagicNumberCfg = .{},
     stdout_flush: StdoutFlushCfg = .{},
+    module_doc_header: ModuleDocHeaderCfg = .{},
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},

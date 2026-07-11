@@ -53,7 +53,7 @@ zig build  # guardian gates every build
 | Check | Blocks on |
 |---|---|
 | **file-size** | Any .zig file exceeding `max_file_lines` (default 1000) |
-| **module-doc-header** | Any src file over 200 lines that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); exempt paths via `[[allow]]` |
+| **module-doc-header** | Any src file over `[module_doc_header] min_lines` lines (default 200) that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); lower `min_lines` to require headers on smaller files; exempt paths via `[[allow]]` |
 | **function-size** | Any function with more than `max_params` parameters (default 6) |
 | **function-length** | Any fn over `max_lines` source lines (default 120) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |

@@ -236,6 +236,7 @@ src/config.zig::FuzzPresenceCfg struct_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
+src/config.zig::ModuleDocHeaderCfg struct_
 src/config.zig::MutationCfg struct_
 src/config.zig::NestingDepthCfg struct_
 src/config.zig::OomDisciplineCfg struct_

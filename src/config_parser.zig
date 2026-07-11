@@ -75,6 +75,7 @@ const Section = enum {
     oom_discipline,
     magic_number,
     stdout_flush,
+    module_doc_header,
     dead_pub,
     change_classification,
     mutation,
@@ -342,6 +343,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .line_length => &.{ "enabled", "max_len" },
         .baseline => &.{ "enabled", "deny_growth" },
         .escape_discipline, .oom_discipline, .magic_number, .stdout_flush => &.{"enabled"},
+        .module_doc_header => &.{"min_lines"},
         .dead_pub => &.{"ignore_test_refs"},
         .change_classification => &.{ "enabled", "against", "gate_last_commit" },
         .mutation => &.{ "min_score_pct", "min_mutants", "max_mutants", "timeout_secs" },
@@ -382,6 +384,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .magic_number => applyEnabledCfg("magic_number", ctx, kv),
         .stdout_flush => applyEnabledCfg("stdout_flush", ctx, kv),
+        .module_doc_header => applyModuleDocHeaderKey(ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
         .mutation => applyMutationKey(ctx, kv),
@@ -413,6 +416,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "oom_discipline", Section.oom_discipline },
         .{ "magic_number", Section.magic_number },
         .{ "stdout_flush", Section.stdout_flush },
+        .{ "module_doc_header", Section.module_doc_header },
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
@@ -578,6 +582,15 @@ fn applyIntFromFloatKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.guard_fns = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, "require_guard")) {
         g.require_guard = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the `min_lines` threshold to `cfg.module_doc_header` (no `enabled`
+/// key — the check is always on; the knob only moves its line threshold).
+fn applyModuleDocHeaderKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.module_doc_header;
+    if (std.mem.eql(u8, kv.key, "min_lines")) {
+        g.min_lines = parseU32(kv.val, g.min_lines);
     }
 }
 
@@ -962,6 +975,21 @@ test "stdout_flush defaults off and opts into gating via config" {
         \\enabled = true
     );
     try std.testing.expectEqual(true, opted.stdout_flush.enabled);
+}
+
+// spec: Configuration - Parses the module_doc_header min_lines threshold
+test "module_doc_header defaults to 200 lines and reads a custom min_lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: the 200-line threshold, unchanged from before the knob existed.
+    const default_cfg = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(u32, 200), default_cfg.module_doc_header.min_lines);
+    // Override to a lower threshold.
+    const cfg = try parse(arena.allocator(),
+        \\[module_doc_header]
+        \\min_lines = 50
+    );
+    try std.testing.expectEqual(@as(u32, 50), cfg.module_doc_header.min_lines);
 }
 
 test "parse per-check exclude arrays" {

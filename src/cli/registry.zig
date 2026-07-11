@@ -408,7 +408,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "module-doc-header",
-        .summary = "Require a //! module doc header on src files over 200 lines",
+        .summary = "Require a //! module doc header on src files over [module_doc_header] min_lines (default 200)",
         .run = check_module_doc_header.run,
     },
 };
