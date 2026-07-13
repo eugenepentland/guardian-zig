@@ -143,18 +143,19 @@ fn alwaysInclude(path: []const u8, spec_file: []const u8) bool {
 
 /// True for an untracked path that looks like a secret or build artifact and
 /// must not be silently staged — the safety rail against committing a
-/// credential the project's .gitignore missed. The fuzzy name heuristic
-/// (`credentials`/`secret` substrings) never fires on a `.zig` source: the
-/// gate just compiled and tested it, and a credentials.zig store module is
-/// code, not a secret. Mirrors guardian-sveltekit's forbidden list,
-/// Zig-flavored.
+/// credential the project's .gitignore missed. Name matching ignores letter
+/// case: a capitalized Credentials.json is as much a secret as a lowercase
+/// one. The fuzzy name heuristic (`credentials`/`secret` substrings) never
+/// fires on a `.zig` source: the gate just compiled and tested it, and a
+/// credentials.zig store module is code, not a secret. Mirrors
+/// guardian-sveltekit's forbidden list, Zig-flavored.
 fn isForbidden(path: []const u8) bool {
     const base = baseName(path);
     if (underDir(path, "zig-out") or underDir(path, ".zig-cache") or underDir(path, "zig-cache")) return true;
-    if (std.mem.eql(u8, base, ".env") or std.mem.startsWith(u8, base, ".env.")) return true;
-    if (std.mem.startsWith(u8, base, "id_rsa")) return true;
+    if (std.ascii.eqlIgnoreCase(base, ".env") or std.ascii.startsWithIgnoreCase(base, ".env.")) return true;
+    if (std.ascii.startsWithIgnoreCase(base, "id_rsa")) return true;
     if (endsWithAny(base, &.{ ".pem", ".key", ".p12" })) return true;
-    if (std.mem.endsWith(u8, base, ".zig")) return false;
+    if (std.ascii.endsWithIgnoreCase(base, ".zig")) return false;
     if (containsAny(path, &.{ "credentials", "secret" })) return true;
     return false;
 }
@@ -170,15 +171,15 @@ fn baseName(path: []const u8) []const u8 {
     return path[idx + 1 ..];
 }
 
-/// True when `s` ends with any of `suffixes`.
+/// True when `s` ends with any of `suffixes`, ignoring letter case.
 fn endsWithAny(s: []const u8, suffixes: []const []const u8) bool {
-    for (suffixes) |suf| if (std.mem.endsWith(u8, s, suf)) return true;
+    for (suffixes) |suf| if (std.ascii.endsWithIgnoreCase(s, suf)) return true;
     return false;
 }
 
-/// True when `s` contains any of `needles`.
+/// True when `s` contains any of `needles`, ignoring letter case.
 fn containsAny(s: []const u8, needles: []const []const u8) bool {
-    for (needles) |n| if (std.mem.indexOf(u8, s, n) != null) return true;
+    for (needles) |n| if (std.ascii.indexOfIgnoreCase(s, n) != null) return true;
     return false;
 }
 
@@ -261,6 +262,26 @@ test "planStaging keeps an untracked credentials.zig but skips credentials.json"
     try testing.expectEqualStrings("src/server/store/credentials.zig", plan.stage[0]);
     try testing.expectEqualStrings("src/auth/secret_box.zig", plan.stage[1]);
     try testing.expectEqual(@as(usize, 2), plan.skipped.len);
+}
+
+// spec: Commit - Skips secret-like names regardless of letter case
+
+test "planStaging skips capitalized secret names like Credentials.json" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The forbidden filter compares names case-insensitively: a capitalized
+    // Credentials.json is as much a secret as a lowercase one, and the .zig
+    // source exemption holds for a capitalized module name too.
+    const changed = [_]git.ChangedPath{
+        untracked("Credentials.json"), untracked("notes/Secret.txt"),
+        untracked(".ENV"),             untracked("certs/Server.PEM"),
+        untracked("deploy/ID_RSA"),    untracked("src/Credentials.zig"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md");
+    try testing.expectEqual(@as(usize, 1), plan.stage.len);
+    try testing.expectEqualStrings("src/Credentials.zig", plan.stage[0]);
+    try testing.expectEqual(@as(usize, 5), plan.skipped.len);
 }
 
 // spec: Commit - Warns loudly listing every skipped path

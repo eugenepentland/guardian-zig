@@ -147,6 +147,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Requires a non-empty intent message
 - Excludes untracked secret and build-artifact paths from staging
+- Skips secret-like names regardless of letter case
 - Never skips an already-tracked path
 - Never skips a Zig source file for a secret-like name
 - Warns loudly listing every skipped path
