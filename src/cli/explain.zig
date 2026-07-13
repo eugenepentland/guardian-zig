@@ -561,10 +561,11 @@ const entries = [_]Entry{
     \\guardians' intent-driven flow: run the whole gate, then commit the change
     \\set, with rails so a green build can't leak a secret or stage build output.
     \\Fix: n/a — run `guardian-check commit --intent "<message>" [dir]`. On green
-    \\it stages the working-tree change set (never `git add -A`; forbidden
-    \\secret/artifact paths skipped and reported; `.guardian/` + SPEC.md always
-    \\included) and commits with the intent as the subject. On red it prints the
-    \\violations and leaves git untouched. Never pushes, never amends.
+    \\it stages the working-tree change set (never `git add -A`; untracked
+    \\secret/artifact paths are skipped with a loud warning — never a tracked
+    \\path or a .zig source; `.guardian/` + SPEC.md always included) and commits
+    \\with the intent as the subject. On red it prints the violations and leaves
+    \\git untouched. Never pushes, never amends.
     \\Exempt: n/a — never part of `all`; requires an explicit non-empty --intent.
     },
 };

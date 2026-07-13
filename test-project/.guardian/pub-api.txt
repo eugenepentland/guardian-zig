@@ -1,0 +1,8 @@
+# guardian-snapshot v2
+src/core/math.zig::add | fn add(a: i32, b: i32) i32
+src/core/math.zig::multiply | fn multiply(a: i32, b: i32) i32
+src/core/math.zig::zero | fn zero() i32
+src/core/strings.zig::join | fn join(a: []const u8, b: []const u8, sep: []const u8) []const u8
+src/core/strings.zig::trimWhitespace | fn trimWhitespace(s: []const u8) []const u8
+src/main.zig::main | fn main() !void
+src/utils/helpers.zig::repeat | fn repeat(s: []const u8, n: usize) []const u8

@@ -1,0 +1,14 @@
+{"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Math - Returns zero for empty input","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Strings - Trims whitespace from both ends","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"boundaries","file":null,"line":null,"message":"src/core/math.zig: forbidden import 'src/utils/helpers.zig' (rule: src/core/*)","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/utils/helpers.zig: pub fn repeat: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/main.zig: pub fn main: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/core/strings.zig: pub fn join: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/core/strings.zig: pub fn trimWhitespace: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/core/math.zig: pub fn add: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/core/math.zig: pub fn multiply: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"doc-comments","file":null,"line":null,"message":"src/core/math.zig: pub fn zero: has no /// doc comment","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"dead-pub","file":null,"line":null,"message":"src/utils/helpers.zig::repeat: unused public declaration","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"dead-pub","file":null,"line":null,"message":"src/core/strings.zig::trimWhitespace: unused public declaration","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"dead-pub","file":null,"line":null,"message":"src/core/math.zig::zero: unused public declaration","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"summary","passed":61,"failed":4,"skipped":3,"filtered":false}

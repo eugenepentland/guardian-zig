@@ -179,10 +179,20 @@ fn countParents(rev_list_output: []const u8) ?u32 {
     return if (count == 0) null else count - 1;
 }
 
+/// One `git status` candidate for the `commit` auto-commit: the path plus
+/// whether git already tracks it (any porcelain status except `??`). The
+/// commit rails apply the secret/artifact skip only to untracked paths — a
+/// tracked path was deliberately added to the repo, and dropping it would
+/// desync the commit from the gated tree.
+pub const ChangedPath = struct {
+    path: []const u8,
+    tracked: bool,
+};
+
 /// Working-tree changed + untracked paths (`git status --porcelain -z`) — the
 /// candidate set for the `commit` auto-commit. Rename/copy entries yield the new
 /// path. Null when git is unavailable, so the caller can refuse to commit.
-pub fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const []const u8 {
+pub fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath {
     const argv = [_][]const u8{ "git", "status", "--porcelain", "-z" };
     const out = runGit(allocator, project_dir, &argv) orelse return null;
     return try parsePorcelainZ(allocator, out);
@@ -190,17 +200,21 @@ pub fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Err
 
 /// Parses `git status --porcelain -z` output into its changed/untracked path
 /// list. Each record is `XY <path>\0`; a rename/copy adds a trailing
-/// `<origpath>\0` token, so the new path is kept and the origin consumed. The
-/// NUL delimiter means paths with spaces or quotes need no unquoting. Pure.
-fn parsePorcelainZ(allocator: Allocator, out: []const u8) Allocator.Error![]const []const u8 {
-    var paths: std.ArrayList([]const u8) = .empty;
+/// `<origpath>\0` token, so the new path is kept and the origin consumed; an
+/// `??` status marks the entry untracked. The NUL delimiter means paths with
+/// spaces or quotes need no unquoting. Pure.
+fn parsePorcelainZ(allocator: Allocator, out: []const u8) Allocator.Error![]const ChangedPath {
+    var paths: std.ArrayList(ChangedPath) = .empty;
     var it = std.mem.splitScalar(u8, out, 0);
     while (it.next()) |entry| {
         if (entry.len < 4) continue; // "XY p" is the shortest real record
         const xy = entry[0..2];
         const path = entry[3..];
         if (isRenameStatus(xy)) _ = it.next(); // consume the paired origin path
-        try paths.append(allocator, path);
+        try paths.append(allocator, .{
+            .path = path,
+            .tracked = !std.mem.eql(u8, xy, "??"),
+        });
     }
     return paths.toOwnedSlice(allocator);
 }
@@ -406,9 +420,26 @@ test "parsePorcelainZ lists paths and consumes rename origins" {
     const out = " M src/a.zig\x00?? new.txt\x00R  src/renamed.zig\x00src/old.zig\x00";
     const paths = try parsePorcelainZ(a, out);
     try testing.expectEqual(@as(usize, 3), paths.len);
-    try testing.expectEqualStrings("src/a.zig", paths[0]);
-    try testing.expectEqualStrings("new.txt", paths[1]);
-    try testing.expectEqualStrings("src/renamed.zig", paths[2]);
+    try testing.expectEqualStrings("src/a.zig", paths[0].path);
+    try testing.expectEqualStrings("new.txt", paths[1].path);
+    try testing.expectEqualStrings("src/renamed.zig", paths[2].path);
+}
+
+// spec: Git Diff - Distinguishes untracked entries from tracked ones in porcelain status
+
+test "parsePorcelainZ marks only ?? entries as untracked" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A worktree modification, an untracked file, and an index-added new file:
+    // only the `??` entry is untracked — `git add`ing a file is a deliberate
+    // decision the commit rails must respect.
+    const out = " M src/a.zig\x00?? new.txt\x00A  src/added.zig\x00";
+    const paths = try parsePorcelainZ(a, out);
+    try testing.expectEqual(@as(usize, 3), paths.len);
+    try testing.expect(paths[0].tracked);
+    try testing.expect(!paths[1].tracked);
+    try testing.expect(paths[2].tracked);
 }
 
 // spec: Git Diff - Classifies a not-a-git-repository failure as a skip, not a hard error

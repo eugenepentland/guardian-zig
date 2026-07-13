@@ -287,12 +287,13 @@ src/fakes/fs.zig::writeFile | fn writeFile(self: *FakeFs, path: []const u8, byte
 src/fakes/random.zig::SeededRandom struct_
 src/fakes/random.zig::init | fn init(seed: u64) SeededRandom
 src/fakes/random.zig::random | fn random(self: *SeededRandom) std.Random
+src/git.zig::ChangedPath struct_
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
 src/git.zig::GitError value
 src/git.zig::LineSpan struct_
 src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool
-src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const []const u8
+src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
 src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
 src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8

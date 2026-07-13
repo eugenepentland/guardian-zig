@@ -1,0 +1,2 @@
+{"type":"run","branch":"main","commit":"2f325a226abf7ebd8a0dd946372e4fc46366354d","outcome":"red","failed_checks":["spec","boundaries","doc-comments","dead-pub"],"duration_ms":6}
+{"type":"run","branch":"main","commit":"2f325a226abf7ebd8a0dd946372e4fc46366354d","outcome":"red","failed_checks":["spec","boundaries","doc-comments","dead-pub"],"duration_ms":8}

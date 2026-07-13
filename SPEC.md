@@ -146,7 +146,10 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Commit
 
 - Requires a non-empty intent message
-- Excludes forbidden secret and build-artifact paths from staging
+- Excludes untracked secret and build-artifact paths from staging
+- Never skips an already-tracked path
+- Never skips a Zig source file for a secret-like name
+- Warns loudly listing every skipped path
 - Always stages guardian metadata and the spec file
 - Reports nothing to commit when no eligible paths remain
 
@@ -362,6 +365,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Returns no spans for deletion-only hunks and deleted files
 - Counts a commit's parents from a rev-list line
 - Extracts changed and untracked paths from porcelain status resolving renames
+- Distinguishes untracked entries from tracked ones in porcelain status
 - Classifies a not-a-git-repository failure as a skip, not a hard error
 - Hard-fails a diff-scoped git command that fails for any other reason
 

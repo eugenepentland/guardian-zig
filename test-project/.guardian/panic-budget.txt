@@ -1,0 +1,7 @@
+# guardian-snapshot v2
+comptime_calls 0
+comptime_max 0
+fixmes 0
+panics 0
+todos 0
+unreachables 0

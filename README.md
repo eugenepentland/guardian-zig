@@ -714,10 +714,16 @@ just verified.
   intent as the message subject. Missing/empty `--intent` is a clean error with
   no side effects.
 - **Safety-railed staging** (never `git add -A` / `.`): the path list comes from
-  `git status --porcelain` (modified + untracked). A forbidden secret/build
-  list is **skipped and reported**, never staged — `.env` / `.env.*`, `*.pem`,
-  `*.key`, `*.p12`, `id_rsa*`, `*credentials*`, `*secret*`, and `zig-out/` /
-  `.zig-cache/` / `zig-cache/`. `.guardian/` metadata and `SPEC.md` are **always
+  `git status --porcelain` (modified + untracked). **Untracked** paths matching
+  the forbidden secret/build list are **skipped with a loud warning** (printed
+  even in quiet mode), never staged — `.env` / `.env.*`, `*.pem`, `*.key`,
+  `*.p12`, `id_rsa*`, `*credentials*` / `*secret*` (except `.zig` sources: a
+  `credentials.zig` store module is code the gate just verified, not a secret),
+  and `zig-out/` / `.zig-cache/` / `zig-cache/`. An **already-tracked path is
+  never skipped** — it was deliberately added to the repo, and dropping it would
+  leave the commit not matching the gated tree; `git add`ing an untracked path
+  yourself is the deliberate escape hatch that lifts the rail the same way.
+  `.guardian/` metadata and `SPEC.md` are **always
   included**, so the baseline/snapshot churn a run produced rides the commit
   that caused it — making that churn attributable instead of smeared across
   unrelated commits. Never pushes, never amends. A green gate with nothing left
