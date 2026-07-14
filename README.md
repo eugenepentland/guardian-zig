@@ -193,6 +193,46 @@ During mutant runs guardian sets `GUARDIAN_MUTATION_RUN=1` on child builds, and
 every guardian command no-ops under it — so the deliberately-broken tree isn't
 gated against itself.
 
+### Per-mutant timeout (process-group kill)
+
+A mutant that turns a loop condition into an infinite loop makes the spawned
+suite spin forever. Guardian bounds every mutant with a **per-mutant deadline**
+= `max(timeout_floor_secs, timeout_multiplier × baseline)`, where `baseline` is
+the wall time of one clean, un-mutated `zig build test` measured once at the
+start of the run (defaults: floor **30s**, multiplier **5**, cargo-mutants
+style). A fast suite is floored so a slow-to-compile mutant isn't mistaken for a
+hang; a slow suite scales up so only a genuine runaway trips. When the clean
+suite can't be measured (it errors or itself hangs past `timeout_secs`), the
+deadline falls back to `timeout_secs`.
+
+Each mutant's `zig build`/`zig build test` runs in its **own process group**
+(`setpgid`), and on deadline the watchdog kills the **whole group**
+(`kill(-pgid, SIGKILL)`) — so the compile/test *grandchildren* an infinite-loop
+mutant would otherwise leave spinning at 100% CPU die with the build, not just
+the direct child. A timed-out mutant is recorded with the `timed_out` outcome
+(distinct from `killed`/`survived`) and **counts as caught** — the suite never
+passed, so the mutation was detected — and a clear line prints the file,
+mutation, elapsed, and deadline. A per-mutant heartbeat (every 15s) prints the
+in-flight mutant's elapsed vs. deadline, so a stalled run is distinguishable
+from a merely slow one.
+
+### Crash-safe mutant journal
+
+A mutant is spliced into the *real* source file, so a run that dies mid-mutant
+(a user `SIGKILL`ing a stuck run, an OOM, a crash) would leave the broken bytes
+on disk. Three layers prevent that:
+
+- **Journal.** Before each splice, the original bytes + a hash of the mutated
+  file are written to `.guardian/cache/mutant-in-flight.json`; a normal restore
+  clears it.
+- **Signal handlers.** `SIGINT`/`SIGTERM` (e.g. Ctrl-C) kill any running child
+  group, revert the in-flight file, and re-raise — so an interrupt never leaves
+  a mutated file or a spinning child behind. `SIGKILL` can't be caught; that's
+  what the journal is for.
+- **Startup recovery.** Every `mutate` run first checks for a journal a dead run
+  left behind and reverts it (verified against the recorded hash); if the file
+  has changed since, it refuses and warns loudly rather than clobber the edit.
+
 ### Survivor report
 
 Every survivor prints its `file:line`, the operator swap (`original -> replacement`),
@@ -579,10 +619,12 @@ gate_last_commit = true
 
 # The mutate command's budgets (explicit step, not part of `all`).
 [mutation]
-min_score_pct = 80   # fail below this kill rate
-min_mutants = 4      # gate on the percentage only at >= this many viable mutants
-max_mutants = 100    # deterministic sampling cap per run
-timeout_secs = 300   # per-phase child build timeout (timeout = killed)
+min_score_pct = 80        # fail below this kill rate
+min_mutants = 4           # gate on the percentage only at >= this many viable mutants
+max_mutants = 100         # deterministic sampling cap per run
+timeout_floor_secs = 30   # per-mutant timeout floor (a fast suite still gets >= this)
+timeout_multiplier = 5    # per-mutant timeout = max(floor, this x clean-suite baseline)
+timeout_secs = 300        # baseline-measurement cap + fallback when no baseline (timeout = killed)
 
 # Opt-in: every `## ` SPEC.md feature section must address or waive the 8
 # scenario categories. Exempt non-feature sections (Overview, Changelog) by name.
@@ -644,7 +686,7 @@ config):
 | `[magic_number]` | `enabled` |
 | `[dead_pub]` | `ignore_test_refs` |
 | `[change_classification]` | `enabled`, `against`, `gate_last_commit` |
-| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `timeout_secs` |
+| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_secs` |
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
 | `[fuzz_presence]` | `modules` |
