@@ -20,6 +20,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Defaults stdout_flush off and promotes it to a hard block via [stdout_flush] enabled
 - Parses the module_doc_header min_lines threshold
 - Parses the mutation section score and budget settings
+- Parses the mutation section timeout floor and multiplier
 - Parses the change classification toggle and against ref
 - Parses the change classification last-commit gate toggle
 - Defaults completeness off and parses its enabled and exempt_sections settings
@@ -396,6 +397,9 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Applies a mutant by splicing the replacement into the source
 - Classifies mutant outcomes from the build and test phases
 - Scores a run as kills over viable mutants counting timeouts as kills
+- Derives a per-mutant timeout from the clean-suite baseline and a floor
+- Kills the whole child process group when a mutant run exceeds its deadline
+- Recovers an interrupted run by reverting the journaled in-flight mutant
 - Fails a run whose score drops below the configured minimum
 - Gates on the kill percentage only at or above the min_mutants floor
 - Ratchets the full-run mutation score against a snapshot

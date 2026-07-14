@@ -25,6 +25,7 @@ const ast_index = @import("../ast/index.zig");
 const git = @import("../git.zig");
 const gen = @import("../mutation/gen.zig");
 const runner = @import("../mutation/runner.zig");
+const journal = @import("../mutation/journal.zig");
 const mut_cache = @import("../mutation/cache.zig");
 const report_mod = @import("../mutation/report.zig");
 const cache = @import("../cache.zig");
@@ -56,9 +57,18 @@ pub fn gatedByPercentage(viable: u32, min_mutants: u32) bool {
     return viable >= min_mutants;
 }
 
+/// Progress heartbeat cadence for a running mutant (so a stalled run is
+/// distinguishable from a merely slow one).
+const heartbeat_secs: u64 = 15;
+const heartbeat_ns: u64 = std.time.ns_per_s * heartbeat_secs;
+
 /// Entry point for the mutate command.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const a = ctx.allocator;
+    // Crash safety first: revert any mutant a dead run left applied on disk,
+    // then arm the SIGINT/SIGTERM revert for this run.
+    journal.recover(a, ctx.project_dir);
+    journal.install();
     var storage: ast_index.Index = undefined;
     const idx = try ast_index.resolve(ctx.source_index, a, ctx.project_dir, &storage);
 
@@ -168,43 +178,67 @@ fn contains(paths: []const []const u8, needle: []const u8) bool {
 /// resumes. Stale mutants (file changed mid-run) are skipped.
 fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u8) types.RunError!ScoredRun {
     const a = ctx.allocator;
-    const ns_per_sec: u64 = std.time.ns_per_s;
-    const opts: runner.RunOpts = .{
-        .project_dir = ctx.project_dir,
-        .timeout_ns = @as(u64, ctx.cfg.mutation.timeout_secs) * ns_per_sec,
-    };
     // A refresh (GUARDIAN_UPDATE_SNAPSHOT covering mutate) bypasses cache reads:
     // a fresh ratchet must be a fresh measurement, not a replay.
     const mode: mut_cache.Reuse = if (snapshot_helper.shouldUpdateFor(a, "mutate")) .fresh else .reuse;
     const cache_map: mut_cache.Map = if (suite_hex) |h| mut_cache.load(a, ctx.project_dir, h, mode) else .{};
 
+    var deadline_ns: ?u64 = null; // measured lazily on the first non-cached mutant
     var scored: ScoredRun = .{};
     for (picked, 1..) |m, i| {
         const key = try mut_cache.keyFor(a, m);
+        const label = try std.fmt.allocPrint(a, "[{d}/{d}] {s}:{d}", .{ i, picked.len, m.path, m.line });
         if (cache_map.get(key)) |cached_outcome| {
             scored.score.add(cached_outcome);
             scored.cached += 1;
-            detail("  [{d}/{d}] {s}:{d} `{s}` -> `{s}` ... {s} (cached)\n", .{
-                i, picked.len, m.path, m.line, m.original, m.replacement, @tagName(cached_outcome),
+            detail("  {s} `{s}` -> `{s}` ... {s} (cached)\n", .{
+                label, m.original, m.replacement, @tagName(cached_outcome),
             });
             if (cached_outcome == .survived) try scored.addSurvivor(a, m);
             continue;
         }
+        if (deadline_ns == null) deadline_ns = computeDeadline(ctx);
+        const opts: runner.RunOpts = .{
+            .project_dir = ctx.project_dir,
+            .timeout_ns = deadline_ns.?,
+            .heartbeat_ns = heartbeat_ns,
+            .label = label,
+        };
+        detail("  {s} `{s}` -> `{s}` running...\n", .{ label, m.original, m.replacement });
         const outcome = runner.runOne(a, opts, m) catch |e| switch (e) {
             error.StaleMutant => {
-                detail("  [{d}/{d}] {s}:{d} skipped (file changed mid-run)\n", .{ i, picked.len, m.path, m.line });
+                detail("  {s} skipped (file changed mid-run)\n", .{label});
                 continue;
             },
             else => return e,
         };
         scored.score.add(outcome);
         if (suite_hex) |h| mut_cache.append(a, ctx.project_dir, h, m, outcome);
-        detail("  [{d}/{d}] {s}:{d} `{s}` -> `{s}` ... {s}\n", .{
-            i, picked.len, m.path, m.line, m.original, m.replacement, @tagName(outcome),
-        });
+        detail("  {s} ... {s}\n", .{ label, @tagName(outcome) });
         if (outcome == .survived) try scored.addSurvivor(a, m);
     }
     return scored;
+}
+
+/// Measures the clean-suite baseline once and derives the per-mutant deadline
+/// (`max(floor, ×multiplier)`), falling back to `timeout_secs` when the baseline
+/// can't be measured (clean suite errored/hung). Announces the chosen timeout.
+fn computeDeadline(ctx: *types.RunCtx) u64 {
+    const mc = ctx.cfg.mutation;
+    const sec = std.time.ns_per_s;
+    const cap_ns = @as(u64, mc.timeout_secs) * sec;
+    if (runner.measureBaseline(ctx.allocator, ctx.project_dir, cap_ns)) |baseline| {
+        const d = runner.deadlineNs(mc.timeout_floor_secs, mc.timeout_multiplier, baseline);
+        reporter.ok("mutate: clean-suite baseline ~{d}s → per-mutant timeout {d}s (floor {d}s, ×{d})", .{
+            baseline / sec, d / sec, mc.timeout_floor_secs, mc.timeout_multiplier,
+        });
+        return d;
+    }
+    reporter.ok(
+        "mutate: clean-suite baseline unavailable → per-mutant timeout {d}s (timeout_secs fallback)",
+        .{mc.timeout_secs},
+    );
+    return cap_ns;
 }
 
 /// A finished run: outcome tallies, the surviving mutants, and how many outcomes

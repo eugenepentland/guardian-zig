@@ -72,9 +72,13 @@ check = "ban-env"
 paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*"]
 
 # reporter is Guardian's logging boundary; it legitimately owns a global + prints.
+# The mutation journal owns process-global in-flight state because a signal
+# handler (its SIGINT/SIGTERM revert) takes no context argument — the catchable-
+# signal analog of the SIGKILL-recovery journal, same category as the reporter
+# singleton.
 [[allow]]
 check = "ban-globals"
-paths = ["src/reporter.zig"]
+paths = ["src/reporter.zig", "src/mutation/journal.zig"]
 
 # reporter.zig defines the fatal helper (reporter.fatal), so its own
 # std.process.exit(1) is the one sanctioned raw exit outside the pub-fn-main
@@ -126,6 +130,10 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # git/mutation process shells (diffAgainst, untrackedFiles, fileAtHead, runOne,
 # parentCount, changedPaths, addPaths, commit, headHash, currentBranch — their
 # pure cores countParents/parsePorcelainZ are tested) are exempt.
+# measureBaseline spawns a real `zig build test` to time the clean suite;
+# install (sigaction on SIGINT/SIGTERM) and trackChild (an atomic store the
+# signal handler reads) are OS-side-effect shells with no pure logic to assert —
+# the same untestable-process-shell category as runOne/commit/currentBranch.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "measureBaseline", "install", "trackChild"]

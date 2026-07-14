@@ -346,7 +346,14 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .module_doc_header => &.{"min_lines"},
         .dead_pub => &.{"ignore_test_refs"},
         .change_classification => &.{ "enabled", "against", "gate_last_commit" },
-        .mutation => &.{ "min_score_pct", "min_mutants", "max_mutants", "timeout_secs" },
+        .mutation => &.{
+            "min_score_pct",
+            "min_mutants",
+            "max_mutants",
+            "timeout_floor_secs",
+            "timeout_multiplier",
+            "timeout_secs",
+        },
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
@@ -547,6 +554,10 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
         g.min_mutants = parseU32(kv.val, g.min_mutants);
     } else if (std.mem.eql(u8, kv.key, "max_mutants")) {
         g.max_mutants = parseU32(kv.val, g.max_mutants);
+    } else if (std.mem.eql(u8, kv.key, "timeout_floor_secs")) {
+        g.timeout_floor_secs = parseU32(kv.val, g.timeout_floor_secs);
+    } else if (std.mem.eql(u8, kv.key, "timeout_multiplier")) {
+        g.timeout_multiplier = parseU32(kv.val, g.timeout_multiplier);
     } else if (std.mem.eql(u8, kv.key, "timeout_secs")) {
         g.timeout_secs = parseU32(kv.val, g.timeout_secs);
     }
@@ -757,6 +768,26 @@ test "parse reads [mutation] score minimum and run budgets" {
     try std.testing.expectEqual(@as(u32, 6), cfg.mutation.min_mutants);
     try std.testing.expectEqual(@as(u32, 25), cfg.mutation.max_mutants);
     try std.testing.expectEqual(@as(u32, 60), cfg.mutation.timeout_secs);
+}
+
+// spec: Configuration - Parses the mutation section timeout floor and multiplier
+
+test "parse reads [mutation] timeout floor and multiplier with defaults" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Absent keys keep the cargo-mutants-style defaults (floor 30s, ×5).
+    const defaults = try parse(arena.allocator(), "[mutation]\nmin_score_pct = 80");
+    try std.testing.expectEqual(@as(u32, 30), defaults.mutation.timeout_floor_secs);
+    try std.testing.expectEqual(@as(u32, 5), defaults.mutation.timeout_multiplier);
+    // Explicit values override them.
+    const content =
+        \\[mutation]
+        \\timeout_floor_secs = 45
+        \\timeout_multiplier = 8
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expectEqual(@as(u32, 45), cfg.mutation.timeout_floor_secs);
+    try std.testing.expectEqual(@as(u32, 8), cfg.mutation.timeout_multiplier);
 }
 
 // spec: Configuration - Parses the change classification toggle and against ref

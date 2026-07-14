@@ -315,6 +315,12 @@ src/mutation/gen.zig::filterToSpans | fn filterToSpans( allocator: Allocator, mu
 src/mutation/gen.zig::generate | fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8) Allocator.Error!GenResult
 src/mutation/gen.zig::sample | fn sample(allocator: Allocator, mutants: []const Mutant, max: u32) Allocator.Error![]const Mutant
 src/mutation/gen.zig::waivedInSpans | fn waivedInSpans(waived_lines: []const u32, spans: []const git.LineSpan) u32
+src/mutation/journal.zig::Entry struct_
+src/mutation/journal.zig::begin | fn begin(arena: Allocator, project_dir: []const u8, entry: Entry) void
+src/mutation/journal.zig::finish | fn finish(arena: Allocator, project_dir: []const u8) void
+src/mutation/journal.zig::install | fn install() void
+src/mutation/journal.zig::recover | fn recover(arena: Allocator, project_dir: []const u8) void
+src/mutation/journal.zig::trackChild | fn trackChild(pgid: i32) void
 src/mutation/report.zig::Summary struct_
 src/mutation/report.zig::Survivor struct_
 src/mutation/report.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
@@ -329,6 +335,8 @@ src/mutation/runner.zig::RunOpts struct_
 src/mutation/runner.zig::Score struct_
 src/mutation/runner.zig::SpliceError value
 src/mutation/runner.zig::add | fn add(self: *Score, outcome: Outcome) void
+src/mutation/runner.zig::deadlineNs | fn deadlineNs(floor_secs: u32, multiplier: u32, baseline_ns: u64) u64
+src/mutation/runner.zig::measureBaseline | fn measureBaseline(allocator: Allocator, project_dir: []const u8, cap_ns: u64) ?u64
 src/mutation/runner.zig::mutation_env value
 src/mutation/runner.zig::outcomeFor | fn outcomeFor(build_res: ExecResult, test_res: ExecResult) Outcome
 src/mutation/runner.zig::pct | fn pct(self: Score) u32

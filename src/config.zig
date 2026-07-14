@@ -233,8 +233,19 @@ pub const MutationCfg = struct {
     /// Cap on mutants exercised per run; larger candidate sets are sampled
     /// deterministically (every k-th mutant) down to this budget.
     max_mutants: u32 = 100,
-    /// Per-phase child build timeout. A timed-out mutant counts as killed:
-    /// the mutation made the suite hang, so it was caught.
+    /// Floor (seconds) under the per-mutant timeout. The deadline is
+    /// `max(timeout_floor_secs, timeout_multiplier × clean-suite baseline)`, so
+    /// a fast suite still gets at least this long before a hang is called.
+    /// Default 30 (cargo-mutants-style).
+    timeout_floor_secs: u32 = 30,
+    /// Multiplier on the measured clean-suite duration for the per-mutant
+    /// timeout (see `timeout_floor_secs`). Default 5 — generous headroom over a
+    /// normal run so only a genuine hang trips it.
+    timeout_multiplier: u32 = 5,
+    /// Safety cap on the clean-suite baseline measurement, and the fallback
+    /// per-mutant timeout used when that baseline can't be measured (the clean
+    /// suite errored or hung). A timed-out mutant counts as killed: the
+    /// mutation made the suite hang, so it was caught.
     timeout_secs: u32 = 300,
 };
 
