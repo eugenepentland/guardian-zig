@@ -14,6 +14,7 @@ const Allocator = std.mem.Allocator;
 
 const true_lit = "true";
 const false_lit = "false";
+const cohort_rotate_bits: u6 = 23;
 
 /// Waiver marker: a source line containing this string is excluded from mutant
 /// generation. For known *equivalent* mutants — e.g. `>` vs `>=` on a min/max
@@ -21,18 +22,26 @@ const false_lit = "false";
 /// optional reason may follow (`// mutate-ok: boundary equivalence`).
 const waiver_marker = "// mutate-ok";
 
+/// Stable source coordinates and original line text for one mutation site.
+pub const Source = struct {
+    line: u32 = 1,
+    /// Zero-based token column. Unlike absolute byte/line offsets this remains
+    /// stable when unrelated lines are inserted, while distinguishing two
+    /// identical operators on the same source line.
+    column: u32 = 0,
+    text: []const u8 = "",
+};
+
 /// One candidate mutation: replace `content[start..end]` (which reads
-/// `original`) with `replacement`. `line` is 1-indexed for reporting and
-/// for fast-tier span filtering; `src_line` is that line's full text, so a
-/// survivor report can show an agent the exact expression that changed.
+/// `original`) with `replacement`. Its nested source coordinates support
+/// reporting, diff filtering, and stable cohort identity.
 pub const Mutant = struct {
     path: []const u8,
     start: usize,
     end: usize,
     original: []const u8,
     replacement: []const u8,
-    line: u32,
-    src_line: []const u8 = "",
+    source: Source = .{},
 };
 
 /// A file's generated mutants plus the 1-indexed lines whose mutation sites
@@ -65,7 +74,8 @@ pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8)
         scope.update(t.tag);
         if (!in_test) {
             if (replacementFor(z, t, prev_tag)) |rep| {
-                const src = lineText(z, t.loc.start);
+                const source_line_start = lineStart(z, t.loc.start);
+                const src = lineTextFrom(z, source_line_start);
                 if (isWaived(src)) {
                     try waived.append(allocator, line);
                 } else {
@@ -75,8 +85,11 @@ pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8)
                         .end = t.loc.end,
                         .original = z[t.loc.start..t.loc.end],
                         .replacement = rep,
-                        .line = line,
-                        .src_line = src,
+                        .source = .{
+                            .line = line,
+                            .column = @intCast(t.loc.start - source_line_start),
+                            .text = src,
+                        },
                     });
                 }
             }
@@ -104,9 +117,12 @@ fn isWaived(src_line: []const u8) bool {
 /// The full source line (no trailing newline) containing byte `offset`, sliced
 /// from `z`. Feeds both the survivor report (the exact line an agent must
 /// strengthen a test against) and the `// mutate-ok` waiver scan.
-fn lineText(z: []const u8, offset: usize) []const u8 {
-    const start = if (std.mem.lastIndexOfScalar(u8, z[0..offset], '\n')) |i| i + 1 else 0;
-    const end = std.mem.indexOfScalarPos(u8, z, offset, '\n') orelse z.len;
+fn lineStart(z: []const u8, offset: usize) usize {
+    return if (std.mem.lastIndexOfScalar(u8, z[0..offset], '\n')) |i| i + 1 else 0;
+}
+
+fn lineTextFrom(z: []const u8, start: usize) []const u8 {
+    const end = std.mem.indexOfScalarPos(u8, z, start, '\n') orelse z.len;
     return z[start..end];
 }
 
@@ -171,7 +187,7 @@ pub fn filterToSpans(
 ) Allocator.Error![]const Mutant {
     var out: std.ArrayList(Mutant) = .empty;
     for (mutants) |m| {
-        if (anySpanContains(spans, m.line)) try out.append(allocator, m);
+        if (anySpanContains(spans, m.source.line)) try out.append(allocator, m);
     }
     return out.toOwnedSlice(allocator);
 }
@@ -183,18 +199,58 @@ fn anySpanContains(spans: []const git.LineSpan, line: u32) bool {
     return false;
 }
 
-/// Deterministically samples down to `max` mutants by taking every k-th
-/// one, spreading coverage across the whole candidate list without RNG
-/// (guardian bans ambient randomness — same input, same sample).
+/// A stable identity hash used for deterministic sampling and cohort manifests.
+/// It deliberately excludes absolute byte/line offsets: inserting unrelated
+/// source above a mutation site must not reshuffle the campaign. The source
+/// line, stable within-line column, and operator swap uniquely identify sites.
+pub fn identityHash(m: Mutant) u64 {
+    var h = std.hash.Wyhash.init(0);
+    h.update(m.path);
+    h.update("\x00");
+    h.update(m.source.text);
+    h.update("\x00");
+    const column_end = @min(@as(usize, m.source.column), m.source.text.len);
+    h.update(m.source.text[0..column_end]);
+    h.update("\x00");
+    h.update(m.original);
+    h.update("\x00");
+    h.update(m.replacement);
+    return h.final();
+}
+
+const Ranked = struct { hash: u64, mutant: Mutant };
+
+fn rankedLess(_: void, lhs: Ranked, rhs: Ranked) bool {
+    if (lhs.hash != rhs.hash) return lhs.hash < rhs.hash;
+    const path_order = std.mem.order(u8, lhs.mutant.path, rhs.mutant.path);
+    if (path_order != .eq) return path_order == .lt;
+    return lhs.mutant.start < rhs.mutant.start;
+}
+
+/// Deterministically samples the identities with the lowest stable hashes.
+/// Adding an unrelated candidate therefore displaces at most one selected
+/// mutant instead of shifting nearly the entire every-kth cohort.
 pub fn sample(allocator: Allocator, mutants: []const Mutant, max: u32) Allocator.Error![]const Mutant {
     if (max == 0 or mutants.len <= max) return mutants;
-    const step = mutants.len / max;
-    // len > max and max >= 1 here, so the stride is at least 1 — which keeps the
-    // largest sampled index (max-1)*step strictly below len (i.e. in bounds).
-    std.debug.assert(step >= 1);
+    const ranked = try allocator.alloc(Ranked, mutants.len);
+    for (mutants, ranked) |m, *r| r.* = .{ .hash = identityHash(m), .mutant = m };
+    std.mem.sort(Ranked, ranked, {}, rankedLess);
     const out = try allocator.alloc(Mutant, max);
-    for (out, 0..) |*m, i| m.* = mutants[i * step];
+    for (out, ranked[0..max]) |*m, r| m.* = r.mutant;
     return out;
+}
+
+/// Digest of the exact selected identities, independent of their execution
+/// order. Ratchets only compare scores when this digest matches.
+pub fn cohortHash(mutants: []const Mutant) u64 {
+    var xor: u64 = 0;
+    var sum: u64 = 0;
+    for (mutants) |m| {
+        const h = identityHash(m);
+        xor ^= h;
+        sum +%= h *% 0x9e3779b97f4a7c15;
+    }
+    return xor ^ std.math.rotl(u64, sum, cohort_rotate_bits) ^ @as(u64, @intCast(mutants.len));
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -223,7 +279,7 @@ test "generate flips comparison operators in production code only" {
     try testing.expectEqual(@as(usize, 1), countReplacement(out, "<="));
     try testing.expectEqual(@as(usize, 1), countReplacement(out, ">"));
     try testing.expectEqual(@as(usize, 0), countReplacement(out, "!="));
-    try testing.expectEqual(@as(u32, 1), out[0].line);
+    try testing.expectEqual(@as(u32, 1), out[0].source.line);
 }
 
 // spec: Mutation Testing - Generates mutants by swapping binary plus and minus operators
@@ -291,11 +347,49 @@ test "generate skips a mutate-ok line and counts it as waived" {
     try testing.expectEqual(@as(u32, 1), res.waived_lines[0]);
     try testing.expectEqual(@as(usize, 1), res.mutants.len);
     try testing.expectEqualStrings("<=", res.mutants[0].replacement);
-    try testing.expectEqual(@as(u32, 2), res.mutants[0].line);
+    try testing.expectEqual(@as(u32, 2), res.mutants[0].source.line);
     // The fast tier scopes the waiver tally to the diff: a span covering only
     // line 2 sees no waiver; one covering line 1 counts it.
     try testing.expectEqual(@as(u32, 0), waivedInSpans(res.waived_lines, &.{.{ .start = 2, .len = 1 }}));
     try testing.expectEqual(@as(u32, 1), waivedInSpans(res.waived_lines, &.{.{ .start = 1, .len = 1 }}));
+}
+
+// spec: Mutation Testing - Samples mutants by stable identity hash
+
+test "stable hash sampling is not reshuffled by an unrelated insertion" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const base = (try generate(a, "src/x.zig",
+        \\pub fn a(x: bool) bool { return true and x; }
+        \\pub fn b(x: bool) bool { return false or x; }
+        \\pub fn c(x: u32) bool { return x > 2; }
+    )).mutants;
+    const shifted = (try generate(a, "src/x.zig",
+        \\pub const unrelated = 1;
+        \\pub fn a(x: bool) bool { return true and x; }
+        \\pub fn b(x: bool) bool { return false or x; }
+        \\pub fn c(x: u32) bool { return x > 2; }
+    )).mutants;
+    const first = try sample(a, base, 3);
+    const second = try sample(a, shifted, 3);
+    try testing.expectEqual(cohortHash(first), cohortHash(second));
+    for (first, second) |lhs, rhs| try testing.expectEqual(identityHash(lhs), identityHash(rhs));
+}
+
+// spec: Mutation Testing - Distinguishes repeated mutation sites on one line in the cohort identity
+
+test "stable identity distinguishes repeated operators on one line" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const mutants = (try generate(
+        arena.allocator(),
+        "src/x.zig",
+        "pub fn all(a: bool, b: bool, c: bool) bool { return a and b and c; }",
+    )).mutants;
+    try testing.expectEqual(@as(usize, 2), mutants.len);
+    try testing.expect(mutants[0].source.column != mutants[1].source.column);
+    try testing.expect(identityHash(mutants[0]) != identityHash(mutants[1]));
 }
 
 // spec: Mutation Testing - Records the original source line on each generated mutant
@@ -308,7 +402,10 @@ test "generate carries the original source line for the survivor report" {
     );
     try testing.expectEqual(@as(usize, 1), res.mutants.len);
     // src_line is the whole line's text — the exact context an agent needs.
-    try testing.expectEqualStrings("pub fn lt(a: u32, b: u32) bool { return a < b; }", res.mutants[0].src_line);
+    try testing.expectEqualStrings(
+        "pub fn lt(a: u32, b: u32) bool { return a < b; }",
+        res.mutants[0].source.text,
+    );
 }
 
 // spec: Mutation Testing - Restricts fast-tier mutants to added line spans
@@ -324,25 +421,33 @@ test "filterToSpans keeps only mutants on added lines" {
     try testing.expectEqual(@as(usize, 2), out.len);
     const kept = try filterToSpans(a, out, &.{.{ .start = 2, .len = 1 }});
     try testing.expectEqual(@as(usize, 1), kept.len);
-    try testing.expectEqual(@as(u32, 2), kept[0].line);
+    try testing.expectEqual(@as(u32, 2), kept[0].source.line);
 }
 
 // spec: Mutation Testing - Samples mutants deterministically down to the configured cap
 
-test "sample takes a deterministic evenly-strided subset" {
+test "sample takes a deterministic identity-hash subset" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var all: [10]Mutant = undefined;
     for (&all, 0..) |*m, i| {
-        m.* = .{ .path = "p", .start = i, .end = i, .original = "", .replacement = "", .line = @intCast(i + 1) };
+        m.* = .{
+            .path = "p",
+            .start = i,
+            .end = i,
+            .original = "",
+            .replacement = "",
+            .source = .{ .line = @intCast(i + 1) },
+        };
     }
     const picked = try sample(a, &all, 3);
     try testing.expectEqual(@as(usize, 3), picked.len);
-    // Stride 10/3 = 3: indices 0, 3, 6 — stable across runs.
-    try testing.expectEqual(@as(u32, 1), picked[0].line);
-    try testing.expectEqual(@as(u32, 4), picked[1].line);
-    try testing.expectEqual(@as(u32, 7), picked[2].line);
+    const again = try sample(a, &all, 3);
+    try testing.expectEqual(@as(u32, 1), picked[0].source.line);
+    try testing.expectEqual(@as(u32, 2), picked[1].source.line);
+    try testing.expectEqual(@as(u32, 3), picked[2].source.line);
+    try testing.expectEqualSlices(Mutant, picked, again);
     // Under the cap, the input is returned unchanged.
     const untouched = try sample(a, picked, 8);
     try testing.expectEqual(@as(usize, 3), untouched.len);
@@ -355,12 +460,18 @@ test "sample stays in bounds when the candidate list dwarfs the cap" {
     const a = arena.allocator();
     var all: [100]Mutant = undefined;
     for (&all, 0..) |*m, i| {
-        m.* = .{ .path = "p", .start = i, .end = i, .original = "", .replacement = "", .line = @intCast(i + 1) };
+        m.* = .{
+            .path = "p",
+            .start = i,
+            .end = i,
+            .original = "",
+            .replacement = "",
+            .source = .{ .line = @intCast(i + 1) },
+        };
     }
-    // 100 candidates, cap 7 → stride 14 (>= 1), so the last pick is index 84 —
-    // still inside the array. A stride of 0 would have repeated index 0.
+    // Equal hashes exercise deterministic tie-breaking across the whole list.
     const picked = try sample(a, &all, 7);
     try testing.expectEqual(@as(usize, 7), picked.len);
-    try testing.expectEqual(@as(u32, 1), picked[0].line);
-    try testing.expectEqual(@as(u32, 85), picked[6].line);
+    try testing.expectEqual(@as(u32, 1), picked[0].source.line);
+    try testing.expectEqual(@as(u32, 7), picked[6].source.line);
 }

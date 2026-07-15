@@ -9,7 +9,7 @@
 const std = @import("std");
 
 /// The guardian release version, mirroring build.zig.zon `.version`.
-pub const string: []const u8 = "0.1.0";
+pub const string: []const u8 = "0.2.0";
 
 // spec: Versioning - Reports a non-empty dotted guardian version string
 

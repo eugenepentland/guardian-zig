@@ -568,6 +568,18 @@ const entries = [_]Entry{
     \\git untouched. Never pushes, never amends.
     \\Exempt: n/a — never part of `all`; requires an explicit non-empty --intent.
     },
+    .{ .name = "doctor", .text = "Why: a read-only maintenance command that catches corrupt recognized\n" ++
+        "Guardian metadata before a ratchet can silently lose meaning, while also\n" ++
+        "surfacing advisory cleanup/reproducibility issues.\n" ++
+        "Fix: repair malformed metadata; review warnings for stale baselines, a\n" ++
+        "missing mutation ratchet, path-based integration, or a very large cache.\n" ++
+        "Exempt: n/a — never part of `all`; advisory warnings do not fail it." },
+    .{ .name = "spec-sync", .text = "Why: unlinked `// spec:` tags often represent implemented behavior whose\n" ++
+        "exact SPEC.md bullet was omitted. This assistant groups exact suggestions\n" ++
+        "without claiming that generated prose is automatically authoritative.\n" ++
+        "Fix: review and manually apply appropriate suggestions. Add `--json` for\n" ++
+        "machine-readable output. The command never modifies files.\n" ++
+        "Exempt: n/a — never part of `all`; it is always a dry run." },
 };
 
 /// Returns the explanation text for `name`, or null when no entry exists.
@@ -592,7 +604,7 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, doctor, spec-sync, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).

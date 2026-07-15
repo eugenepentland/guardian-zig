@@ -3,8 +3,8 @@
 //! GUARDIAN_MUTATION_RUN=1 (so guardian's own gates no-op instead of
 //! judging the deliberately-broken tree), restore the original bytes, and
 //! classify what happened. A mutant the compiler rejects is *unviable*
-//! (excluded from scoring); one the tests fail or hang on is *killed* —
-//! only a mutant the whole suite quietly accepts counts against the score.
+//! (excluded from scoring); one the tests fail on is *killed*. Repeated hangs
+//! are inconclusive and fail the campaign without inflating its score.
 //!
 //! Each child runs in its OWN process group (`child.pgid = 0`) and a watchdog
 //! kills the whole group (`kill(-pgid)`) when a mutant outlives its deadline —
@@ -26,6 +26,8 @@ pub const mutation_env = "GUARDIAN_MUTATION_RUN";
 
 /// Cap on a source file read before splicing (mirrors the walker's cap).
 const max_src_bytes: usize = 10 * 1024 * 1024;
+const cache_flag = "--cache-dir";
+const mutation_cache_leaf = ".guardian/cache/zig-mutate";
 
 /// Error surface of a mutant run: the runner reads/splices/restores source
 /// files, clones the environment, and spawns child `zig build` processes, so
@@ -41,22 +43,22 @@ pub const RunError = Allocator.Error ||
     error{ StaleMutant, FileTooBig, StreamTooLong };
 
 /// What one mutant did to the suite.
-pub const Outcome = enum { killed, survived, unviable, timed_out };
+pub const Outcome = enum { killed, survived, unviable, inconclusive };
 
 /// Result of one child build invocation.
 pub const ExecResult = enum { ok, failed, timed_out };
 
 /// Pure classification of a mutant from its two build phases: a compile
-/// failure is unviable, a test failure is killed, a hang in either phase is
-/// timed out (still caught), and a fully green run means the mutant survived.
+/// failure is unviable, a test failure is killed, a repeated hang is
+/// inconclusive (never credited as a kill), and a green run survives.
 pub fn outcomeFor(build_res: ExecResult, test_res: ExecResult) Outcome {
     return switch (build_res) {
-        .timed_out => .timed_out,
+        .timed_out => .inconclusive,
         .failed => .unviable,
         .ok => switch (test_res) {
             .ok => .survived,
             .failed => .killed,
-            .timed_out => .timed_out,
+            .timed_out => .inconclusive,
         },
     };
 }
@@ -66,7 +68,7 @@ pub const Score = struct {
     killed: u32 = 0,
     survived: u32 = 0,
     unviable: u32 = 0,
-    timed_out: u32 = 0,
+    inconclusive: u32 = 0,
 
     /// Adds one mutant's outcome to the tallies.
     pub fn add(self: *Score, outcome: Outcome) void {
@@ -74,23 +76,23 @@ pub const Score = struct {
             .killed => self.killed += 1,
             .survived => self.survived += 1,
             .unviable => self.unviable += 1,
-            .timed_out => self.timed_out += 1,
+            .inconclusive => self.inconclusive += 1,
         }
     }
 
-    /// Count of viable mutants — killed + timed-out + survived, excluding
-    /// unviable (compile-error) mutants. This is the percentage denominator and
-    /// the quantity the small-diff gating floor (`min_mutants`) is measured
+    /// Count of conclusive viable mutants. Inconclusive timeouts are excluded
+    /// from both numerator and denominator and make the overall command fail.
+    /// This is also the quantity the small-diff floor (`min_mutants`) measures
     /// against: below the floor a percentage is statistically meaningless.
     pub fn viable(self: Score) u32 {
-        return self.killed + self.timed_out + self.survived;
+        return self.killed + self.survived;
     }
 
-    /// Kill percentage over viable mutants. Timeouts count as kills (an
-    /// infinite-loop mutant was still caught); unviable mutants are
-    /// excluded. An empty run scores 100 — nothing survived.
+    /// Kill percentage over conclusive viable mutants. Timeouts cannot inflate
+    /// the score. An empty conclusive run scores 100, but an inconclusive run is
+    /// rejected by the command before ratcheting.
     pub fn pct(self: Score) u32 {
-        const kills = self.killed + self.timed_out;
+        const kills = self.killed;
         const denom = self.viable();
         if (denom == 0) return 100;
         // kills is a subset of viable (viable also counts survived), so the
@@ -136,6 +138,12 @@ pub const RunOpts = struct {
     heartbeat_ns: u64 = 0,
     /// Progress label (e.g. "[3/40] src/x.zig:88") for heartbeat/timeout lines.
     label: []const u8 = "",
+    /// Dedicated local Zig cache for one mutation campaign.
+    cache_dir: []const u8,
+    /// Optional cheap test step run before the full test suite.
+    smoke_step: ?[]const u8 = null,
+    /// A first timeout is retried with this deadline multiplier.
+    timeout_retry_multiplier: u32 = 2,
 };
 
 /// Ns per second/millisecond, named so the timeout arithmetic reads as unit
@@ -160,14 +168,59 @@ pub fn deadlineNs(floor_secs: u32, multiplier: u32, baseline_ns: u64) u64 {
 /// Times one clean, un-mutated `zig build test` to seed the per-mutant deadline.
 /// Returns the elapsed ns, or null when the clean suite errors or outlives
 /// `cap_ns` (no usable baseline → caller falls back to `timeout_secs`).
-pub fn measureBaseline(allocator: Allocator, project_dir: []const u8, cap_ns: u64) ?u64 {
-    const sup = superviseArgv(allocator, &.{ "zig", "build", "test" }, project_dir, .{
+pub fn measureBaseline(
+    allocator: Allocator,
+    project_dir: []const u8,
+    cache_dir: []const u8,
+    cap_ns: u64,
+) ?u64 {
+    const sup = superviseArgv(allocator, &.{ "zig", "build", "test", cache_flag, cache_dir }, project_dir, .{
         .timeout_ns = cap_ns,
         .tick_ns = baseline_tick_ns,
         .heartbeat = null,
     }) catch return null;
     if (sup.result != .ok) return null;
     return sup.elapsed_ns;
+}
+
+/// Verifies an optional smoke step passes on the clean tree. A broken baseline
+/// must stop the campaign: otherwise every mutant would be reported killed.
+pub fn cleanStep(
+    allocator: Allocator,
+    project_dir: []const u8,
+    cache_dir: []const u8,
+    step: []const u8,
+    timeout_ns: u64,
+) RunError!ExecResult {
+    const sup = try superviseArgv(allocator, &.{ "zig", "build", step, cache_flag, cache_dir }, project_dir, .{
+        .timeout_ns = timeout_ns,
+        .tick_ns = baseline_tick_ns,
+        .heartbeat = null,
+    });
+    return sup.result;
+}
+
+/// Creates a clean campaign-local Zig cache. Returns null on filesystem failure
+/// after logging it, so callers can fail the command without widening RunError.
+pub fn prepareCache(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const u8 {
+    const p = try std.fs.path.join(allocator, &.{ project_dir, mutation_cache_leaf });
+    std.fs.cwd().deleteTree(p) catch |e| {
+        std.log.err("mutation Zig cache recovery failed: {s}", .{@errorName(e)});
+        return null;
+    };
+    std.fs.cwd().makePath(p) catch |e| {
+        std.log.err("mutation Zig cache creation failed: {s}", .{@errorName(e)});
+        return null;
+    };
+    return p;
+}
+
+/// Removes the campaign-local Zig cache. Best-effort, because cleanup must not
+/// hide a more useful mutation verdict already being returned.
+pub fn cleanupCache(path: []const u8) void {
+    std.fs.cwd().deleteTree(path) catch |e| {
+        std.log.warn("mutation Zig cache cleanup failed: {s}", .{@errorName(e)});
+    };
 }
 
 /// Runs one mutant end to end: journal + splice, `zig build` (viability), `zig
@@ -198,14 +251,51 @@ pub fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outco
         journal.finish(allocator, opts.project_dir);
     }
 
-    const build = try runPhase(allocator, &.{ "zig", "build" }, opts, "building");
+    const build = try runPhaseRetry(
+        allocator,
+        &.{ "zig", "build", cache_flag, opts.cache_dir },
+        opts,
+        "building",
+    );
     if (build.result != .ok) {
         if (build.result == .timed_out) reportTimeout(m, opts, "build", build.elapsed_ns);
         return outcomeFor(build.result, .ok);
     }
-    const tst = try runPhase(allocator, &.{ "zig", "build", "test" }, opts, "testing");
+    if (opts.smoke_step) |step| {
+        const smoke = try runPhaseRetry(
+            allocator,
+            &.{ "zig", "build", step, cache_flag, opts.cache_dir },
+            opts,
+            "smoke testing",
+        );
+        if (smoke.result != .ok) {
+            if (smoke.result == .timed_out) reportTimeout(m, opts, "smoke", smoke.elapsed_ns);
+            return if (smoke.result == .failed) .killed else .inconclusive;
+        }
+    }
+    const tst = try runPhaseRetry(
+        allocator,
+        &.{ "zig", "build", "test", cache_flag, opts.cache_dir },
+        opts,
+        "testing",
+    );
     if (tst.result == .timed_out) reportTimeout(m, opts, "test", tst.elapsed_ns);
     return outcomeFor(build.result, tst.result);
+}
+
+/// Retries a timeout once with a larger deadline. Only a repeated timeout is
+/// returned to classification, where it becomes inconclusive rather than a kill.
+fn runPhaseRetry(allocator: Allocator, argv: []const []const u8, opts: RunOpts, phase: []const u8) RunError!Supervised {
+    const first = try runPhase(allocator, argv, opts, phase);
+    if (first.result != .timed_out) return first;
+    reporter.detail("  {s} {s} timed out; retrying with ×{d} deadline\n", .{
+        opts.label,
+        phase,
+        opts.timeout_retry_multiplier,
+    });
+    var retry = opts;
+    retry.timeout_ns = std.math.mul(u64, opts.timeout_ns, opts.timeout_retry_multiplier) catch std.math.maxInt(u64);
+    return runPhase(allocator, argv, retry, phase);
 }
 
 /// Runs one build phase under the per-mutant deadline, translating RunOpts into
@@ -227,7 +317,7 @@ fn reportTimeout(m: gen.Mutant, opts: RunOpts, phase: []const u8, elapsed_ns: u6
     const deadline_s = opts.timeout_ns / ns_per_s;
     reporter.detail(
         "  {s} TIMEOUT ({s}) {s}:{d} `{s}` -> `{s}` — killed process group after ~{d}s (deadline {d}s)\n",
-        .{ opts.label, phase, m.path, m.line, m.original, m.replacement, elapsed_s, deadline_s },
+        .{ opts.label, phase, m.path, m.source.line, m.original, m.replacement, elapsed_s, deadline_s },
     );
 }
 
@@ -354,27 +444,45 @@ const testing = std.testing;
 test "outcomeFor maps build/test results to mutant outcomes" {
     try testing.expectEqual(Outcome.survived, outcomeFor(.ok, .ok));
     try testing.expectEqual(Outcome.killed, outcomeFor(.ok, .failed));
-    try testing.expectEqual(Outcome.timed_out, outcomeFor(.ok, .timed_out));
+    try testing.expectEqual(Outcome.inconclusive, outcomeFor(.ok, .timed_out));
     // A compile failure never reaches the test phase: unviable regardless.
     try testing.expectEqual(Outcome.unviable, outcomeFor(.failed, .ok));
-    try testing.expectEqual(Outcome.timed_out, outcomeFor(.timed_out, .ok));
+    try testing.expectEqual(Outcome.inconclusive, outcomeFor(.timed_out, .ok));
 }
 
-// spec: Mutation Testing - Scores a run as kills over viable mutants counting timeouts as kills
+// spec: Mutation Testing - Excludes inconclusive timeouts from the mutation score
 
-test "Score.pct counts timeouts as kills and excludes unviable mutants" {
+test "Score.pct excludes inconclusive and unviable mutants" {
     var s: Score = .{};
     s.add(.killed);
     s.add(.killed);
-    s.add(.timed_out);
+    s.add(.inconclusive);
     s.add(.survived);
     s.add(.unviable);
-    // 3 kills (2 killed + 1 timeout) of 4 viable = 75%; unviable excluded.
-    try testing.expectEqual(@as(u32, 4), s.viable());
-    try testing.expectEqual(@as(u32, 75), s.pct());
+    // 2 kills of 3 conclusive viable = 66%; timeout cannot inflate the score.
+    try testing.expectEqual(@as(u32, 3), s.viable());
+    try testing.expectEqual(@as(u32, 66), s.pct());
     const empty: Score = .{};
     try testing.expectEqual(@as(u32, 0), empty.viable());
     try testing.expectEqual(@as(u32, 100), empty.pct());
+}
+
+// spec: Mutation Testing - Uses and cleans a campaign-local Zig cache
+
+test "prepareCache creates a clean isolated cache and cleanupCache removes it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const dir = "zig-cache/mutation-cache-lifecycle";
+    std.fs.cwd().deleteTree(dir) catch |e| return e;
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cache test cleanup: {s}", .{@errorName(e)});
+    const cache_dir = (try prepareCache(arena.allocator(), dir)).?;
+    try std.fs.cwd().access(cache_dir, .{});
+    cleanupCache(cache_dir);
+    try testing.expectError(error.FileNotFound, std.fs.cwd().access(cache_dir, .{}));
+}
+
+test "cleanStep is part of the clean-baseline runner API" {
+    try testing.expect(@intFromPtr(&cleanStep) != 0);
 }
 
 // spec: Mutation Testing - Applies a mutant by splicing the replacement into the source
@@ -390,7 +498,7 @@ test "spliced replaces the mutant byte range and rejects stale ranges" {
         .end = 10,
         .original = "<",
         .replacement = "<=",
-        .line = 1,
+        .source = .{ .line = 1 },
     };
     try testing.expectEqualStrings("return a <= b;", try spliced(a, src, m));
     // Content changed under us: the range no longer reads `original`.

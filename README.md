@@ -35,7 +35,7 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-64 checks gate Guardian's own self-build; a 65th, `stdout-flush`, is **report-only by default** — it runs on every build and surfaces findings without failing it unless `[stdout_flush] enabled = true` promotes it to a gating hard-block (Guardian leaves it off, so the 64-gating count holds for its own build). (Plus three registry entries that are explicit steps rather than gates: the `spec-init` generator, the `mutate` command, and the `debt` report.) Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+64 checks gate Guardian's own self-build; a 65th, `stdout-flush`, is **report-only by default** — it runs on every build and surfaces findings without failing it unless `[stdout_flush] enabled = true` promotes it to a gating hard-block (Guardian leaves it off, so the 64-gating count holds for its own build). (Plus five explicit tools rather than gates: `spec-init`, `mutate`, `debt`, `doctor`, and `spec-sync`.) Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -176,7 +176,7 @@ zig build mutate-full   # nightly tier: whole tree + score ratchet
 Two tiers:
 - **Fast** (default): mutants are restricted to lines changed vs the diff
   base (`--against <ref>` / `GUARDIAN_AGAINST` / config, default HEAD), plus
-  all of any untracked new file. Cheap enough to run on every PR.
+  all of any untracked new file, sampled to `fast_max_mutants`.
 - **Full** (`--full`): the whole tree, sampled down to `max_mutants`. The
   score is ratcheted in `.guardian/mutation.txt` — it can never drop without
   `GUARDIAN_UPDATE_SNAPSHOT=1`.
@@ -187,8 +187,10 @@ survivor would be a meaningless red (1 of 2 = 50%), so the run instead lists its
 survivors *informationally* and exits green (`N viable mutant(s) below
 min_mutants=M — informational, not gated`). The floor mostly bites the fast tier,
 where a tiny diff can produce only a mutant or two; a below-floor run never
-records the score ratchet. Scoring: timeouts count as kills (the mutant made the
-suite hang — it was caught); compile-error mutants are *unviable* and excluded.
+records the score ratchet. Scoring includes only conclusive killed/surviving
+mutants; compile errors are *unviable*. A timeout is retried with a larger
+deadline, and a repeated timeout is *inconclusive*: it cannot inflate the score
+and prevents the run from updating its ratchet.
 During mutant runs guardian sets `GUARDIAN_MUTATION_RUN=1` on child builds, and
 every guardian command no-ops under it — so the deliberately-broken tree isn't
 gated against itself.
@@ -209,12 +211,27 @@ Each mutant's `zig build`/`zig build test` runs in its **own process group**
 (`setpgid`), and on deadline the watchdog kills the **whole group**
 (`kill(-pgid, SIGKILL)`) — so the compile/test *grandchildren* an infinite-loop
 mutant would otherwise leave spinning at 100% CPU die with the build, not just
-the direct child. A timed-out mutant is recorded with the `timed_out` outcome
-(distinct from `killed`/`survived`) and **counts as caught** — the suite never
-passed, so the mutation was detected — and a clear line prints the file,
-mutation, elapsed, and deadline. A per-mutant heartbeat (every 15s) prints the
-in-flight mutant's elapsed vs. deadline, so a stalled run is distinguishable
-from a merely slow one.
+the direct child. On the first timeout Guardian retries that phase using
+`timeout_retry_multiplier` (default 2). A repeated timeout is recorded as
+`inconclusive`, fails the campaign without changing its score ratchet, and a
+clear line prints the file, mutation, elapsed, and deadline. A per-mutant
+heartbeat (every 15s) prints the in-flight mutant's elapsed vs. deadline, so a
+stalled run is distinguishable from a merely slow one.
+
+Mutation child builds use the disposable `.guardian/cache/zig-mutate` local
+cache while keeping Zig's normal global dependency cache. Guardian removes this
+one-use cache after the campaign and on recovery, preventing mutation-only build
+artifacts from permanently growing the project cache. If `smoke_step` is set,
+Guardian first verifies it on the clean tree, then uses it as a cheap first stage
+for every mutant; smoke survivors still run the complete `test` step.
+
+Sampling ranks stable mutant identity hashes rather than taking every k-th
+candidate, so unrelated insertions do not reshuffle the whole cohort. A stable
+within-line column distinguishes repeated operators on one line. The exact
+selection is written to `.guardian/cache/mutation-cohort.jsonl`; the full ratchet
+stores its cohort digest and reports cohort turnover instead of comparing scores
+from incompatible samples. Exact suite-digest outcome caches retain the latest
+`retained_cache_suites` cohorts and are never reused across differing digests.
 
 ### Crash-safe mutant journal
 
@@ -326,7 +343,8 @@ scanner cores carry `std.testing.fuzz` harnesses (the guardian.toml parser, the
 
 ```bash
 zig build test          # harnesses run once per corpus entry + empty input (smoke)
-zig build test --fuzz   # deep run: libFuzzer explores from the seed corpus
+zig build test --fuzz -Dfuzz-filter="fuzz: guardian.toml parser"
+                        # deep run: select exactly one harness for libFuzzer
 ```
 
 Under a plain `zig build test` each harness runs as a smoke test — the test
@@ -622,9 +640,13 @@ gate_last_commit = true
 min_score_pct = 80        # fail below this kill rate
 min_mutants = 4           # gate on the percentage only at >= this many viable mutants
 max_mutants = 100         # deterministic sampling cap per run
+fast_max_mutants = 8      # smaller PR/changed-lines budget
+smoke_step = "test-fast"  # optional cheap first stage; survivors still run all tests
 timeout_floor_secs = 30   # per-mutant timeout floor (a fast suite still gets >= this)
 timeout_multiplier = 5    # per-mutant timeout = max(floor, this x clean-suite baseline)
-timeout_secs = 300        # baseline-measurement cap + fallback when no baseline (timeout = killed)
+timeout_retry_multiplier = 2 # expand the deadline for the timeout retry
+timeout_secs = 300        # baseline-measurement cap + fallback when no baseline
+retained_cache_suites = 3 # exact historical suite caches retained for reuse
 
 # Opt-in: every `## ` SPEC.md feature section must address or waive the 8
 # scenario categories. Exempt non-feature sections (Overview, Changelog) by name.
@@ -659,9 +681,10 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 ### Complete key reference
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
-an unknown section header or an unknown key inside a known section is a hard
-error with a `guardian.toml:line:` diagnostic, so a typo can't silently drop
-config):
+unknown names, malformed values, incomplete `[[boundary]]`/`[[allow]]` entries,
+and unsafe mutation ranges are hard errors with a `guardian.toml:line:`
+diagnostic). String arrays may span lines and include comments and trailing
+commas.
 
 | Scope | Keys |
 |---|---|
@@ -686,7 +709,7 @@ config):
 | `[magic_number]` | `enabled` |
 | `[dead_pub]` | `ignore_test_refs` |
 | `[change_classification]` | `enabled`, `against`, `gate_last_commit` |
-| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_secs` |
+| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `fast_max_mutants`, `smoke_step`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_retry_multiplier`, `timeout_secs`, `retained_cache_suites` |
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
 | `[fuzz_presence]` | `modules` |
@@ -725,6 +748,12 @@ guardian-check all . --skip line-length      # Run every check EXCEPT the named 
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet
 guardian-check commit --intent "fix the parser" .   # Gate, then auto-commit on green
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
+guardian-check debt . --json         # Machine-readable debt + assert-density report
+guardian-check debt . --check spec   # Restrict the debt report to one check
+guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry run)
+guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
+guardian-check doctor .              # Read-only metadata/integration health audit
+guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
 guardian-check explain               # List every check name + summary
 guardian-check version               # Print the guardian version (also --version)
@@ -738,7 +767,17 @@ guardian-check version               # Print the guardian version (also --versio
   Never part of `all`; requires an explicit `--intent`.
 - **`debt`** reports every baseline/snapshot total sorted high-to-low, with the
   change vs the committed `.guardian/` state (omitted outside a git repo). Never
-  gates (exit 0) and is excluded from `all` — run it to decide what to pay down.
+  gates by default and is excluded from `all` — run it to decide what to pay
+  down. `--json` emits structured output; `--check <name>` filters it. Stale
+  baseline pruning is preview-only with `--prune-stale` and requires a second,
+  explicit `--yes` before anything is deleted.
+- **`doctor`** audits recognized metadata headers, stale baseline/snapshot
+  files, mutation-ratchet adoption, local path integration, and cache size.
+  Advisory warnings exit zero; corrupt or unreadable recognized metadata exits
+  nonzero. It never modifies the project.
+- **`spec-sync`** cross-references SPEC.md with current `// spec:` test tags and
+  prints exact missing bullets grouped by section. It is always a dry run;
+  `--json` is available for tooling.
 - **`explain`** prints a longer rationale for every registered check: the
   agent mistake it catches, how to fix a violation, and the exemption knob
   (`[[allow]]` paths, a config toggle, the `disabled` list, or a snapshot

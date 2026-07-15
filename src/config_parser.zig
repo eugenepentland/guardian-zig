@@ -3,17 +3,32 @@
 //! file that exists yet can't be read, or that names an unknown section header
 //! or an unknown key inside a known section, is a hard error with a file:line
 //! diagnostic — a gate whose own config silently misparses can't be trusted at
-//! exactly the moment it's misconfigured. Malformed scalar *values* (a
-//! non-integer where a u32 is expected) still fall back to their default: that
-//! is the parser's deliberate lenient scope, not an unknown-input violation.
+//! exactly the moment it's misconfigured. Present-but-malformed values and
+//! semantically unsafe settings also fail closed rather than falling back to a
+//! default the operator did not ask for.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const config = @import("config.zig");
 const reporter = @import("reporter.zig");
+const value = @import("config_value.zig");
 const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
+const arrayTableName = value.arrayTableName;
+const bestMatch = value.bestMatch;
+const hasEmptyArrayItem = value.hasEmptyArrayItem;
+const isValidString = value.isValidString;
+const isValidStringArray = value.isValidStringArray;
+const inList = value.inList;
+const parseString = value.parseString;
+const parseStringArray = value.parseStringArray;
+const parseBool = value.parseBool;
+const parseU32 = value.parseU32;
+const startsMultilineArray = value.startsMultilineArray;
+const stripInlineComment = value.stripInlineComment;
+const tableName = value.tableName;
+const toStrings = value.toStrings;
 
 /// A parse failure's location and message (arena-owned), filled by `parseInto`
 /// on an unknown section or key so `load` can render a `path:line: message`.
@@ -22,8 +37,16 @@ pub const Diagnostic = struct {
     message: []const u8 = "",
 };
 
-/// Errors `parse`/`parseInto` may raise: OOM, or an unknown section/key.
-pub const ParseError = Allocator.Error || error{ UnknownSection, UnknownKey };
+/// Errors `parse`/`parseInto` may raise. Every non-OOM rejection populates a
+/// located diagnostic.
+pub const ParseError = Allocator.Error || error{
+    UnknownSection,
+    UnknownKey,
+    MalformedLine,
+    InvalidValue,
+    IncompleteTable,
+    InvalidConfig,
+};
 
 /// Errors `load` may raise on a present-but-broken config: the parse errors
 /// plus a read failure (any I/O error other than a missing file).
@@ -32,6 +55,14 @@ pub const LoadError = ParseError || error{ConfigUnreadable};
 /// The `exempt_names` key, shared by [doc_quality] and [test_coverage]; a named
 /// const so the literal isn't repeated across the valid-key lists and appliers.
 const exempt_names_key = "exempt_names";
+const min_score_pct_key = "min_score_pct";
+const min_mutants_key = "min_mutants";
+const max_mutants_key = "max_mutants";
+const fast_max_mutants_key = "fast_max_mutants";
+const timeout_floor_secs_key = "timeout_floor_secs";
+const timeout_multiplier_key = "timeout_multiplier";
+const timeout_retry_multiplier_key = "timeout_retry_multiplier";
+const timeout_secs_key = "timeout_secs";
 
 /// Reads guardian.toml from `dir`. A missing file is the zero-config default; a
 /// present file that can't be read or parsed is a hard failure with a printed
@@ -49,7 +80,13 @@ pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
     var diag: Diagnostic = .{};
     return parseInto(allocator, content, &diag) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.UnknownSection, error.UnknownKey => {
+        error.UnknownSection,
+        error.UnknownKey,
+        error.MalformedLine,
+        error.InvalidValue,
+        error.IncompleteTable,
+        error.InvalidConfig,
+        => {
             reporter.fail("{s}:{d}: {s}", .{ path, diag.line, diag.message });
             return e;
         },
@@ -111,19 +148,61 @@ const ParseState = struct {
     cur_check: ?[]const u8 = null,
     cur_paths: std.ArrayList([]const u8) = .empty,
     allows: std.ArrayList(AllowRule) = .empty,
+    array_line: u32 = 0,
+    mutation_lines: MutationLines = .{},
+    boundary_forbidden_set: bool = false,
+    allow_paths_set: bool = false,
 
     /// Flushes the in-progress array-of-tables entry (if complete) into its list.
-    fn flush(self: *ParseState, allocator: Allocator) Allocator.Error!void {
+    fn flush(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
         switch (self.array_kind) {
             .boundary => {
-                const m = self.cur_module orelse return;
+                const m = self.cur_module orelse {
+                    try setDiag(
+                        allocator,
+                        diag,
+                        self.array_line,
+                        "incomplete [[boundary]]: missing required key 'module'",
+                        .{},
+                    );
+                    return error.IncompleteTable;
+                };
+                if (!self.boundary_forbidden_set) {
+                    try setDiag(
+                        allocator,
+                        diag,
+                        self.array_line,
+                        "incomplete [[boundary]]: missing required key 'forbidden'",
+                        .{},
+                    );
+                    return error.IncompleteTable;
+                }
                 try self.boundaries.append(allocator, .{
                     .module_pattern = m,
                     .forbidden_imports = try self.cur_forbidden.toOwnedSlice(allocator),
                 });
             },
             .allow => {
-                const c = self.cur_check orelse return;
+                const c = self.cur_check orelse {
+                    try setDiag(
+                        allocator,
+                        diag,
+                        self.array_line,
+                        "incomplete [[allow]]: missing required key 'check'",
+                        .{},
+                    );
+                    return error.IncompleteTable;
+                };
+                if (!self.allow_paths_set) {
+                    try setDiag(
+                        allocator,
+                        diag,
+                        self.array_line,
+                        "incomplete [[allow]]: missing required key 'paths'",
+                        .{},
+                    );
+                    return error.IncompleteTable;
+                }
                 try self.allows.append(allocator, .{
                     .check = c,
                     .paths = try self.cur_paths.toOwnedSlice(allocator),
@@ -134,19 +213,28 @@ const ParseState = struct {
     }
 
     /// Starts a `[[name]]` array-of-tables entry, flushing any prior one.
-    fn beginArrayTable(self: *ParseState, allocator: Allocator, name: []const u8) Allocator.Error!void {
-        try self.flush(allocator);
+    fn beginArrayTable(
+        self: *ParseState,
+        allocator: Allocator,
+        name: []const u8,
+        line_no: u32,
+        diag: *Diagnostic,
+    ) ParseError!void {
+        try self.flush(allocator, diag);
         self.array_kind = arrayKindFor(name);
         self.cur_module = null;
         self.cur_forbidden = .empty;
         self.cur_check = null;
         self.cur_paths = .empty;
+        self.boundary_forbidden_set = false;
+        self.allow_paths_set = false;
+        self.array_line = line_no;
         self.section = .top;
     }
 
     /// Starts a `[name]` table, flushing any prior array entry.
-    fn beginTable(self: *ParseState, allocator: Allocator, name: []const u8) Allocator.Error!void {
-        try self.flush(allocator);
+    fn beginTable(self: *ParseState, allocator: Allocator, name: []const u8, diag: *Diagnostic) ParseError!void {
+        try self.flush(allocator, diag);
         self.array_kind = .none;
         self.section = sectionFor(name);
     }
@@ -165,6 +253,7 @@ const ParseState = struct {
             self.cur_module = parseString(kv.val);
         } else if (std.mem.eql(u8, kv.key, "forbidden")) {
             self.cur_forbidden = try parseStringArray(allocator, kv.val);
+            self.boundary_forbidden_set = true;
         }
     }
 
@@ -173,8 +262,21 @@ const ParseState = struct {
             self.cur_check = parseString(kv.val);
         } else if (std.mem.eql(u8, kv.key, "paths")) {
             self.cur_paths = try parseStringArray(allocator, kv.val);
+            self.allow_paths_set = true;
         }
     }
+};
+
+const MutationLines = struct {
+    min_score_pct: u32 = 0,
+    min_mutants: u32 = 0,
+    max_mutants: u32 = 0,
+    fast_max_mutants: u32 = 0,
+    timeout_floor_secs: u32 = 0,
+    timeout_multiplier: u32 = 0,
+    timeout_retry_multiplier: u32 = 0,
+    timeout_secs: u32 = 0,
+    retained_cache_suites: u32 = 0,
 };
 
 /// Maps a `[[name]]` header to the array kind it opens.
@@ -191,21 +293,41 @@ pub fn parse(allocator: Allocator, content: []const u8) ParseError!Config {
     return parseInto(allocator, content, &diag);
 }
 
-/// Parses guardian.toml content, filling `diag` on an unknown section or key.
-/// Unknown section headers and unknown keys inside a known section are hard
-/// errors; malformed scalar values still fall back to their default.
+/// Parses guardian.toml content, filling `diag` for every rejected input.
+/// Unknown names, malformed values/lines, incomplete array tables, and unsafe
+/// semantic combinations all fail closed.
 pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) ParseError!Config {
     var cfg = Config{};
     var st: ParseState = .{};
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
     var line_no: u32 = 0;
+    var pending: std.ArrayList(u8) = .empty;
+    var pending_line: u32 = 0;
     while (lines_iter.next()) |raw_line| {
         line_no += 1;
         const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
+        if (pending.items.len != 0) {
+            try pending.append(allocator, '\n');
+            try pending.appendSlice(allocator, line);
+            if (startsMultilineArray(pending.items)) continue;
+            try parseLine(allocator, &cfg, &st, pending.items, pending_line, diag);
+            pending.clearRetainingCapacity();
+            continue;
+        }
         if (line.len == 0 or line[0] == '#') continue;
+        if (startsMultilineArray(line)) {
+            pending_line = line_no;
+            try pending.appendSlice(allocator, line);
+            continue;
+        }
         try parseLine(allocator, &cfg, &st, line, line_no, diag);
     }
-    try st.flush(allocator);
+    if (pending.items.len != 0) {
+        try setDiag(allocator, diag, pending_line, "malformed string array: missing closing ']'", .{});
+        return error.InvalidValue;
+    }
+    try st.flush(allocator, diag);
+    try validateConfig(allocator, &cfg, &st, diag);
     cfg.boundary_rules = try st.boundaries.toOwnedSlice(allocator);
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     return cfg;
@@ -232,11 +354,11 @@ fn parseLine(
 ) ParseError!void {
     if (arrayTableName(line)) |name| {
         if (arrayKindFor(name) == .none) return unknownName(allocator, diag, line_no, "section", name, &.{});
-        return st.beginArrayTable(allocator, name);
+        return st.beginArrayTable(allocator, name, line_no, diag);
     }
     if (tableName(line)) |name| {
         if (sectionFor(name) == .unknown) return unknownName(allocator, diag, line_no, "section", name, &.{});
-        return st.beginTable(allocator, name);
+        return st.beginTable(allocator, name, diag);
     }
     try applyKeyValueLine(allocator, cfg, st, line, line_no, diag);
 }
@@ -260,40 +382,8 @@ fn unknownName(
     return if (std.mem.eql(u8, kind, "section")) error.UnknownSection else error.UnknownKey;
 }
 
-/// The candidate name in `candidates` sharing the longest prefix (>= 3 chars)
-/// with `offender`, for a cheap did-you-mean, or null when none is close.
-fn bestMatch(offender: []const u8, candidates: []const []const u8) ?[]const u8 {
-    var best: ?[]const u8 = null;
-    var best_len: usize = 0;
-    for (candidates) |c| {
-        const p = commonPrefixLen(offender, c);
-        if (p > best_len) {
-            best_len = p;
-            best = c;
-        }
-    }
-    return if (best_len >= 3) best else null;
-}
-
-fn commonPrefixLen(a: []const u8, b: []const u8) usize {
-    const n = @min(a.len, b.len);
-    var i: usize = 0;
-    while (i < n and a[i] == b[i]) i += 1;
-    return i;
-}
-
-/// Returns the inner name of a `[[name]]` array-of-tables header, or null.
-fn arrayTableName(line: []const u8) ?[]const u8 {
-    if (!std.mem.startsWith(u8, line, "[[") or !std.mem.endsWith(u8, line, "]]")) return null;
-    return line[2 .. line.len - 2];
-}
-
-/// Returns the inner name of a `[name]` table header, or null.
-fn tableName(line: []const u8) ?[]const u8 {
-    if (line.len < 2 or line[0] != '[' or line[line.len - 1] != ']') return null;
-    return line[1 .. line.len - 1];
-}
-
+/// A value beginning with `[` but not closing on this physical line is
+/// accumulated until its matching bracket, enabling readable multiline lists.
 fn applyKeyValueLine(
     allocator: Allocator,
     cfg: *Config,
@@ -302,22 +392,195 @@ fn applyKeyValueLine(
     line_no: u32,
     diag: *Diagnostic,
 ) ParseError!void {
-    const eq_idx = std.mem.indexOfScalar(u8, line, '=') orelse return;
+    const eq_idx = std.mem.indexOfScalar(u8, line, '=') orelse {
+        try setDiag(allocator, diag, line_no, "expected 'key = value'", .{});
+        return error.MalformedLine;
+    };
     const key = std.mem.trim(u8, line[0..eq_idx], &std.ascii.whitespace);
+    if (key.len == 0) {
+        try setDiag(allocator, diag, line_no, "missing key before '='", .{});
+        return error.MalformedLine;
+    }
     const raw = std.mem.trim(u8, line[eq_idx + 1 ..], &std.ascii.whitespace);
-    const kv: KeyVal = .{ .key = key, .val = stripInlineComment(raw) };
+    const val = if (raw.len != 0 and raw[0] == '[') raw else stripInlineComment(raw);
+    const kv: KeyVal = .{ .key = key, .val = val };
     // A key the current section doesn't recognize is a typo, not a value to
     // silently drop — name it (with a cheap suggestion) and fail.
     const valid = if (st.array_kind != .none) validArrayKeys(st.array_kind) else validSectionKeys(st.section);
     if (!inList(valid, key)) return unknownName(allocator, diag, line_no, "key", key, valid);
+    try validateValue(allocator, st, kv, line_no, diag);
+    if (st.array_kind == .none and st.section == .mutation) noteMutationLine(&st.mutation_lines, key, line_no);
     if (st.array_kind != .none) return st.setArrayKey(allocator, kv);
     try applySectionKey(.{ .allocator = allocator, .cfg = cfg }, st.section, kv);
 }
 
-/// True when `name` appears in `list`.
-fn inList(list: []const []const u8, name: []const u8) bool {
-    for (list) |n| if (std.mem.eql(u8, n, name)) return true;
-    return false;
+const ValueKind = enum { boolean, unsigned, string, string_array };
+
+/// Returns the value shape from the already-validated section/key position.
+/// The first-character branches are unambiguous within each section and avoid
+/// maintaining a third duplicate list of every supported key.
+fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
+    if (st.array_kind != .none) return switch (st.array_kind) {
+        .boundary => if (key[0] == 'm') .string else .string_array,
+        .allow => if (key[0] == 'c') .string else .string_array,
+        .none => .string_array,
+    };
+    return switch (st.section) {
+        .top => switch (key[0]) {
+            's' => .string,
+            'm' => .unsigned,
+            'c', 'p' => .boolean,
+            else => .string_array,
+        },
+        .spec_quality, .orphan_files, .test_coverage, .completeness => if (key[1] == 'n') .boolean else .string_array,
+        .function_size,
+        .complexity,
+        .function_length,
+        .nesting_depth,
+        .bool_ops,
+        .line_length,
+        => {
+            return if (key[0] == 'e') .boolean else .unsigned;
+        },
+        .anytype_budget, .doc_quality, .type_size => switch (key[0]) {
+            'e' => if (key[1] == 'n') .boolean else .string_array,
+            'm' => .unsigned,
+            else => .string_array,
+        },
+        .baseline => if (key[1] == 'n') .boolean else .string_array,
+        .escape_discipline, .oom_discipline, .magic_number, .stdout_flush, .dead_pub => .boolean,
+        .module_doc_header => .unsigned,
+        .change_classification => if (key[0] == 'a') .string else .boolean,
+        .mutation => if (key[0] == 's') .string else .unsigned,
+        .dora => if (key[0] == 'e') .boolean else .string,
+        .fuzz_presence, .int_from_float => .string_array,
+        .unknown => .string_array,
+    };
+}
+
+fn validateValue(
+    allocator: Allocator,
+    st: *const ParseState,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    const kind = valueKind(st, kv.key);
+    const ok = switch (kind) {
+        .boolean => parseBool(kv.val) != null,
+        .unsigned => std.fmt.parseInt(u32, kv.val, 10) catch null != null,
+        .string => isValidString(kv.val),
+        .string_array => isValidStringArray(kv.val),
+    };
+    if (!ok) {
+        try setDiag(allocator, diag, line_no, "invalid value for '{s}'", .{kv.key});
+        return error.InvalidValue;
+    }
+
+    // Values used as filesystem/config identifiers must not be empty. Array
+    // tables additionally need non-empty identities even when both keys exist.
+    if (kind == .string) {
+        const s = parseString(kv.val).?;
+        if (std.mem.trim(u8, s, &std.ascii.whitespace).len == 0) {
+            try setDiag(allocator, diag, line_no, "'{s}' must not be empty", .{kv.key});
+            return error.InvalidValue;
+        }
+    }
+    if (kind == .string_array and hasEmptyArrayItem(kv.val)) {
+        try setDiag(allocator, diag, line_no, "'{s}' must not contain empty strings", .{kv.key});
+        return error.InvalidValue;
+    }
+}
+
+fn noteMutationLine(lines: *MutationLines, key: []const u8, line_no: u32) void {
+    inline for (std.meta.fields(MutationLines)) |field| {
+        if (std.mem.eql(u8, key, field.name)) @field(lines, field.name) = line_no;
+    }
+}
+
+fn mutationLine(lines: MutationLines, comptime field: []const u8) u32 {
+    const n = @field(lines, field);
+    return if (n == 0) 1 else n;
+}
+
+fn invalidSemantic(
+    allocator: Allocator,
+    diag: *Diagnostic,
+    line_no: u32,
+    comptime fmt: []const u8,
+    args: anytype,
+) ParseError!void {
+    try setDiag(allocator, diag, line_no, fmt, args);
+    return error.InvalidConfig;
+}
+
+fn validateConfig(allocator: Allocator, cfg: *const Config, st: *const ParseState, diag: *Diagnostic) ParseError!void {
+    const m = cfg.mutation;
+    const lines = st.mutation_lines;
+    if (m.min_score_pct > 100) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, min_score_pct_key),
+        "mutation min_score_pct must be between 0 and 100",
+        .{},
+    );
+    if (m.min_mutants == 0) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, min_mutants_key),
+        "mutation min_mutants must be non-zero",
+        .{},
+    );
+    if (m.max_mutants == 0) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, max_mutants_key),
+        "mutation max_mutants must be non-zero",
+        .{},
+    );
+    if (m.fast_max_mutants == 0) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, fast_max_mutants_key),
+        "mutation fast_max_mutants must be non-zero",
+        .{},
+    );
+    if (m.min_mutants > m.max_mutants) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, min_mutants_key),
+        "mutation min_mutants ({d}) must not exceed max_mutants ({d})",
+        .{ m.min_mutants, m.max_mutants },
+    );
+    if (m.fast_max_mutants > m.max_mutants) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, fast_max_mutants_key),
+        "mutation fast_max_mutants ({d}) must not exceed max_mutants ({d})",
+        .{ m.fast_max_mutants, m.max_mutants },
+    );
+    if (m.min_mutants > m.fast_max_mutants) return invalidSemantic(
+        allocator,
+        diag,
+        mutationLine(lines, min_mutants_key),
+        "mutation min_mutants ({d}) must not exceed fast_max_mutants ({d})",
+        .{ m.min_mutants, m.fast_max_mutants },
+    );
+    const timeout_fields = .{
+        .{ timeout_floor_secs_key, m.timeout_floor_secs },
+        .{ timeout_multiplier_key, m.timeout_multiplier },
+        .{ timeout_retry_multiplier_key, m.timeout_retry_multiplier },
+        .{ timeout_secs_key, m.timeout_secs },
+    };
+    inline for (timeout_fields) |entry| {
+        if (entry[1] == 0) return invalidSemantic(
+            allocator,
+            diag,
+            mutationLine(lines, entry[0]),
+            "mutation {s} must be non-zero",
+            .{entry[0]},
+        );
+    }
 }
 
 /// The `enabled` toggle plus the extra keys `section` accepts (mirrors the
@@ -347,12 +610,16 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .dead_pub => &.{"ignore_test_refs"},
         .change_classification => &.{ "enabled", "against", "gate_last_commit" },
         .mutation => &.{
-            "min_score_pct",
-            "min_mutants",
-            "max_mutants",
-            "timeout_floor_secs",
-            "timeout_multiplier",
-            "timeout_secs",
+            min_score_pct_key,
+            min_mutants_key,
+            max_mutants_key,
+            fast_max_mutants_key,
+            "smoke_step",
+            timeout_floor_secs_key,
+            timeout_multiplier_key,
+            timeout_retry_multiplier_key,
+            timeout_secs_key,
+            "retained_cache_suites",
         },
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
@@ -436,17 +703,6 @@ fn sectionFor(name: []const u8) Section {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
     }
     return .unknown;
-}
-
-/// Parses a base-10 u32, falling back to `default` on malformed input.
-fn parseU32(val: []const u8, default: u32) u32 {
-    return std.fmt.parseInt(u32, val, 10) catch default;
-}
-
-/// Parses a `["a", "b"]` array into an owned slice of strings.
-fn toStrings(allocator: Allocator, val: []const u8) Allocator.Error![]const []const u8 {
-    var list = try parseStringArray(allocator, val);
-    return list.toOwnedSlice(allocator);
 }
 
 /// Applies `enabled` + a single u32 cap (`cap_key`) to `cfg.<group>`.
@@ -548,18 +804,26 @@ fn applyChangeClassificationKey(ctx: ApplyCtx, kv: KeyVal) void {
 
 fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
     const g = &ctx.cfg.mutation;
-    if (std.mem.eql(u8, kv.key, "min_score_pct")) {
+    if (std.mem.eql(u8, kv.key, min_score_pct_key)) {
         g.min_score_pct = parseU32(kv.val, g.min_score_pct);
-    } else if (std.mem.eql(u8, kv.key, "min_mutants")) {
+    } else if (std.mem.eql(u8, kv.key, min_mutants_key)) {
         g.min_mutants = parseU32(kv.val, g.min_mutants);
-    } else if (std.mem.eql(u8, kv.key, "max_mutants")) {
+    } else if (std.mem.eql(u8, kv.key, max_mutants_key)) {
         g.max_mutants = parseU32(kv.val, g.max_mutants);
-    } else if (std.mem.eql(u8, kv.key, "timeout_floor_secs")) {
+    } else if (std.mem.eql(u8, kv.key, fast_max_mutants_key)) {
+        g.fast_max_mutants = parseU32(kv.val, g.fast_max_mutants);
+    } else if (std.mem.eql(u8, kv.key, "smoke_step")) {
+        g.smoke_step = parseString(kv.val);
+    } else if (std.mem.eql(u8, kv.key, timeout_floor_secs_key)) {
         g.timeout_floor_secs = parseU32(kv.val, g.timeout_floor_secs);
-    } else if (std.mem.eql(u8, kv.key, "timeout_multiplier")) {
+    } else if (std.mem.eql(u8, kv.key, timeout_multiplier_key)) {
         g.timeout_multiplier = parseU32(kv.val, g.timeout_multiplier);
-    } else if (std.mem.eql(u8, kv.key, "timeout_secs")) {
+    } else if (std.mem.eql(u8, kv.key, timeout_retry_multiplier_key)) {
+        g.timeout_retry_multiplier = parseU32(kv.val, g.timeout_retry_multiplier);
+    } else if (std.mem.eql(u8, kv.key, timeout_secs_key)) {
         g.timeout_secs = parseU32(kv.val, g.timeout_secs);
+    } else if (std.mem.eql(u8, kv.key, "retained_cache_suites")) {
+        g.retained_cache_suites = parseU32(kv.val, g.retained_cache_suites);
     }
 }
 
@@ -619,47 +883,6 @@ fn applyBoolCfg(comptime group: []const u8, comptime key: []const u8, ctx: Apply
     if (std.mem.eql(u8, kv.key, key)) @field(g, key) = parseBool(kv.val) orelse @field(g, key);
 }
 
-fn parseBool(val: []const u8) ?bool {
-    if (std.mem.eql(u8, val, "true")) return true;
-    if (std.mem.eql(u8, val, "false")) return false;
-    return null;
-}
-
-fn parseString(val: []const u8) ?[]const u8 {
-    if (val.len >= 2 and val[0] == '"' and val[val.len - 1] == '"') {
-        return val[1 .. val.len - 1];
-    }
-    return null;
-}
-
-fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.ArrayList([]const u8) {
-    var list: std.ArrayList([]const u8) = .empty;
-    if (val.len < 2 or val[0] != '[' or val[val.len - 1] != ']') return list;
-    const inner = val[1 .. val.len - 1];
-    var iter = std.mem.splitScalar(u8, inner, ',');
-    while (iter.next()) |item| {
-        const trimmed = std.mem.trim(u8, item, &std.ascii.whitespace);
-        if (parseString(trimmed)) |s| {
-            try list.append(allocator, s);
-        }
-    }
-    return list;
-}
-
-/// Removes a trailing `# comment` (ignoring `#` inside a quoted string).
-fn stripInlineComment(val: []const u8) []const u8 {
-    var in_str = false;
-    var i: usize = 0;
-    while (i < val.len) : (i += 1) {
-        switch (val[i]) {
-            '"' => in_str = !in_str,
-            '#' => if (!in_str) return std.mem.trimRight(u8, val[0..i], &std.ascii.whitespace),
-            else => {},
-        }
-    }
-    return val;
-}
-
 // spec: Configuration - Falls back to defaults when no config file exists
 // spec: Configuration - Loads guardian.toml from target directory
 // spec: Configuration - Supports boundary rules via [[boundary]] sections
@@ -708,17 +931,30 @@ test "parse ignores comments and blank lines" {
     try std.testing.expectEqualStrings("MY_SPEC.md", cfg.spec_file);
 }
 
-test "parse malformed values fall back to defaults" {
+// spec: Configuration - Hard-fails on malformed values and bare non-key lines with a located diagnostic
+
+test "parse malformed values fail closed with a located diagnostic" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const content =
-        \\max_file_lines = not_a_number
-        \\spec_file = unquoted
-    ;
-    const cfg = try parse(arena.allocator(), content);
-    // All should fall back to defaults
-    try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
-    try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
+    const cases = [_][]const u8{
+        "max_file_lines = not_a_number",
+        "parallel = maybe",
+        "spec_file = unquoted",
+        "spec_file = \"\"",
+        "disabled = [\"valid\", nope]",
+        "exclude = [\"src/*\", \"\"]",
+        "this is not a key",
+    };
+    for (cases) |content| {
+        var diag: Diagnostic = .{};
+        _ = parseInto(arena.allocator(), content, &diag) catch |e| {
+            try std.testing.expect(e == error.InvalidValue or e == error.MalformedLine);
+            try std.testing.expectEqual(@as(u32, 1), diag.line);
+            try std.testing.expect(diag.message.len != 0);
+            continue;
+        };
+        return error.TestUnexpectedResult;
+    }
 }
 
 test "parse multiple boundary rules" {
@@ -751,6 +987,72 @@ test "parse empty array" {
     try std.testing.expectEqual(@as(usize, 0), cfg.file_size_exclude.len);
 }
 
+// spec: Configuration - Supports multiline string arrays with comments and trailing commas
+
+test "parse multiline string arrays" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\disabled = [
+        \\  "spec", # tracked migration debt
+        \\  "line-length",
+        \\]
+        \\[[allow]]
+        \\check = "ban-fs"
+        \\paths = [
+        \\  "src/infra/*",
+        \\  "src/testing/*"
+        \\]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
+    try std.testing.expectEqualStrings("line-length", cfg.disabled[1]);
+    try std.testing.expectEqual(@as(usize, 2), cfg.allow_rules[0].paths.len);
+    try std.testing.expectEqualStrings("src/testing/*", cfg.allow_rules[0].paths[1]);
+}
+
+// spec: Configuration - Hard-fails on incomplete boundary and allow array tables
+
+test "parse rejects incomplete array tables at their header" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_][]const u8{
+        "[[boundary]]\nforbidden = [\"shell\"]",
+        "[[boundary]]\nmodule = \"src/*\"",
+        "[[allow]]\npaths = [\"src/*\"]",
+        "[[allow]]\ncheck = \"ban-fs\"",
+    };
+    for (cases) |content| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(error.IncompleteTable, parseInto(arena.allocator(), content, &diag));
+        try std.testing.expectEqual(@as(u32, 1), diag.line);
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, "incomplete") != null);
+    }
+}
+
+// spec: Configuration - Rejects unsafe mutation ranges and zero timeouts
+
+test "parse rejects unsafe mutation invariants" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_][]const u8{
+        "[mutation]\nmin_score_pct = 101",
+        "[mutation]\ntimeout_floor_secs = 0",
+        "[mutation]\ntimeout_multiplier = 0",
+        "[mutation]\ntimeout_retry_multiplier = 0",
+        "[mutation]\ntimeout_secs = 0",
+        "[mutation]\nmin_mutants = 20\nmax_mutants = 10\nfast_max_mutants = 8",
+        "[mutation]\nmax_mutants = 7\nfast_max_mutants = 8",
+        "[mutation]\nmin_mutants = 9\nfast_max_mutants = 8",
+        "[mutation]\nfast_max_mutants = 0",
+    };
+    for (cases) |content| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(error.InvalidConfig, parseInto(arena.allocator(), content, &diag));
+        try std.testing.expect(diag.line >= 2);
+        try std.testing.expect(diag.message.len != 0);
+    }
+}
+
 // spec: Configuration - Parses the mutation section score and budget settings
 
 test "parse reads [mutation] score minimum and run budgets" {
@@ -761,13 +1063,21 @@ test "parse reads [mutation] score minimum and run budgets" {
         \\min_score_pct = 90
         \\min_mutants = 6
         \\max_mutants = 25
+        \\fast_max_mutants = 10
+        \\smoke_step = "test-fast"
         \\timeout_secs = 60
+        \\timeout_retry_multiplier = 3
+        \\retained_cache_suites = 5
     ;
     const cfg = try parse(arena.allocator(), content);
     try std.testing.expectEqual(@as(u32, 90), cfg.mutation.min_score_pct);
     try std.testing.expectEqual(@as(u32, 6), cfg.mutation.min_mutants);
     try std.testing.expectEqual(@as(u32, 25), cfg.mutation.max_mutants);
+    try std.testing.expectEqual(@as(u32, 10), cfg.mutation.fast_max_mutants);
+    try std.testing.expectEqualStrings("test-fast", cfg.mutation.smoke_step.?);
     try std.testing.expectEqual(@as(u32, 60), cfg.mutation.timeout_secs);
+    try std.testing.expectEqual(@as(u32, 3), cfg.mutation.timeout_retry_multiplier);
+    try std.testing.expectEqual(@as(u32, 5), cfg.mutation.retained_cache_suites);
 }
 
 // spec: Configuration - Parses the mutation section timeout floor and multiplier
@@ -779,6 +1089,10 @@ test "parse reads [mutation] timeout floor and multiplier with defaults" {
     const defaults = try parse(arena.allocator(), "[mutation]\nmin_score_pct = 80");
     try std.testing.expectEqual(@as(u32, 30), defaults.mutation.timeout_floor_secs);
     try std.testing.expectEqual(@as(u32, 5), defaults.mutation.timeout_multiplier);
+    try std.testing.expectEqual(@as(u32, 8), defaults.mutation.fast_max_mutants);
+    try std.testing.expectEqual(@as(?[]const u8, null), defaults.mutation.smoke_step);
+    try std.testing.expectEqual(@as(u32, 2), defaults.mutation.timeout_retry_multiplier);
+    try std.testing.expectEqual(@as(u32, 3), defaults.mutation.retained_cache_suites);
     // Explicit values override them.
     const content =
         \\[mutation]
@@ -1157,7 +1471,13 @@ fn fuzzParseInto(allocator: Allocator, input: []const u8) anyerror!void {
     var diag: Diagnostic = .{};
     _ = parseInto(arena.allocator(), input, &diag) catch |e| switch (e) {
         error.OutOfMemory => return,
-        error.UnknownSection, error.UnknownKey => {
+        error.UnknownSection,
+        error.UnknownKey,
+        error.MalformedLine,
+        error.InvalidValue,
+        error.IncompleteTable,
+        error.InvalidConfig,
+        => {
             try std.testing.expect(diag.line != 0 and diag.message.len != 0);
             return;
         },

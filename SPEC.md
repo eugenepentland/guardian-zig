@@ -11,6 +11,10 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Hard-fails when the config file exists but cannot be read
 - Hard-fails on an unknown section header naming the offender
 - Hard-fails on an unknown key within a known section
+- Hard-fails on malformed values and bare non-key lines with a located diagnostic
+- Hard-fails on incomplete boundary and allow array tables
+- Supports multiline string arrays with comments and trailing commas
+- Rejects unsafe mutation ranges and zero timeouts
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
 - Parses the baseline deny_growth check list
@@ -166,6 +170,14 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Formats a committed-state delta and omits it when unchanged or absent
 - Omits a clean source with zero debt and no committed change
 - Reports assert-call density per top-level src module sorted ascending
+
+## Maintenance
+
+- Doctor distinguishes advisory warnings from integrity failures
+- Spec sync suggests missing bullets without editing SPEC.md
+- Debt emits JSON and filters by check
+- Debt previews stale baseline pruning before explicit confirmation
+- Parses maintenance command flags independently of the project directory
 
 ## Versioning
 
@@ -394,15 +406,18 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Generates mutants by flipping true and false literals
 - Restricts fast-tier mutants to added line spans
 - Samples mutants deterministically down to the configured cap
+- Samples mutants by stable identity hash
+- Distinguishes repeated mutation sites on one line in the cohort identity
 - Applies a mutant by splicing the replacement into the source
 - Classifies mutant outcomes from the build and test phases
-- Scores a run as kills over viable mutants counting timeouts as kills
+- Excludes inconclusive timeouts from the mutation score
 - Derives a per-mutant timeout from the clean-suite baseline and a floor
 - Kills the whole child process group when a mutant run exceeds its deadline
 - Recovers an interrupted run by reverting the journaled in-flight mutant
 - Fails a run whose score drops below the configured minimum
 - Gates on the kill percentage only at or above the min_mutants floor
 - Ratchets the full-run mutation score against a snapshot
+- Rejects malformed mutation ratchets instead of recreating them
 - Skips every check while a mutation test run is in progress
 - Excludes a mutate-ok waived line from generation and counts the waiver
 - Records the original source line on each generated mutant
@@ -410,11 +425,13 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Serializes and reparses a cached mutant outcome name
 - Builds a stable mutant identity key from its file span and operator
 - Renders a cached mutant outcome as one JSON record
-- Loads matching-suite outcomes dropping stale and duplicate records
+- Retains bounded exact suite-digest cache cohorts
 - Reuses appended outcomes on load and bypasses the cache under refresh
 - Records each surviving mutant with its operator and original source line
 - Records a mutation summary with the tier, score, and outcome counts
 - Writes the survivor report under the git-ignored mutate cache dir
+- Persists the exact sampled mutation cohort
+- Uses and cleans a campaign-local Zig cache
 
 ## Complexity Bounds
 

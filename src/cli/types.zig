@@ -52,6 +52,18 @@ pub const RunCtx = struct {
     /// `--intent "<message>"`: the commit subject for the `commit` command.
     /// Null for every other command; `commit` errors when it is null or blank.
     intent: ?[]const u8 = null,
+    /// Machine-readable maintenance-command output.
+    json: bool = false,
+    /// Optional check-name filter used by `debt`.
+    check_filter: ?[]const u8 = null,
+    /// Identify obsolete baseline files; dry-run unless `confirm` is true.
+    prune_stale: bool = false,
+    /// Explicit confirmation for a mutating maintenance operation (`--yes`).
+    confirm: bool = false,
+    /// Registry membership callback for maintenance commands that must detect
+    /// stale check-owned files without importing registry.zig (which imports
+    /// those commands).
+    command_exists: ?*const fn ([]const u8) bool = null,
 };
 
 /// Whether a check needs the AST index built before invocation.

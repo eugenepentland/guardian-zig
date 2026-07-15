@@ -78,7 +78,10 @@ fn parseHead(tok: *std.zig.Tokenizer, z: []const u8) ?Head {
     const name = z[id.loc.start..id.loc.end];
 
     var t = tok.next();
-    while (t.tag == .keyword_extern or t.tag == .keyword_packed) t = tok.next();
+    while (t.tag == .keyword_extern or t.tag == .keyword_packed) {
+        t = tok.next();
+        if (t.tag == .eof) return null;
+    }
     const is_container = t.tag == .keyword_struct or t.tag == .keyword_enum or t.tag == .keyword_union;
     if (!is_container or !skipToBrace(tok)) return null;
     return .{ .name = name, .line = lineOf(z, id.loc.start) };

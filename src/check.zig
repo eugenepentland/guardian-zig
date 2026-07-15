@@ -12,6 +12,8 @@ const run_all = @import("cli/run_all.zig");
 const nightly = @import("cli/nightly.zig");
 const commit_cmd = @import("cli/commit.zig");
 const explain = @import("cli/explain.zig");
+const doctor = @import("cli/doctor.zig");
+const spec_sync = @import("cli/spec_sync.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
 const mutation_runner = @import("mutation/runner.zig");
@@ -88,6 +90,11 @@ pub fn main() !void {
         .only = try splitCsv(allocator, parsed.only),
         .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
+        .json = parsed.json,
+        .check_filter = parsed.check_filter,
+        .prune_stale = parsed.prune_stale,
+        .confirm = parsed.confirm,
+        .command_exists = registeredCommand,
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
@@ -110,6 +117,10 @@ const ParsedArgs = struct {
     skip: ?[]const u8 = null,
     /// `--intent "<message>"` value for the `commit` command; null when absent.
     intent: ?[]const u8 = null,
+    json: bool = false,
+    check_filter: ?[]const u8 = null,
+    prune_stale: bool = false,
+    confirm: bool = false,
     /// True when `--version` was passed anywhere on the command line.
     show_version: bool = false,
 };
@@ -130,6 +141,12 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             parsed.full = true;
         } else if (std.mem.eql(u8, arg, "--version")) {
             parsed.show_version = true;
+        } else if (std.mem.eql(u8, arg, "--json")) {
+            parsed.json = true;
+        } else if (std.mem.eql(u8, arg, "--prune-stale")) {
+            parsed.prune_stale = true;
+        } else if (std.mem.eql(u8, arg, "--yes")) {
+            parsed.confirm = true;
         } else if (std.mem.eql(u8, arg, "--against")) {
             i += 1;
             if (i < args.len) parsed.against = args[i];
@@ -142,6 +159,9 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--intent")) {
             i += 1;
             if (i < args.len) parsed.intent = args[i];
+        } else if (std.mem.eql(u8, arg, "--check")) {
+            i += 1;
+            if (i < args.len) parsed.check_filter = args[i];
         } else if (parsed.command == null) {
             parsed.command = arg;
         } else {
@@ -156,6 +176,10 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
 fn isVersionCommand(command: ?[]const u8) bool {
     const c = command orelse return false;
     return std.mem.eql(u8, c, "version");
+}
+
+fn registeredCommand(name: []const u8) bool {
+    return registry.find(name) != null;
 }
 
 /// The check name for `explain`: the positional after the command, or null when
@@ -222,6 +246,8 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     if (std.mem.eql(u8, command, commit_cmd.command_name)) {
         return commit_cmd.run(ctx);
     }
+    if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
+    if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
     const cmd = registry.find(command) orelse {
         registry.printHelp();
         std.process.exit(1);
@@ -262,6 +288,8 @@ test {
     _ = @import("mutation/report.zig");
     _ = @import("cli/mutate.zig");
     _ = @import("cli/debt.zig");
+    _ = @import("cli/doctor.zig");
+    _ = @import("cli/spec_sync.zig");
     _ = @import("cli/nightly.zig");
     _ = @import("cli/commit.zig");
     _ = @import("cli/explain.zig");
@@ -419,6 +447,29 @@ test "parseArgs reads --intent message alongside command and dir" {
     try std.testing.expectEqualStrings("commit", parsed.command.?);
     try std.testing.expectEqualStrings("add the widget", parsed.intent.?);
     try std.testing.expectEqualStrings(".", parsed.project_dir);
+}
+
+// spec: Maintenance - Parses maintenance command flags independently of the project directory
+
+test "parseArgs reads maintenance report and prune flags" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 7);
+    args[0] = try a.dupeZ(u8, "debt");
+    args[1] = try a.dupeZ(u8, "../project");
+    args[2] = try a.dupeZ(u8, "--json");
+    args[3] = try a.dupeZ(u8, "--check");
+    args[4] = try a.dupeZ(u8, "spec");
+    args[5] = try a.dupeZ(u8, "--prune-stale");
+    args[6] = try a.dupeZ(u8, "--yes");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("debt", parsed.command.?);
+    try std.testing.expectEqualStrings("../project", parsed.project_dir);
+    try std.testing.expectEqualStrings("spec", parsed.check_filter.?);
+    try std.testing.expect(parsed.json);
+    try std.testing.expect(parsed.prune_stale);
+    try std.testing.expect(parsed.confirm);
 }
 
 // spec: Configuration - Splits a comma-separated filter value into check names

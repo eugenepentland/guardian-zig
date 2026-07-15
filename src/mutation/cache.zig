@@ -13,8 +13,8 @@
 //! touches git or the build cache. The file is append-only *during* a run (each
 //! freshly-measured outcome is flushed immediately, so an interrupted run
 //! resumes: the completed mutants are already on disk), and compacted *on load*
-//! down to the current suite's deduped records (dropping stale-suite lines and
-//! keeping the latest outcome per identity). A refresh
+//! to deduplicated records from a bounded number of exact suite-digest cohorts.
+//! Reuse still selects only the currently requested exact digest. A refresh
 //! (GUARDIAN_UPDATE_SNAPSHOT covering `mutate`) bypasses reads entirely — a
 //! fresh ratchet must be a fresh measurement, not a replay.
 
@@ -71,7 +71,7 @@ fn parseOutcome(name: []const u8) ?Outcome {
     if (std.mem.eql(u8, name, "killed")) return .killed;
     if (std.mem.eql(u8, name, "survived")) return .survived;
     if (std.mem.eql(u8, name, "unviable")) return .unviable;
-    if (std.mem.eql(u8, name, "timed_out")) return .timed_out;
+    if (std.mem.eql(u8, name, "inconclusive")) return .inconclusive;
     return null;
 }
 
@@ -112,10 +112,12 @@ fn recordJson(arena: Allocator, suite_hex: []const u8, m: gen.Mutant, outcome: O
 /// `suite_hex` (stale-suite lines are dropped) and deduping by identity with
 /// latest-wins. Returns the reuse map and the compacted file text (the kept
 /// records, one per line, insertion-ordered). Malformed lines are skipped.
-fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Allocator.Error!Loaded {
+fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8, retained_suites: u32) Allocator.Error!Loaded {
     var map: Map = .{};
-    var order: std.ArrayList([]const u8) = .empty; // unique keys, insertion order
-    var latest: std.StringHashMapUnmanaged([]const u8) = .{}; // key -> latest raw JSON line
+    var order: std.ArrayList([]const u8) = .empty; // unique suite+identity keys
+    var latest: std.StringHashMapUnmanaged([]const u8) = .{};
+    var key_suite: std.StringHashMapUnmanaged([]const u8) = .{};
+    var suite_occurrences: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |raw| {
         const line = std.mem.trim(u8, raw, &std.ascii.whitespace);
@@ -123,21 +125,34 @@ fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8) Alloca
         const rec = std.json.parseFromSliceLeaky(Record, arena, line, .{
             .ignore_unknown_fields = true,
         }) catch continue;
-        if (!std.mem.eql(u8, rec.suite, suite_hex)) continue; // stale tree state
         const outcome = parseOutcome(rec.outcome) orelse continue;
         const key = try identityKey(arena, rec.file, rec.start, rec.end, rec.original, rec.replacement);
-        const gop = try latest.getOrPut(arena, key);
-        if (!gop.found_existing) try order.append(arena, key);
+        const composite = try std.fmt.allocPrint(arena, "{s}\x00{s}", .{ rec.suite, key });
+        const gop = try latest.getOrPut(arena, composite);
+        if (!gop.found_existing) {
+            try order.append(arena, composite);
+            try key_suite.put(arena, composite, rec.suite);
+        }
         gop.value_ptr.* = line; // latest wins
-        try map.put(arena, key, outcome);
+        try suite_occurrences.append(arena, rec.suite);
+        if (std.mem.eql(u8, rec.suite, suite_hex)) try map.put(arena, key, outcome);
     }
-    // Every unique identity is appended to `order` exactly once (the
-    // !found_existing branch) and put into `map`, so the compaction below has one
-    // reuse entry per emitted line.
-    std.debug.assert(order.items.len == map.count());
+
+    // Select current plus the most recently appended historical suite cohorts.
+    const limit = @max(@as(u32, 1), retained_suites);
+    var selected: std.StringHashMapUnmanaged(void) = .{};
+    try selected.put(arena, suite_hex, {});
+    var i = suite_occurrences.items.len;
+    while (i > 0 and selected.count() < limit) {
+        i -= 1;
+        try selected.put(arena, suite_occurrences.items[i], {});
+    }
     var buf: std.ArrayList(u8) = .empty;
     for (order.items) |k| {
-        try buf.appendSlice(arena, latest.get(k).?);
+        const suite = key_suite.get(k) orelse continue;
+        if (!selected.contains(suite)) continue;
+        const line = latest.get(k) orelse continue;
+        try buf.appendSlice(arena, line);
         try buf.append(arena, '\n');
     }
     return .{ .map = map, .compacted = try buf.toOwnedSlice(arena) };
@@ -157,11 +172,11 @@ fn overwrite(p: []const u8, data: []const u8) !void {
 /// empty map and touches nothing — a fresh ratchet must not replay cached
 /// outcomes. Best-effort: a missing/unreadable/corrupt file yields an empty map,
 /// and a failed compaction rewrite is logged and swallowed (the map stays valid).
-pub fn load(arena: Allocator, project_dir: []const u8, suite_hex: []const u8, mode: Reuse) Map {
+pub fn load(arena: Allocator, project_dir: []const u8, suite_hex: []const u8, mode: Reuse, retained_suites: u32) Map {
     if (mode == .fresh) return .{};
     const p = path(arena, project_dir) catch return .{};
     const content = std.fs.cwd().readFileAlloc(arena, p, max_cache_bytes) catch return .{};
-    const loaded = buildMap(arena, content, suite_hex) catch return .{};
+    const loaded = buildMap(arena, content, suite_hex, retained_suites) catch return .{};
     overwrite(p, loaded.compacted) catch |e|
         std.log.warn("guardian mutate cache compaction failed: {s}", .{@errorName(e)});
     return loaded.map;
@@ -205,13 +220,20 @@ const testing = std.testing;
 
 /// Builds a mutant with a fixed line (identity ignores the line number).
 fn mk(path_: []const u8, start: usize, end: usize, original: []const u8, replacement: []const u8) gen.Mutant {
-    return .{ .path = path_, .start = start, .end = end, .original = original, .replacement = replacement, .line = 1 };
+    return .{
+        .path = path_,
+        .start = start,
+        .end = end,
+        .original = original,
+        .replacement = replacement,
+        .source = .{ .line = 1 },
+    };
 }
 
 // spec: Mutation Testing - Serializes and reparses a cached mutant outcome name
 
 test "the outcome tag name round-trips through parseOutcome" {
-    for ([_]Outcome{ .killed, .survived, .unviable, .timed_out }) |o| {
+    for ([_]Outcome{ .killed, .survived, .unviable, .inconclusive }) |o| {
         // recordJson stores @tagName(o); parseOutcome reads it back — this pins
         // the two together, so an enum rename that broke the format fails here.
         try testing.expectEqual(o, parseOutcome(@tagName(o)).?);
@@ -228,7 +250,7 @@ test "keyFor distinguishes identities and matches equal ones" {
     const a = arena.allocator();
     const m1 = mk("src/x.zig", 9, 10, "<", "<=");
     var same = m1;
-    same.line = 99; // a formatting shift changes the line, not the identity
+    same.source.line = 99; // a formatting shift changes the line, not the identity
     const diff = mk("src/x.zig", 9, 10, "<", "<");
     try testing.expectEqualStrings(try keyFor(a, m1), try keyFor(a, same));
     // A different replacement is a different mutant.
@@ -249,9 +271,9 @@ test "recordJson emits the suite, identity, and outcome" {
     );
 }
 
-// spec: Mutation Testing - Loads matching-suite outcomes dropping stale and duplicate records
+// spec: Mutation Testing - Retains bounded exact suite-digest cache cohorts
 
-test "buildMap keeps the current suite, drops stale, and dedups latest-wins" {
+test "buildMap keeps bounded suites and dedups current outcomes latest-wins" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -263,19 +285,22 @@ test "buildMap keeps the current suite, drops stale, and dedups latest-wins" {
         \\{"suite":"aa","file":"src/y.zig","start":3,"end":4,"original":">","replacement":">=","outcome":"killed"}
         \\{"suite":"aa","file":"src/x.zig","start":9,"end":10,"original":"<","replacement":"<=","outcome":"killed"}
     ;
-    const loaded = try buildMap(a, content, "aa");
+    const loaded = try buildMap(a, content, "aa", 2);
     const kx = try identityKey(a, "src/x.zig", 9, 10, "<", "<=");
     const ky = try identityKey(a, "src/y.zig", 3, 4, ">", ">=");
     // Reuse map: x dedups to the latest (killed), y is killed, stale bb is gone.
     try testing.expectEqual(Outcome.killed, loaded.map.get(kx).?);
     try testing.expectEqual(Outcome.killed, loaded.map.get(ky).?);
     try testing.expectEqual(@as(usize, 2), loaded.map.count());
-    // Compaction: exactly the two deduped current-suite records, no stale suite.
+    // Compaction retains both configured exact suite cohorts: two aa + one bb.
     var lines = std.mem.tokenizeScalar(u8, loaded.compacted, '\n');
     var n: usize = 0;
     while (lines.next()) |_| n += 1;
-    try testing.expectEqual(@as(usize, 2), n);
-    try testing.expect(std.mem.indexOf(u8, loaded.compacted, "\"bb\"") == null);
+    try testing.expectEqual(@as(usize, 3), n);
+    try testing.expect(std.mem.indexOf(u8, loaded.compacted, "\"bb\"") != null);
+
+    const current_only = try buildMap(a, content, "aa", 1);
+    try testing.expect(std.mem.indexOf(u8, current_only.compacted, "\"bb\"") == null);
 }
 
 // spec: Mutation Testing - Reuses appended outcomes on load and bypasses the cache under refresh
@@ -293,12 +318,12 @@ test "append then load round-trips outcomes and bypass returns an empty map" {
     append(a, dir, "aa", m1, .survived);
     append(a, dir, "aa", m2, .killed);
 
-    const map = load(a, dir, "aa", .reuse);
+    const map = load(a, dir, "aa", .reuse, 3);
     try testing.expectEqual(Outcome.survived, map.get(try keyFor(a, m1)).?);
     try testing.expectEqual(Outcome.killed, map.get(try keyFor(a, m2)).?);
 
     // Under a refresh (.fresh), load returns an empty map without reusing what's
     // on disk — a fresh ratchet is a fresh measurement.
-    const fresh = load(a, dir, "aa", .fresh);
+    const fresh = load(a, dir, "aa", .fresh, 3);
     try testing.expectEqual(@as(usize, 0), fresh.count());
 }

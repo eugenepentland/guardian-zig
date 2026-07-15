@@ -37,7 +37,17 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const unit_tests = b.addTest(.{ .root_module = test_mod });
+    const fuzz_filter = b.option(
+        []const u8,
+        "fuzz-filter",
+        "Select one fuzz test by name for `zig build test --fuzz`",
+    );
+    const test_filters: []const []const u8 = if (fuzz_filter) |filter| filters: {
+        const one = b.allocator.alloc([]const u8, 1) catch @panic("out of memory");
+        one[0] = filter;
+        break :filters one;
+    } else &.{};
+    const unit_tests = b.addTest(.{ .root_module = test_mod, .filters = test_filters });
     const run_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);

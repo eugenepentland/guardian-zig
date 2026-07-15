@@ -430,6 +430,8 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "nightly", .summary = "Full suite + whole-tree mutation ratchet (scheduled/CI tier)" },
     .{ .name = "commit", .summary = "Gate the tree, then auto-commit the change set with --intent" },
     .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
+    .{ .name = "doctor", .summary = "Audit Guardian metadata/integration health (read-only)" },
+    .{ .name = "spec-sync", .summary = "Suggest missing SPEC.md bullets without editing files" },
     .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
 };
 

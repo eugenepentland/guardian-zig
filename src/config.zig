@@ -230,9 +230,16 @@ pub const MutationCfg = struct {
     /// score ratchet is never written. Default 4; bites the fast tier, where a
     /// tiny diff can produce only a mutant or two.
     min_mutants: u32 = 4,
-    /// Cap on mutants exercised per run; larger candidate sets are sampled
-    /// deterministically (every k-th mutant) down to this budget.
+    /// Cap on mutants exercised per full run; larger candidate sets are
+    /// sampled deterministically by stable mutant-identity hash.
     max_mutants: u32 = 100,
+    /// Smaller deterministic budget used by the fast/PR mutation tier. The
+    /// full/nightly tier continues to use `max_mutants`.
+    fast_max_mutants: u32 = 8,
+    /// Optional build step run before the full test step for each mutant. A
+    /// smoke failure kills the mutant; smoke survivors still run the full
+    /// suite, so this can only save work without weakening coverage.
+    smoke_step: ?[]const u8 = null,
     /// Floor (seconds) under the per-mutant timeout. The deadline is
     /// `max(timeout_floor_secs, timeout_multiplier × clean-suite baseline)`, so
     /// a fast suite still gets at least this long before a hang is called.
@@ -242,11 +249,16 @@ pub const MutationCfg = struct {
     /// timeout (see `timeout_floor_secs`). Default 5 — generous headroom over a
     /// normal run so only a genuine hang trips it.
     timeout_multiplier: u32 = 5,
+    /// Multiplier applied to the first deadline when retrying an inconclusive
+    /// timeout. Must be non-zero.
+    timeout_retry_multiplier: u32 = 2,
     /// Safety cap on the clean-suite baseline measurement, and the fallback
     /// per-mutant timeout used when that baseline can't be measured (the clean
-    /// suite errored or hung). A timed-out mutant counts as killed: the
-    /// mutation made the suite hang, so it was caught.
+    /// suite errored or hung). A timed-out mutant is retried with an expanded
+    /// deadline; a repeated timeout is inconclusive and excluded from scoring.
     timeout_secs: u32 = 300,
+    /// Number of exact suite-digest mutation caches retained for reuse.
+    retained_cache_suites: u32 = 3,
 };
 
 /// Per-check config for the test-coverage check (per-pub-fn).

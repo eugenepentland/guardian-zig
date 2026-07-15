@@ -38,8 +38,9 @@ const detail = reporter.detail;
 pub const command_name = "mutate";
 
 const snapshot_leaf = "mutation.txt";
-const snapshot_version: u32 = 1;
+const snapshot_version: u32 = 2;
 const score_key = "score_pct=";
+const cohort_key = "cohort=";
 /// How many surviving mutants are listed before the report truncates.
 const max_reported_survivors = 20;
 
@@ -69,11 +70,26 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // then arm the SIGINT/SIGTERM revert for this run.
     journal.recover(a, ctx.project_dir);
     journal.install();
+    const build_cache_dir = (try runner.prepareCache(a, ctx.project_dir)) orelse {
+        reporter.fail("mutate FAILED: cannot prepare isolated Zig cache", .{});
+        return error.CheckFailed;
+    };
+    defer runner.cleanupCache(build_cache_dir);
     var storage: ast_index.Index = undefined;
     const idx = try ast_index.resolve(ctx.source_index, a, ctx.project_dir, &storage);
 
     const cand = try collectCandidates(ctx, idx) orelse return;
-    const picked = try gen.sample(a, cand.mutants, ctx.cfg.mutation.max_mutants);
+    const budget = if (ctx.full) ctx.cfg.mutation.max_mutants else ctx.cfg.mutation.fast_max_mutants;
+    const picked = try gen.sample(a, cand.mutants, budget);
+    const cohort = gen.cohortHash(picked);
+    report_mod.writeCohort(
+        a,
+        ctx.project_dir,
+        if (ctx.full) "full" else "fast",
+        cand.mutants.len,
+        picked,
+        cohort,
+    );
     if (picked.len == 0) {
         reporter.ok("mutate: no mutants to run ({s})", .{
             if (ctx.full) "no mutation sites found" else "no changed production lines",
@@ -83,13 +99,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     }
     if (picked.len < cand.mutants.len) {
         reporter.ok("mutate: sampled {d} of {d} candidate mutants (max_mutants = {d})", .{
-            picked.len, cand.mutants.len, ctx.cfg.mutation.max_mutants,
+            picked.len, cand.mutants.len, budget,
         });
     }
     if (cand.waived > 0) reporter.ok("mutate: {d} site(s) waived via mutate-ok", .{cand.waived});
 
-    const scored = try execute(ctx, picked, suiteHex(ctx));
-    try report(ctx, scored, cand.waived);
+    const scored = try execute(ctx, picked, suiteHex(ctx), build_cache_dir);
+    try report(ctx, scored, cand.waived, cohort);
 }
 
 /// The candidate mutant list plus the count of `// mutate-ok` sites suppressed
@@ -176,18 +192,40 @@ fn contains(paths: []const []const u8, needle: []const u8) bool {
 /// reuses that outcome and skips the build+test cycle (marked "(cached)"); each
 /// freshly-run outcome is flushed to the cache immediately so an interrupted run
 /// resumes. Stale mutants (file changed mid-run) are skipped.
-fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u8) types.RunError!ScoredRun {
+fn execute(
+    ctx: *types.RunCtx,
+    picked: []const gen.Mutant,
+    suite_hex: ?[]const u8,
+    build_cache_dir: []const u8,
+) types.RunError!ScoredRun {
     const a = ctx.allocator;
     // A refresh (GUARDIAN_UPDATE_SNAPSHOT covering mutate) bypasses cache reads:
     // a fresh ratchet must be a fresh measurement, not a replay.
     const mode: mut_cache.Reuse = if (snapshot_helper.shouldUpdateFor(a, "mutate")) .fresh else .reuse;
-    const cache_map: mut_cache.Map = if (suite_hex) |h| mut_cache.load(a, ctx.project_dir, h, mode) else .{};
+    const cache_map: mut_cache.Map = if (suite_hex) |h| mut_cache.load(
+        a,
+        ctx.project_dir,
+        h,
+        mode,
+        ctx.cfg.mutation.retained_cache_suites,
+    ) else .{};
+
+    if (ctx.cfg.mutation.smoke_step) |step| {
+        const cap = @as(u64, ctx.cfg.mutation.timeout_secs) * std.time.ns_per_s;
+        if (try runner.cleanStep(a, ctx.project_dir, build_cache_dir, step, cap) != .ok) {
+            reporter.fail("mutate FAILED: clean smoke step `{s}` does not pass; no mutants were scored", .{step});
+            return error.CheckFailed;
+        }
+        reporter.ok("mutate: clean smoke step `{s}` passed", .{step});
+    }
 
     var deadline_ns: ?u64 = null; // measured lazily on the first non-cached mutant
     var scored: ScoredRun = .{};
     for (picked, 1..) |m, i| {
         const key = try mut_cache.keyFor(a, m);
-        const label = try std.fmt.allocPrint(a, "[{d}/{d}] {s}:{d}", .{ i, picked.len, m.path, m.line });
+        const label = try std.fmt.allocPrint(a, "[{d}/{d}] {s}:{d}", .{
+            i, picked.len, m.path, m.source.line,
+        });
         if (cache_map.get(key)) |cached_outcome| {
             scored.score.add(cached_outcome);
             scored.cached += 1;
@@ -197,12 +235,16 @@ fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u
             if (cached_outcome == .survived) try scored.addSurvivor(a, m);
             continue;
         }
-        if (deadline_ns == null) deadline_ns = computeDeadline(ctx);
+        if (deadline_ns == null) deadline_ns = computeDeadline(ctx, build_cache_dir);
+        const timeout_ns = deadline_ns orelse return error.CheckFailed;
         const opts: runner.RunOpts = .{
             .project_dir = ctx.project_dir,
-            .timeout_ns = deadline_ns.?,
+            .timeout_ns = timeout_ns,
             .heartbeat_ns = heartbeat_ns,
             .label = label,
+            .cache_dir = build_cache_dir,
+            .smoke_step = ctx.cfg.mutation.smoke_step,
+            .timeout_retry_multiplier = ctx.cfg.mutation.timeout_retry_multiplier,
         };
         detail("  {s} `{s}` -> `{s}` running...\n", .{ label, m.original, m.replacement });
         const outcome = runner.runOne(a, opts, m) catch |e| switch (e) {
@@ -213,7 +255,11 @@ fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u
             else => return e,
         };
         scored.score.add(outcome);
-        if (suite_hex) |h| mut_cache.append(a, ctx.project_dir, h, m, outcome);
+        // A timeout can be transient infrastructure slowness. Never cache an
+        // inconclusive result: the next exact-suite run must retry it.
+        if (outcome != .inconclusive) {
+            if (suite_hex) |h| mut_cache.append(a, ctx.project_dir, h, m, outcome);
+        }
         detail("  {s} ... {s}\n", .{ label, @tagName(outcome) });
         if (outcome == .survived) try scored.addSurvivor(a, m);
     }
@@ -223,11 +269,11 @@ fn execute(ctx: *types.RunCtx, picked: []const gen.Mutant, suite_hex: ?[]const u
 /// Measures the clean-suite baseline once and derives the per-mutant deadline
 /// (`max(floor, ×multiplier)`), falling back to `timeout_secs` when the baseline
 /// can't be measured (clean suite errored/hung). Announces the chosen timeout.
-fn computeDeadline(ctx: *types.RunCtx) u64 {
+fn computeDeadline(ctx: *types.RunCtx, cache_dir: []const u8) u64 {
     const mc = ctx.cfg.mutation;
     const sec = std.time.ns_per_s;
     const cap_ns = @as(u64, mc.timeout_secs) * sec;
-    if (runner.measureBaseline(ctx.allocator, ctx.project_dir, cap_ns)) |baseline| {
+    if (runner.measureBaseline(ctx.allocator, ctx.project_dir, cache_dir, cap_ns)) |baseline| {
         const d = runner.deadlineNs(mc.timeout_floor_secs, mc.timeout_multiplier, baseline);
         reporter.ok("mutate: clean-suite baseline ~{d}s → per-mutant timeout {d}s (floor {d}s, ×{d})", .{
             baseline / sec, d / sec, mc.timeout_floor_secs, mc.timeout_multiplier,
@@ -252,10 +298,10 @@ const ScoredRun = struct {
     fn addSurvivor(self: *ScoredRun, a: Allocator, m: gen.Mutant) Allocator.Error!void {
         try self.survivors.append(a, .{
             .file = m.path,
-            .line = m.line,
+            .line = m.source.line,
             .original = m.original,
             .replacement = m.replacement,
-            .src_line = m.src_line,
+            .src_line = m.source.text,
         });
     }
 };
@@ -264,19 +310,27 @@ const ScoredRun = struct {
 /// snapshot ratchet (--full only), then prints the verdict. Always writes the
 /// machine-readable survivor report. Below the `min_mutants` floor the run
 /// reports its survivors informationally and passes without touching the ratchet.
-fn report(ctx: *types.RunCtx, scored: ScoredRun, waived: u32) types.RunError!void {
+fn report(ctx: *types.RunCtx, scored: ScoredRun, waived: u32, cohort: u64) types.RunError!void {
     const s = scored.score;
     const pct = s.pct();
     const viable = s.viable();
     const min_mutants = ctx.cfg.mutation.min_mutants;
     const gated = gatedByPercentage(viable, min_mutants);
 
-    reporter.ok("mutate: score {d}% — {d} killed, {d} timed out, {d} survived, {d} unviable", .{
-        pct, s.killed, s.timed_out, s.survived, s.unviable,
+    reporter.ok("mutate: score {d}% — {d} killed, {d} survived, {d} unviable, {d} inconclusive", .{
+        pct, s.killed, s.survived, s.unviable, s.inconclusive,
     });
     if (scored.cached > 0) reporter.ok("mutate: reused {d} cached outcome(s)", .{scored.cached});
 
     writeMachineReport(ctx, scored, waived, gated, pct);
+
+    if (s.inconclusive > 0) {
+        reporter.fail(
+            "mutate FAILED: {d} mutant(s) remained inconclusive after timeout retry; score/ratchet not accepted",
+            .{s.inconclusive},
+        );
+        return error.CheckFailed;
+    }
 
     if (!gated) {
         reporter.ok("mutate: {d} viable mutant(s) below min_mutants={d} — informational, not gated", .{
@@ -293,7 +347,7 @@ fn report(ctx: *types.RunCtx, scored: ScoredRun, waived: u32) types.RunError!voi
         });
         failed = true;
     }
-    if (ctx.full and !try ratchet(ctx, pct)) failed = true;
+    if (ctx.full and !try ratchet(ctx, pct, cohort)) failed = true;
 
     if (!failed) return;
     listSurvivors(scored.survivors.items);
@@ -319,35 +373,93 @@ fn writeMachineReport(ctx: *types.RunCtx, scored: ScoredRun, waived: u32, gated:
 /// (and reports) on an unforced regression; creates/raises/holds otherwise.
 /// Only reached when the run is gated (at or above the min_mutants floor), so a
 /// below-floor run never records a meaningless score.
-fn ratchet(ctx: *types.RunCtx, pct: u32) types.RunError!bool {
+fn ratchet(ctx: *types.RunCtx, pct: u32, cohort: u64) types.RunError!bool {
     const a = ctx.allocator;
     const path = try snapshot_helper.snapshotPath(a, ctx.project_dir, snapshot_leaf);
-    const old = readScore(a, path);
+    const old = readRatchet(a, path) catch |e| switch (e) {
+        error.Missing => null,
+        else => {
+            reporter.fail(
+                "mutate FAILED: mutation ratchet is unreadable or malformed ({s}); refusing to recreate it",
+                .{@errorName(e)},
+            );
+            return e;
+        },
+    };
     const force = snapshot_helper.shouldUpdateFor(a, "mutate");
-    const decision = runner.ratchetDecision(old, pct);
+    const old_pct: ?u32 = if (old) |prior| prior.pct else null;
+    if (old) |prior| {
+        if (!cohortMatches(prior.cohort, cohort)) {
+            reporter.ok(
+                "mutate: cohort turnover detected; prior score is not compared to incompatible sample (new {x})",
+                .{cohort},
+            );
+            try writeRatchet(a, path, pct, cohort);
+            return true;
+        }
+    }
+    const decision = runner.ratchetDecision(old_pct, pct);
     if (decision == .regressed and !force) {
-        reporter.fail("mutate FAILED: score {d}% regressed below the snapshot ratchet {d}%", .{ pct, old.? });
+        reporter.fail("mutate FAILED: score {d}% regressed below the snapshot ratchet {d}%", .{
+            pct,
+            old_pct orelse 0,
+        });
         detail("  accept deliberately with {s}=1, or strengthen the tests.\n", .{snapshot_helper.update_env});
         return false;
     }
-    try writeScore(a, path, pct);
+    try writeRatchet(a, path, pct, cohort);
     reporter.ok("mutate: score ratchet {s} at {d}% ({s})", .{ @tagName(decision), pct, snapshot_leaf });
     return true;
 }
 
-/// Reads the prior score from the snapshot file; null when absent/unreadable.
-fn readScore(a: Allocator, path: []const u8) ?u32 {
-    const snap = snapshot.read(a, path, snapshot_version) catch return null;
-    for (snap.lines) |line| {
-        if (std.mem.startsWith(u8, line, score_key)) {
-            return std.fmt.parseInt(u32, line[score_key.len..], 10) catch null;
-        }
-    }
-    return null;
+fn cohortMatches(old: ?u64, current: u64) bool {
+    const value = old orelse return false;
+    return value == current;
 }
 
-fn writeScore(a: Allocator, path: []const u8, pct: u32) types.RunError!void {
-    var lines = [_][]const u8{try std.fmt.allocPrint(a, "{s}{d}", .{ score_key, pct })};
+const Ratchet = struct { pct: u32, cohort: ?u64 };
+
+/// Reads and strictly validates the prior score. Only Missing is creation;
+/// corruption, duplicate fields, invalid percentages, and I/O errors fail closed.
+fn readRatchet(a: Allocator, path: []const u8) snapshot.ReadError!Ratchet {
+    const snap = snapshot.read(a, path, snapshot_version) catch |e| switch (e) {
+        // Version 1 was a valid score-only format. Migrate it as an
+        // incompatible cohort rather than weakening fail-closed parsing.
+        error.VersionMismatch => return readLegacyRatchet(a, path),
+        else => return e,
+    };
+    var pct: ?u32 = null;
+    var cohort: ?u64 = null;
+    for (snap.lines) |line| {
+        if (std.mem.startsWith(u8, line, score_key)) {
+            if (pct != null) return error.BadFormat;
+            pct = std.fmt.parseInt(u32, line[score_key.len..], 10) catch return error.BadFormat;
+        } else if (std.mem.startsWith(u8, line, cohort_key)) {
+            if (cohort != null) return error.BadFormat;
+            cohort = std.fmt.parseInt(u64, line[cohort_key.len..], 16) catch return error.BadFormat;
+        } else {
+            return error.BadFormat;
+        }
+    }
+    const valid_pct = pct orelse return error.BadFormat;
+    const valid_cohort = cohort orelse return error.BadFormat;
+    if (valid_pct > 100) return error.BadFormat;
+    return .{ .pct = valid_pct, .cohort = valid_cohort };
+}
+
+fn readLegacyRatchet(a: Allocator, path: []const u8) snapshot.ReadError!Ratchet {
+    const snap = try snapshot.read(a, path, 1);
+    if (snap.lines.len != 1 or !std.mem.startsWith(u8, snap.lines[0], score_key)) return error.BadFormat;
+    const pct = std.fmt.parseInt(u32, snap.lines[0][score_key.len..], 10) catch return error.BadFormat;
+    if (pct > 100) return error.BadFormat;
+    return .{ .pct = pct, .cohort = null };
+}
+
+fn writeRatchet(a: Allocator, path: []const u8, pct: u32, cohort: u64) types.RunError!void {
+    var lines = [_][]const u8{
+        try std.fmt.allocPrint(a, "{s}{d}", .{ score_key, pct }),
+        try std.fmt.allocPrint(a, "{s}{x}", .{ cohort_key, cohort }),
+    };
     try snapshot.write(path, snapshot_version, &lines);
 }
 
@@ -390,4 +502,24 @@ test "gatedByPercentage requires the viable count to reach the floor" {
     try testing.expect(gatedByPercentage(100, 4));
     // A 0 floor always gates (opting out of the floor).
     try testing.expect(gatedByPercentage(0, 0));
+}
+
+// spec: Mutation Testing - Rejects malformed mutation ratchets instead of recreating them
+
+test "readRatchet validates score and cohort and fails closed" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = "zig-cache/mutation-ratchet-test.txt";
+    defer std.fs.cwd().deleteFile(path) catch |e| std.log.warn("ratchet cleanup: {s}", .{@errorName(e)});
+
+    var valid = [_][]const u8{ "score_pct=88", "cohort=abc" };
+    try snapshot.write(path, snapshot_version, &valid);
+    const parsed = try readRatchet(a, path);
+    try testing.expectEqual(@as(u32, 88), parsed.pct);
+    try testing.expectEqual(@as(u64, 0xabc), parsed.cohort.?);
+
+    var invalid = [_][]const u8{ "score_pct=101", "cohort=abc" };
+    try snapshot.write(path, snapshot_version, &invalid);
+    try testing.expectError(error.BadFormat, readRatchet(a, path));
 }

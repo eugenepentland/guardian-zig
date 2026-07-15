@@ -13,10 +13,12 @@
 
 const std = @import("std");
 const runner = @import("runner.zig");
+const gen = @import("gen.zig");
 const Allocator = std.mem.Allocator;
 
 /// Basename of the machine-readable survivor log.
 const log_name = "last-mutate.jsonl";
+const cohort_manifest_name = "mutation-cohort.jsonl";
 
 /// One surviving mutant: the location, the operator swap, and the original
 /// source line — the exact context an agent needs to write the killing test.
@@ -60,7 +62,7 @@ const SummaryLine = struct {
     killed: u32,
     survived: u32,
     unviable: u32,
-    timed_out: u32,
+    inconclusive: u32,
     waived: u32,
     cached: u32,
     gated: bool,
@@ -82,7 +84,7 @@ pub fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8 {
         .killed = s.counts.killed,
         .survived = s.counts.survived,
         .unviable = s.counts.unviable,
-        .timed_out = s.counts.timed_out,
+        .inconclusive = s.counts.inconclusive,
         .waived = s.waived,
         .cached = s.cached,
         .gated = s.gated,
@@ -102,6 +104,73 @@ pub fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]cons
 pub fn write(arena: Allocator, project_dir: []const u8, survivors: []const Survivor, summary: Summary) void {
     writeInner(arena, project_dir, survivors, summary) catch |e|
         std.log.warn("guardian mutate report write failed: {s}", .{@errorName(e)});
+}
+
+/// Writes the exact sampled cohort manifest. Like the survivor report this is
+/// diagnostic-only and cannot fail a mutation run.
+pub fn writeCohort(
+    arena: Allocator,
+    project_dir: []const u8,
+    tier: []const u8,
+    candidate_count: usize,
+    picked: []const gen.Mutant,
+    cohort: u64,
+) void {
+    writeCohortInner(arena, project_dir, tier, candidate_count, picked, cohort) catch |e|
+        std.log.warn("guardian mutate cohort write failed: {s}", .{@errorName(e)});
+}
+
+fn writeCohortInner(
+    arena: Allocator,
+    project_dir: []const u8,
+    tier: []const u8,
+    candidate_count: usize,
+    picked: []const gen.Mutant,
+    cohort: u64,
+) !void {
+    const Header = struct {
+        type: []const u8 = "summary",
+        tier: []const u8,
+        candidates: usize,
+        sampled: usize,
+        cohort: u64,
+    };
+    const Item = struct {
+        type: []const u8 = "mutant",
+        hash: u64,
+        file: []const u8,
+        line: u32,
+        column: u32,
+        original: []const u8,
+        replacement: []const u8,
+    };
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(arena, try std.json.Stringify.valueAlloc(arena, Header{
+        .tier = tier,
+        .candidates = candidate_count,
+        .sampled = picked.len,
+        .cohort = cohort,
+    }, .{}));
+    try buf.append(arena, '\n');
+    for (picked) |m| {
+        try buf.appendSlice(arena, try std.json.Stringify.valueAlloc(arena, Item{
+            .hash = gen.identityHash(m),
+            .file = m.path,
+            .line = m.source.line,
+            .column = m.source.column,
+            .original = m.original,
+            .replacement = m.replacement,
+        }, .{}));
+        try buf.append(arena, '\n');
+    }
+    const p = try std.fmt.allocPrint(arena, "{s}/.guardian/cache/{s}", .{
+        project_dir,
+        cohort_manifest_name,
+    });
+    if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
+    const f = try std.fs.cwd().createFile(p, .{});
+    defer f.close();
+    try f.writeAll(buf.items);
 }
 
 fn writeInner(arena: Allocator, project_dir: []const u8, survivors: []const Survivor, summary: Summary) !void {
@@ -153,11 +222,11 @@ test "summaryJson emits the tier, score, and counts" {
     const a = arena.allocator();
     try testing.expectEqualStrings(
         "{\"type\":\"summary\",\"tier\":\"fast\",\"score\":75,\"killed\":3,\"survived\":1," ++
-            "\"unviable\":2,\"timed_out\":0,\"waived\":1,\"cached\":2,\"gated\":true}",
+            "\"unviable\":2,\"inconclusive\":0,\"waived\":1,\"cached\":2,\"gated\":true}",
         try summaryJson(a, .{
             .tier = "fast",
             .score = 75,
-            .counts = .{ .killed = 3, .survived = 1, .unviable = 2, .timed_out = 0 },
+            .counts = .{ .killed = 3, .survived = 1, .unviable = 2, .inconclusive = 0 },
             .waived = 1,
             .cached = 2,
             .gated = true,
@@ -181,7 +250,7 @@ test "write emits survivor lines then a summary under the cache dir" {
     write(a, dir, &survivors, .{
         .tier = "full",
         .score = 50,
-        .counts = .{ .killed = 1, .survived = 1, .unviable = 0, .timed_out = 0 },
+        .counts = .{ .killed = 1, .survived = 1, .unviable = 0, .inconclusive = 0 },
         .waived = 0,
         .cached = 0,
         .gated = true,
@@ -191,4 +260,28 @@ test "write emits survivor lines then a summary under the cache dir" {
     try testing.expect(std.mem.indexOf(u8, lines.next().?, "\"type\":\"survivor\"") != null);
     try testing.expect(std.mem.indexOf(u8, lines.next().?, "\"type\":\"summary\"") != null);
     try testing.expect(lines.next() == null);
+}
+
+// spec: Mutation Testing - Persists the exact sampled mutation cohort
+
+test "writeCohort emits a summary and each selected identity" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/mutate-cohort-proj";
+    try std.fs.cwd().makePath(dir);
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cohort cleanup: {s}", .{@errorName(e)});
+    const mutants = [_]gen.Mutant{.{
+        .path = "src/x.zig",
+        .start = 2,
+        .end = 3,
+        .original = "<",
+        .replacement = "<=",
+        .source = .{ .line = 4, .text = "a < b" },
+    }};
+    writeCohort(a, dir, "full", 9, &mutants, gen.cohortHash(&mutants));
+    const p = try std.fmt.allocPrint(a, "{s}/.guardian/cache/{s}", .{ dir, cohort_manifest_name });
+    const raw = try std.fs.cwd().readFileAlloc(a, p, 4096);
+    try testing.expect(std.mem.indexOf(u8, raw, "\"candidates\":9") != null);
+    try testing.expect(std.mem.indexOf(u8, raw, "\"file\":\"src/x.zig\"") != null);
 }

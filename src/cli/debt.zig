@@ -1,4 +1,4 @@
-//! `debt` command — a non-gating report (always exits 0) of Guardian's
+//! `debt` command — a non-gating report of Guardian's
 //! accumulated ratchet debt: per-check baseline violation counts and per-
 //! snapshot totals, sorted high-to-low, each with the delta vs the last
 //! committed `.guardian/` state when inside a git repo. Makes debt growth a
@@ -67,13 +67,110 @@ const Classified = struct { label: []const u8, kind: Kind };
 
 /// Entry point for the debt command: gathers baseline + snapshot rows, sorts
 /// them by count descending, and prints the report, then the informational
-/// assert-density-by-module table. Never gates (exit 0).
+/// assert-density-by-module table. Reporting never gates; invalid filters or
+/// a failed explicitly-confirmed prune return a maintenance error.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
-    const rows = try collectRows(ctx.allocator, ctx.project_dir);
-    sortByCountDesc(rows);
-    printReport(ctx.allocator, ctx.project_dir, rows);
+    if (ctx.check_filter) |name| {
+        if (ctx.command_exists) |exists| {
+            if (!exists(name)) {
+                reporter.fail("debt: unknown check for --check: {s}", .{name});
+                return error.CheckFailed;
+            }
+        }
+    }
+    if (ctx.prune_stale) try pruneStale(ctx);
+    const all_rows = try collectRows(ctx.allocator, ctx.project_dir);
+    sortByCountDesc(all_rows);
+    const rows = try filterRows(ctx.allocator, all_rows, ctx.check_filter);
     const density = try collectDensityRows(ctx.allocator, ctx.project_dir);
-    printDensityReport(density);
+    if (ctx.json) {
+        const json = try std.json.Stringify.valueAlloc(ctx.allocator, JsonReport{
+            .project_dir = ctx.project_dir,
+            .rows = rows,
+            .assert_density = density,
+        }, .{});
+        print("{s}\n", .{json});
+    } else {
+        printReport(ctx.allocator, ctx.project_dir, rows);
+        printDensityReport(density);
+    }
+}
+
+const JsonReport = struct {
+    project_dir: []const u8,
+    rows: []const Row,
+    assert_density: []const DensityRow,
+};
+
+fn filterRows(allocator: Allocator, rows: []const Row, filter: ?[]const u8) Allocator.Error![]const Row {
+    const name = filter orelse return rows;
+    var out: std.ArrayList(Row) = .empty;
+    for (rows) |row| if (rowMatches(row, name)) try out.append(allocator, row);
+    return out.toOwnedSlice(allocator);
+}
+
+fn rowMatches(row: Row, check_name: []const u8) bool {
+    if (std.mem.eql(u8, row.label, check_name)) return true;
+    return std.mem.eql(u8, check_name, "mutate") and std.mem.eql(u8, row.label, "mutation (score %)");
+}
+
+/// Lists obsolete per-check baseline files, deleting them only when the user
+/// supplied both `--prune-stale` and `--yes`.
+fn pruneStale(ctx: *types.RunCtx) types.RunError!void {
+    const exists = ctx.command_exists orelse {
+        reporter.fail("debt: registry unavailable; stale baselines were not pruned", .{});
+        return error.CheckFailed;
+    };
+    const dir_path = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian/baselines", .{ctx.project_dir});
+    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |e| switch (e) {
+        error.FileNotFound => {
+            reporter.ok("debt: no baseline directory to prune", .{});
+            return;
+        },
+        else => {
+            reporter.fail("debt: cannot inspect {s}: {s}", .{ dir_path, @errorName(e) });
+            return error.CheckFailed;
+        },
+    };
+    defer dir.close();
+    var stale: std.ArrayList([]const u8) = .empty;
+    var it = dir.iterate();
+    while (it.next() catch |e| {
+        reporter.fail("debt: cannot enumerate {s}: {s}", .{ dir_path, @errorName(e) });
+        return error.CheckFailed;
+    }) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".txt")) continue;
+        const check_name = entry.name[0 .. entry.name.len - ".txt".len];
+        if (!exists(check_name)) try stale.append(ctx.allocator, try ctx.allocator.dupe(u8, entry.name));
+    }
+    if (stale.items.len == 0) {
+        reporter.ok("debt: no stale baseline files", .{});
+        return;
+    }
+    std.mem.sort([]const u8, stale.items, {}, stringLessThan);
+    for (stale.items) |leaf| {
+        const full = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ dir_path, leaf });
+        if (!mutationConfirmed(ctx.prune_stale, ctx.confirm)) {
+            print("  would prune: {s}\n", .{full});
+            continue;
+        }
+        std.fs.cwd().deleteFile(full) catch |e| {
+            reporter.fail("debt: failed to prune {s}: {s}", .{ full, @errorName(e) });
+            return error.CheckFailed;
+        };
+        print("  pruned: {s}\n", .{full});
+    }
+    if (!mutationConfirmed(ctx.prune_stale, ctx.confirm)) {
+        reporter.ok("debt prune is a dry run; add --yes to delete {d} file(s)", .{stale.items.len});
+    }
+}
+
+fn mutationConfirmed(prune: bool, confirm: bool) bool {
+    return prune and confirm;
+}
+
+fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.order(u8, a, b) == .lt;
 }
 
 /// Walks `.guardian/` (minus the cache dir) and turns each recognized file into
@@ -489,6 +586,22 @@ test "reportable keeps debt and paid-down sources but drops always-clean ones" {
     try testing.expect(reportable(2, 0)); // debt held steady
     try testing.expect(!reportable(0, null)); // always clean, no git delta
     try testing.expect(!reportable(0, 0)); // clean and unchanged
+}
+
+// spec: Maintenance - Debt emits JSON and filters by check
+
+test "debt check filter matches check labels and the mutation command name" {
+    try testing.expect(rowMatches(.{ .label = "spec", .count = 1, .delta = null }, "spec"));
+    try testing.expect(rowMatches(.{ .label = "mutation (score %)", .count = 80, .delta = null }, "mutate"));
+    try testing.expect(!rowMatches(.{ .label = "spec", .count = 1, .delta = null }, "file-size"));
+}
+
+// spec: Maintenance - Debt previews stale baseline pruning before explicit confirmation
+
+test "stale pruning requires both prune request and explicit confirmation" {
+    try testing.expect(!mutationConfirmed(true, false));
+    try testing.expect(!mutationConfirmed(false, true));
+    try testing.expect(mutationConfirmed(true, true));
 }
 
 // spec: Debt - Reports assert-call density per top-level src module sorted ascending
