@@ -107,3 +107,11 @@ the same kind are fine.
 - **good:** the line-length gate caught two new 121-character HTML writer
   lines before commit even though all 1,199 functional tests passed; splitting
   them left all 67 checks green and the gated commit completed cleanly.
+
+## 2026-07-18 · codex · eda — merge assembly interaction improvements
+- **friction:** `zig build test` launched immediately after the post-merge
+  ReleaseSafe deployment hook waited silently on the shared project cache for
+  about four minutes. Both gates passed, but an explicit lock/wait message or
+  an isolated integration-test cache would make this state less ambiguous.
+- **good:** the post-merge gate verified the actual two-parent merge commit,
+  and the deployment hook rebuilt ReleaseSafe and restarted the active service.
