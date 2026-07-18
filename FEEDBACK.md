@@ -97,3 +97,8 @@ the same kind are fine.
 - **friction:** one red `zig build test` printed the same three Guardian
   failures twice through separate build graph branches, making a single set
   of reviewed ratchets look duplicated and adding noise to the fix loop.
+
+## 2026-07-18 · codex · eda — merge assembly/debug review to main
+- **good:** the post-merge ReleaseSafe gate verified the actual merge commit,
+  which combined the assembly/debug feature with a newer autosave/undo main
+  history, before production was restarted successfully.
