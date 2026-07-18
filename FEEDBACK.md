@@ -179,3 +179,6 @@ the same kind are fine.
   one branch (5847→5888→5950) even though the feature's bulk went into a new file.
   Second file this week stuck in accept-ceremony territory (see pcb_layout_page
   entry above); strengthens the headroom-band / force-split-sooner wish.
+
+## 2026-07-18 · claude · eda — copper-pour resolution audit
+good: read-only audit with one `zig build` in a fresh worktree — full 65-check suite + docs check green first try, no friction; gate cost was negligible next to the actual investigation.
