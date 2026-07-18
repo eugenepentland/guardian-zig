@@ -82,3 +82,9 @@ the same kind are fine.
 - **good:** the line-length gate caught one 170-character regression-test
   assertion before commit; splitting out the needle fixed it, and the next
   full gate passed all 67 checks and 1,197 tests.
+
+## 2026-07-18 · codex · eda — preserve KiCad copper zones for assembly/debug
+- **good:** the spec gate caught the now-stale contract saying zones were
+  never imported, plus a duplicate verification tag after the contract was
+  updated. Fixing both left one canonical specification and test link while
+  the 1,198-test suite continued to pass.
