@@ -148,3 +148,8 @@ the same kind are fine.
   browser contract test while all 1,201 functional tests passed. Removing the
   redundant tag kept the existing assembly/debug specification canonical, and
   the next run passed all 67 checks without baseline changes.
+
+## 2026-07-18 · claude · eda — replay exclusive view mode (follow-up)
+- **good:** smooth run — single-agent JS/markup change, 67/67 green first try,
+  marker-test extension needed no SPEC churn (existing bullets still described
+  the behavior). No friction.
