@@ -77,3 +77,8 @@ the same kind are fine.
 - **good:** the current `guardian-check commit` failed closed on the mismatched
   ratchets without staging or committing anything. After reconciliation, all
   67 checks passed and the feature could be committed and merged safely.
+
+## 2026-07-18 · codex · eda — restore PCB Ctrl+Z after autosave
+- **good:** the line-length gate caught one 170-character regression-test
+  assertion before commit; splitting out the needle fixed it, and the next
+  full gate passed all 67 checks and 1,197 tests.
