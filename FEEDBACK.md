@@ -67,3 +67,16 @@ the same kind are fine.
 - **friction:** `function-size` counts comptime params: a generic helper `fn applySort(comptime T, comptime numberFn, a, keys, label, hits, page)` hit 7 and failed the default cap (6). Bundling the runtime args into a struct fixed it, but comptime `type`/`fn` params aren't "parameters to bundle" the way runtime args are — treating them identically nudged me to a slightly awkward signature. Distinguishing comptime from runtime params (or only counting runtime) would target the real smell.
 - **friction:** `repeated-string-literal`'s cross-file duplicate-const analysis flagged `const key_name = "name"` because `src/mcp/tools.zig` already defines the same const — even though `"name"` (4 chars) is below the in-file ≥8-char length gate. A short literal that's explicitly exempt from the in-file repeat check still tripping the cross-file const check was surprising; inlining the literal was the fix. Worth documenting that the two sub-analyses use different length rules.
 - **good:** the "first run is a false green" caveat held — running `zig build test` twice back-to-back over 67 checks / 496 tests gave a stable green, and the ratchet/advisory split (line-length warnings at ~150 chars stayed advisory under the 240 hard limit) kept my long test-fixture one-liners from blocking.
+
+## 2026-07-18 · claude · eda — interactive routing sessions (4-agent wave)
+- **good:** GUARDIAN_MUTATION_RUN=1 as an iterate-without-gate escape hatch made
+  three concurrent agents in ONE worktree workable (no .guardian write races);
+  each ran a single real gate at the end. Worth documenting as a first-class
+  "concurrent agents" recipe.
+- **friction:** the stale-binary landmine bit AGAIN, in reverse: guardian-zig
+  source moved (22:59 edits) while zig-out/bin/guardian-check stayed at 14:43 —
+  the stale binary threw ~180 false "new offender" positives during
+  `guardian-check commit` and cost a failed commit run. `zig build test` was
+  fine (compiles the dep from source). The binary-vs-source identity problem
+  needs a real fix: version-stamp the binary against the source tree and
+  refuse/warn on mismatch, or auto-rebuild in the commit flow.
