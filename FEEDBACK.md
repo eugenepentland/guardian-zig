@@ -50,3 +50,7 @@ the same kind are fine.
 - **good:** The selective `guardian-accept` flow previewed exactly the two intended public additions, refreshed only `pub-api-surface`, and verified the snapshot afterward; no unrelated metadata moved.
 - **good:** Advisory `file-size` reported the existing 1,069-line parser without blocking the 623-test, 67-check build, which is the intended low-friction behavior for maintainability heuristics.
 - **friction:** After rejecting `GUARDIAN_UPDATE_SNAPSHOT=1`, the first self-hosted run still told users to use `=1` in four snapshot-check remediation paths. Guardian correctly exposed each live hint during integration, but changing a control value needs a source-wide diagnostic audit as part of the implementation checklist.
+
+## 2026-07-18 · codex · eda — progressive assembly-model sprites
+- **good:** The `spec` check immediately caught an unlinked `// spec:` browser-contract test for the new assembly behavior; adding the exact Web Server bullet made the feature-to-test traceability explicit.
+- **bug:** Running `zig build guardian -- all . --quiet` in the EDA feature worktree twice printed the existing file/function/line warnings, then reported ratchets matching `0 key(s)` and rewrote `.guardian/baselines/{file-size,function-length,line-length}.txt` almost to headers only. I had to restore all three generated diffs twice. A green run must not silently erase baselines for violations it just reported; the runner should also reject an argument shape that changes the scan/root semantics if `all .` is already supplied internally.
