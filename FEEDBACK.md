@@ -162,3 +162,7 @@ the same kind are fine.
 ## 2026-07-18 · codex · eda — expose assembly fabrication layers
 - **good:** the paint-order and focus-routing regression markers passed with all
   67 Guardian checks and 1,201 functional tests, without baseline changes.
+
+## 2026-07-18 · codex · eda — merge assembly fabrication layers
+- **good:** the post-merge gate passed on the two-parent `main` commit without
+  baseline changes; the ReleaseSafe deployment build and restart also passed.
