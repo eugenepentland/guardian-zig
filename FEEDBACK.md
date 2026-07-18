@@ -170,3 +170,12 @@ the same kind are fine.
 ## 2026-07-18 · codex · eda — expose via-in-pad and mark pin 1
 - **good:** the physical-review paint additions and browser contract markers
   passed all 67 Guardian checks and 1,201 functional tests without baselines.
+
+## 2026-07-18 · claude · eda — router straighten pass + rotation-probe fix
+- **good:** gate forced real quality: first-cut cognitive-complexity/function-length
+  offenders got refactored (EscapeGate extraction) instead of accepted; spec
+  deny_growth kept 4 new behaviors tested in-commit.
+- **friction:** router.zig is now ALSO pinned at its file-size cap — two accepts in
+  one branch (5847→5888→5950) even though the feature's bulk went into a new file.
+  Second file this week stuck in accept-ceremony territory (see pcb_layout_page
+  entry above); strengthens the headroom-band / force-split-sooner wish.
