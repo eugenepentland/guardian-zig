@@ -115,3 +115,21 @@ the same kind are fine.
   an isolated integration-test cache would make this state less ambiguous.
 - **good:** the post-merge gate verified the actual two-parent merge commit,
   and the deployment hook rebuilt ReleaseSafe and restarted the active service.
+
+## 2026-07-18 · claude · eda — PCB Replay panel migration (3-agent parallel wave)
+- **good:** the gate stayed trustworthy through a 3-agent parallel implementation
+  (server/front-end/integration) — 67/67 green at every checkpoint, and spec
+  deny_growth correctly forced a REMOVED bullet (`formatAge` age chip) to take
+  its tagged test with it in the same commit.
+- **friction:** `pcb_layout_page.zig` sat exactly AT its file-size ratchet
+  (7900), so any addition trips it. Good pressure (the agent moved panel markup
+  into an @embedFile'd HTML asset, cutting +34 to +18), but the residual still
+  needed a `GUARDIAN_UPDATE_SNAPSHOT=file-size` accept. A file pinned at its
+  ceiling turns every feature into an accept ceremony — maybe volume ratchets
+  deserve a small headroom band, or the split should be forced sooner.
+- **friction:** second real-world hit for the baseline merge-driver wish: two
+  concurrent branches (replay panel + assembly-debug) both grew the same
+  file-size baseline line — the ONLY rebase conflict in a 6-file overlap was
+  `.guardian/baselines/file-size.txt`. Resolution (take main's, re-gate, accept
+  the true combined value) worked but is exactly the manual union a
+  `guardian-check reconcile` would automate.
