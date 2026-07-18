@@ -11,6 +11,7 @@ const reporter = @import("reporter.zig");
 const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
+const accept_session = @import("accept_session.zig");
 
 /// Baseline file format version. Bump if the format changes meaningfully.
 pub const version: u32 = 1;
@@ -339,6 +340,23 @@ fn processRatchet(
         reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
+    // Session accepts: an already-accepted check regrowing in the SAME
+    // working session (no commit since the accept) re-accepts with a notice
+    // instead of failing — the accept's intent was "this feature grows this
+    // subject", and that intent holds until the commit locks the ratchet.
+    // deny_growth still wins: a guarded check never rides a session note.
+    if (outcome == .regressed and accept_session.isPending(a, ctx.project_dir, check_name)) {
+        try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, true);
+        const relocked = ratchet.lifecycle(a, path, entries, true) catch |e| {
+            reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
+            return error.CheckFailed;
+        };
+        reporter.ok(
+            "{s}: ratchet re-accepted under this session's pending accept ({d} key(s); locks at commit)",
+            .{ check_name, relocked.refreshed },
+        );
+        return;
+    }
     return reportRatchet(check_name, outcome, firstFixHint(captured));
 }
 
@@ -379,25 +397,49 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: ratchet refreshed ({d} key(s))", .{ check_name, n }),
-        .regressed => |reg| {
-            const n = reg.grown.len + reg.new_offenders.len;
-            reporter.fail("{s}: {d} key(s) regressed above ratchet", .{ check_name, n });
-            for (reg.grown) |g| reporter.detail(
-                "  {s}: {s} grew {d} -> {d} (ratcheted at {d})\n",
-                .{ check_name, g.key, g.old, g.new, g.old },
+        .regressed => |reg| return reportRegressed(check_name, reg, fix_hint),
+    }
+}
+
+/// The failing half of `reportRatchet`, worded by growth class. A `volume`
+/// check (file/type size) usually grew because a feature landed, so the header
+/// says growth and the accept guidance leads; a `shape` check regressed
+/// structurally, so the fix guidance leads and accept stays the last resort.
+fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[]const u8) types.RunError!void {
+    const n = reg.grown.len + reg.new_offenders.len;
+    const class = ratchet.growthClass(check_name);
+    switch (class) {
+        .volume => reporter.fail(
+            "{s}: {d} key(s) grew past ratchet — volume growth; review, then accept if intended",
+            .{ check_name, n },
+        ),
+        .shape => reporter.fail("{s}: {d} key(s) regressed above ratchet", .{ check_name, n }),
+    }
+    for (reg.grown) |g| reporter.detail(
+        "  {s}: {s} grew {d} -> {d} (ratcheted at {d})\n",
+        .{ check_name, g.key, g.old, g.new, g.old },
+    );
+    for (reg.new_offenders) |o| reporter.detail(
+        "  {s}: {s} new offender over default cap ({d})\n",
+        .{ check_name, o.key, o.value },
+    );
+    switch (class) {
+        .volume => {
+            reporter.detail(
+                "  accept: guardian-check accept {s} .  # locks the new size; review and commit the .guardian/ diff\n",
+                .{check_name},
             );
-            for (reg.new_offenders) |o| reporter.detail(
-                "  {s}: {s} new offender over default cap ({d})\n",
-                .{ check_name, o.key, o.value },
-            );
+            if (fix_hint) |h| reporter.detail("  {s} (if the growth is accidental)\n", .{h});
+        },
+        .shape => {
             if (fix_hint) |h| reporter.detail("  {s}\n", .{h});
             reporter.detail(
                 "  accept: guardian-check accept {s} .  # review and commit the .guardian/ diff\n",
                 .{check_name},
             );
-            return error.CheckFailed;
         },
     }
+    return error.CheckFailed;
 }
 
 /// The first `fix:` hint line in a check's captured output (dedented), or null.
@@ -524,6 +566,39 @@ test "violationLines renders records when present and scrapes text otherwise" {
     const from_text = try violationLines(a, "guardian: ban-fs FAILED\n  src/y.zig:8: bad\n", &.{});
     try std.testing.expectEqual(@as(usize, 1), from_text.len);
     try std.testing.expectEqualStrings("src/y.zig:8: bad", from_text[0]);
+}
+
+// spec: Per-Item Ratchets - Presents file and type growth as volume with accept-first guidance
+
+test "reportRegressed words volume growth accept-first and shape regressions fix-first" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const reg: ratchet.Regression = .{
+        .grown = &.{.{ .key = "src/x.zig", .old = 100, .new = 120 }},
+        .new_offenders = &.{},
+        .remaining = 1,
+    };
+    // file-size is a volume check: growth header, accept guidance first.
+    try std.testing.expectError(error.CheckFailed, reportRegressed("file-size", reg, "fix: split the file"));
+    const volume_out = try cap.buf.toOwnedSlice(std.testing.allocator);
+    defer std.testing.allocator.free(volume_out);
+    try std.testing.expect(std.mem.indexOf(u8, volume_out, "volume growth") != null);
+    const v_accept = std.mem.indexOf(u8, volume_out, "accept:").?;
+    const v_fix = std.mem.indexOf(u8, volume_out, "fix:").?;
+    try std.testing.expect(v_accept < v_fix);
+
+    // function-length is a shape check: regression header, fix guidance first.
+    try std.testing.expectError(error.CheckFailed, reportRegressed("function-length", reg, "fix: extract helpers"));
+    const shape_out = cap.buf.items;
+    try std.testing.expect(std.mem.indexOf(u8, shape_out, "regressed above ratchet") != null);
+    try std.testing.expect(std.mem.indexOf(u8, shape_out, "volume growth") == null);
+    const s_fix = std.mem.indexOf(u8, shape_out, "fix:").?;
+    const s_accept = std.mem.indexOf(u8, shape_out, "accept:").?;
+    try std.testing.expect(s_fix < s_accept);
 }
 
 // spec: Per-Item Ratchets - Scrapes the check's own fix hint for the regression message

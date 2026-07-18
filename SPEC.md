@@ -138,6 +138,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Detects a filtered run so the green cache stamp is suppressed
 - Skips a full run only when the cache is on, unchanged, and no refresh is pending
 - Rejects an unknown refresh target or deny_growth check name
+- Cautions on failure that zig-out binaries predate the red run
 
 ## Nightly
 
@@ -183,6 +184,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Debt previews stale baseline pruning before explicit confirmation
 - Parses maintenance command flags independently of the project directory
 - Accept refreshes only named checks and verifies them after updating metadata
+- Accept records a session note that expires when the head commit changes
 - Parses named accept checks before the optional project directory
 - Run context recognizes only explicitly named accept refreshes
 
@@ -335,6 +337,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 - Caps source line length
 - Skips multiline-string literal lines from the length cap
+- Exempts spec tag comment lines from the length cap
 - Rejects vague identifier names on public declarations
 - Rejects bool parameters in public functions
 - Rejects bare integer literals outside a small allowlist
@@ -370,6 +373,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Re-records a stale-version baseline as a ratchet
 - Refuses a deny_growth refresh that raises a value or adds a key
 - Summarizes a ratchet file's worst offender
+- Presents file and type growth as volume with accept-first guidance
 - Scrapes the check's own fix hint for the regression message
 
 ## Reporter

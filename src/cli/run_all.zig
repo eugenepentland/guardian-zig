@@ -100,8 +100,18 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     }
 
     fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
+    reporter.detail("{s}", .{stale_artifact_caution});
     return error.CheckFailed;
 }
+
+/// Printed under every run-all failure. With install gating (the build-helper
+/// default) a red gate withholds artifact installs — and `zig build test`
+/// never installs — so whatever sits in zig-out predates this failure. The
+/// one-liner exists because a stale last-green binary otherwise LOOKS current
+/// and gets "verified" against changes it does not contain.
+const stale_artifact_caution =
+    "  caution: zig-out binaries predate this failed run " ++
+    "(installs are gated on green) — rebuild green before running them\n";
 
 /// Collects every check's findings across the run for the JSONL sink. Owned by
 /// the run allocator so records outlive the per-worker arenas that produced them.
@@ -547,6 +557,14 @@ test "shouldEmit gates captured output by quiet and failure" {
 
 test "threadCount is at least one" {
     try std.testing.expect(threadCount() >= 1);
+}
+
+// spec: Run All - Cautions on failure that zig-out binaries predate the red run
+
+test "the failure caution names zig-out and the gated installs" {
+    try std.testing.expect(std.mem.indexOf(u8, stale_artifact_caution, "zig-out") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stale_artifact_caution, "gated on green") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stale_artifact_caution, "rebuild green") != null);
 }
 
 test "shouldSkip honors the disabled list and built-in skips" {

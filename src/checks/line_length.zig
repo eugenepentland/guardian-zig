@@ -32,10 +32,17 @@ fn scanLines(
     var line_num: u32 = 1;
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| : (line_num += 1) {
+        const trimmed = std.mem.trimLeft(u8, line, &std.ascii.whitespace);
         // A multiline-string (`\\...`) line is emitted verbatim — its length is
         // template data (HTML/SVG/KiCad), not code, and it cannot be wrapped
         // without changing the output bytes. Skip it.
-        if (std.mem.startsWith(u8, std.mem.trimLeft(u8, line, &std.ascii.whitespace), "\\\\")) continue;
+        if (std.mem.startsWith(u8, trimmed, "\\\\")) continue;
+        // A `// spec:` / `// spec-case:` tag mirrors a SPEC.md bullet
+        // verbatim — its length is dictated by the spec text, not code style,
+        // and the tag matcher needs it on one line. Capping it would force
+        // rewording the spec to satisfy a source-column rule. Skip it.
+        if (std.mem.startsWith(u8, trimmed, "// spec:") or
+            std.mem.startsWith(u8, trimmed, "// spec-case:")) continue;
         const codepoint_len = std.unicode.utf8CountCodepoints(line) catch line.len;
         if (codepoint_len > max_len) {
             try violations.append(allocator, .{
@@ -131,6 +138,21 @@ test "analyzeContent allows short lines" {
         \\const y = 2;
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Tier 2 Anti-patterns - Exempts spec tag comment lines from the length cap
+test "analyzeContent skips overlong spec tag lines but caps ordinary comments" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const pad = "x" ** 130;
+    // Spec tags (plain and spec-case, any indentation) are exempt; an
+    // ordinary comment of the same length still trips the cap.
+    const content = "// spec: Section - " ++ pad ++ "\n" ++
+        "    // spec-case: Section - " ++ pad ++ "\n" ++
+        "// ordinary comment " ++ pad ++ "\n";
+    const out = try analyzeContent(arena.allocator(), "src/x.zig", content);
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+    try std.testing.expect(std.mem.indexOf(u8, out[0], "src/x.zig:3:") != null);
 }
 
 // spec: Tier 2 Anti-patterns - Skips multiline-string literal lines from the length cap

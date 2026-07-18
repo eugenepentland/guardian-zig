@@ -31,8 +31,17 @@ pub const version: u32 = 2;
 /// *count* of over-limit lines instead.
 pub const AggMode = enum { max, count };
 
-/// A threshold check routed to the ratchet lifecycle, with its aggregation mode.
-const MetricCheck = struct { name: []const u8, mode: AggMode };
+/// How a ratcheted check's regression should be presented. A `shape`
+/// regression (function length, nesting, complexity, …) is a structural smell
+/// the fix guidance leads on. `volume` growth (file size, type size) usually
+/// tracks legitimate feature growth — new code plus its tests landing in an
+/// existing file — so the accept guidance leads instead and the tone drops
+/// the alarm.
+pub const GrowthClass = enum { shape, volume };
+
+/// A threshold check routed to the ratchet lifecycle, with its aggregation
+/// mode and how its regressions read (shape smell vs volume growth).
+const MetricCheck = struct { name: []const u8, mode: AggMode, class: GrowthClass = .shape };
 
 /// The ten threshold checks that emit `ratchet_key` + `metric`. Membership here
 /// (not the presence of records in a given run) is what selects the ratchet
@@ -43,8 +52,8 @@ const metric_checks = [_]MetricCheck{
     .{ .name = "nesting-depth", .mode = .max },
     .{ .name = "cognitive-complexity", .mode = .max },
     .{ .name = "function-size", .mode = .max },
-    .{ .name = "type-size", .mode = .max },
-    .{ .name = "file-size", .mode = .max },
+    .{ .name = "type-size", .mode = .max, .class = .volume },
+    .{ .name = "file-size", .mode = .max, .class = .volume },
     .{ .name = "struct-method-cap", .mode = .max },
     .{ .name = "optional-density", .mode = .max },
     .{ .name = "bool-ops-per-condition", .mode = .max },
@@ -58,6 +67,15 @@ pub fn metricMode(check_name: []const u8) ?AggMode {
         if (std.mem.eql(u8, m.name, check_name)) return m.mode;
     }
     return null;
+}
+
+/// The presentation class for `check_name`'s regressions; `.shape` for any
+/// non-ratchet name (callers only consult it on the ratchet path).
+pub fn growthClass(check_name: []const u8) GrowthClass {
+    for (metric_checks) |m| {
+        if (std.mem.eql(u8, m.name, check_name)) return m.class;
+    }
+    return .shape;
 }
 
 /// One ratcheted subject: its stable key and the recorded ceiling value.
@@ -310,6 +328,12 @@ test "metricMode routes the ten threshold checks and rejects others" {
     // A non-threshold check keeps the v1 text-diff lifecycle.
     try testing.expect(metricMode("ban-fs") == null);
     try testing.expect(metricMode("spec") == null);
+    // Growth class: file/type size read as volume growth; everything else
+    // (including non-ratchet names, defensively) reads as a shape regression.
+    try testing.expect(growthClass("file-size") == .volume);
+    try testing.expect(growthClass("type-size") == .volume);
+    try testing.expect(growthClass("function-length") == .shape);
+    try testing.expect(growthClass("ban-fs") == .shape);
 }
 
 // spec: Per-Item Ratchets - Aggregates violation records to the max metric per key

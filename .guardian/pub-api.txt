@@ -1,4 +1,7 @@
 # guardian-snapshot v2
+src/accept_session.zig::isPending | fn isPending(a: Allocator, project_dir: []const u8, check: []const u8) bool
+src/accept_session.zig::record | fn record(a: Allocator, project_dir: []const u8, checks: []const []const u8) void
+src/accept_session.zig::version value
 src/ast/containers.zig::FnDeclInfo struct_
 src/ast/containers.zig::PubConst struct_
 src/ast/containers.zig::PubConstKind enum_
@@ -393,6 +396,7 @@ src/mutation/runner.zig::viable | fn viable(self: Score) u32
 src/ratchet.zig::AggMode enum_
 src/ratchet.zig::Entry struct_
 src/ratchet.zig::GrownKey struct_
+src/ratchet.zig::GrowthClass enum_
 src/ratchet.zig::Improved struct_
 src/ratchet.zig::LifecycleError value
 src/ratchet.zig::Outcome union_
@@ -401,6 +405,7 @@ src/ratchet.zig::aggregate | fn aggregate(arena: Allocator, records: []const rep
 src/ratchet.zig::classify | fn classify(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!Outcome
 src/ratchet.zig::decodeLine | fn decodeLine(line: []const u8) ?Entry
 src/ratchet.zig::decodeLines | fn decodeLines(arena: Allocator, lines: []const []const u8) Allocator.Error![]Entry
+src/ratchet.zig::growthClass | fn growthClass(check_name: []const u8) GrowthClass
 src/ratchet.zig::lifecycle | fn lifecycle( arena: Allocator, path: []const u8, entries: []const Entry, force_refresh: bool, ) LifecycleError!Outcome
 src/ratchet.zig::maxEntry | fn maxEntry(entries: []const Entry) ?Entry
 src/ratchet.zig::metricMode | fn metricMode(check_name: []const u8) ?AggMode

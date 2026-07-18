@@ -65,6 +65,15 @@ pub const Options = struct {
     /// `guardian-debt`, `guardian-spec-sync`, `guardian-accept`, and
     /// `guardian-explain`) in the consumer build.
     maintenance_steps: bool = true,
+    /// When true (default) and `target_step` is the build's install step,
+    /// every artifact install already attached to it is re-ordered to run
+    /// AFTER the gate. Without this, a red gate can leave the previous green
+    /// build's binaries sitting in zig-out looking current — the classic
+    /// "verified a stale binary" trap. Ordering costs ~nothing in wall-clock
+    /// (the gate is source analysis that runs concurrently with compilation;
+    /// only the final cheap copy waits). Call addAllChecks AFTER your
+    /// installArtifact calls so every install is seen.
+    gate_install: bool = true,
 };
 
 /// Adds RunArtifact step(s) for the registered gates as dependencies of
@@ -90,10 +99,12 @@ pub fn addAllChecks(
         }
         if (opts.cwd) |cwd| run.setCwd(cwd);
         target_step.dependOn(&run.step);
+        maybeGateInstall(b, target_step, opts, &.{&run.step});
         return;
     }
 
-    for (all_check_names) |name| {
+    var gates: [all_check_names.len]*std.Build.Step = undefined;
+    for (all_check_names, 0..) |name, i| {
         const run = b.addRunArtifact(check_exe);
         if (opts.quiet) {
             run.addArgs(&.{ name, ".", "--quiet" });
@@ -102,7 +113,36 @@ pub fn addAllChecks(
         }
         if (opts.cwd) |cwd| run.setCwd(cwd);
         target_step.dependOn(&run.step);
+        gates[i] = &run.step;
     }
+    maybeGateInstall(b, target_step, opts, &gates);
+}
+
+/// Re-orders every artifact install already attached to the consumer's
+/// install step to depend on the gate step(s), so a red gate withholds the
+/// install and zig-out never silently holds a stale last-green binary. Only
+/// applies when the caller wired the gate onto the install step itself (a
+/// test-step wiring must not schedule extra gate runs into plain `zig
+/// build`). No cycle risk: a gate run depends only on compiling
+/// guardian-check, never on an install.
+fn maybeGateInstall(
+    b: *std.Build,
+    target_step: *std.Build.Step,
+    opts: Options,
+    gates: []const *std.Build.Step,
+) void {
+    if (!opts.gate_install) return;
+    const install = b.getInstallStep();
+    if (target_step != install) return;
+    for (install.dependencies.items) |dep| {
+        if (containsStep(gates, dep)) continue;
+        for (gates) |gate| dep.dependOn(gate);
+    }
+}
+
+fn containsStep(steps: []const *std.Build.Step, step: *std.Build.Step) bool {
+    for (steps) |s| if (s == step) return true;
+    return false;
 }
 
 fn registerMaintenanceSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {

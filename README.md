@@ -411,6 +411,11 @@ zig build guardian-accept -Dguardian-checks=pub-api-surface
 git add .guardian/
 ```
 
+`guardian-accept` also records the accepted ratchet checks as *session
+pending*: until your next commit, further growth of the same check
+re-accepts automatically with a green notice (the ratchet locks again the
+moment HEAD moves). One accept per feature, not one per build.
+
 `guardian-accept` previews the named failures, refreshes only those metadata
 files, and reruns the checks without refresh before reporting success. Multiple
 checks are comma-separated. The older environment variable remains supported
