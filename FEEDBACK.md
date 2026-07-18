@@ -133,3 +133,12 @@ the same kind are fine.
   `.guardian/baselines/file-size.txt`. Resolution (take main's, re-gate, accept
   the true combined value) worked but is exactly the manual union a
   `guardian-check reconcile` would automate.
+
+## 2026-07-18 · codex · eda — repair assembly viewport interaction
+- **friction:** running `guardian-check all` first in a fresh worktree where
+  ignored `src/serve/templates/*.zig` files had not been generated pruned five
+  baselines and reported 48 false `pub-api-surface` regressions. This cost one
+  failed gate plus explicit template generation and baseline restoration;
+  Guardian should either require generated inputs or consistently exclude them.
+- **good:** `file-size` caught three added CSS lines in the already-ratcheted
+  PCB page, prompting a no-growth rewrite instead of another snapshot accept.
