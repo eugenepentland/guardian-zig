@@ -182,3 +182,18 @@ the same kind are fine.
 
 ## 2026-07-18 · claude · eda — copper-pour resolution audit
 good: read-only audit with one `zig build` in a fresh worktree — full 65-check suite + docs check green first try, no friction; gate cost was negligible next to the actual investigation.
+
+## 2026-07-18 · codex · guardian-zig — make size heuristics advisory below generous hard limits
+- **good:** the new two-tier `file-size` behavior dogfooded successfully:
+  `config_parser.zig` reached 1,063 production lines, emitted a visible warning,
+  and still passed the full 67-check gate without a file-size accept or baseline
+  change. A baseline-mode regression test also verified warnings are replayed
+  but never enter ratchet metadata; all 616 tests passed.
+- **good:** the existing gate caught five genuine integration issues in the
+  implementation before green: an unlinked SPEC tag, a seven-parameter helper,
+  the intentional reporter API addition, repeated config-key literals, and
+  missing module headers on newly enlarged check modules.
+- **friction:** one failing `zig build test` printed the same warning/failure
+  set twice through separate build graph branches, and the selective-accept run
+  likewise printed the file-size warning twice. Verdicts were correct, but
+  duplicate advisory output makes the new warning tier noisier than necessary.
