@@ -1,3 +1,6 @@
+//! Two-tier function-length guidance: ordinary overages are advisory, while
+//! exceptionally long functions still fail the quality gate.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -12,6 +15,7 @@ const fail = reporter.fail;
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
+    warnings: *std.ArrayList(reporter.Violation),
     violations: *std.ArrayList(reporter.Violation),
     cfg: config_mod.FunctionLengthCfg,
 };
@@ -23,15 +27,26 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const fns = if (entry.tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, entry.content);
     for (fns) |f| {
         if (f.line_count <= ctx.cfg.max_lines) continue;
-        try ctx.violations.append(a, .{
+        const is_hard = f.line_count > ctx.cfg.hard_max_lines;
+        const destination = if (is_hard) ctx.violations else ctx.warnings;
+        const message = if (is_hard)
+            try std.fmt.allocPrint(
+                a,
+                "fn {s} is {d} lines (hard limit {d})",
+                .{ f.name, f.line_count, ctx.cfg.hard_max_lines },
+            )
+        else
+            try std.fmt.allocPrint(
+                a,
+                "fn {s} is {d} lines (recommended {d}; hard limit {d})",
+                .{ f.name, f.line_count, ctx.cfg.max_lines, ctx.cfg.hard_max_lines },
+            );
+        try destination.append(a, .{
             .check = "function-length",
             .file = entry.rel_path,
             .line = f.start_line,
-            .message = try std.fmt.allocPrint(
-                a,
-                "fn {s} is {d} lines (cap {d})",
-                .{ f.name, f.line_count, ctx.cfg.max_lines },
-            ),
+            .message = message,
+            .fix_hint = if (is_hard) null else "consider extracting a focused helper when the function next changes",
             .ratchet_key = try std.fmt.allocPrint(a, "{s}|{s}", .{ entry.rel_path, f.name }),
             .metric = f.line_count,
         });
@@ -46,8 +61,14 @@ pub fn analyzeContent(
     content: []const u8,
     cfg: config_mod.FunctionLengthCfg,
 ) std.mem.Allocator.Error![]const []const u8 {
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
     var violations: std.ArrayList(reporter.Violation) = .empty;
-    var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
+    var ctx: ScanCtx = .{
+        .allocator = allocator,
+        .warnings = &warnings,
+        .violations = &violations,
+        .cfg = cfg,
+    };
     try visit(@ptrCast(&ctx), .{ .rel_path = rel_path, .content = content });
     return reporter.flatLines(allocator, violations.items);
 }
@@ -64,33 +85,46 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     }
 
     var violations: std.ArrayList(reporter.Violation) = .empty;
-    var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations, .cfg = cfg };
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{
+        .allocator = allocator,
+        .warnings = &warnings,
+        .violations = &violations,
+        .cfg = cfg,
+    };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });
 
-    if (violations.items.len == 0) {
-        ok("all functions within {d} line cap", .{cfg.max_lines});
+    for (warnings.items) |warning| reporter.warn(warning);
+    if (violations.items.len == 0 and warnings.items.len == 0) {
+        ok("all functions within {d} recommended lines", .{cfg.max_lines});
         return;
     }
+    if (violations.items.len == 0) return;
 
-    fail("function length FAILED ({d} fn(s) over {d} line cap)", .{ violations.items.len, cfg.max_lines });
+    fail("function length FAILED ({d} fn(s) over {d} hard line limit)", .{
+        violations.items.len,
+        cfg.hard_max_lines,
+    });
     for (violations.items) |v| reporter.emit(v);
     print("  fix: extract helpers to break the function into focused units, " ++
         "or raise [function_length] max_lines.\n", .{});
     return error.CheckFailed;
 }
 
-// spec: Function Length - Caps source lines per fn decl
+// spec: Function Length - Warns on long functions and fails only above a configurable hard line limit
 
 test "visit flags fn over the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
     var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
+        .warnings = &warnings,
         .violations = &violations,
-        .cfg = .{ .enabled = true, .max_lines = 3 },
+        .cfg = .{ .enabled = true, .max_lines = 3, .hard_max_lines = 4 },
     };
     const content =
         \\pub fn long() void {
@@ -103,15 +137,41 @@ test "visit flags fn over the cap" {
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
+test "visit warns between recommended and hard limits" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{
+        .allocator = a,
+        .warnings = &warnings,
+        .violations = &violations,
+        .cfg = .{ .enabled = true, .max_lines = 3, .hard_max_lines = 6 },
+    };
+    const content =
+        \\pub fn long() void {
+        \\    var x: i32 = 0;
+        \\    x += 1;
+        \\    _ = x;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), warnings.items.len);
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
 test "visit allows fn at the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
     var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
+        .warnings = &warnings,
         .violations = &violations,
-        .cfg = .{ .enabled = true, .max_lines = 3 },
+        .cfg = .{ .enabled = true, .max_lines = 3, .hard_max_lines = 6 },
     };
     const content =
         \\pub fn short() void {
@@ -126,11 +186,13 @@ test "visit reports correct start_line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
     var violations: std.ArrayList(reporter.Violation) = .empty;
     var ctx: ScanCtx = .{
         .allocator = a,
+        .warnings = &warnings,
         .violations = &violations,
-        .cfg = .{ .enabled = true, .max_lines = 1 },
+        .cfg = .{ .enabled = true, .max_lines = 1, .hard_max_lines = 2 },
     };
     const content =
         \\const x = 1;

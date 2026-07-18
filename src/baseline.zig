@@ -260,6 +260,11 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
         };
     }
 
+    // Advisory findings are deliberately outside baseline/ratchet state. Replay
+    // them through the prior reporter so `all` can show them even in quiet mode,
+    // while only the blocking records below participate in debt metadata.
+    for (capture.warnings.items) |warning| reporter.warn(warning);
+
     return processOutcome(ctx, cmd.name, capture.buf.items, capture.records.items, force_refresh);
 }
 
@@ -566,6 +571,47 @@ test "violationLines renders records when present and scrapes text otherwise" {
     const from_text = try violationLines(a, "guardian: ban-fs FAILED\n  src/y.zig:8: bad\n", &.{});
     try std.testing.expectEqual(@as(usize, 1), from_text.len);
     try std.testing.expectEqualStrings("src/y.zig:8: bad", from_text[0]);
+}
+
+fn warningOnly(_: *types.RunCtx) types.RunError!void {
+    reporter.warn(.{
+        .check = "file-size",
+        .file = "src/x.zig",
+        .message = "1200 lines (recommended 1000; hard limit 10000)",
+    });
+}
+
+test "runWithBaseline replays warnings without ratcheting them" {
+    const dir = "zig-cache/test-baseline-warning";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+
+    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    try runWithBaseline(&ctx, .{ .name = "file-size", .summary = "test", .run = warningOnly });
+    try std.testing.expectEqual(@as(usize, 1), outer.warnings.items.len);
+    try std.testing.expectEqual(@as(usize, 0), outer.records.items.len);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const snap = try snapshot.read(
+        arena.allocator(),
+        try pathFor(arena.allocator(), dir, "file-size"),
+        ratchet.version,
+    );
+    try std.testing.expectEqual(@as(usize, 0), snap.lines.len);
 }
 
 // spec: Per-Item Ratchets - Presents file and type growth as volume with accept-first guidance

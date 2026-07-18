@@ -65,10 +65,10 @@ const entries = [_]Entry{
     .{ .name = "file-size", .text = 
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.
-    \\Fix: split the file along a seam — extract a type or a helper group into
-    \\its own module.
-    \\Exempt: raise `max_file_lines`, list a glob in `file_size_exclude`, or
-    \\disable via the top-level `disabled` list.
+    \\Finding: files above `max_file_lines` warn; only files above
+    \\`hard_max_file_lines` block. Split along a cohesive module seam.
+    \\Exempt: adjust either limit, list a glob in `file_size_exclude`, or disable
+    \\via the top-level `disabled` list.
     },
     .{ .name = "boundaries", .text = 
     \\Why: an agent reaches across an architectural layer (core importing utils),
@@ -269,8 +269,9 @@ const entries = [_]Entry{
     .{ .name = "function-length", .text = 
     \\Why: an ever-longer function is where agents append logic rather than
     \\factor it — the hardest place to review a change safely.
-    \\Fix: extract cohesive blocks into named helpers.
-    \\Exempt: raise `[function_length] max_lines`, or disable the check.
+    \\Finding: functions above `max_lines` warn; only those above
+    \\`hard_max_lines` block. Extract cohesive blocks into named helpers.
+    \\Exempt: adjust either `[function_length]` limit, or disable the check.
     },
     .{ .name = "nesting-depth", .text = 
     \\Why: deep brace nesting hides the branch an agent forgot to handle.
@@ -419,8 +420,9 @@ const entries = [_]Entry{
     .{ .name = "line-length", .text = 
     \\Why: very long lines force horizontal scrolling and hide the end of a
     \\statement an agent tacked on.
-    \\Fix: wrap the line; `\\` multiline-string lines are already exempt.
-    \\Exempt: raise `[line_length] max_len`, or disable the check.
+    \\Finding: lines above `max_len` warn; only those above `hard_max_len` block.
+    \\Wrap when it improves readability; `\\` multiline strings are exempt.
+    \\Exempt: adjust either `[line_length]` limit, or disable the check.
     },
     .{ .name = "boolean-param-ban", .text = 
     \\Why: a bool parameter in a pub fn makes call sites unreadable

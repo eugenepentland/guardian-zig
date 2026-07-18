@@ -64,10 +64,10 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 ### Structural
 | Check | Blocks on |
 |---|---|
-| **file-size** | Any .zig file exceeding `max_file_lines` (default 1000) |
+| **file-size** | Warn above `max_file_lines` (default 1000); fail above `hard_max_file_lines` (default 10000) |
 | **module-doc-header** | Any src file over `[module_doc_header] min_lines` lines (default 200) that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); lower `min_lines` to require headers on smaller files; exempt paths via `[[allow]]` |
 | **function-size** | Any function with more than `max_params` parameters (default 6) |
-| **function-length** | Any fn over `max_lines` source lines (default 120) |
+| **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
 | **imports** | Cycles in the `@import` graph |
@@ -155,7 +155,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 ### Tier 2 Anti-patterns
 | Check | Blocks on |
 |---|---|
-| **line-length** | Source line over `max_len` codepoints (default 120; `\\` multiline-string lines skipped) |
+| **line-length** | Warn above `max_len` (default 120); fail above `hard_max_len` (default 240; `\\` multiline-string lines skipped) |
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
@@ -516,7 +516,11 @@ to consumers.
 
 Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — every check records its current violations on the first run and only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.
 
-The key move: **keep the default caps.** You do *not* raise `max_file_lines`, `max_lines`, or any other threshold to accommodate legacy code. Baseline mode grandfathers each existing offender *individually*, so new code still meets the strict default while history is tolerated exactly as-is.
+The key move is to keep blocking thresholds meaningful. For most threshold
+checks, baseline mode grandfathers each existing offender individually. File
+size, function length, and line length instead report ordinary overages as
+warnings and put only findings beyond their generous hard limits into ratchet
+state, avoiding acceptance work for routine maintainability advice.
 
 In `guardian.toml`:
 
@@ -531,7 +535,7 @@ Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is w
 
 Baseline mode runs one of two lifecycles per check, chosen automatically:
 
-- **Per-item ratchets (baseline v2)** for the ten **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `struct-method-cap`, `optional-density`, `bool-ops-per-condition`, `line-length`. Each offender is stored as a `<value> <key>` line (`130 src/foo.zig|parse`) and gets a **personal, only-shrinks ceiling**. A metric *change* on a grandfathered offender — even an improvement that's still over cap (130 → 125 lines) — no longer reds the build; only a value that *rises above its recorded ceiling* fails.
+- **Per-item ratchets (baseline v2)** for the ten **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `struct-method-cap`, `optional-density`, `bool-ops-per-condition`, `line-length`. Each blocking offender is stored as a `<value> <key>` line and gets a **personal, only-shrinks ceiling**. The advisory tier for file size, function length, and line length is deliberately excluded from ratchets.
 - **Text baselines (v1)** for every other check — the exact violation lines are frozen and diffed; a new line fails, a resolved line auto-prunes.
 
 This split fixes the structural flaw that made consumers raise global caps: a text baseline embeds the metric in the line, so *any* metric change (including a shrink) reads as a new violation. Ratchets store the metric as a comparable number instead.
@@ -617,7 +621,10 @@ disabled = [
 ]
 ```
 
-Unknown names in `disabled` fail the build, so a typo can't silently leave a check off. A common combination: baseline mode + threshold relaxation. Set `[function_length] max_lines = 200` to your current worst case, ship Guardian, ratchet the cap down 10–20 lines per release, fix the few new violations each step.
+Unknown names in `disabled` fail the build, so a typo can't silently leave a
+check off. The three advisory size checks expose separate recommended and hard
+limits; keep the recommendation useful for guidance and move the hard limit
+only when a project has a legitimate extreme case.
 
 ## Config (guardian.toml)
 
@@ -626,6 +633,7 @@ Optional — sensible defaults work out of the box. Each check has its own secti
 ```toml
 spec_file = "SPEC.md"
 max_file_lines = 1000
+hard_max_file_lines = 10000
 file_size_exclude = ["generated/*"]
 exclude = ["src/serve/templates"]   # path globs dropped from the scan entirely (generated code)
 parallel = true         # run checks across cores (default); false forces sequential
@@ -676,6 +684,11 @@ forbidden_phrases = ["properly", "as needed"]
 
 [function_length]
 max_lines = 120
+hard_max_lines = 400
+
+[line_length]
+max_len = 120
+hard_max_len = 240
 
 [nesting_depth]
 max_depth = 5
@@ -757,7 +770,7 @@ commas.
 
 | Scope | Keys |
 |---|---|
-| *(top level)* | `spec_file`, `max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled` |
+| *(top level)* | `spec_file`, `max_file_lines`, `hard_max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled` |
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[external]]` | `name`, `command`, `inputs` |
@@ -770,11 +783,11 @@ commas.
 | `[orphan_files]` | `enabled`, `roots` |
 | `[doc_quality]` | `enabled`, `min_chars`, `exempt_names` |
 | `[type_size]` | `enabled`, `max_fields`, `exclude` |
-| `[function_length]` | `enabled`, `max_lines` |
+| `[function_length]` | `enabled`, `max_lines`, `hard_max_lines` |
 | `[nesting_depth]` | `enabled`, `max_depth` |
 | `[test_coverage]` | `enabled`, `exempt_names` |
 | `[bool_ops]` | `enabled`, `max_ops` |
-| `[line_length]` | `enabled`, `max_len` |
+| `[line_length]` | `enabled`, `max_len`, `hard_max_len` |
 | `[baseline]` | `enabled`, `deny_growth` |
 | `[escape_discipline]` | `enabled` |
 | `[oom_discipline]` | `enabled` |

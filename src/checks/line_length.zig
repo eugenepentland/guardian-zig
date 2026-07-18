@@ -1,3 +1,6 @@
+//! Two-tier source-line length guidance: ordinary readability findings warn,
+//! while only extreme lines retain a blocking upper bound.
+
 const std = @import("std");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
@@ -15,7 +18,16 @@ pub fn analyzeContentWithLimit(
     content: []const u8,
     max_len: u32,
 ) Allocator.Error![]const []const u8 {
-    return reporter.flatLines(allocator, try scanLines(allocator, rel_path, content, max_len));
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    try scanLines(
+        allocator,
+        rel_path,
+        content,
+        .{ .warning = max_len, .hard = max_len },
+        .{ .warnings = &warnings, .violations = &violations },
+    );
+    return reporter.flatLines(allocator, violations.items);
 }
 
 /// Structured scan: one Violation per over-limit line. The per-line human
@@ -26,9 +38,9 @@ fn scanLines(
     allocator: Allocator,
     rel_path: []const u8,
     content: []const u8,
-    max_len: u32,
-) Allocator.Error![]reporter.Violation {
-    var violations: std.ArrayList(reporter.Violation) = .empty;
+    limits: Limits,
+    findings: FindingLists,
+) Allocator.Error!void {
     var line_num: u32 = 1;
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| : (line_num += 1) {
@@ -44,23 +56,38 @@ fn scanLines(
         if (std.mem.startsWith(u8, trimmed, "// spec:") or
             std.mem.startsWith(u8, trimmed, "// spec-case:")) continue;
         const codepoint_len = std.unicode.utf8CountCodepoints(line) catch line.len;
-        if (codepoint_len > max_len) {
-            try violations.append(allocator, .{
+        if (codepoint_len > limits.warning) {
+            const is_hard = codepoint_len > limits.hard;
+            const destination = if (is_hard) findings.violations else findings.warnings;
+            const message = if (is_hard)
+                try std.fmt.allocPrint(allocator, "line is {d} chars (hard limit {d})", .{
+                    codepoint_len,
+                    limits.hard,
+                })
+            else
+                try std.fmt.allocPrint(
+                    allocator,
+                    "line is {d} chars (recommended {d}; hard limit {d})",
+                    .{ codepoint_len, limits.warning, limits.hard },
+                );
+            try destination.append(allocator, .{
                 .check = "line-length",
                 .file = rel_path,
                 .line = line_num,
-                .message = try std.fmt.allocPrint(
-                    allocator,
-                    "line is {d} chars (cap {d})",
-                    .{ codepoint_len, max_len },
-                ),
+                .message = message,
+                .fix_hint = if (is_hard) null else "split the expression when doing so improves readability",
                 .ratchet_key = try allocator.dupe(u8, rel_path),
                 .metric = codepoint_len,
             });
         }
     }
-    return violations.toOwnedSlice(allocator);
 }
+
+const Limits = struct { warning: u32, hard: u32 };
+const FindingLists = struct {
+    warnings: *std.ArrayList(reporter.Violation),
+    violations: *std.ArrayList(reporter.Violation),
+};
 
 /// Pure-function entry using the framework default (120) for tests.
 pub fn analyzeContent(
@@ -73,43 +100,56 @@ pub fn analyzeContent(
 
 const FileScanCtx = struct {
     allocator: Allocator,
+    warnings: *std.ArrayList(reporter.Violation),
     violations: *std.ArrayList(reporter.Violation),
-    cap: u32,
+    warning_limit: u32,
+    hard_limit: u32,
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
-    const out = try scanLines(ctx.allocator, entry.rel_path, entry.content, ctx.cap);
-    for (out) |v| try ctx.violations.append(ctx.allocator, v);
+    try scanLines(
+        ctx.allocator,
+        entry.rel_path,
+        entry.content,
+        .{ .warning = ctx.warning_limit, .hard = ctx.hard_limit },
+        .{ .warnings = ctx.warnings, .violations = ctx.violations },
+    );
 }
 
 /// Entry point for the line-length check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    const cap = ctx.cfg.line_length.max_len;
+    const warning_limit = ctx.cfg.line_length.max_len;
+    const hard_limit = ctx.cfg.line_length.hard_max_len;
     if (!ctx.cfg.line_length.enabled) {
         reporter.ok("line-length disabled by config", .{});
         return;
     }
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
     var violations: std.ArrayList(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
+        .warnings = &warnings,
         .violations = &violations,
-        .cap = cap,
+        .warning_limit = warning_limit,
+        .hard_limit = hard_limit,
     };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
-    if (violations.items.len == 0) {
-        reporter.ok("line-length: every line is <= {d} chars", .{cap});
+    for (warnings.items) |warning| reporter.warn(warning);
+    if (violations.items.len == 0 and warnings.items.len == 0) {
+        reporter.ok("line-length: every line is <= {d} recommended chars", .{warning_limit});
         return;
     }
+    if (violations.items.len == 0) return;
     reporter.fail("line-length FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| reporter.emit(v);
     detail("  fix: split long expressions; introduce intermediate names.\n", .{});
     return error.CheckFailed;
 }
 
-// spec: Tier 2 Anti-patterns - Caps source line length
+// spec: Tier 2 Anti-patterns - Warns on long source lines and fails only above a configurable hard length
 
 test "analyzeContent flags overlong line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -128,6 +168,24 @@ test "analyzeContentWithLimit honors a custom cap" {
     // 50 chars: under the default 120, but over a tightened cap of 40.
     const out = try analyzeContentWithLimit(arena.allocator(), "src/x.zig", buf[0..50], 40);
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+test "scanLines separates warnings from hard failures" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    const content = ("x" ** 50) ++ "\n" ++ ("x" ** 90);
+    try scanLines(
+        a,
+        "src/x.zig",
+        content,
+        .{ .warning = 40, .hard = 80 },
+        .{ .warnings = &warnings, .violations = &violations },
+    );
+    try std.testing.expectEqual(@as(usize, 1), warnings.items.len);
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
 test "analyzeContent allows short lines" {

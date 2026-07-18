@@ -315,6 +315,7 @@ const CheckResult = struct {
     ran: bool = false,
     failed: bool = false,
     reported: bool = false,
+    warnings: usize = 0,
     err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
@@ -430,6 +431,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
     };
     res.output = cap.buf.items;
     res.records = cap.records.items;
+    res.warnings = cap.warnings.items.len;
     return res;
 }
 
@@ -502,7 +504,7 @@ fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) ?[]const u8 {
 /// A captured check's output is replayed when it has content and either we're
 /// not quiet or the check failed (mirrors the live reporter's quiet behavior).
 fn shouldEmit(quiet: bool, r: CheckResult) bool {
-    return r.output.len > 0 and (!quiet or r.failed or r.reported);
+    return r.output.len > 0 and (!quiet or r.failed or r.reported or r.warnings > 0);
 }
 
 fn expectedPolicyFinding(_: *types.RunCtx) types.RunError!void {
@@ -543,14 +545,16 @@ fn anyNeedsAst(ctx: *const types.RunCtx) bool {
 // spec: Run All - Skips checks whose name appears in the disabled config list
 // spec: Run All - Rejects unknown check names in the disabled list
 // spec: Run All - Tolerates retired check names in the disabled list
-// spec: Run All - Emits a captured check's output only when not quiet or it failed
+// spec: Run All - Emits captured output when not quiet or when a check fails or warns
 
-test "shouldEmit gates captured output by quiet and failure" {
+test "shouldEmit gates captured output by quiet failure and warnings" {
     // Passing check: shown live, suppressed under --quiet.
     try std.testing.expect(shouldEmit(false, .{ .ran = true, .output = "ok" }));
     try std.testing.expect(!shouldEmit(true, .{ .ran = true, .output = "ok" }));
     // Failing check: always shown, even under --quiet.
     try std.testing.expect(shouldEmit(true, .{ .ran = true, .failed = true, .output = "bad" }));
+    // Advisory findings are also visible under --quiet.
+    try std.testing.expect(shouldEmit(true, .{ .ran = true, .warnings = 1, .output = "warn" }));
     // No captured output: nothing to replay.
     try std.testing.expect(!shouldEmit(false, .{ .ran = true, .output = "" }));
 }

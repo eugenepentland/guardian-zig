@@ -2,7 +2,8 @@
 
 ## Overview
 
-Build-step quality gates for Zig projects. Runs on every `zig build` — invisible, opinionated, hard-blocking.
+Build-step quality gates for Zig projects. Runs on every `zig build` with
+blocking correctness checks and advisory maintainability guidance.
 
 ## Configuration
 
@@ -37,6 +38,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Splits a comma-separated filter value into check names
 - Rejects combining the only and skip filters
 - Parses policy profiles, policy locks, doctor thresholds, and external argv gates
+- Parses warning and hard limits for file size, function length, and line length
 
 ## Spec Coverage
 
@@ -60,7 +62,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## File Size
 
-- Checks source files against configurable line limit
+- Warns above a configurable recommended line limit and fails above a generous hard limit
 - Respects file_size_exclude patterns
 - Excludes test-block lines from the line count
 
@@ -131,7 +133,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Skips checks whose name appears in the disabled config list
 - Rejects unknown check names in the disabled list
 - Tolerates retired check names in the disabled list
-- Emits a captured check's output only when not quiet or it failed
+- Emits captured output when not quiet or when a check fails or warns
 - Runs only the checks named by an only filter
 - Excludes the checks named by a skip filter
 - Rejects an only or skip name that is not a runnable check
@@ -301,7 +303,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Function Length
 
-- Caps source lines per fn decl
+- Warns on long functions and fails only above a configurable hard line limit
 
 ## Nesting Depth
 
@@ -335,7 +337,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 
 ## Tier 2 Anti-patterns
 
-- Caps source line length
+- Warns on long source lines and fails only above a configurable hard length
 - Skips multiline-string literal lines from the length cap
 - Exempts spec tag comment lines from the length cap
 - Rejects vague identifier names on public declarations
@@ -379,6 +381,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 ## Reporter
 
 - Renders a Violation to the same indented line the emitter prints
+- Keeps advisory warnings separate from blocking violation records
 
 ## Machine-Readable Sink
 

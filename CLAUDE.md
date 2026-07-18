@@ -99,6 +99,7 @@ Optional. Defaults are sensible:
 ```toml
 spec_file = "SPEC.md"        # default
 max_file_lines = 1000         # default
+hard_max_file_lines = 10000   # only extreme files fail; ordinary growth warns
 file_size_exclude = ["generated/*", "*/vendor_*.zig"]
 
 [[boundary]]
@@ -201,6 +202,8 @@ ceiling, so an improvement that's still over cap no longer reds the build; v1
 text baselines self-migrate to v2 on first build. `[baseline] deny_growth =
 ["spec", ...]` freezes the named checks' baselines against ever growing — a
 refresh that would raise their count (or add a key) fails instead.
+File size, function length, and line length only emit ratchet records beyond
+their generous hard limits; their recommended-limit warnings never need acceptance.
 
 Every `all`/`nightly` run also drops machine-readable JSONL under the
 git-ignored, digest-excluded `.guardian/cache/`: `last-run.jsonl` (structured

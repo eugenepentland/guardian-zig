@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
 pub const green = "\x1b[32m";
+const yellow = "\x1b[33m";
 pub const red = "\x1b[31m";
 pub const reset = "\x1b[0m";
 pub const prefix = "guardian: ";
@@ -62,11 +63,15 @@ pub const Capture = struct {
     allocator: Allocator,
     buf: std.ArrayList(u8) = .empty,
     records: std.ArrayList(Violation) = .empty,
+    /// Advisory findings are separate from blocking violation records so
+    /// baselines and ratchets never turn a warning into acceptance work.
+    warnings: std.ArrayList(Violation) = .empty,
 
     /// Frees the captured buffer and structured records.
     pub fn deinit(self: *Capture) void {
         self.buf.deinit(self.allocator);
         self.records.deinit(self.allocator);
+        self.warnings.deinit(self.allocator);
     }
 
     /// Appends `fmt`/`args` to the capture buffer; logs a warning on OOM.
@@ -82,6 +87,11 @@ pub const Capture = struct {
     fn record(self: *Capture, v: Violation) void {
         self.records.append(self.allocator, v) catch |e|
             std.log.warn("guardian capture record failed: {s}", .{@errorName(e)});
+    }
+
+    fn recordWarning(self: *Capture, v: Violation) void {
+        self.warnings.append(self.allocator, v) catch |e|
+            std.log.warn("guardian capture warning failed: {s}", .{@errorName(e)});
     }
 };
 
@@ -115,6 +125,17 @@ pub const Reporter = struct {
             print(red ++ prefix ++ reset ++ fmt ++ "\n", args)
         else
             print(prefix ++ fmt ++ "\n", args);
+    }
+
+    /// Reports an advisory finding. Warnings are always visible, including in
+    /// quiet mode, but are captured separately from blocking violations.
+    fn warn(self: Reporter, v: Violation) void {
+        if (self.capture) |c| {
+            c.recordWarning(v);
+            warnTo(c, v);
+            return;
+        }
+        warnDirect(self.use_color, v);
     }
 
     /// Prints an indented detail line under a check (violation specifics,
@@ -164,6 +185,32 @@ fn emitDirect(v: Violation) void {
     if (v.fix_hint) |h| print("    fix: {s}\n", .{h});
 }
 
+fn warnTo(c: *Capture, v: Violation) void {
+    if (v.file) |f| {
+        if (v.line) |l|
+            c.write(prefix ++ "warning: {s}:{d}: {s}\n", .{ f, l, v.message })
+        else
+            c.write(prefix ++ "warning: {s}: {s}\n", .{ f, v.message });
+    } else {
+        c.write(prefix ++ "warning: {s}\n", .{v.message});
+    }
+    if (v.fix_hint) |h| c.write("  fix: {s}\n", .{h});
+}
+
+fn warnDirect(use_color: bool, v: Violation) void {
+    if (use_color) print(yellow, .{});
+    if (v.file) |f| {
+        if (v.line) |l|
+            print(prefix ++ "warning: {s}:{d}: {s}\n", .{ f, l, v.message })
+        else
+            print(prefix ++ "warning: {s}: {s}\n", .{ f, v.message });
+    } else {
+        print(prefix ++ "warning: {s}\n", .{v.message});
+    }
+    if (use_color) print(reset, .{});
+    if (v.fix_hint) |h| print("  fix: {s}\n", .{h});
+}
+
 // Thread-local so the parallel `all` runner can give each worker thread its own
 // capture buffer without a shared-state race: every check's ok/fail/detail call
 // resolves to the running thread's Reporter. The main thread's instance drives
@@ -196,6 +243,11 @@ pub fn detail(comptime fmt: []const u8, args: anytype) void {
 /// Format and print a Violation record.
 pub fn emit(v: Violation) void {
     default.emit(v);
+}
+
+/// Format and print a non-blocking warning record.
+pub fn warn(v: Violation) void {
+    default.warn(v);
 }
 
 /// Prints a red guardian-prefixed failure line, then terminates the process
@@ -250,4 +302,16 @@ test "flatLine matches the text emit writes for every render branch" {
     const batch = try flatLines(a, &cases);
     try std.testing.expectEqualStrings(want[0], batch[0]);
     try std.testing.expectEqual(cases.len, batch.len);
+}
+
+// spec: Reporter - Keeps advisory warnings separate from blocking violation records
+
+test "warning capture is visible but excluded from violation records" {
+    var cap: Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const r: Reporter = .{ .capture = &cap };
+    r.warn(.{ .check = "line-length", .file = "src/x.zig", .line = 3, .message = "130 chars" });
+    try std.testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    try std.testing.expectEqual(@as(usize, 0), cap.records.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: warning: src/x.zig:3") != null);
 }

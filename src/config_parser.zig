@@ -66,6 +66,12 @@ const timeout_floor_secs_key = "timeout_floor_secs";
 const timeout_multiplier_key = "timeout_multiplier";
 const timeout_retry_multiplier_key = "timeout_retry_multiplier";
 const timeout_secs_key = "timeout_secs";
+const max_file_lines_key = "max_file_lines";
+const hard_max_file_lines_key = "hard_max_file_lines";
+const max_lines_key = "max_lines";
+const hard_max_lines_key = "hard_max_lines";
+const max_len_key = "max_len";
+const hard_max_len_key = "hard_max_len";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
 
@@ -157,6 +163,7 @@ const ParseState = struct {
     external_gates: std.ArrayList(ExternalGate) = .empty,
     array_line: u32 = 0,
     mutation_lines: MutationLines = .{},
+    threshold_lines: ThresholdLines = .{},
     boundary_forbidden_set: bool = false,
     allow_paths_set: bool = false,
     external_command_set: bool = false,
@@ -326,6 +333,15 @@ const MutationLines = struct {
     retained_cache_suites: u32 = 0,
 };
 
+const ThresholdLines = struct {
+    max_file_lines: u32 = 0,
+    hard_max_file_lines: u32 = 0,
+    function_max_lines: u32 = 0,
+    function_hard_max_lines: u32 = 0,
+    line_max_len: u32 = 0,
+    line_hard_max_len: u32 = 0,
+};
+
 fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "boundary")) return .boundary;
     if (std.mem.eql(u8, name, "allow")) return .allow;
@@ -457,6 +473,7 @@ fn applyKeyValueLine(
     if (!inList(valid, key)) return unknownName(allocator, diag, line_no, "key", key, valid);
     try validateValue(allocator, st, kv, line_no, diag);
     if (st.array_kind == .none and st.section == .mutation) noteMutationLine(&st.mutation_lines, key, line_no);
+    noteThresholdLine(&st.threshold_lines, st.section, key, line_no);
     if (st.array_kind != .none) return st.setArrayKey(allocator, kv);
     try applySectionKey(.{ .allocator = allocator, .cfg = cfg }, st.section, kv);
 }
@@ -476,7 +493,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
     return switch (st.section) {
         .top => switch (key[0]) {
             's' => .string,
-            'm' => .unsigned,
+            'h', 'm' => .unsigned,
             'c', 'p' => .boolean,
             else => .string_array,
         },
@@ -560,23 +577,44 @@ fn noteMutationLine(lines: *MutationLines, key: []const u8, line_no: u32) void {
     }
 }
 
-fn mutationLine(lines: MutationLines, field: semantics.Field) u32 {
+fn noteThresholdLine(lines: *ThresholdLines, section: Section, key: []const u8, line_no: u32) void {
+    if (section == .top and std.mem.eql(u8, key, max_file_lines_key)) lines.max_file_lines = line_no;
+    if (section == .top and std.mem.eql(u8, key, hard_max_file_lines_key)) lines.hard_max_file_lines = line_no;
+    if (section == .function_length and std.mem.eql(u8, key, max_lines_key)) lines.function_max_lines = line_no;
+    if (section == .function_length and std.mem.eql(u8, key, hard_max_lines_key)) {
+        lines.function_hard_max_lines = line_no;
+    }
+    if (section == .line_length and std.mem.eql(u8, key, max_len_key)) lines.line_max_len = line_no;
+    if (section == .line_length and std.mem.eql(u8, key, hard_max_len_key)) lines.line_hard_max_len = line_no;
+}
+
+fn semanticLine(st: *const ParseState, field: semantics.Field) u32 {
     const n = switch (field) {
-        .min_score_pct => lines.min_score_pct,
-        .min_mutants => lines.min_mutants,
-        .max_mutants => lines.max_mutants,
-        .fast_max_mutants => lines.fast_max_mutants,
-        .timeout_floor_secs => lines.timeout_floor_secs,
-        .timeout_multiplier => lines.timeout_multiplier,
-        .timeout_retry_multiplier => lines.timeout_retry_multiplier,
-        .timeout_secs => lines.timeout_secs,
+        .hard_max_file_lines => firstLine(st.threshold_lines.hard_max_file_lines, st.threshold_lines.max_file_lines),
+        .function_hard_max_lines => firstLine(
+            st.threshold_lines.function_hard_max_lines,
+            st.threshold_lines.function_max_lines,
+        ),
+        .line_hard_max_len => firstLine(st.threshold_lines.line_hard_max_len, st.threshold_lines.line_max_len),
+        .min_score_pct => st.mutation_lines.min_score_pct,
+        .min_mutants => st.mutation_lines.min_mutants,
+        .max_mutants => st.mutation_lines.max_mutants,
+        .fast_max_mutants => st.mutation_lines.fast_max_mutants,
+        .timeout_floor_secs => st.mutation_lines.timeout_floor_secs,
+        .timeout_multiplier => st.mutation_lines.timeout_multiplier,
+        .timeout_retry_multiplier => st.mutation_lines.timeout_retry_multiplier,
+        .timeout_secs => st.mutation_lines.timeout_secs,
     };
     return if (n == 0) 1 else n;
 }
 
+fn firstLine(preferred: u32, fallback: u32) u32 {
+    return if (preferred != 0) preferred else fallback;
+}
+
 fn validateConfig(allocator: Allocator, cfg: *const Config, st: *const ParseState, diag: *Diagnostic) ParseError!void {
     const issue = try semantics.validate(allocator, cfg) orelse return;
-    diag.* = .{ .line = mutationLine(st.mutation_lines, issue.field), .message = issue.message };
+    diag.* = .{ .line = semanticLine(st, issue.field), .message = issue.message };
     return error.InvalidConfig;
 }
 
@@ -586,8 +624,9 @@ fn validateConfig(allocator: Allocator, cfg: *const Config, st: *const ParseStat
 fn validSectionKeys(section: Section) []const []const u8 {
     return switch (section) {
         .top => &.{
-            "spec_file",         "max_file_lines", "cache_enabled", "parallel",
-            "file_size_exclude", "exclude",        "disabled",
+            "spec_file",     max_file_lines_key, hard_max_file_lines_key,
+            "cache_enabled", "parallel",         "file_size_exclude",
+            "exclude",       "disabled",
         },
         .spec_quality => &.{ "enabled", "forbidden_phrases" },
         .function_size => &.{ "enabled", "max_params" },
@@ -596,11 +635,11 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .orphan_files => &.{ "enabled", "roots" },
         .doc_quality => &.{ "enabled", "min_chars", exempt_names_key },
         .type_size => &.{ "enabled", "max_fields", "exclude" },
-        .function_length => &.{ "enabled", "max_lines" },
+        .function_length => &.{ "enabled", max_lines_key, hard_max_lines_key },
         .nesting_depth => &.{ "enabled", "max_depth" },
         .test_coverage => &.{ "enabled", exempt_names_key },
         .bool_ops => &.{ "enabled", "max_ops" },
-        .line_length => &.{ "enabled", "max_len" },
+        .line_length => &.{ "enabled", max_len_key, hard_max_len_key },
         .baseline => &.{ "enabled", "deny_growth" },
         .escape_discipline, .oom_discipline, .magic_number, .stdout_flush => &.{"enabled"},
         .module_doc_header => &.{"min_lines"},
@@ -647,10 +686,10 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .function_size => applyU32Cfg("function_size", "max_params", ctx, kv),
         .complexity => applyU32Cfg("complexity", "max_score", ctx, kv),
         .doc_quality => try applyDocQualityKey(ctx, kv),
-        .function_length => applyU32Cfg("function_length", "max_lines", ctx, kv),
+        .function_length => applyDualLimitCfg("function_length", max_lines_key, hard_max_lines_key, ctx, kv),
         .nesting_depth => applyU32Cfg("nesting_depth", "max_depth", ctx, kv),
         .bool_ops => applyU32Cfg("bool_ops", "max_ops", ctx, kv),
-        .line_length => applyU32Cfg("line_length", "max_len", ctx, kv),
+        .line_length => applyDualLimitCfg("line_length", max_len_key, hard_max_len_key, ctx, kv),
         .anytype_budget => try applyAnytypeBudgetKey(ctx, kv),
         .type_size => try applyTypeSizeKey(ctx, kv),
         .baseline => try applyBaselineKey(ctx, kv),
@@ -719,6 +758,24 @@ fn applyU32Cfg(comptime group: []const u8, comptime cap_key: []const u8, ctx: Ap
     }
 }
 
+/// Applies an enabled toggle plus warning and hard u32 limits.
+fn applyDualLimitCfg(
+    comptime group: []const u8,
+    comptime warn_key: []const u8,
+    comptime hard_key: []const u8,
+    ctx: ApplyCtx,
+    kv: KeyVal,
+) void {
+    const g = &@field(ctx.cfg, group);
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, warn_key)) {
+        @field(g, warn_key) = parseU32(kv.val, @field(g, warn_key));
+    } else if (std.mem.eql(u8, kv.key, hard_key)) {
+        @field(g, hard_key) = parseU32(kv.val, @field(g, hard_key));
+    }
+}
+
 /// Applies `enabled` + a single string-array field (`arr_key`) to `cfg.<group>`.
 fn applyArrayCfg(
     comptime group: []const u8,
@@ -738,8 +795,10 @@ fn applyTopLevelKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     const cfg = ctx.cfg;
     if (std.mem.eql(u8, kv.key, "spec_file")) {
         if (parseString(kv.val)) |v| cfg.spec_file = v;
-    } else if (std.mem.eql(u8, kv.key, "max_file_lines")) {
+    } else if (std.mem.eql(u8, kv.key, max_file_lines_key)) {
         cfg.max_file_lines = parseU32(kv.val, cfg.max_file_lines);
+    } else if (std.mem.eql(u8, kv.key, hard_max_file_lines_key)) {
+        cfg.hard_max_file_lines = parseU32(kv.val, cfg.hard_max_file_lines);
     } else if (std.mem.eql(u8, kv.key, "cache_enabled")) {
         cfg.cache_enabled = parseBool(kv.val) orelse cfg.cache_enabled;
     } else if (std.mem.eql(u8, kv.key, "parallel")) {
@@ -898,6 +957,48 @@ test "parse default config" {
     const cfg = try parse(arena.allocator(), "");
     try std.testing.expectEqualStrings("SPEC.md", cfg.spec_file);
     try std.testing.expectEqual(@as(u32, 1000), cfg.max_file_lines);
+    try std.testing.expectEqual(@as(u32, 10_000), cfg.hard_max_file_lines);
+    try std.testing.expectEqual(@as(u32, 400), cfg.function_length.hard_max_lines);
+    try std.testing.expectEqual(@as(u32, 240), cfg.line_length.hard_max_len);
+}
+
+// spec: Configuration - Parses warning and hard limits for file size, function length, and line length
+
+test "parse dual warning and hard thresholds" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\max_file_lines = 800
+        \\hard_max_file_lines = 8000
+        \\[function_length]
+        \\max_lines = 100
+        \\hard_max_lines = 350
+        \\[line_length]
+        \\max_len = 110
+        \\hard_max_len = 220
+    );
+    try std.testing.expectEqual(@as(u32, 800), cfg.max_file_lines);
+    try std.testing.expectEqual(@as(u32, 8000), cfg.hard_max_file_lines);
+    try std.testing.expectEqual(@as(u32, 100), cfg.function_length.max_lines);
+    try std.testing.expectEqual(@as(u32, 350), cfg.function_length.hard_max_lines);
+    try std.testing.expectEqual(@as(u32, 110), cfg.line_length.max_len);
+    try std.testing.expectEqual(@as(u32, 220), cfg.line_length.hard_max_len);
+}
+
+test "parse rejects a hard threshold below its warning threshold" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    try std.testing.expectError(
+        error.InvalidConfig,
+        parseInto(
+            arena.allocator(),
+            "[line_length]\nmax_len = 120\nhard_max_len = 100\n",
+            &diag,
+        ),
+    );
+    try std.testing.expectEqual(@as(u32, 3), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "must exceed") != null);
 }
 
 // spec-case: Configuration - Parses policy profiles, policy locks, doctor thresholds, and external argv gates

@@ -100,7 +100,7 @@ pub const all: []const Command = &.{
         .summary = "Report baseline/snapshot debt totals with deltas (non-gating)",
         .run = cmd_debt.run,
     },
-    .{ .name = "file-size", .summary = "Enforce per-file line limit", .run = check_file_size.run },
+    .{ .name = "file-size", .summary = "Warn on large files; block extreme ones", .run = check_file_size.run },
     .{ .name = "boundaries", .summary = "Enforce @import boundary rules", .run = check_boundaries.run },
     .{
         .name = "usingnamespace-ban",
@@ -225,7 +225,7 @@ pub const all: []const Command = &.{
     },
     .{
         .name = "function-length",
-        .summary = "Cap source lines per fn decl",
+        .summary = "Warn on long functions; block extreme ones",
         .needs_ast = .yes,
         .run = check_function_length.run,
     },
@@ -327,7 +327,7 @@ pub const all: []const Command = &.{
         .summary = "Cap boolean operators per condition",
         .run = check_bool_ops_per_condition.run,
     },
-    .{ .name = "line-length", .summary = "Cap source line length", .run = check_line_length.run },
+    .{ .name = "line-length", .summary = "Warn on long lines; block extreme ones", .run = check_line_length.run },
     .{
         .name = "boolean-param-ban",
         .summary = "Reject bool parameters in public functions",

@@ -433,6 +433,7 @@ src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: any
 src/reporter.zig::prefix value
 src/reporter.zig::red value
 src/reporter.zig::reset value
+src/reporter.zig::warn | fn warn(v: Violation) void
 src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
 src/sink.zig::Summary struct_
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8

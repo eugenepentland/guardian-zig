@@ -186,10 +186,10 @@ pub const TypeSizeCfg = struct {
 /// Per-check config for the function-length cap.
 pub const FunctionLengthCfg = struct {
     enabled: bool = true,
-    /// Max source lines per fn decl, counted from the `fn` keyword line
-    /// through the closing `}` line. Default 120 (not 60): the low cap has no
-    /// research basis and forced artificial splits; a real codebase relaxed it.
+    /// Recommended source lines per fn decl. Exceeding this emits a warning.
     max_lines: u32 = 120,
+    /// Generous upper bound that still blocks genuinely extreme functions.
+    hard_max_lines: u32 = 400,
 };
 
 /// Per-check config for the nesting-depth cap.
@@ -218,8 +218,10 @@ pub const BaselineCfg = struct {
 /// Per-check config for the line-length cap.
 pub const LineLengthCfg = struct {
     enabled: bool = true,
-    /// Max codepoints per line. Framework recommends 100-120.
+    /// Recommended codepoints per line. Exceeding this emits a warning.
     max_len: u32 = 120,
+    /// Extreme line length that remains a hard failure.
+    hard_max_len: u32 = 240,
 };
 
 /// Per-check config for the bool-ops-per-condition cap.
@@ -398,6 +400,8 @@ pub const Config = struct {
     /// Max lines per .zig file. Default 1000 (not 500): the low cap has no
     /// research basis and a real production codebase relaxed it.
     max_file_lines: u32 = 1000,
+    /// Files above the recommended limit warn; only this extreme size blocks.
+    hard_max_file_lines: u32 = 10_000,
     /// When true, `all` skips the whole run when its hashed input set is
     /// unchanged since the last all-green run (see cache.zig).
     cache_enabled: bool = true,

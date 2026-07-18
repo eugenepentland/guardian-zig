@@ -6,6 +6,9 @@ const config = @import("config.zig");
 
 /// Mutation field responsible for a cross-setting validation failure.
 pub const Field = enum {
+    hard_max_file_lines,
+    function_hard_max_lines,
+    line_hard_max_len,
     min_score_pct,
     min_mutants,
     max_mutants,
@@ -24,6 +27,24 @@ pub const Issue = struct {
 
 /// Returns the first unsafe cross-field mutation configuration, if any.
 pub fn validate(allocator: std.mem.Allocator, cfg: *const config.Config) std.mem.Allocator.Error!?Issue {
+    if (cfg.hard_max_file_lines <= cfg.max_file_lines) return try issue(
+        allocator,
+        .hard_max_file_lines,
+        "hard_max_file_lines ({d}) must exceed max_file_lines ({d})",
+        .{ cfg.hard_max_file_lines, cfg.max_file_lines },
+    );
+    if (cfg.function_length.hard_max_lines <= cfg.function_length.max_lines) return try issue(
+        allocator,
+        .function_hard_max_lines,
+        "function_length hard_max_lines ({d}) must exceed max_lines ({d})",
+        .{ cfg.function_length.hard_max_lines, cfg.function_length.max_lines },
+    );
+    if (cfg.line_length.hard_max_len <= cfg.line_length.max_len) return try issue(
+        allocator,
+        .line_hard_max_len,
+        "line_length hard_max_len ({d}) must exceed max_len ({d})",
+        .{ cfg.line_length.hard_max_len, cfg.line_length.max_len },
+    );
     const m = cfg.mutation;
     if (m.min_score_pct > 100) return try issue(
         allocator,
@@ -92,4 +113,12 @@ test "validate reports unsafe mutation relationships" {
     const got = (try validate(std.testing.allocator, &cfg)).?;
     defer std.testing.allocator.free(got.message);
     try std.testing.expect(got.field == .min_mutants);
+}
+
+test "validate rejects hard thresholds at or below warning thresholds" {
+    var cfg: config.Config = .{};
+    cfg.line_length.hard_max_len = cfg.line_length.max_len;
+    const got = (try validate(std.testing.allocator, &cfg)).?;
+    defer std.testing.allocator.free(got.message);
+    try std.testing.expect(got.field == .line_hard_max_len);
 }

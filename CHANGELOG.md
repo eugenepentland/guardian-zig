@@ -6,6 +6,9 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Make file size, function length, and line length advisory at their recommended
+  limits, with configurable generous hard limits that remain blocking; warnings
+  stay out of baseline and ratchet metadata.
 - Make configuration parsing and validation fail closed.
 - Harden mutation scoring, sampling, snapshots, and timeout handling.
 - Isolate and clean mutation build caches and add a smoke-test stage.
