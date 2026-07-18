@@ -69,7 +69,10 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
         .updated => |n| ok("pub-api snapshot updated ({d} entries)", .{n}),
         .unchanged => |n| ok("pub-api unchanged ({d} entries)", .{n}),
         .version_mismatch => {
-            fail("pub-api snapshot version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.update_env});
+            fail(
+                "pub-api snapshot version mismatch — re-run with {s}=pub-api-surface to migrate",
+                .{snapshot_helper.update_env},
+            );
             return error.CheckFailed;
         },
         .drift => |d| {
@@ -77,7 +80,7 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
             for (d.removed) |line| print("  - {s}\n", .{line});
             for (d.added) |line| print("  + {s}\n", .{line});
             print(
-                "  fix: if intentional, re-run with {s}=1 and commit .guardian/{s}\n",
+                "  fix: if intentional, re-run with {s}=pub-api-surface and commit .guardian/{s}\n",
                 .{ snapshot_helper.update_env, snapshot_leaf },
             );
             return error.CheckFailed;

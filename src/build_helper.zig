@@ -15,6 +15,7 @@ const accept_name = "accept";
 const nightly_name = "nightly"; // composed scheduled tier, dispatched specially
 const commit_name = "commit"; // gate + auto-commit, dispatched specially
 const run_all_name = "all";
+const guardian_run_step = "guardian";
 const guardian_explain_step = "guardian-explain";
 
 // Comptime branch budget for the registry-iteration loop in
@@ -61,7 +62,7 @@ pub const Options = struct {
     /// `registerMutateSteps`), so calling addAllChecks more than once (a
     /// consumer typically wires both the install and test steps) is safe.
     mutate_steps: bool = true,
-    /// Register namespaced maintenance steps (`guardian-doctor`,
+    /// Register the canonical current-binary `guardian` runner plus namespaced maintenance steps (`guardian-doctor`,
     /// `guardian-debt`, `guardian-spec-sync`, `guardian-accept`, and
     /// `guardian-explain`) in the consumer build.
     maintenance_steps: bool = true,
@@ -146,6 +147,7 @@ fn containsStep(steps: []const *std.Build.Step, step: *std.Build.Step) bool {
 }
 
 fn registerMaintenanceSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
+    ensureForwardingStep(b, check_exe, opts);
     ensureToolStep(
         b,
         check_exe,
@@ -190,6 +192,19 @@ fn registerMaintenanceSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, o
             &.{ "explain", check },
         );
     }
+}
+
+/// Registers `zig build guardian -- <guardian-check args>`. Because the run
+/// artifact depends on `check_exe`, it always executes the binary built from
+/// the current dependency source rather than an arbitrary cache artifact.
+/// With no forwarded args it runs the full suite for the current project.
+fn ensureForwardingStep(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
+    if (b.top_level_steps.contains(guardian_run_step)) return;
+    const run = b.addRunArtifact(check_exe);
+    run.addArgs(b.args orelse &.{ run_all_name, "." });
+    if (opts.cwd) |cwd| run.setCwd(cwd);
+    const step = b.step(guardian_run_step, "Run the freshly built Guardian binary; forward args after --");
+    step.dependOn(&run.step);
 }
 
 fn ensureToolStep(
@@ -240,4 +255,10 @@ fn ensureMutateStep(
     if (opts.cwd) |cwd| run.setCwd(cwd);
     const step = b.step(name, description);
     step.dependOn(&run.step);
+}
+
+// spec: Maintenance - Registers a canonical build runner for the current Guardian binary
+
+test "canonical Guardian runner step name stays stable" {
+    try std.testing.expectEqualStrings("guardian", guardian_run_step);
 }

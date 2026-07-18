@@ -6,6 +6,11 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Require `GUARDIAN_UPDATE_SNAPSHOT=all` for broad refreshes; reject ambiguous
+  `1` and `true` values before any metadata changes.
+- Add `zig build guardian -- <args>` as the canonical freshly-built CLI runner.
+- Add `required_inputs` preflight globs so missing generated inputs fail before
+  analysis can create or prune baselines and snapshots.
 - Make file size, function length, and line length advisory at their recommended
   limits, with configurable generous hard limits that remain blocking; warnings
   stay out of baseline and ratchet metadata.

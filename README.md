@@ -1,6 +1,7 @@
 # Guardian for Zig
 
-Build-step quality gates for Zig projects. Runs on every `zig build` — invisible, opinionated, hard-blocking.
+Build-step quality gates for Zig projects, combining blocking correctness checks
+with advisory maintainability guidance.
 
 **Designed for AI agents.** Guardian catches mistakes by enforcing spec-driven development: every behavior in your SPEC.md must have a matching test, and every test must trace back to a spec.
 
@@ -23,7 +24,7 @@ b.getInstallStep().dependOn(&b.addFmt(.{ .paths = &.{"src"}, .check = true }).st
 guardian.addAllChecks(b, check_exe, b.getInstallStep(), .{});
 ```
 
-The same call also registers the consumer-facing `guardian-doctor`,
+The same call also registers a canonical `guardian` runner plus the consumer-facing `guardian-doctor`,
 `guardian-debt`, `guardian-spec-sync`, `guardian-accept`, and
 `guardian-explain` steps. Set `.maintenance_steps = false` only when a consumer
 needs to own those step names itself.
@@ -191,7 +192,7 @@ Two tiers:
   all of any untracked new file, sampled to `fast_max_mutants`.
 - **Full** (`--full`): the whole tree, sampled down to `max_mutants`. The
   score is ratcheted in `.guardian/mutation.txt` — it can never drop without
-  `GUARDIAN_UPDATE_SNAPSHOT=1`.
+  `guardian-check accept mutate .`.
 
 Both tiers fail below `min_score_pct` (default 80) — but only once the run has
 at least `min_mutants` (default 4) **viable** mutants. Below that floor a single
@@ -298,7 +299,7 @@ so a re-run picks up where a `Ctrl-C`/CI-timeout/OOM left off), a CI retry, or
 re-running after a doc-only edit or a red gate that didn't touch sources. The
 file is append-only during a run and compacted on load (stale-suite records
 dropped, latest outcome per identity kept). A snapshot refresh
-(`GUARDIAN_UPDATE_SNAPSHOT=mutate` / `=1`) bypasses cache reads entirely — a
+(`GUARDIAN_UPDATE_SNAPSHOT=mutate` / `=all`) bypasses cache reads entirely — a
 fresh ratchet must be a fresh measurement.
 
 ### Equivalent-mutant waiver (`// mutate-ok`)
@@ -419,8 +420,9 @@ moment HEAD moves). One accept per feature, not one per build.
 `guardian-accept` previews the named failures, refreshes only those metadata
 files, and reruns the checks without refresh before reporting success. Multiple
 checks are comma-separated. The older environment variable remains supported
-for compatibility, but broad `GUARDIAN_UPDATE_SNAPSHOT=1` accepts every drifted
-snapshot and baseline in that run and should be avoided in reviewed workflows.
+for named checks. A broad refresh now requires the explicit
+`GUARDIAN_UPDATE_SNAPSHOT=all`; ambiguous `=1` and `=true` values fail without
+refreshing anything.
 
 ```bash
 zig build guardian-accept -Dguardian-checks=spec,panic-budget
@@ -635,6 +637,7 @@ spec_file = "SPEC.md"
 max_file_lines = 1000
 hard_max_file_lines = 10000
 file_size_exclude = ["generated/*"]
+required_inputs = ["src/serve/templates/*.zig"] # codegen must produce at least one match
 exclude = ["src/serve/templates"]   # path globs dropped from the scan entirely (generated code)
 parallel = true         # run checks across cores (default); false forces sequential
 cache_enabled = true    # skip a full run when the hashed input set is unchanged (default)
@@ -759,6 +762,10 @@ paths = ["src/infra/persistence/*"]
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
+`required_inputs` is intentionally stricter: entries without `*` are exact
+project-relative paths, while glob entries must match at least one file or
+directory. Guardian checks them before `all`, individual gates, acceptance,
+commit, nightly, or mutation can update metadata.
 
 ### Complete key reference
 
@@ -770,7 +777,7 @@ commas.
 
 | Scope | Keys |
 |---|---|
-| *(top level)* | `spec_file`, `max_file_lines`, `hard_max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled` |
+| *(top level)* | `spec_file`, `max_file_lines`, `hard_max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled`, `required_inputs` |
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[external]]` | `name`, `command`, `inputs` |
@@ -805,6 +812,9 @@ commas.
 ```bash
 zig build                            # Compile + run every gate check (the primary gate)
 zig build test                       # Run tests + every gate check
+zig build guardian                   # Run all checks through the freshly built Guardian binary
+zig build guardian -- version        # Forward arbitrary guardian-check arguments to that binary
+zig build guardian -- all . --only spec,file-size # Run a filtered current-binary check
 zig build spec-init                  # Generate starter SPEC.md (non-gating generator)
 zig build mutate                     # Mutation-test changed lines (fast tier, auto-wired)
 zig build mutate-full                # Mutation-test the whole tree + ratchet (auto-wired)
@@ -819,13 +829,15 @@ GUARDIAN_AGAINST=origin/main ...             # Diff base for change-classificati
 
 `GUARDIAN_AGAINST` selects the git ref used by diff-scoped features (an
 `--against` flag wins). Guardian sets `GUARDIAN_MUTATION_RUN=1` itself on mutant
-child builds. `GUARDIAN_UPDATE_SNAPSHOT` remains a legacy compatibility path;
-prefer the named `accept` command. A trusted CI job may set
+child builds. `GUARDIAN_UPDATE_SNAPSHOT` remains a compatibility path for named
+checks or the explicit `all` token; `1` and `true` are rejected. Prefer the
+named `accept` command. A trusted CI job may set
 `GUARDIAN_POLICY_APPROVED=1` only after policy-file review.
 
 ### `guardian-check` CLI
 
-The checker binary also runs directly (this is what the build steps invoke):
+The checker binary also runs directly. Prefer `zig build guardian -- ...` during
+development so the command cannot resolve to a stale cache artifact:
 
 ```bash
 guardian-check all .                 # Run every registered gate under its policy mode

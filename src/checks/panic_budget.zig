@@ -252,7 +252,7 @@ fn reportFailures(failures: []const []const u8) registry.RunError!void {
     fail("panic budget FAILED", .{});
     for (failures) |line| print("  {s}\n", .{line});
     print(
-        "  fix: reduce, OR re-run with {s}=1 and commit .guardian/{s}\n",
+        "  fix: reduce, OR re-run with {s}=panic-budget and commit .guardian/{s}\n",
         .{ snapshot_helper.update_env, snapshot_leaf },
     );
 }
@@ -306,7 +306,10 @@ fn handleReadError(
             return null;
         },
         error.VersionMismatch => {
-            fail("panic budget version mismatch — re-run with {s}=1 to migrate", .{snapshot_helper.update_env});
+            fail(
+                "panic budget version mismatch — re-run with {s}=panic-budget to migrate",
+                .{snapshot_helper.update_env},
+            );
             return error.CheckFailed;
         },
         else => return e,

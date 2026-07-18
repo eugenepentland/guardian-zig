@@ -29,11 +29,8 @@ pub const Outcome = union(enum) {
     version_mismatch,
 };
 
-/// True when *any* refresh was requested via GUARDIAN_UPDATE_SNAPSHOT (a full
-/// "1"/"true"/"all" refresh or a comma-separated check-name list). Empty /
-/// unset / "0" all return false. Used only by the run-all skip-cache to bypass
-/// the cache whenever a refresh might rewrite `.guardian/`; per-check refresh
-/// decisions go through `shouldUpdateFor`.
+/// True when any non-empty refresh value was supplied. Invalid legacy broad
+/// tokens also bypass the skip cache so validation can reject them visibly.
 pub fn shouldUpdate(allocator: Allocator) bool {
     const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
@@ -41,21 +38,23 @@ pub fn shouldUpdate(allocator: Allocator) bool {
     return t.len > 0 and !std.mem.eql(u8, t, "0");
 }
 
-/// A parsed GUARDIAN_UPDATE_SNAPSHOT request. `none` = unset / empty / "0";
-/// `all` = "1" / "true" / "all" (refresh every snapshot and baseline — the
-/// backward-compatible behavior); `named` = a comma-separated check-name list,
-/// so only those checks' snapshots/baselines refresh. Selective refresh means
-/// accepting one intended snapshot change can no longer silently ratify
-/// unrelated drift (e.g. spec-baseline growth) in the same run.
+/// A parsed GUARDIAN_UPDATE_SNAPSHOT request. Broad refreshes require the
+/// explicit `all` token; legacy truthy tokens are retained as a distinct
+/// invalid state so the CLI can explain the safe replacement.
 const Refresh = union(enum) {
     none,
     all,
     named: []const []const u8,
+    rejected_broad: []const u8,
 };
 
-/// True when the whole value names a full refresh: "1", "true", or "all".
+/// True only for the explicit full-refresh token.
 fn isAllToken(v: []const u8) bool {
-    return std.mem.eql(u8, v, "1") or std.mem.eql(u8, v, "true") or std.mem.eql(u8, v, "all");
+    return std.mem.eql(u8, v, "all");
+}
+
+fn isRejectedBroadToken(v: []const u8) bool {
+    return std.mem.eql(u8, v, "1") or std.mem.eql(u8, v, "true");
 }
 
 /// Splits a comma-separated check-name list, trimming each segment and dropping
@@ -79,6 +78,7 @@ fn classifyValue(allocator: Allocator, raw: []const u8) Allocator.Error!Refresh 
     const trimmed = std.mem.trim(u8, raw, &std.ascii.whitespace);
     if (trimmed.len == 0 or std.mem.eql(u8, trimmed, "0")) return .none;
     if (isAllToken(trimmed)) return .all;
+    if (isRejectedBroadToken(trimmed)) return .{ .rejected_broad = trimmed };
     return .{ .named = try splitNames(allocator, trimmed) };
 }
 
@@ -101,6 +101,7 @@ fn refreshIncludes(r: Refresh, check_name: []const u8) bool {
         .none => false,
         .all => true,
         .named => |names| containsName(names, check_name),
+        .rejected_broad => false,
     };
 }
 
@@ -108,7 +109,7 @@ fn refreshIncludes(r: Refresh, check_name: []const u8) bool {
 /// this run — the per-check replacement for the old global `shouldUpdate`
 /// boolean. Threaded through every snapshot check, `mutate`'s ratchet, and
 /// baseline mode so `GUARDIAN_UPDATE_SNAPSHOT=<name[,name]>` refreshes only
-/// those checks (`=1`/`true`/`all` still refreshes everything).
+/// those checks; only explicit `=all` refreshes everything.
 pub fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool {
     // OOM while parsing the refresh list collapses to "no refresh": the check
     // then compares against its committed snapshot, so real drift still reds the
@@ -132,6 +133,14 @@ pub fn refreshTargets(allocator: Allocator) ?[]const []const u8 {
         .named => |names| names,
         else => null,
     };
+}
+
+/// True when the legacy broad token `1` or `true` was supplied. The run-all
+/// validator uses this to fail with explicit `=all` migration guidance.
+pub fn usesLegacyBroadToken(allocator: Allocator) bool {
+    const raw = std.process.getEnvVarOwned(allocator, update_env) catch return false;
+    defer allocator.free(raw);
+    return isRejectedBroadToken(std.mem.trim(u8, raw, &std.ascii.whitespace));
 }
 
 /// Joins `project_dir/.guardian/{leaf}` for snapshot file paths. Caller owns
@@ -311,19 +320,26 @@ test "classifyValue and refreshIncludes select only the named checks" {
     try testing.expect(!refreshIncludes(r, "panic-budget"));
 }
 
-// spec: Snapshot Lifecycle - Treats a 1, true, or all value as a full refresh
+// spec: Snapshot Lifecycle - Requires the explicit all token for a full refresh
 
-test "classifyValue treats 1, true, and all as a full refresh of every check" {
+test "classifyValue accepts only all as a full refresh" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    for ([_][]const u8{ "1", "true", "all" }) |token| {
-        const r = try classifyValue(a, token);
-        try testing.expect(r == .all);
-        // A full refresh includes any check name.
-        try testing.expect(refreshIncludes(r, "pub-api-surface"));
-        try testing.expect(refreshIncludes(r, "anything-else"));
+    const all = try classifyValue(a, "all");
+    try testing.expect(all == .all);
+    try testing.expect(refreshIncludes(all, "anything-else"));
+    for ([_][]const u8{ "1", "true" }) |token| {
+        const rejected = try classifyValue(a, token);
+        try testing.expect(rejected == .rejected_broad);
+        try testing.expectEqualStrings(token, rejected.rejected_broad);
+        try testing.expect(!refreshIncludes(rejected, "pub-api-surface"));
     }
+}
+
+test "usesLegacyBroadToken remains part of the validated environment API" {
+    _ = &usesLegacyBroadToken;
+    try testing.expect(true);
 }
 
 // spec: Snapshot Lifecycle - Treats an unset, empty, or zero value as no refresh

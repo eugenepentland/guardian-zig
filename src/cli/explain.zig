@@ -159,16 +159,16 @@ const entries = [_]Entry{
     \\Why: an agent silently widens (or breaks) the public API — a new pub fn, a
     \\changed signature — with no reviewer sign-off.
     \\Fix: make the API change intentional, then accept it into the snapshot.
-    \\Exempt: `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` and commit `.guardian/` once
-    \\the surface change is deliberate.
+    \\Exempt: `guardian-check accept pub-api-surface .` and commit `.guardian/`
+    \\once the surface change is deliberate.
     },
     .{ .name = "panic-budget", .text = 
     \\Why: agents scatter `@panic` / `unreachable` / `TODO` / `FIXME` as they
     \\stub, turning recoverable paths into crashes.
     \\Fix: handle the case explicitly (return an error) instead of panicking, or
     \\resolve the TODO.
-    \\Exempt: `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` to accept a deliberate new
-    \\site and commit the snapshot.
+    \\Exempt: `guardian-check accept panic-budget .` to accept a deliberate new
+    \\site, verify it, and commit the snapshot.
     },
     .{ .name = "catch-discipline", .text = 
     \\Why: `catch unreachable`, `catch {}` and `catch undefined` convert a real
@@ -249,15 +249,15 @@ const entries = [_]Entry{
     \\Optional strict mode: `[int_from_float] require_guard = ["src/render/*"]`
     \\hard-fails ANY unguarded cast under those path globs, so a chosen subtree can
     \\be driven to zero (independent of the snapshot budget).
-    \\Exempt: `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` after the guard review, then
-    \\commit the snapshot.
+    \\Exempt: `guardian-check accept int-from-float-budget .` after guard review,
+    \\then commit the verified snapshot.
     },
     .{ .name = "unsafe-ops-budget", .text = 
     \\Why: new `@ptrCast`/`@bitCast`/`@ptrFromInt`/… or `undefined` re-assignments
     \\are unsafe operations agents reach for to make types line up.
     \\Fix: prefer a safe conversion; if genuinely needed, isolate and comment it.
-    \\Exempt: `GUARDIAN_UPDATE_SNAPSHOT=1 zig build` to accept the new count and
-    \\commit the snapshot.
+    \\Exempt: `guardian-check accept unsafe-ops-budget .` to accept the new count
+    \\and commit the verified snapshot.
     },
     .{ .name = "type-size", .text = 
     \\Why: a struct that keeps gaining fields is a god-object an agent grew

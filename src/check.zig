@@ -19,6 +19,7 @@ const accept = @import("cli/accept.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
 const mutation_runner = @import("mutation/runner.zig");
+const required_inputs = @import("required_inputs.zig");
 
 /// Env var naming a git ref for diff-scoped checks; the --against flag
 /// takes precedence, guardian.toml's [change_classification] follows.
@@ -246,6 +247,7 @@ fn nonEmpty(value: ?[]const u8) ?[]const u8 {
 // Routes the parsed command to `all`, or to a registered command (optionally
 // wrapped in baseline mode). Propagates error.CheckFailed to the caller.
 fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []const u8) !void {
+    if (needsRequiredInputs(command)) try required_inputs.validate(ctx);
     if (std.mem.eql(u8, command, run_all.command_name)) {
         return run_all.run(ctx);
     }
@@ -287,6 +289,25 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     };
 }
 
+fn needsRequiredInputs(command: []const u8) bool {
+    if (std.mem.eql(u8, command, run_all.command_name)) return true;
+    if (std.mem.eql(u8, command, nightly.command_name)) return true;
+    if (std.mem.eql(u8, command, commit_cmd.command_name)) return true;
+    if (std.mem.eql(u8, command, accept.command_name)) return true;
+    if (std.mem.eql(u8, command, "mutate")) return true;
+    return run_all.isAllCheck(command);
+}
+
+test "project-analysis commands require input preflight" {
+    try std.testing.expect(needsRequiredInputs("all"));
+    try std.testing.expect(needsRequiredInputs("accept"));
+    try std.testing.expect(needsRequiredInputs("mutate"));
+    try std.testing.expect(needsRequiredInputs("pub-api-surface"));
+    try std.testing.expect(!needsRequiredInputs("doctor"));
+    try std.testing.expect(!needsRequiredInputs("debt"));
+    try std.testing.expect(!needsRequiredInputs("spec-init"));
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 // Aggregates every module's tests. Zig only collects `test` decls from files
@@ -299,6 +320,8 @@ test {
     _ = @import("config_parser.zig");
     _ = @import("config_semantics.zig");
     _ = @import("config_policy.zig");
+    _ = @import("build_helper.zig");
+    _ = @import("required_inputs.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");

@@ -404,7 +404,7 @@ fn ratchet(ctx: *types.RunCtx, pct: u32, cohort: u64) types.RunError!bool {
             pct,
             old_pct orelse 0,
         });
-        detail("  accept deliberately with {s}=1, or strengthen the tests.\n", .{snapshot_helper.update_env});
+        detail("  accept deliberately with {s}=mutate, or strengthen the tests.\n", .{snapshot_helper.update_env});
         return false;
     }
     try writeRatchet(a, path, pct, cohort);

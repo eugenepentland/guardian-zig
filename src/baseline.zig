@@ -180,7 +180,7 @@ pub fn lifecycle(
     // Auto-prune: a pure shrink (violations resolved, none added) rewrites the
     // baseline with the current smaller set. Removing entries is monotone-safe —
     // it can never introduce a false failure — so it needs no refresh env var,
-    // and it retires the old "re-run with GUARDIAN_UPDATE_SNAPSHOT=1 to prune"
+    // and it retires the old "re-run with a broad snapshot refresh to prune"
     // round-trip that generated a class of .guardian/ churn commits.
     switch (outcome) {
         .shrunk => try snapshot.write(baseline_path, version, current),
@@ -695,7 +695,7 @@ test "extract ignores multi-line fix-hint continuations" {
         \\guardian: int-from-float budget FAILED (casts: 1 found, 0 budgeted)
         \\  src/x.zig:5: unguarded @intFromFloat
         \\  fix: guard the new @intFromFloat (isFinite + range check),
-        \\       or re-run with GUARDIAN_UPDATE_SNAPSHOT=1 and commit .guardian/x.txt
+        \\       or run guardian-check accept int-from-float-budget . and commit .guardian/x.txt
     ;
     const lines = try extract(a, sample);
     // Only the violation; both hint lines (incl. the non-`fix:` continuation)

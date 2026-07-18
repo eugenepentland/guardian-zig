@@ -101,6 +101,7 @@ spec_file = "SPEC.md"        # default
 max_file_lines = 1000         # default
 hard_max_file_lines = 10000   # only extreme files fail; ordinary growth warns
 file_size_exclude = ["generated/*", "*/vendor_*.zig"]
+required_inputs = ["src/generated/*.zig"] # codegen must produce at least one match
 
 [[boundary]]
 module = "src/core/*"
@@ -148,12 +149,12 @@ are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are
 snapshot-based (pub-api-surface, panic-budget, int-from-float-budget,
-unsafe-ops-budget) — refresh with `GUARDIAN_UPDATE_SNAPSHOT=1 zig build`
-and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` is now *selective*: `=1`
-(or `true`/`all`) refreshes everything, but a comma-separated check-name list
+unsafe-ops-budget) — refresh with the named `guardian-check accept <check> .`
+flow and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` remains selective: `=all`
+is the only broad refresh, while a comma-separated check-name list
 (`=pub-api-surface,spec`) refreshes only those checks' snapshots/baselines —
-one accepted change no longer ratifies unrelated drift. An unknown name in the
-list hard-fails the run. The non-gating `guardian-check debt [dir]` (`zig build
+one accepted change no longer ratifies unrelated drift. Ambiguous `=1` and
+`=true` values, plus unknown names, hard-fail. The non-gating `guardian-check debt [dir]` (`zig build
 debt`) reports every baseline/snapshot total, sorted by count, with the delta
 vs the committed `.guardian/` state, then an informational assert-density table
 (assert() calls per KLOC per top-level src module, ascending).

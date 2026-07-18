@@ -421,6 +421,9 @@ pub const Config = struct {
     /// "magic-number"). Lets a project disable individual checks that have no
     /// dedicated [section] toggle. Matched against each check's registry name.
     disabled: []const []const u8 = &.{},
+    /// Project-relative paths or `*` globs that must match before Guardian runs
+    /// analysis capable of creating or pruning baselines/snapshots.
+    required_inputs: []const []const u8 = &.{},
     boundary_rules: []const BoundaryRule = &.{},
     spec_quality: SpecQualityCfg = .{},
     function_size: FunctionSizeCfg = .{},

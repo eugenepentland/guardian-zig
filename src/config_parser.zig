@@ -72,6 +72,7 @@ const max_lines_key = "max_lines";
 const hard_max_lines_key = "hard_max_lines";
 const max_len_key = "max_len";
 const hard_max_len_key = "hard_max_len";
+const required_inputs_key = "required_inputs";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
 
@@ -626,7 +627,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .top => &.{
             "spec_file",     max_file_lines_key, hard_max_file_lines_key,
             "cache_enabled", "parallel",         "file_size_exclude",
-            "exclude",       "disabled",
+            "exclude",       "disabled",         required_inputs_key,
         },
         .spec_quality => &.{ "enabled", "forbidden_phrases" },
         .function_size => &.{ "enabled", "max_params" },
@@ -809,6 +810,8 @@ fn applyTopLevelKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         cfg.exclude = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, "disabled")) {
         cfg.disabled = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, required_inputs_key)) {
+        cfg.required_inputs = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -1059,6 +1062,20 @@ test "parse config with values" {
     try std.testing.expectEqualStrings("src/stages/*", cfg.boundary_rules[0].module_pattern);
     try std.testing.expectEqual(@as(usize, 1), cfg.boundary_rules[0].forbidden_imports.len);
     try std.testing.expectEqualStrings("shell", cfg.boundary_rules[0].forbidden_imports[0]);
+}
+
+// spec: Configuration - Parses a top-level required input glob list
+
+test "parse required input patterns" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(
+        arena.allocator(),
+        "required_inputs = [\"src/generated/*.zig\", \"assets/schema.json\"]",
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.required_inputs.len);
+    try std.testing.expectEqualStrings("src/generated/*.zig", cfg.required_inputs[0]);
+    try std.testing.expectEqualStrings("assets/schema.json", cfg.required_inputs[1]);
 }
 
 test "parse ignores comments and blank lines" {

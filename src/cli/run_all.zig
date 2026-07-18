@@ -236,6 +236,11 @@ pub fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void {
 /// a typo must hard-fail, not silently refresh nothing. No-op in the none/all
 /// modes (refreshTargets returns null).
 fn validateRefreshTargets(allocator: std.mem.Allocator) types.RunError!void {
+    if (snapshot_helper.usesLegacyBroadToken(allocator)) {
+        fail("{s}=1/true is no longer accepted for a broad refresh", .{snapshot_helper.update_env});
+        fail("  use {s}=all explicitly, or name only the intended checks", .{snapshot_helper.update_env});
+        return error.CheckFailed;
+    }
     const names = snapshot_helper.refreshTargets(allocator) orelse return;
     for (names) |name| try requireKnownCheck(name, snapshot_helper.update_env);
 }

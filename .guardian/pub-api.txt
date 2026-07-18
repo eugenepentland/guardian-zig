@@ -435,6 +435,7 @@ src/reporter.zig::red value
 src/reporter.zig::reset value
 src/reporter.zig::warn | fn warn(v: Violation) void
 src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
+src/required_inputs.zig::validate | fn validate(ctx: *types.RunCtx) types.RunError!void
 src/sink.zig::Summary struct_
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/sink.zig::summaryJson | fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8
@@ -460,6 +461,7 @@ src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocat
 src/snapshot_helper.zig::shouldUpdateForCtx | fn shouldUpdateForCtx(ctx: *const types.RunCtx, check_name: []const u8) bool
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/snapshot_helper.zig::update_env value
+src/snapshot_helper.zig::usesLegacyBroadToken | fn usesLegacyBroadToken(allocator: Allocator) bool
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
 src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayList(ModuleInfo), ) InitError!void

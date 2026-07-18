@@ -39,6 +39,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects combining the only and skip filters
 - Parses policy profiles, policy locks, doctor thresholds, and external argv gates
 - Parses warning and hard limits for file size, function length, and line length
+- Parses a top-level required input glob list
 
 ## Spec Coverage
 
@@ -65,6 +66,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns above a configurable recommended line limit and fails above a generous hard limit
 - Respects file_size_exclude patterns
 - Excludes test-block lines from the line count
+
+## Required Inputs
+
+- Fails before project analysis when a required input pattern matches nothing
 
 ## Boundaries
 
@@ -189,6 +194,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Accept records a session note that expires when the head commit changes
 - Parses named accept checks before the optional project directory
 - Run context recognizes only explicitly named accept refreshes
+- Registers a canonical build runner for the current Guardian binary
 
 ## Policy Modes
 
@@ -212,7 +218,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports drift when current state differs from prior snapshot
 - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
 - Refreshes only the checks named in a GUARDIAN_UPDATE_SNAPSHOT list
-- Treats a 1, true, or all value as a full refresh
+- Requires the explicit all token for a full refresh
 - Treats an unset, empty, or zero value as no refresh
 - Accept command refreshes only its explicit context-local check names
 
