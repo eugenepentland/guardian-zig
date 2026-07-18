@@ -158,3 +158,7 @@ the same kind are fine.
 - **good:** the post-merge `zig build test` verified the actual two-parent main
   integration with all 67 Guardian checks and 1,201 functional tests passing;
   no baseline updates were needed.
+
+## 2026-07-18 · codex · eda — expose assembly fabrication layers
+- **good:** the paint-order and focus-routing regression markers passed with all
+  67 Guardian checks and 1,201 functional tests, without baseline changes.
