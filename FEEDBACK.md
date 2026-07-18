@@ -88,3 +88,12 @@ the same kind are fine.
   never imported, plus a duplicate verification tag after the contract was
   updated. Fixing both left one canonical specification and test link while
   the 1,198-test suite continued to pass.
+
+## 2026-07-18 · codex · eda — add assembly/debug board review
+- **good:** selective `accept file-size,pub-api-surface,type-size` previewed
+  exactly the three intentional integration ratchets, refreshed only those
+  metadata files, and verified them before the 67-check commit gate created
+  the feature commit.
+- **friction:** one red `zig build test` printed the same three Guardian
+  failures twice through separate build graph branches, making a single set
+  of reviewed ratchets look duplicated and adding noise to the fix loop.
