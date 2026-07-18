@@ -153,3 +153,8 @@ the same kind are fine.
 - **good:** smooth run — single-agent JS/markup change, 67/67 green first try,
   marker-test extension needed no SPEC churn (existing bullets still described
   the behavior). No friction.
+
+## 2026-07-18 · codex · eda — merge physical PCB assembly preview
+- **good:** the post-merge `zig build test` verified the actual two-parent main
+  integration with all 67 Guardian checks and 1,201 functional tests passing;
+  no baseline updates were needed.
