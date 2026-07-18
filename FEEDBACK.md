@@ -142,3 +142,9 @@ the same kind are fine.
   Guardian should either require generated inputs or consistently exclude them.
 - **good:** `file-size` caught three added CSS lines in the already-ratcheted
   PCB page, prompting a no-growth rewrite instead of another snapshot accept.
+
+## 2026-07-18 · codex · eda — render physical PCB assembly preview
+- **good:** the spec gate rejected a duplicate unlinked `spec:` tag on the new
+  browser contract test while all 1,201 functional tests passed. Removing the
+  redundant tag kept the existing assembly/debug specification canonical, and
+  the next run passed all 67 checks without baseline changes.
