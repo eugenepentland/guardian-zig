@@ -166,3 +166,7 @@ the same kind are fine.
 ## 2026-07-18 · codex · eda — merge assembly fabrication layers
 - **good:** the post-merge gate passed on the two-parent `main` commit without
   baseline changes; the ReleaseSafe deployment build and restart also passed.
+
+## 2026-07-18 · codex · eda — expose via-in-pad and mark pin 1
+- **good:** the physical-review paint additions and browser contract markers
+  passed all 67 Guardian checks and 1,201 functional tests without baselines.
