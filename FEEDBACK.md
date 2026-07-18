@@ -67,3 +67,13 @@ the same kind are fine.
 - **wish:** bare `GUARDIAN_UPDATE_SNAPSHOT=1` should require an explicit
   `=all` — `=1` ratifying every snapshot at once is an easy fat-finger next
   to the selective `=check-a,check-b` form.
+
+## 2026-07-18 · codex · eda — KiCad layout sync
+- **friction:** selecting the first `.zig-cache/**/guardian-check` found an
+  older cached binary whose line-length semantics rewrote the baseline, then
+  produced 36 false regressions during the commit gate. This cost one failed
+  commit attempt and a manual baseline reconciliation; using the current
+  fixed-path `guardian-zig/zig-out/bin/guardian-check` resolved it.
+- **good:** the current `guardian-check commit` failed closed on the mismatched
+  ratchets without staging or committing anything. After reconciliation, all
+  67 checks passed and the feature could be committed and merged safely.
