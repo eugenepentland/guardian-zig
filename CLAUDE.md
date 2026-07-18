@@ -1,5 +1,14 @@
 # Guardian for Zig
 
+## Usage Feedback Log
+
+`FEEDBACK.md` (repo root) is the append-only log where agents record friction,
+bugs, wins, and wishes after working in any Guardian-gated project — the format
+and append rules are documented at the top of that file. When working on
+Guardian itself, read it first: open `friction:`/`wish:` entries are the triage
+backlog Eugene draws changes from. Never delete or rewrite existing entries;
+pruning happens only when Eugene triages.
+
 ## Guiding Principles
 
 1. **AI-first** — Exists to catch AI agent mistakes
