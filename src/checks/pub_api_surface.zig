@@ -57,7 +57,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, snapshot_leaf);
     const lines = try collectLines(allocator, project_dir, ctx_param.source_index);
 
-    const force = snapshot_helper.shouldUpdateFor(allocator, "pub-api-surface");
+    const force = snapshot_helper.shouldUpdateForCtx(ctx_param, "pub-api-surface");
     const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = snapshot_version };
     const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force);
     return reportOutcome(outcome);

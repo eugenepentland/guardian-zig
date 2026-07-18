@@ -54,16 +54,31 @@ pub const RunCtx = struct {
     intent: ?[]const u8 = null,
     /// Machine-readable maintenance-command output.
     json: bool = false,
+    /// Explicit refresh set supplied by the `accept` command. Environment-based
+    /// GUARDIAN_UPDATE_SNAPSHOT remains supported for backwards compatibility.
+    refresh: []const []const u8 = &.{},
     /// Optional check-name filter used by `debt`.
     check_filter: ?[]const u8 = null,
     /// Identify obsolete baseline files; dry-run unless `confirm` is true.
     prune_stale: bool = false,
     /// Explicit confirmation for a mutating maintenance operation (`--yes`).
     confirm: bool = false,
+    /// Include the assert-density appendix in `debt`; off by default so a
+    /// filtered debt query stays short and directly actionable.
+    assert_density: bool = false,
+    /// Trusted CI approval bit read once by main; checks receive plain data
+    /// rather than acquiring environment dependencies themselves.
+    policy_approved: bool = false,
     /// Registry membership callback for maintenance commands that must detect
     /// stale check-owned files without importing registry.zig (which imports
     /// those commands).
     command_exists: ?*const fn ([]const u8) bool = null,
+
+    /// True when the explicit `accept` refresh set contains `check_name`.
+    pub fn refreshes(self: RunCtx, check_name: []const u8) bool {
+        for (self.refresh) |name| if (std.mem.eql(u8, name, check_name)) return true;
+        return false;
+    }
 };
 
 /// Whether a check needs the AST index built before invocation.
@@ -76,3 +91,18 @@ pub const Command = struct {
     needs_ast: NeedsAst = .no,
     run: *const fn (ctx: *RunCtx) RunError!void,
 };
+
+// spec: Maintenance - Run context recognizes only explicitly named accept refreshes
+
+test "refreshes matches the explicit command-local refresh set" {
+    const cfg: config_mod.Config = .{};
+    const ctx: RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .refresh = &.{ "file-size", "line-length" },
+    };
+    try std.testing.expect(ctx.refreshes("file-size"));
+    try std.testing.expect(!ctx.refreshes("spec"));
+}

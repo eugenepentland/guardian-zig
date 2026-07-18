@@ -42,6 +42,12 @@ pub const DiffResult = union(enum) {
     unavailable: []const u8,
 };
 
+/// Result of asking git for every changed path, including deleted files.
+pub const PathDiffResult = union(enum) {
+    ok: []const []const u8,
+    unavailable: []const u8,
+};
+
 /// Parses `git diff -U0` output into per-file added-line spans. Files whose
 /// new side is /dev/null (deletions) are dropped; deletion-only hunks
 /// contribute no spans.
@@ -130,6 +136,30 @@ pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u
     const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
         return .{ .unavailable = "not a git repository — diff-scoped checks skipped" };
     return .{ .ok = try parseUnifiedDiff(allocator, out) };
+}
+
+/// Lists paths changed against `ref`, retaining deletions and disabling rename
+/// detection so a move exposes both its old and new path to policy checks.
+pub fn diffPathNamesAgainst(
+    allocator: Allocator,
+    project_dir: []const u8,
+    ref: []const u8,
+) GitError!PathDiffResult {
+    const argv = [_][]const u8{
+        "git",        "-c",          "core.quotepath=false", "diff",
+        "--no-color", "--name-only", "-z",                   "--no-renames",
+        "--relative", ref,           "--",
+    };
+    const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
+        return .{ .unavailable = "not a git repository — diff-scoped checks skipped" };
+    return .{ .ok = try parseNulPaths(allocator, out) };
+}
+
+fn parseNulPaths(allocator: Allocator, text: []const u8) Allocator.Error![]const []const u8 {
+    var paths: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, text, 0);
+    while (it.next()) |path| if (path.len > 0) try paths.append(allocator, path);
+    return paths.toOwnedSlice(allocator);
 }
 
 /// Contents of `rel_path` (cwd-relative, forward slashes) as committed at HEAD,
@@ -397,6 +427,15 @@ test "parseUnifiedDiff drops deleted files and deletion-only hunks" {
     try testing.expectEqual(@as(usize, 0), out[0].spans.len);
 }
 
+test "parseNulPaths retains deletion paths emitted by name-only diffs" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const out = try parseNulPaths(arena.allocator(), "guardian.toml\x00.guardian/old.txt\x00");
+    try testing.expectEqual(@as(usize, 2), out.len);
+    try testing.expectEqualStrings("guardian.toml", out[0]);
+    try testing.expectEqualStrings(".guardian/old.txt", out[1]);
+}
+
 // spec: Git Diff - Counts a commit's parents from a rev-list line
 
 test "countParents is token count minus one, null on empty input" {
@@ -467,4 +506,18 @@ test "diffAgainst hard-fails on a bad ref inside a real repository" {
     // failure (not a missing repository), so it must surface as a hard error
     // rather than a silent `.unavailable` skip.
     try testing.expectError(error.GitCommandFailed, diffAgainst(a, ".", "guardian-no-such-ref-zzz"));
+}
+
+// spec-case: Policy Protection - Blocks protected Guardian metadata drift unless trusted CI approves it
+
+test "diffPathNamesAgainst hard-fails on a bad policy base ref" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    try testing.expectError(error.GitCommandFailed, diffPathNamesAgainst(a, ".", "guardian-no-such-ref-zzz"));
 }

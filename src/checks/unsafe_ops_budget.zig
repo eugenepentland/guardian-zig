@@ -216,12 +216,13 @@ fn scanTotals(ctx_param: *registry.RunCtx) registry.RunError!Counts {
 /// snapshot was just (re)written — meaning the caller should report success
 /// and stop.
 fn loadBudget(
-    allocator: std.mem.Allocator,
+    ctx: *registry.RunCtx,
     snap_path: []const u8,
     totals: Counts,
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
-    if (snapshot_helper.shouldUpdateFor(allocator, "unsafe-ops-budget")) {
+    const allocator = ctx.allocator;
+    if (snapshot_helper.shouldUpdateForCtx(ctx, "unsafe-ops-budget")) {
         try snapshot.write(snap_path, snapshot_version, new_lines);
         ok("unsafe-ops budget updated (casts={d}, undefined_reassign={d})", .{
             totals.castTotal(), totals.undefined_reassign,
@@ -264,7 +265,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, snapshot_leaf);
     const new_lines = try countsToLines(allocator, totals);
 
-    const budget = try loadBudget(allocator, snap_path, totals, new_lines) orelse return;
+    const budget = try loadBudget(ctx_param, snap_path, totals, new_lines) orelse return;
 
     const failures = try collectFailures(allocator, totals, budget);
     if (failures.len == 0) {

@@ -241,7 +241,7 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
     // Selective refresh: GUARDIAN_UPDATE_SNAPSHOT=<name> refreshes only that
     // check's baseline, so accepting one intended change can't ratify unrelated
     // baseline growth in the same run.
-    const force_refresh = snapshot_helper.shouldUpdateFor(ctx.allocator, cmd.name);
+    const force_refresh = snapshot_helper.shouldUpdateForCtx(ctx, cmd.name);
     var capture: reporter.Capture = .{ .allocator = ctx.allocator };
     defer capture.deinit();
 
@@ -391,6 +391,10 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]
                 .{ check_name, o.key, o.value },
             );
             if (fix_hint) |h| reporter.detail("  {s}\n", .{h});
+            reporter.detail(
+                "  accept: guardian-check accept {s} .  # review and commit the .guardian/ diff\n",
+                .{check_name},
+            );
             return error.CheckFailed;
         },
     }
@@ -474,6 +478,10 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
                 .{ check_name, g.new_lines.len, g.baseline_size },
             );
             for (g.new_lines) |line| reporter.detail("  {s}\n", .{line});
+            reporter.detail(
+                "  accept: guardian-check accept {s} .  # review and commit the .guardian/ diff\n",
+                .{check_name},
+            );
             return error.CheckFailed;
         },
     }

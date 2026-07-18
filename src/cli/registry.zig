@@ -74,6 +74,8 @@ const check_fatal_exit = @import("../checks/fatal_exit.zig");
 const check_stdout_flush = @import("../checks/stdout_flush.zig");
 const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
 const check_module_doc_header = @import("../checks/module_doc_header.zig");
+const check_external_gates = @import("../checks/external_gates.zig");
+const check_policy_drift = @import("../checks/policy_drift.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
@@ -411,6 +413,16 @@ pub const all: []const Command = &.{
         .summary = "Require a //! module doc header on src files over [module_doc_header] min_lines (default 200)",
         .run = check_module_doc_header.run,
     },
+    .{
+        .name = "external-gates",
+        .summary = "Run project-defined non-Zig argv gates from [[external]] entries",
+        .run = check_external_gates.run,
+    },
+    .{
+        .name = "policy-drift",
+        .summary = "Protect guardian.toml and accepted-debt files in trusted CI",
+        .run = check_policy_drift.run,
+    },
 };
 
 /// Look up a command by its CLI name; null if not registered.
@@ -432,6 +444,7 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
     .{ .name = "doctor", .summary = "Audit Guardian metadata/integration health (read-only)" },
     .{ .name = "spec-sync", .summary = "Suggest missing SPEC.md bullets without editing files" },
+    .{ .name = "accept", .summary = "Preview, accept, and verify named baseline/snapshot drift" },
     .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
 };
 

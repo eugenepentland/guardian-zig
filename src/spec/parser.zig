@@ -12,6 +12,8 @@ pub const Behavior = struct {
     section: []const u8,
     statement: []const u8,
     key: []const u8,
+    /// Stable identifier from a leading `[ID]`, when present.
+    id: ?[]const u8 = null,
 };
 
 /// One ## section in SPEC.md and its behaviors.
@@ -97,12 +99,18 @@ const ParseState = struct {
         // completeness check, not a behavior — it must not mint a spec bullet
         // that would then demand its own `// spec:` tag.
         if (isCompletenessWaiver(statement)) return;
-        const raw_key = try std.fmt.allocPrint(self.allocator, "{s} - {s}", .{ sec, statement });
-        const key = try normalizeKey(self.allocator, raw_key);
+        const identified = behaviorIdentity(statement);
+        const key = if (identified.id) |id|
+            try stableIdKey(self.allocator, id)
+        else blk: {
+            const raw_key = try std.fmt.allocPrint(self.allocator, "{s} - {s}", .{ sec, statement });
+            break :blk try normalizeKey(self.allocator, raw_key);
+        };
         try self.current_behaviors.append(self.allocator, .{
             .section = sec,
             .statement = statement,
             .key = key,
+            .id = identified.id,
         });
     }
 };
@@ -137,6 +145,45 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
 
     try state.flushSection();
     return state.sections.toOwnedSlice(allocator);
+}
+
+const BehaviorIdentity = struct { id: ?[]const u8 = null };
+
+fn behaviorIdentity(statement: []const u8) BehaviorIdentity {
+    if (statement.len < 4 or statement[0] != '[') return .{};
+    const close = std.mem.indexOfScalar(u8, statement, ']') orelse return .{};
+    if (close + 1 >= statement.len or statement[close + 1] != ' ') return .{};
+    const candidate = statement[1..close];
+    return if (isStableId(candidate)) .{ .id = candidate } else .{};
+}
+
+fn isStableId(text: []const u8) bool {
+    if (text.len < 2) return false;
+    var has_digit = false;
+    for (text) |c| {
+        if (std.ascii.isDigit(c)) has_digit = true;
+        if (!isStableIdChar(c)) return false;
+    }
+    return has_digit;
+}
+
+fn isStableIdChar(c: u8) bool {
+    if (std.ascii.isAlphanumeric(c)) return true;
+    return switch (c) {
+        '-', '_', '.', ':' => true,
+        else => false,
+    };
+}
+
+fn stableIdKey(allocator: Allocator, id: []const u8) Allocator.Error![]const u8 {
+    const raw = try std.fmt.allocPrint(allocator, "id:{s}", .{id});
+    return normalizeKey(allocator, raw);
+}
+
+/// Produces the lookup key for a source tag: a bare stable ID links to a
+/// `[ID]` behavior, while all legacy prose tags retain normalized matching.
+pub fn tagKey(allocator: Allocator, tag: []const u8) Allocator.Error![]const u8 {
+    return if (isStableId(tag)) stableIdKey(allocator, tag) else normalizeKey(allocator, tag);
 }
 
 /// True when a bullet statement is a `completeness-waiver:` line (the opt-in
@@ -276,6 +323,17 @@ test "normalize key" {
 
     const result = try normalizeKey(allocator, "  Compilation  -  Runs  Zig  Build  ");
     try std.testing.expectEqualStrings("compilation - runs zig build", result);
+}
+
+// spec: Spec Coverage - Links stable behavior IDs independently of specification wording
+
+test "stable behavior IDs produce the same key as bare source tags" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sections = try parseContent(a, "## Routing\n- [PCB-RF-001] Draws an RF trace at its class width\n");
+    try std.testing.expectEqualStrings("PCB-RF-001", sections[0].behaviors[0].id.?);
+    try std.testing.expectEqualStrings(sections[0].behaviors[0].key, try tagKey(a, "pcb-rf-001"));
 }
 
 // spec: Spec Lifecycle - Strips trailing sentence punctuation when normalizing spec keys

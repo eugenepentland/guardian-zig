@@ -5,7 +5,6 @@ const types = @import("types.zig");
 const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
 
-const cache_warn_bytes: u64 = 1024 * 1024 * 1024;
 const max_metadata_bytes = 16 * 1024 * 1024;
 const retired = [_][]const u8{
     "spec-drift", "comptime-quota",       "doc-quality", "vague-name-blacklist",
@@ -146,15 +145,17 @@ fn usesPathIntegration(zon: []const u8) bool {
 }
 
 fn inspectCache(ctx: *types.RunCtx, findings: *Findings) !void {
-    for ([_][]const u8{ ".guardian/cache", ".zig-cache", "zig-cache" }) |leaf| {
-        try inspectOneCache(ctx, findings, leaf);
-    }
+    try inspectOneCache(ctx, findings, ".guardian/cache", ctx.cfg.doctor.guardian_cache_warn_mib);
+    for ([_][]const u8{ ".zig-cache", "zig-cache" }) |leaf|
+        try inspectOneCache(ctx, findings, leaf, ctx.cfg.doctor.zig_cache_warn_mib);
 }
 
-fn inspectOneCache(ctx: *types.RunCtx, findings: *Findings, leaf: []const u8) !void {
+fn inspectOneCache(ctx: *types.RunCtx, findings: *Findings, leaf: []const u8, warn_mib: u32) !void {
+    if (warn_mib == 0) return;
     const path = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ ctx.project_dir, leaf });
     const bytes = (try dirSize(ctx.allocator, path)) orelse return;
-    if (bytes >= cache_warn_bytes) {
+    const warn_bytes = @as(u64, warn_mib) * 1024 * 1024;
+    if (bytes >= warn_bytes) {
         advisory(findings, "derived cache {s} is {d} MiB; consider clearing it when no build is running", .{
             leaf, bytes / (1024 * 1024),
         });

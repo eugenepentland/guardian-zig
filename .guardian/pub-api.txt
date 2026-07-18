@@ -61,7 +61,7 @@ src/build_helper.zig::all_check_names value
 src/cache.zig::Digest value
 src/cache.zig::Error value
 src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
-src/cache.zig::inputDigest | fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest
+src/cache.zig::inputDigest | fn inputDigest( arena: Allocator, project_dir: []const u8, spec_file: []const u8, external_gates: []const config.ExternalGate, ) Error!Digest
 src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
@@ -127,6 +127,7 @@ src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.Ru
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/escape_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/escape_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/external_gates.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/fatal_exit.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/fatal_exit.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -158,6 +159,7 @@ src/checks/optional_density.zig::run | fn run(ctx: *registry.RunCtx) registry.Ru
 src/checks/orphan_files.zig::findOrphans | fn findOrphans( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/checks/orphan_files.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/policy_drift.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -190,6 +192,8 @@ src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.Run
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/cli/accept.zig::command_name value
+src/cli/accept.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/debt.zig::command_name value
@@ -213,12 +217,14 @@ src/cli/registry.zig::summaryFor | fn summaryFor(name: []const u8) ?[]const u8
 src/cli/run_all.zig::command_name value
 src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_
 src/cli/types.zig::RunError value
+src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8) bool
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
 src/config.zig::BaselineCfg struct_
@@ -230,8 +236,10 @@ src/config.zig::ComplexityCfg struct_
 src/config.zig::Config struct_
 src/config.zig::DeadPubCfg struct_
 src/config.zig::DocQualityCfg struct_
+src/config.zig::DoctorCfg struct_
 src/config.zig::DoraCfg struct_
 src/config.zig::EscapeDisciplineCfg struct_
+src/config.zig::ExternalGate struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
 src/config.zig::FuzzPresenceCfg struct_
@@ -243,17 +251,30 @@ src/config.zig::MutationCfg struct_
 src/config.zig::NestingDepthCfg struct_
 src/config.zig::OomDisciplineCfg struct_
 src/config.zig::OrphanFilesCfg struct_
+src/config.zig::PolicyCfg struct_
+src/config.zig::PolicyMode enum_
+src/config.zig::PolicyProfile enum_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
+src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
+src/config.zig::usesBaselineFor | fn usesBaselineFor(self: PolicyCfg, check_name: []const u8, global: BaselineCfg) bool
 src/config_parser.zig::Diagnostic struct_
 src/config_parser.zig::LoadError value
 src/config_parser.zig::ParseError value
 src/config_parser.zig::load | fn load(allocator: Allocator, dir: []const u8) LoadError!Config
 src/config_parser.zig::parse | fn parse(allocator: Allocator, content: []const u8) ParseError!Config
 src/config_parser.zig::parseInto | fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) ParseError!Config
+src/config_policy.zig::applyDoctor | fn applyDoctor(cfg: *config.Config, key: []const u8, val: []const u8) void
+src/config_policy.zig::applyPolicy | fn applyPolicy( allocator: std.mem.Allocator, cfg: *config.Config, key: []const u8, val: []const u8, ) std.mem.Allocator.Error!void
+src/config_policy.zig::lock_against_key value
+src/config_policy.zig::lock_enabled_key value
+src/config_policy.zig::validProfile | fn validProfile(name: []const u8) bool
+src/config_semantics.zig::Field enum_
+src/config_semantics.zig::Issue struct_
+src/config_semantics.zig::validate | fn validate(allocator: std.mem.Allocator, cfg: *const config.Config) std.mem.Allocator.Error!?Issue
 src/config_value.zig::arrayTableName | fn arrayTableName(line: []const u8) ?[]const u8
 src/config_value.zig::bestMatch | fn bestMatch(offender: []const u8, candidates: []const []const u8) ?[]const u8
 src/config_value.zig::hasEmptyArrayItem | fn hasEmptyArrayItem(val: []const u8) bool
@@ -308,12 +329,14 @@ src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
 src/git.zig::GitError value
 src/git.zig::LineSpan struct_
+src/git.zig::PathDiffResult union_
 src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool
 src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
 src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
 src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult
+src/git.zig::diffPathNamesAgainst | fn diffPathNamesAgainst( allocator: Allocator, project_dir: []const u8, ref: []const u8, ) GitError!PathDiffResult
 src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) GitError!?u32
@@ -428,6 +451,7 @@ src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: S
 src/snapshot_helper.zig::refreshTargets | fn refreshTargets(allocator: Allocator) ?[]const []const u8
 src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
 src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool
+src/snapshot_helper.zig::shouldUpdateForCtx | fn shouldUpdateForCtx(ctx: *const types.RunCtx, check_name: []const u8) bool
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/snapshot_helper.zig::update_env value
 src/spec/init.zig::InitError value
@@ -442,6 +466,7 @@ src/spec/matcher.zig::MalformedTag struct_
 src/spec/matcher.zig::ScanError value
 src/spec/matcher.zig::ScanResult struct_
 src/spec/matcher.zig::SpecTag struct_
+src/spec/matcher.zig::TagKind enum_
 src/spec/matcher.zig::analyze | fn analyze( allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag, ) std.mem.Allocator.Error!CoverageResult
 src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult
 src/spec/parser.zig::Behavior struct_
@@ -450,6 +475,7 @@ src/spec/parser.zig::Section struct_
 src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
+src/spec/parser.zig::tagKey | fn tagKey(allocator: Allocator, tag: []const u8) Allocator.Error![]const u8
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void

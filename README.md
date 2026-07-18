@@ -19,9 +19,14 @@ const check_exe = guardian_dep.artifact("guardian-check");
 
 b.getInstallStep().dependOn(&b.addFmt(.{ .paths = &.{"src"}, .check = true }).step);
 
-// One call wires up every hard-block check:
+// One call wires up every registered gate:
 guardian.addAllChecks(b, check_exe, b.getInstallStep(), .{});
 ```
+
+The same call also registers the consumer-facing `guardian-doctor`,
+`guardian-debt`, `guardian-spec-sync`, `guardian-accept`, and
+`guardian-explain` steps. Set `.maintenance_steps = false` only when a consumer
+needs to own those step names itself.
 
 3. Generate your SPEC.md:
 ```bash
@@ -35,7 +40,12 @@ zig build  # guardian gates every build
 
 ## What It Checks
 
-64 checks gate Guardian's own self-build; a 65th, `stdout-flush`, is **report-only by default** — it runs on every build and surfaces findings without failing it unless `[stdout_flush] enabled = true` promotes it to a gating hard-block (Guardian leaves it off, so the 64-gating count holds for its own build). (Plus five explicit tools rather than gates: `spec-init`, `mutate`, `debt`, `doctor`, and `spec-sync`.) Most are hard-block; `test-coverage`, `escape-discipline`, `oom-discipline`, `magic-number`, `completeness`, and `fuzz-presence` are opt-in (default off — Guardian turns `magic-number`, `test-coverage`, `oom-discipline`, and `fuzz-presence` on for itself). The list below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger, evidence-based thresholds. Several formerly-standalone checks have been folded into a related one (`spec-drift`→`pub-api-surface`, `comptime-quota`→`panic-budget`, `doc-quality`→`doc-comments`, `dup-const`→`repeated-string-literal`, `vague-name-blacklist`→`naming`), and `returns-per-function` was retired as redundant with `cognitive-complexity`; their old names are still tolerated in a `disabled` list.
+Guardian's self-build runs 67 registered checks. Most hard-block under the default
+`strict` policy; `stdout-flush` remains report-only unless explicitly promoted,
+and several checks are opt-in or become active only when configured. The list
+below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger,
+evidence-based thresholds. Retired and folded check names remain tolerated in a
+`disabled` list so upgrades do not break existing configuration.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -48,6 +58,8 @@ zig build  # guardian gates every build
 | Check | Blocks on |
 |---|---|
 | **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or an added/modified SPEC.md **behavior bullet** in the same diff — the "quick fix with no regression test" pattern. A spec edit waives the test only when it adds/modifies a `- ` bullet outside a code fence (a prose/typo/header edit no longer counts). When the base is HEAD and the working tree is clean, it gates the **last commit** (`HEAD~1..HEAD`) instead of passing an empty diff — skipping merge/root commits, toggled by `[change_classification] gate_last_commit`. Skips silently outside a git repo. |
+| **policy-drift** *(opt-in)* | Changes, deletions, or renames affecting protected Guardian policy/debt paths without trusted CI approval |
+| **external-gates** *(configured)* | A project-defined argv command exits nonzero or cannot be started; commands never run through a shell |
 
 ### Structural
 | Check | Blocks on |
@@ -369,22 +381,44 @@ pattern; the scope tracker never underflows and keeps `test_depth <= depth`.
 test "jwt validation" { ... }
 ```
 
-Guardian enforces **1:1 mapping**: every spec behavior needs exactly one test tag.
+Guardian enforces **1:1 mapping**: every spec behavior needs exactly one primary
+test tag. For durable links, prefix a behavior with an ID containing a digit;
+the prose can then change without breaking the test link. Extra focused cases
+use `spec-case` and do not weaken the required primary link:
+
+```markdown
+- [AUTH-1] Validates JWT tokens on every request
+```
+
+```zig
+// spec: AUTH-1
+test "valid token" { ... }
+
+// spec-case: AUTH-1
+test "expired token" { ... }
+```
+
+Legacy prose tags remain supported.
 
 ## Snapshot-based checks
 
-`pub-api-surface`, `panic-budget`, `int-from-float-budget`, and `unsafe-ops-budget` write a baseline file under `.guardian/` on first run, then fail the build when subsequent runs diverge. To accept a real change:
+`pub-api-surface`, `panic-budget`, `int-from-float-budget`, and
+`unsafe-ops-budget` write a snapshot under `.guardian/` on first run, then fail
+when subsequent runs diverge. Accept only the check you reviewed:
 
 ```bash
-GUARDIAN_UPDATE_SNAPSHOT=1 zig build   # refresh every drifted snapshot + baseline
+zig build guardian-accept -Dguardian-checks=pub-api-surface
 git add .guardian/
 ```
 
-**Selective refresh.** `=1` (also `true` / `all`) accepts *everything* that drifted in that run — every snapshot **and** every baseline. That all-or-nothing valve is how frozen debt creeps up: refreshing to accept one intended change silently ratifies unrelated drift in the same run. To accept only specific checks, name them (comma-separated):
+`guardian-accept` previews the named failures, refreshes only those metadata
+files, and reruns the checks without refresh before reporting success. Multiple
+checks are comma-separated. The older environment variable remains supported
+for compatibility, but broad `GUARDIAN_UPDATE_SNAPSHOT=1` accepts every drifted
+snapshot and baseline in that run and should be avoided in reviewed workflows.
 
 ```bash
-GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build      # only the pub-api snapshot
-GUARDIAN_UPDATE_SNAPSHOT=spec,panic-budget zig build    # just these two
+zig build guardian-accept -Dguardian-checks=spec,panic-budget
 ```
 
 An unknown name **hard-fails** the run (a typo can't silently refresh nothing). The names are the same kebab-case names used everywhere else: `mutate` refreshes the mutation-score ratchet, and in baseline mode a check name refreshes that check's baseline.
@@ -420,7 +454,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 68 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 70 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -532,7 +566,7 @@ On the next build, `file-size` writes a ratchet with 25 entries — each oversiz
 ### Recommended workflow
 
 1. **PRs that fix violations** — the build **auto-lowers / prunes** the ratchet in place, so just commit the updated `.guardian/baselines/<check>.txt`. No env var, no round-trip.
-2. **PRs that intentionally accept a regression** (rare) — refresh that one check by name: `GUARDIAN_UPDATE_SNAPSHOT=<check> zig build`, same commit pattern.
+2. **PRs that intentionally accept a regression** (rare) — run `zig build guardian-accept -Dguardian-checks=<check>`, review the metadata diff, and commit it with the code.
 3. **PRs that incidentally regress** — fix the new violation, no baseline changes.
 
 The baseline files are plain text and sorted by key, so a value change is a one-line diff in code review.
@@ -550,7 +584,11 @@ guardian: refusing to refresh file-size: ratchet would raise a value or add a ke
           fix the regressions or remove file-size from deny_growth
 ```
 
-**See where the debt is.** `guardian-check debt [dir]` (or `zig build debt`) prints a non-gating report of every baseline/snapshot total, sorted high-to-low, with the change vs the committed `.guardian/` state, followed by an informational assert-density table (`assert()` calls per KLOC per top-level `src/` module, ascending — the most assert-starved modules first). A per-item ratchet also shows its worst offender:
+**See where the debt is.** `guardian-check debt [dir]` prints a non-gating
+report of every baseline/snapshot total, sorted high-to-low, with the change vs
+the committed `.guardian/` state. Add `--assert-density` when you also want the
+informational `assert()`-per-KLOC table. A per-item ratchet shows its worst
+offender:
 
 ```
 debt report — 2 tracked source(s), sorted by count (delta vs HEAD)
@@ -587,6 +625,32 @@ file_size_exclude = ["generated/*"]
 exclude = ["src/serve/templates"]   # path globs dropped from the scan entirely (generated code)
 parallel = true         # run checks across cores (default); false forces sequential
 cache_enabled = true    # skip a full run when the hashed input set is unchanged (default)
+
+# Severity preset plus explicit per-check overrides. strict is the
+# backward-compatible default; agent/safety make selected heuristics advisory.
+[policy]
+profile = "agent"       # strict | agent | safety
+block = ["file-size"]   # hard-block even when global baseline mode is enabled
+ratchet = ["naming"]    # baseline this check even without global baseline mode
+report = ["line-length"]
+
+# Optional CI rail for policy and accepted-debt changes. policy-drift itself
+# is always blocking and cannot be demoted by the lists above.
+lock_enabled = true
+lock_against = "origin/main"
+protected_paths = ["guardian.toml", ".guardian/", ".github/workflows/"]
+
+# Cache-size warnings from `doctor`; zero disables that warning class.
+[doctor]
+zig_cache_warn_mib = 4096
+guardian_cache_warn_mib = 1024
+
+# Non-Zig gates execute directly as argv (no shell). Every exact file read by
+# the command should be listed in inputs so the green-run cache invalidates.
+[[external]]
+name = "frontend-js-syntax"
+command = ["node", "--check", "src/serve/assets/app.js"]
+inputs = ["src/serve/assets/app.js"]
 
 [[boundary]]
 module = "src/core/*"
@@ -691,6 +755,9 @@ commas.
 | *(top level)* | `spec_file`, `max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled` |
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
+| `[[external]]` | `name`, `command`, `inputs` |
+| `[policy]` | `profile`, `block`, `ratchet`, `report`, `lock_enabled`, `lock_against`, `protected_paths` |
+| `[doctor]` | `zig_cache_warn_mib`, `guardian_cache_warn_mib` |
 | `[spec_quality]` | `enabled`, `forbidden_phrases` |
 | `[function_size]` | `enabled`, `max_params` |
 | `[complexity]` | `enabled`, `max_score` |
@@ -724,36 +791,40 @@ zig build spec-init                  # Generate starter SPEC.md (non-gating gene
 zig build mutate                     # Mutation-test changed lines (fast tier, auto-wired)
 zig build mutate-full                # Mutation-test the whole tree + ratchet (auto-wired)
 zig build debt                       # Non-gating baseline/snapshot debt report
-GUARDIAN_UPDATE_SNAPSHOT=1 zig build         # Refresh every drifted snapshot + baseline
-GUARDIAN_UPDATE_SNAPSHOT=spec,mutate ...     # Refresh only the named checks (typo hard-fails)
+zig build guardian-doctor            # Consumer-facing integration/metadata audit
+zig build guardian-debt              # Consumer-facing debt report
+zig build guardian-spec-sync         # Consumer-facing spec suggestions
+zig build guardian-accept -Dguardian-checks=spec # Accept one reviewed metadata change
+zig build guardian-explain -Dguardian-explain=spec # Explain a check
 GUARDIAN_AGAINST=origin/main ...             # Diff base for change-classification / mutate
 ```
 
-Three environment variables tune every entry point above: **`GUARDIAN_UPDATE_SNAPSHOT`**
-(`1`/`true`/`all` refreshes everything, or a comma-separated check list refreshes only those),
-**`GUARDIAN_AGAINST`** (the git ref diff-scoped features compare against; the `--against` flag
-wins over it), and **`GUARDIAN_MUTATION_RUN`** — set to `1` by guardian *itself* on the child
-builds it spawns during mutation testing, which makes every guardian command no-op so the
-deliberately-broken tree isn't gated against itself (you never set this by hand).
+`GUARDIAN_AGAINST` selects the git ref used by diff-scoped features (an
+`--against` flag wins). Guardian sets `GUARDIAN_MUTATION_RUN=1` itself on mutant
+child builds. `GUARDIAN_UPDATE_SNAPSHOT` remains a legacy compatibility path;
+prefer the named `accept` command. A trusted CI job may set
+`GUARDIAN_POLICY_APPROVED=1` only after policy-file review.
 
 ### `guardian-check` CLI
 
 The checker binary also runs directly (this is what the build steps invoke):
 
 ```bash
-guardian-check all .                 # Run every hard-block check
+guardian-check all .                 # Run every registered gate under its policy mode
 guardian-check all . --quiet         # Same, but print only failures (what the build wiring uses)
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet
 guardian-check commit --intent "fix the parser" .   # Gate, then auto-commit on green
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
-guardian-check debt . --json         # Machine-readable debt + assert-density report
+guardian-check debt . --json         # Machine-readable debt report
+guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
 guardian-check debt . --check spec   # Restrict the debt report to one check
 guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry run)
 guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
 guardian-check doctor .              # Read-only metadata/integration health audit
 guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
+guardian-check accept spec,file-size . # Refresh and verify only named metadata
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
 guardian-check explain               # List every check name + summary
 guardian-check version               # Print the guardian version (also --version)
@@ -765,6 +836,8 @@ guardian-check version               # Print the guardian version (also --versio
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
 - **`commit`** gates the tree, then auto-commits the change set (see below).
   Never part of `all`; requires an explicit `--intent`.
+- **`accept`** previews named check failures, refreshes only their recognized
+  snapshot/baseline metadata, then verifies those checks without refresh.
 - **`debt`** reports every baseline/snapshot total sorted high-to-low, with the
   change vs the committed `.guardian/` state (omitted outside a git repo). Never
   gates by default and is excluded from `all` — run it to decide what to pay
@@ -773,11 +846,14 @@ guardian-check version               # Print the guardian version (also --versio
   explicit `--yes` before anything is deleted.
 - **`doctor`** audits recognized metadata headers, stale baseline/snapshot
   files, mutation-ratchet adoption, local path integration, and cache size.
+  Configure general Zig and Guardian cache warnings independently under
+  `[doctor]`; set a threshold to zero to disable that warning.
   Advisory warnings exit zero; corrupt or unreadable recognized metadata exits
   nonzero. It never modifies the project.
-- **`spec-sync`** cross-references SPEC.md with current `// spec:` test tags and
-  prints exact missing bullets grouped by section. It is always a dry run;
-  `--json` is available for tooling.
+- **`spec-sync`** cross-references SPEC.md with current `// spec:` and
+  `// spec-case:` test tags and prints deduplicated missing bullets grouped by
+  section. A bare stable ID becomes `[ID] TODO: describe behavior`. It is always
+  a dry run; `--json` is available for tooling.
 - **`explain`** prints a longer rationale for every registered check: the
   agent mistake it catches, how to fix a violation, and the exemption knob
   (`[[allow]]` paths, a config toggle, the `disabled` list, or a snapshot

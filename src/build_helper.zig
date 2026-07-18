@@ -1,4 +1,4 @@
-//! Downstream integration surface: `addAllChecks` wires every hard-block check
+//! Downstream integration surface: `addAllChecks` wires every registered gate
 //! (and the mutate steps) into a consumer's build in one call, and
 //! `all_check_names` is derived from the registry at comptime so a newly
 //! registered check is gated automatically with no edit here.
@@ -9,16 +9,20 @@ const registry = @import("cli/registry.zig");
 const generator_name = "spec-init"; // generator, not a gate
 const mutate_name = "mutate"; // explicit step, not a gate
 const debt_name = "debt"; // non-gating debt report, invoked directly
+const doctor_name = "doctor";
+const spec_sync_name = "spec-sync";
+const accept_name = "accept";
 const nightly_name = "nightly"; // composed scheduled tier, dispatched specially
 const commit_name = "commit"; // gate + auto-commit, dispatched specially
 const run_all_name = "all";
+const guardian_explain_step = "guardian-explain";
 
 // Comptime branch budget for the registry-iteration loop in
 // all_check_names. Bumped manually if the registry grows enough to
 // exhaust it.
 const registry_eval_quota: u32 = 20000;
 
-/// Hard-block checks that should run on every build. Derived from
+/// Registered gates that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
 /// here automatically. The generator (`spec-init`), the explicit `mutate`
 /// step, the non-gating `debt` report, and the composed `nightly`/`commit`/
@@ -46,7 +50,7 @@ pub const Options = struct {
     /// Optional working directory for each check invocation. Null means
     /// the build's current working directory.
     cwd: ?std.Build.LazyPath = null,
-    /// When true (default), every hard-block check runs sequentially in
+    /// When true (default), every registered gate runs sequentially in
     /// one `guardian-check all` invocation — eliminates 20+ process
     /// spawns per build. When false, each check is its own RunArtifact
     /// (the legacy mode; lets the build graph parallelize across checks).
@@ -57,9 +61,13 @@ pub const Options = struct {
     /// `registerMutateSteps`), so calling addAllChecks more than once (a
     /// consumer typically wires both the install and test steps) is safe.
     mutate_steps: bool = true,
+    /// Register namespaced maintenance steps (`guardian-doctor`,
+    /// `guardian-debt`, `guardian-spec-sync`, `guardian-accept`, and
+    /// `guardian-explain`) in the consumer build.
+    maintenance_steps: bool = true,
 };
 
-/// Adds RunArtifact step(s) for the hard-block checks as dependencies of
+/// Adds RunArtifact step(s) for the registered gates as dependencies of
 /// `target_step`. By default emits one combined step (`all`); set
 /// `opts.single_process = false` to emit one step per check. Unless
 /// `opts.mutate_steps = false`, also registers the top-level `mutate` /
@@ -71,6 +79,7 @@ pub fn addAllChecks(
     opts: Options,
 ) void {
     if (opts.mutate_steps) registerMutateSteps(b, check_exe, opts);
+    if (opts.maintenance_steps) registerMaintenanceSteps(b, check_exe, opts);
 
     if (opts.single_process) {
         const run = b.addRunArtifact(check_exe);
@@ -94,6 +103,69 @@ pub fn addAllChecks(
         if (opts.cwd) |cwd| run.setCwd(cwd);
         target_step.dependOn(&run.step);
     }
+}
+
+fn registerMaintenanceSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
+    ensureToolStep(
+        b,
+        check_exe,
+        opts,
+        "guardian-doctor",
+        "Audit Guardian metadata and integration",
+        &.{ doctor_name, "." },
+    );
+    ensureToolStep(b, check_exe, opts, "guardian-debt", "Report accepted Guardian debt", &.{ debt_name, "." });
+    ensureToolStep(
+        b,
+        check_exe,
+        opts,
+        "guardian-spec-sync",
+        "Suggest missing SPEC.md bullets",
+        &.{ spec_sync_name, "." },
+    );
+
+    if (!b.top_level_steps.contains("guardian-accept")) {
+        const checks = b.option(
+            []const u8,
+            "guardian-checks",
+            "Comma-separated checks accepted by guardian-accept",
+        ) orelse "";
+        ensureToolStep(
+            b,
+            check_exe,
+            opts,
+            "guardian-accept",
+            "Accept named Guardian metadata drift (-Dguardian-checks=a,b)",
+            &.{ accept_name, checks, "." },
+        );
+    }
+    if (!b.top_level_steps.contains(guardian_explain_step)) {
+        const check = b.option([]const u8, guardian_explain_step, "Check explained by guardian-explain") orelse "";
+        ensureToolStep(
+            b,
+            check_exe,
+            opts,
+            guardian_explain_step,
+            "Explain one Guardian check (-Dguardian-explain=name)",
+            &.{ "explain", check },
+        );
+    }
+}
+
+fn ensureToolStep(
+    b: *std.Build,
+    check_exe: *std.Build.Step.Compile,
+    opts: Options,
+    name: []const u8,
+    description: []const u8,
+    args: []const []const u8,
+) void {
+    if (b.top_level_steps.contains(name)) return;
+    const run = b.addRunArtifact(check_exe);
+    run.addArgs(args);
+    if (opts.cwd) |cwd| run.setCwd(cwd);
+    const step = b.step(name, description);
+    step.dependOn(&run.step);
 }
 
 /// Registers the `mutate` (fast tier) and `mutate-full` (whole-tree ratchet)

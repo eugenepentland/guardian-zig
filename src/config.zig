@@ -20,6 +20,100 @@ pub const AllowRule = struct {
     paths: []const []const u8 = &.{},
 };
 
+/// One project-defined command that participates in Guardian's `all` gate.
+/// `command` is an argv array (no shell interpolation); `inputs` are exact
+/// project-relative files mixed into the green-run cache digest so a changed
+/// non-Zig asset can never be hidden by a stale Guardian cache stamp.
+pub const ExternalGate = struct {
+    name: []const u8,
+    command: []const []const u8,
+    inputs: []const []const u8 = &.{},
+};
+
+/// Built-in severity presets. `strict` preserves Guardian's historical
+/// behavior. `agent` keeps architecture/safety checks blocking while reporting
+/// low-signal style heuristics, and `safety` reports broader maintainability
+/// advice while retaining correctness/security/process gates as hard blocks.
+pub const PolicyProfile = enum {
+    strict,
+    agent,
+    safety,
+};
+
+/// Per-check disposition after profile defaults and explicit overrides.
+pub const PolicyMode = enum {
+    block,
+    ratchet,
+    report,
+};
+
+/// Check severity and policy-file protection settings.
+pub const PolicyCfg = struct {
+    profile: PolicyProfile = .strict,
+    /// Explicit overrides; `block` wins over `report`, which wins over
+    /// `ratchet`, so a narrow project exception can tighten a broad profile.
+    block: []const []const u8 = &.{},
+    ratchet: []const []const u8 = &.{},
+    report: []const []const u8 = &.{},
+    /// Opt-in CI rail: changes to `protected_paths` fail `policy-drift` unless
+    /// GUARDIAN_POLICY_APPROVED is set by the trusted CI/review environment.
+    lock_enabled: bool = false,
+    lock_against: []const u8 = "HEAD",
+    protected_paths: []const []const u8 = &.{ "guardian.toml", ".guardian/" },
+
+    /// Resolves one check's mode. Explicit lists take priority over the profile.
+    pub fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode {
+        // The lock must not be able to downgrade itself through the very policy
+        // diff it is reviewing.
+        if (std.mem.eql(u8, check_name, "policy-drift")) return .block;
+        if (containsName(self.block, check_name)) return .block;
+        if (containsName(self.report, check_name)) return .report;
+        if (containsName(self.ratchet, check_name)) return .ratchet;
+        return profileMode(self.profile, check_name);
+    }
+
+    /// Resolves whether a gate uses baseline/ratchet handling. A ratchet always
+    /// does; report-only never does; explicit blocks and policy protection
+    /// bypass legacy project-wide baseline mode.
+    pub fn usesBaselineFor(self: PolicyCfg, check_name: []const u8, global: BaselineCfg) bool {
+        const mode = self.modeFor(check_name);
+        if (mode == .report) return false;
+        if (mode == .ratchet) return true;
+        if (std.mem.eql(u8, check_name, "policy-drift")) return false;
+        if (containsName(self.block, check_name)) return false;
+        return global.enabled;
+    }
+};
+
+/// Maintenance-command tuning. A zero cache threshold disables the general
+/// Zig-cache warning; Guardian-owned mutation/cache state is still audited.
+pub const DoctorCfg = struct {
+    zig_cache_warn_mib: u32 = 4096,
+    guardian_cache_warn_mib: u32 = 1024,
+};
+
+fn containsName(names: []const []const u8, needle: []const u8) bool {
+    for (names) |name| if (std.mem.eql(u8, name, needle)) return true;
+    return false;
+}
+
+fn profileMode(profile: PolicyProfile, check_name: []const u8) PolicyMode {
+    const style_advice = [_][]const u8{
+        "line-length",             "boolean-param-ban",       "magic-number",
+        "repeated-string-literal", "struct-method-cap",       "optional-density",
+        "stringly-typed-switches", "repeated-switch-on-enum",
+    };
+    const maintainability_advice = [_][]const u8{
+        "naming",         "doc-comments",           "module-doc-header",
+        "function-size",  "function-length",        "file-size",
+        "nesting-depth",  "cognitive-complexity",   "type-size",
+        "anytype-budget", "bool-ops-per-condition",
+    };
+    if (profile != .strict and containsName(&style_advice, check_name)) return .report;
+    if (profile == .safety and containsName(&maintainability_advice, check_name)) return .report;
+    return .block;
+}
+
 /// Per-check config for the spec-quality lint.
 pub const SpecQualityCfg = struct {
     enabled: bool = true,
@@ -349,6 +443,9 @@ pub const Config = struct {
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
+    policy: PolicyCfg = .{},
+    doctor: DoctorCfg = .{},
+    external_gates: []const ExternalGate = &.{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
 
@@ -361,3 +458,27 @@ pub const Config = struct {
         return &.{};
     }
 };
+
+// spec: Policy Modes - Resolves strict, agent, and safety profiles with explicit per-check overrides
+
+test "policy profiles separate blocking checks from report-only advice" {
+    const strict: PolicyCfg = .{};
+    try std.testing.expect(strict.modeFor("line-length") == .block);
+    const agent: PolicyCfg = .{ .profile = .agent };
+    try std.testing.expect(agent.modeFor("line-length") == .report);
+    try std.testing.expect(agent.modeFor("ban-secrets") == .block);
+    const safety: PolicyCfg = .{ .profile = .safety };
+    try std.testing.expect(safety.modeFor("function-length") == .report);
+    const overridden: PolicyCfg = .{
+        .profile = .safety,
+        .block = &.{"function-length"},
+        .ratchet = &.{"dead-pub"},
+    };
+    try std.testing.expect(overridden.modeFor("function-length") == .block);
+    try std.testing.expect(overridden.modeFor("dead-pub") == .ratchet);
+    try std.testing.expect(overridden.modeFor("policy-drift") == .block);
+    try std.testing.expect(!overridden.usesBaselineFor("function-length", .{ .enabled = true }));
+    try std.testing.expect(!overridden.usesBaselineFor("policy-drift", .{ .enabled = true }));
+    try std.testing.expect(overridden.usesBaselineFor("dead-pub", .{}));
+    try std.testing.expect(safety.usesBaselineFor("ban-secrets", .{ .enabled = true }));
+}

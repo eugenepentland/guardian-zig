@@ -1,5 +1,6 @@
-//! Scans source for `// spec:` tags and matches them 1:1 against SPEC.md
-//! behaviors: reports unverified behaviors, unlinked tags, and near-miss
+//! Scans source for primary `// spec:` and additional `// spec-case:` tags,
+//! matching them against SPEC.md behaviors and reporting unverified behaviors,
+//! unlinked tags, and near-miss
 //! malformed tags (`//spec:`, `// Spec:`, a missing space) so a typo'd tag is
 //! surfaced rather than silently ignored.
 
@@ -9,12 +10,17 @@ const parser = @import("parser.zig");
 const walk = @import("../walk.zig");
 
 const spec_prefix = "// spec: ";
+const spec_case_prefix = "// spec-case: ";
 
-/// One `// spec:` tag found in source.
+/// Primary links satisfy coverage; case links attach additional focused tests.
+pub const TagKind = enum { primary, case };
+
+/// One primary or additional-case spec tag found in source.
 pub const SpecTag = struct {
     file: []const u8,
     tag: []const u8,
     key: []const u8,
+    kind: TagKind = .primary,
 };
 
 /// A comment that was clearly meant to be a `// spec:` tag but doesn't match
@@ -76,7 +82,7 @@ fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     try extractTags(ctx, entry.rel_path, entry.content);
 }
 
-/// Recursively scans a directory for `// spec:` tags (and near-miss/unattached).
+/// Recursively scans a directory for spec tags (and near-miss/unattached).
 pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult {
     var tags: std.ArrayList(SpecTag) = .empty;
     var malformed: std.ArrayList(MalformedTag) = .empty;
@@ -95,12 +101,22 @@ pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult 
 /// "spec" (case-insensitive) directly followed by `:` (with optional spaces),
 /// so prose like `// species: ...` or `// the spec: prefix` is not flagged.
 fn looksLikeSpecTag(line: []const u8) bool {
-    const kw = "spec";
     if (!std.mem.startsWith(u8, line, "//")) return false;
     const rest = std.mem.trimLeft(u8, line[2..], " ");
-    if (rest.len <= kw.len or !std.ascii.eqlIgnoreCase(rest[0..kw.len], kw)) return false;
-    const after = std.mem.trimLeft(u8, rest[kw.len..], " ");
-    return after.len > 0 and after[0] == ':';
+    for ([_][]const u8{ "spec", "spec-case" }) |kw| {
+        if (rest.len <= kw.len or !std.ascii.eqlIgnoreCase(rest[0..kw.len], kw)) continue;
+        const after = std.mem.trimLeft(u8, rest[kw.len..], " ");
+        if (after.len > 0 and after[0] == ':') return true;
+    }
+    return false;
+}
+
+const TagText = struct { text: []const u8, kind: TagKind };
+
+fn tagText(line: []const u8) ?TagText {
+    if (std.mem.startsWith(u8, line, spec_prefix)) return .{ .text = line[spec_prefix.len..], .kind = .primary };
+    if (std.mem.startsWith(u8, line, spec_case_prefix)) return .{ .text = line[spec_case_prefix.len..], .kind = .case };
+    return null;
 }
 
 fn extractTags(ctx: *ScanCtx, path: []const u8, content: []const u8) !void {
@@ -112,13 +128,14 @@ fn extractTags(ctx: *ScanCtx, path: []const u8, content: []const u8) !void {
     const lines = line_list.items;
 
     for (lines, 0..) |line, i| {
-        if (std.mem.startsWith(u8, line, spec_prefix)) {
-            const tag_text = line[spec_prefix.len..];
+        if (tagText(line)) |found| {
+            const tag_text = found.text;
             if (tagPrecedesTest(lines, i) or tagInsideTest(lines, i)) {
                 try ctx.tags.append(allocator, .{
                     .file = path,
                     .tag = tag_text,
-                    .key = try parser.normalizeKey(allocator, tag_text),
+                    .key = try parser.tagKey(allocator, tag_text),
+                    .kind = found.kind,
                 });
             } else {
                 try ctx.unattached.append(allocator, .{
@@ -145,7 +162,7 @@ fn tagPrecedesTest(lines: []const []const u8, i: usize) bool {
     while (j < lines.len) : (j += 1) {
         const s = lines[j];
         if (s.len == 0) continue;
-        if (std.mem.startsWith(u8, s, spec_prefix)) continue;
+        if (tagText(s) != null) continue;
         if (std.mem.startsWith(u8, s, "///")) continue;
         return startsWithTest(s);
     }
@@ -162,7 +179,7 @@ fn tagInsideTest(lines: []const []const u8, i: usize) bool {
         j -= 1;
         const s = lines[j];
         if (s.len == 0) continue;
-        if (std.mem.startsWith(u8, s, spec_prefix)) continue;
+        if (tagText(s) != null) continue;
         return opensTestBody(s);
     }
     return false;
@@ -196,7 +213,7 @@ fn flattenBehaviors(
 /// True when some tag's key equals `key` — i.e. the behavior is verified.
 fn tagCoversKey(tags: []const SpecTag, key: []const u8) bool {
     for (tags) |t| {
-        if (std.mem.eql(u8, key, t.key)) return true;
+        if (t.kind == .primary and std.mem.eql(u8, key, t.key)) return true;
     }
     return false;
 }
@@ -243,6 +260,7 @@ fn collectDuplicateTags(
 ) Allocator.Error![]DuplicateTag {
     var by_key: std.StringArrayHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
     for (tags) |t| {
+        if (t.kind == .case) continue;
         const gop = try by_key.getOrPut(allocator, t.key);
         if (!gop.found_existing) gop.value_ptr.* = .empty;
         try gop.value_ptr.append(allocator, t.file);
@@ -372,6 +390,27 @@ test "analyze duplicate tags" {
     try std.testing.expectEqual(@as(usize, 2), result.duplicate_tags[0].files.len);
 }
 
+// spec: Spec Coverage - Allows additional spec-case tests without weakening the required primary link
+
+test "analyze allows additional case tags but a case alone does not cover a behavior" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sections = &[_]parser.Section{.{ .name = "Routing", .behaviors = &.{.{
+        .section = "Routing",
+        .statement = "[PCB-RF-001] routes RF",
+        .key = "id:pcb-rf-001",
+        .id = "PCB-RF-001",
+    }} }};
+    const primary = SpecTag{ .file = "a.zig", .tag = "PCB-RF-001", .key = "id:pcb-rf-001" };
+    const extra = SpecTag{ .file = "b.zig", .tag = "PCB-RF-001", .key = "id:pcb-rf-001", .kind = .case };
+    const covered = try analyze(a, sections, &.{ primary, extra });
+    try std.testing.expectEqual(@as(usize, 1), covered.covered_behaviors);
+    try std.testing.expectEqual(@as(usize, 0), covered.duplicate_tags.len);
+    const case_only = try analyze(a, sections, &.{extra});
+    try std.testing.expectEqual(@as(usize, 0), case_only.covered_behaviors);
+}
+
 test "analyze detects duplicate behavior bullets" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -411,6 +450,19 @@ test "extractTags classifies tags by attachment, near-miss, and prose" {
     try std.testing.expectEqual(@as(usize, 1), tags.items.len);
     try std.testing.expectEqual(@as(usize, 1), unattached.items.len);
     try std.testing.expectEqual(@as(usize, 1), malformed.items.len);
+}
+
+test "extractTags recognizes an attached spec-case tag" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var tags: std.ArrayList(SpecTag) = .empty;
+    var malformed: std.ArrayList(MalformedTag) = .empty;
+    var unattached: std.ArrayList(MalformedTag) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
+    try extractTags(&ctx, "x.zig", "// spec-case: PCB-RF-001\ntest \"extra\" {}\n");
+    try std.testing.expectEqual(@as(usize, 1), tags.items.len);
+    try std.testing.expect(tags.items[0].kind == .case);
 }
 
 test "extractTags accepts an in-body top tag but not a mid-body one" {

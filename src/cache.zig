@@ -8,6 +8,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const walk = @import("walk.zig");
+const config = @import("config.zig");
 
 /// SHA-256 digest of guardian's input set.
 pub const Digest = [Sha256.digest_length]u8;
@@ -83,8 +84,13 @@ fn selfBinaryId(arena: Allocator) ![]const u8 {
 /// Keep this in sync with what the checks actually read: if a new check
 /// reads a new path, add it here and bump version, or the cache could
 /// wrongly skip a real change.
-pub fn inputDigest(arena: Allocator, project_dir: []const u8, spec_file: []const u8) Error!Digest {
-    return digestWithBinaryId(arena, project_dir, spec_file, try selfBinaryId(arena));
+pub fn inputDigest(
+    arena: Allocator,
+    project_dir: []const u8,
+    spec_file: []const u8,
+    external_gates: []const config.ExternalGate,
+) Error!Digest {
+    return digestWithBinaryId(arena, project_dir, spec_file, external_gates, try selfBinaryId(arena));
 }
 
 /// Testable core of `inputDigest`: takes the guardian binary identity as an
@@ -93,6 +99,7 @@ fn digestWithBinaryId(
     arena: Allocator,
     project_dir: []const u8,
     spec_file: []const u8,
+    external_gates: []const config.ExternalGate,
     binary_id: []const u8,
 ) Error!Digest {
     var items: std.ArrayList(Item) = .empty;
@@ -109,6 +116,9 @@ fn digestWithBinaryId(
     try readSingle(arena, &items, project_dir, "build.zig");
     try readSingle(arena, &items, project_dir, spec_file);
     try readSingle(arena, &items, project_dir, "guardian.toml");
+    for (external_gates) |gate| {
+        for (gate.inputs) |input| try readSingle(arena, &items, project_dir, input);
+    }
 
     std.mem.sort(Item, items.items, {}, lessThan);
     return hashItems(cache_version, binary_id, items.items);
@@ -216,8 +226,8 @@ test "inputDigest is deterministic for an unchanged input set" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const d1 = try inputDigest(a, "test-project", "SPEC.md");
-    const d2 = try inputDigest(a, "test-project", "SPEC.md");
+    const d1 = try inputDigest(a, "test-project", "SPEC.md", &.{});
+    const d2 = try inputDigest(a, "test-project", "SPEC.md", &.{});
     try std.testing.expect(eql(d1, d2));
 }
 
@@ -226,11 +236,34 @@ test "a different guardian binary identity changes the digest" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const d1 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-1");
-    const d2 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-2");
-    const d3 = try digestWithBinaryId(a, "test-project", "SPEC.md", "guardian-build-1");
+    const d1 = try digestWithBinaryId(a, "test-project", "SPEC.md", &.{}, "guardian-build-1");
+    const d2 = try digestWithBinaryId(a, "test-project", "SPEC.md", &.{}, "guardian-build-2");
+    const d3 = try digestWithBinaryId(a, "test-project", "SPEC.md", &.{}, "guardian-build-1");
     try std.testing.expect(!eql(d1, d2));
     try std.testing.expect(eql(d1, d3));
+}
+
+// spec: Skip Cache - Includes declared external gate input files in the green-run digest
+
+test "a changed external gate input invalidates the digest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/external-digest-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("external digest cleanup: {s}", .{@errorName(e)});
+
+    const gates = &[_]config.ExternalGate{.{
+        .name = "asset-syntax",
+        .command = &.{ "node", "--check", "asset.js" },
+        .inputs = &.{"asset.js"},
+    }};
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 1;\n" });
+    const d1 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 2;\n" });
+    const d2 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
+    try std.testing.expect(!eql(d1, d2));
 }
 
 // spec: Mutation Testing - Keys the result cache on a suite digest that changes with any source or test edit
@@ -286,11 +319,11 @@ test "a post-write .guardian digest stamps clean while the pre-write digest goes
 
     // Pre-prune baseline (three violations) → digest d1.
     try std.fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\nb\nc\n" });
-    const d1 = try inputDigest(a, dir, "SPEC.md");
+    const d1 = try inputDigest(a, dir, "SPEC.md", &.{});
 
     // Auto-prune rewrites the baseline smaller → digest d2.
     try std.fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\n" });
-    const d2 = try inputDigest(a, dir, "SPEC.md");
+    const d2 = try inputDigest(a, dir, "SPEC.md", &.{});
 
     // A .guardian/ rewrite changes the digest, so storing the pre-write digest
     // (d1) can never match the on-disk tree — that is the spurious re-run.
@@ -300,7 +333,7 @@ test "a post-write .guardian digest stamps clean while the pre-write digest goes
     // hit; the pre-write digest (d1) would miss it.
     writeStored(a, dir, d2);
     const stored = (try readStored(a, dir)) orelse return error.TestExpectedStored;
-    const current = try inputDigest(a, dir, "SPEC.md");
+    const current = try inputDigest(a, dir, "SPEC.md", &.{});
     try std.testing.expect(eql(stored, current));
     try std.testing.expect(!eql(d1, current));
 }

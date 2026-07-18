@@ -276,12 +276,13 @@ fn okCounts(comptime msg: []const u8, totals: Counts) void {
 /// snapshot was just (re)written — meaning the caller should report success and
 /// stop.
 fn loadBudget(
-    allocator: std.mem.Allocator,
+    ctx: *registry.RunCtx,
     snap_path: []const u8,
     totals: Counts,
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
-    if (snapshot_helper.shouldUpdateFor(allocator, "panic-budget")) {
+    const allocator = ctx.allocator;
+    if (snapshot_helper.shouldUpdateForCtx(ctx, "panic-budget")) {
         try snapshot.write(snap_path, snapshot_version, new_lines);
         okCounts("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
         return null;
@@ -329,7 +330,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, snapshot_leaf);
     const new_lines = try countsToLines(allocator, totals);
 
-    const budget = try loadBudget(allocator, snap_path, totals, new_lines) orelse return;
+    const budget = try loadBudget(ctx_param, snap_path, totals, new_lines) orelse return;
 
     const failures = try collectFailures(allocator, totals, budget);
     if (failures.len == 0) {

@@ -129,9 +129,9 @@ fn reportFailures(result: spec_matcher.CoverageResult, scan: *const TagScan) voi
         print("  add: // spec: {s} - {s}\n", .{ b.section, b.statement });
     }
     if (scan.malformed.items.len > 0) {
-        print("  A tag must be exactly `// spec: Section - Behavior` (check spacing/case).\n", .{});
+        print("  A tag must be exactly `// spec: ...` or `// spec-case: ...` (check spacing/case).\n", .{});
     }
     if (result.duplicate_tags.len > 0 or result.duplicate_behaviors.len > 0) {
-        print("  Each spec behavior must have exactly one // spec: tag (1:1 mapping).\n", .{});
+        print("  Each behavior needs one primary // spec: tag; additional tests use // spec-case:.\n", .{});
     }
 }

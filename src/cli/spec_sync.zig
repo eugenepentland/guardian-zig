@@ -1,5 +1,5 @@
-//! Read-only assistant that turns currently-unlinked `// spec:` tags into
-//! exact SPEC.md bullet suggestions. It never edits the specification.
+//! Read-only assistant that turns currently-unlinked `// spec:` / `spec-case:`
+//! tags into exact SPEC.md bullet suggestions. It never edits the specification.
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -73,8 +73,11 @@ fn makeSuggestions(
     tags: []const matcher.SpecTag,
 ) ![]Suggestion {
     var out: std.ArrayList(Suggestion) = .empty;
+    var seen: std.StringHashMapUnmanaged(void) = .empty;
     for (tags) |tag| {
-        const parts = splitTag(sections, tag.tag);
+        if (seen.contains(tag.key)) continue;
+        try seen.put(allocator, tag.key, {});
+        const parts = try suggestionParts(allocator, sections, tag);
         try out.append(allocator, .{
             .section = parts.section,
             .bullet = parts.bullet,
@@ -88,6 +91,18 @@ fn makeSuggestions(
 }
 
 const Parts = struct { section: []const u8, bullet: []const u8 };
+
+fn suggestionParts(
+    allocator: std.mem.Allocator,
+    sections: []const parser.Section,
+    tag: matcher.SpecTag,
+) std.mem.Allocator.Error!Parts {
+    if (std.mem.startsWith(u8, tag.key, "id:")) return .{
+        .section = "Ungrouped",
+        .bullet = try std.fmt.allocPrint(allocator, "[{s}] TODO: describe behavior", .{tag.tag}),
+    };
+    return splitTag(sections, tag.tag);
+}
 
 /// Chooses the longest existing section prefix, preserving nested section
 /// names. With no match it falls back to the first ` - ` separator.
@@ -120,4 +135,19 @@ test "splitTag prefers the longest existing section" {
     const got = splitTag(sections, "API - Parsing - rejects blanks");
     try std.testing.expectEqualStrings("API - Parsing", got.section);
     try std.testing.expectEqualStrings("rejects blanks", got.bullet);
+}
+
+// spec-case: Maintenance - Spec sync suggests missing bullets without editing SPEC.md
+
+test "stable ID suggestions are deduplicated and keep an editable placeholder" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const tags = &[_]matcher.SpecTag{
+        .{ .file = "src/a.zig", .tag = "RF-1", .key = "id:rf-1" },
+        .{ .file = "src/b.zig", .tag = "RF-1", .key = "id:rf-1", .kind = .case },
+    };
+    const got = try makeSuggestions(arena.allocator(), &.{}, tags);
+    try std.testing.expectEqual(@as(usize, 1), got.len);
+    try std.testing.expectEqualStrings("Ungrouped", got[0].section);
+    try std.testing.expectEqualStrings("[RF-1] TODO: describe behavior", got[0].bullet);
 }

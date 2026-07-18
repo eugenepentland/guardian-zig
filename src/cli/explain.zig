@@ -556,6 +556,20 @@ const entries = [_]Entry{
     \\files (default 200).
     \\Exempt: add paths via `[[allow]] check = "module-doc-header"`.
     },
+    .{ .name = "external-gates", .text = "Why: Zig projects often ship JavaScript, generated assets, schemas, or\n" ++
+        "other files Guardian cannot understand natively; those checks still need\n" ++
+        "to participate in the same cached, hard-blocking build contract.\n" ++
+        "Fix: add `[[external]]` with a name, argv-style command array, and exact\n" ++
+        "input file paths. Guardian runs it without a shell from the project root.\n" ++
+        "Exempt: remove the entry or set `external-gates` to report-only in [policy]." },
+    .{
+        .name = "policy-drift",
+        .text = "Why (opt-in): an agent can otherwise loosen guardian.toml or ratify its own\n" ++
+            "baseline growth in the same change that needs the exemption.\n" ++
+            "Fix: review protected changes, then set GUARDIAN_POLICY_APPROVED=1 in the\n" ++
+            "trusted CI job. Configure the comparison ref and paths under [policy].\n" ++
+            "Exempt: off unless `[policy] lock_enabled = true`; this check cannot demote itself.",
+    },
     .{ .name = "commit", .text = 
     \\Why: a meta command, not a gate — brings guardian-zig into the sibling
     \\guardians' intent-driven flow: run the whole gate, then commit the change
@@ -580,6 +594,11 @@ const entries = [_]Entry{
         "Fix: review and manually apply appropriate suggestions. Add `--json` for\n" ++
         "machine-readable output. The command never modifies files.\n" ++
         "Exempt: n/a — never part of `all`; it is always a dry run." },
+    .{ .name = "accept", .text = "Why: intentional baseline/snapshot drift should be accepted by name, not through\n" ++
+        "a broad environment-variable refresh that can ratify unrelated changes.\n" ++
+        "Fix: run `guardian-check accept file-size,line-length .`; Guardian previews,\n" ++
+        "refreshes only those checks, then verifies them without refresh.\n" ++
+        "Exempt: n/a — never part of `all`; always review the resulting .guardian/ diff." },
 };
 
 /// Returns the explanation text for `name`, or null when no entry exists.
@@ -604,7 +623,7 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, doctor, spec-sync, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, doctor, spec-sync, accept, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).

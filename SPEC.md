@@ -36,6 +36,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Parses the intent flag for the commit command
 - Splits a comma-separated filter value into check names
 - Rejects combining the only and skip filters
+- Parses policy profiles, policy locks, doctor thresholds, and external argv gates
 
 ## Spec Coverage
 
@@ -48,6 +49,8 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Reports near-miss spec tags that miss the exact prefix
 - Reports duplicate spec behavior bullets
 - Requires each spec tag to sit directly on a test
+- Links stable behavior IDs independently of specification wording
+- Allows additional spec-case tests without weakening the required primary link
 
 ## Spec Lifecycle
 
@@ -121,6 +124,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Round-trips the digest through the cache file
 - Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
 - Reflects a rewritten .guardian baseline in a fresh input digest
+- Includes declared external gate input files in the green-run digest
 
 ## Run All
 
@@ -178,6 +182,21 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Debt emits JSON and filters by check
 - Debt previews stale baseline pruning before explicit confirmation
 - Parses maintenance command flags independently of the project directory
+- Accept refreshes only named checks and verifies them after updating metadata
+- Parses named accept checks before the optional project directory
+- Run context recognizes only explicitly named accept refreshes
+
+## Policy Modes
+
+- Resolves strict, agent, and safety profiles with explicit per-check overrides
+
+## Policy Protection
+
+- Blocks protected Guardian metadata drift unless trusted CI approves it
+
+## External Gates
+
+- Runs configured argv commands without a shell and blocks on nonzero exit
 
 ## Versioning
 
@@ -191,6 +210,7 @@ Build-step quality gates for Zig projects. Runs on every `zig build` — invisib
 - Refreshes only the checks named in a GUARDIAN_UPDATE_SNAPSHOT list
 - Treats a 1, true, or all value as a full refresh
 - Treats an unset, empty, or zero value as no refresh
+- Accept command refreshes only its explicit context-local check names
 
 ## Pub Api Surface
 

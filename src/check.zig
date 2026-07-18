@@ -1,7 +1,8 @@
 //! CLI entry point: parse argv, resolve the git-diff ref (--against /
 //! GUARDIAN_AGAINST / config), and dispatch to a registered command or one of
-//! the specially-handled aggregates (all / nightly / commit / explain /
-//! version) that can't be registry entries without forming an @import cycle.
+//! specially-handled commands (`all`, `nightly`, `commit`, maintenance tools,
+//! `explain`, and `version`) that cannot all be registry entries without an
+//! @import cycle.
 
 const std = @import("std");
 const config_mod = @import("config.zig");
@@ -14,6 +15,7 @@ const commit_cmd = @import("cli/commit.zig");
 const explain = @import("cli/explain.zig");
 const doctor = @import("cli/doctor.zig");
 const spec_sync = @import("cli/spec_sync.zig");
+const accept = @import("cli/accept.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
 const mutation_runner = @import("mutation/runner.zig");
@@ -21,6 +23,7 @@ const mutation_runner = @import("mutation/runner.zig");
 /// Env var naming a git ref for diff-scoped checks; the --against flag
 /// takes precedence, guardian.toml's [change_classification] follows.
 const against_env = "GUARDIAN_AGAINST";
+const policy_approval_env = "GUARDIAN_POLICY_APPROVED";
 
 /// Entry point. Parses argv, dispatches to the registered command.
 pub fn main() !void {
@@ -94,6 +97,9 @@ pub fn main() !void {
         .check_filter = parsed.check_filter,
         .prune_stale = parsed.prune_stale,
         .confirm = parsed.confirm,
+        .assert_density = parsed.assert_density,
+        .refresh = try splitCsv(allocator, parsed.accept_checks),
+        .policy_approved = envFlagActive(readEnv(allocator, policy_approval_env)),
         .command_exists = registeredCommand,
     };
 
@@ -121,6 +127,9 @@ const ParsedArgs = struct {
     check_filter: ?[]const u8 = null,
     prune_stale: bool = false,
     confirm: bool = false,
+    assert_density: bool = false,
+    /// First positional after `accept`, before the optional project directory.
+    accept_checks: ?[]const u8 = null,
     /// True when `--version` was passed anywhere on the command line.
     show_version: bool = false,
 };
@@ -147,6 +156,8 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             parsed.prune_stale = true;
         } else if (std.mem.eql(u8, arg, "--yes")) {
             parsed.confirm = true;
+        } else if (std.mem.eql(u8, arg, "--assert-density")) {
+            parsed.assert_density = true;
         } else if (std.mem.eql(u8, arg, "--against")) {
             i += 1;
             if (i < args.len) parsed.against = args[i];
@@ -164,6 +175,8 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             if (i < args.len) parsed.check_filter = args[i];
         } else if (parsed.command == null) {
             parsed.command = arg;
+        } else if (std.mem.eql(u8, parsed.command.?, accept.command_name) and parsed.accept_checks == null) {
+            parsed.accept_checks = arg;
         } else {
             parsed.project_dir = arg;
         }
@@ -248,6 +261,7 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     }
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
+    if (std.mem.eql(u8, command, accept.command_name)) return accept.run(ctx);
     const cmd = registry.find(command) orelse {
         registry.printHelp();
         std.process.exit(1);
@@ -259,10 +273,18 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // Baseline mode only wraps real gate checks. Non-gates (spec-init, mutate,
     // debt — the run_all SKIP set) must run raw: baseline-wrapping a report like
     // `debt` would capture its own output as "violations" and baseline it.
-    if (cfg.baseline.enabled and run_all.isAllCheck(cmd.name)) {
+    const mode = cfg.policy.modeFor(cmd.name);
+    if (cfg.policy.usesBaselineFor(cmd.name, cfg.baseline) and run_all.isAllCheck(cmd.name)) {
         return baseline.runWithBaseline(ctx, cmd);
     }
-    return cmd.run(ctx);
+    if (mode != .report) return cmd.run(ctx);
+    cmd.run(ctx) catch |e| switch (e) {
+        error.CheckFailed => {
+            reporter.ok("{s}: report-only finding (policy did not block)", .{cmd.name});
+            return;
+        },
+        else => return e,
+    };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -275,6 +297,8 @@ test {
     // Framework modules
     _ = @import("config.zig");
     _ = @import("config_parser.zig");
+    _ = @import("config_semantics.zig");
+    _ = @import("config_policy.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");
@@ -290,6 +314,7 @@ test {
     _ = @import("cli/debt.zig");
     _ = @import("cli/doctor.zig");
     _ = @import("cli/spec_sync.zig");
+    _ = @import("cli/accept.zig");
     _ = @import("cli/nightly.zig");
     _ = @import("cli/commit.zig");
     _ = @import("cli/explain.zig");
@@ -364,6 +389,8 @@ test {
     _ = @import("checks/line_length.zig");
     _ = @import("checks/magic_number.zig");
     _ = @import("checks/module_doc_header.zig");
+    _ = @import("checks/external_gates.zig");
+    _ = @import("checks/policy_drift.zig");
     _ = @import("checks/naming.zig");
     _ = @import("checks/nesting_depth.zig");
     _ = @import("checks/no_test_imports_in_prod.zig");
@@ -455,7 +482,7 @@ test "parseArgs reads maintenance report and prune flags" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const args = try a.alloc([:0]u8, 7);
+    const args = try a.alloc([:0]u8, 8);
     args[0] = try a.dupeZ(u8, "debt");
     args[1] = try a.dupeZ(u8, "../project");
     args[2] = try a.dupeZ(u8, "--json");
@@ -463,6 +490,7 @@ test "parseArgs reads maintenance report and prune flags" {
     args[4] = try a.dupeZ(u8, "spec");
     args[5] = try a.dupeZ(u8, "--prune-stale");
     args[6] = try a.dupeZ(u8, "--yes");
+    args[7] = try a.dupeZ(u8, "--assert-density");
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("debt", parsed.command.?);
     try std.testing.expectEqualStrings("../project", parsed.project_dir);
@@ -470,6 +498,22 @@ test "parseArgs reads maintenance report and prune flags" {
     try std.testing.expect(parsed.json);
     try std.testing.expect(parsed.prune_stale);
     try std.testing.expect(parsed.confirm);
+    try std.testing.expect(parsed.assert_density);
+}
+
+// spec: Maintenance - Parses named accept checks before the optional project directory
+
+test "parseArgs reads accept check list and project directory positionals" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 3);
+    args[0] = try a.dupeZ(u8, "accept");
+    args[1] = try a.dupeZ(u8, "file-size,line-length");
+    args[2] = try a.dupeZ(u8, "../project");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("file-size,line-length", parsed.accept_checks.?);
+    try std.testing.expectEqualStrings("../project", parsed.project_dir);
 }
 
 // spec: Configuration - Splits a comma-separated filter value into check names

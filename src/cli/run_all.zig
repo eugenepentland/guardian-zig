@@ -14,6 +14,7 @@ const cache = @import("../cache.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
+const config = @import("../config.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -27,7 +28,7 @@ pub const command_name = "all";
 // and guarantee they can never be run as a check.)
 const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
 
-/// Runs every registered hard-block check in this process (in parallel across
+/// Runs every registered gate in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
 /// user sees every failing check at once; returns error.CheckFailed if any
 /// check failed. Output is replayed in registry order, so a parallel run is
@@ -162,6 +163,18 @@ fn requireAllCheck(name: []const u8, flag: []const u8) types.RunError!void {
     return error.CheckFailed;
 }
 
+/// Validates a caller-supplied list of runnable gate names. Used by `accept`
+/// as well as the `all` filters so typos can never refresh or skip silently.
+pub fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void {
+    for (names) |name| try requireAllCheck(name, origin);
+}
+
+fn validatePolicy(ctx: *const types.RunCtx) types.RunError!void {
+    try validateCheckNames(ctx.cfg.policy.block, "[policy] block");
+    try validateCheckNames(ctx.cfg.policy.ratchet, "[policy] ratchet");
+    try validateCheckNames(ctx.cfg.policy.report, "[policy] report");
+}
+
 /// A check removed by a merge/fold. Its name is still tolerated in `disabled`
 /// (and silently ignored) so a consumer's guardian.toml — and any leftover
 /// baseline/snapshot file — doesn't break the build when a check is folded into
@@ -204,7 +217,9 @@ fn validateDisabled(disabled: []const []const u8) types.RunError!void {
 /// / validateFilter). Exported so single-check dispatch validates them too.
 pub fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void {
     try validateRefreshTargets(ctx.allocator);
+    try validateCheckNames(ctx.refresh, "accept refresh");
     try validateDenyGrowth(ctx.cfg.baseline.deny_growth);
+    try validatePolicy(ctx);
 }
 
 /// Rejects a GUARDIAN_UPDATE_SNAPSHOT check-name list with an unknown name —
@@ -244,7 +259,7 @@ fn requireKnownCheck(name: []const u8, origin: []const u8) types.RunError!void {
 /// wrongly skip it).
 fn shouldSkipRun(ctx: *types.RunCtx) bool {
     const enabled = ctx.cfg.cache_enabled;
-    const refresh = snapshot_helper.shouldUpdate(ctx.allocator);
+    const refresh = ctx.refresh.len > 0 or snapshot_helper.shouldUpdate(ctx.allocator);
     // Only pay for the digest walk when a skip is still possible (cache on, no
     // refresh) — the `and` short-circuits otherwise.
     const digest_matches = enabled and !refresh and digestMatchesStored(ctx);
@@ -253,7 +268,12 @@ fn shouldSkipRun(ctx: *types.RunCtx) bool {
 
 /// True when the current input digest equals the last green run's stored digest.
 fn digestMatchesStored(ctx: *types.RunCtx) bool {
-    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch return false;
+    const d = cache.inputDigest(
+        ctx.allocator,
+        ctx.project_dir,
+        ctx.cfg.spec_file,
+        ctx.cfg.external_gates,
+    ) catch return false;
     // Any failure to read the stored digest (OOM or absent) means "can't confirm
     // a match" — run the full suite (fail closed), never skip.
     const stored = (cache.readStored(ctx.allocator, ctx.project_dir) catch return false) orelse return false;
@@ -267,7 +287,7 @@ fn digestMatchesStored(ctx: *types.RunCtx) bool {
 /// stamp (never fails the build).
 fn stampGreen(ctx: *types.RunCtx) void {
     if (!ctx.cfg.cache_enabled) return;
-    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file) catch return;
+    const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file, ctx.cfg.external_gates) catch return;
     cache.writeStored(ctx.allocator, ctx.project_dir, d);
 }
 
@@ -284,6 +304,7 @@ fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bo
 const CheckResult = struct {
     ran: bool = false,
     failed: bool = false,
+    reported: bool = false,
     err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
@@ -333,10 +354,9 @@ fn threadCount() usize {
 /// capture (over the run allocator), for replay by emitAndTally. Used when
 /// parallelism is off, on a single core, or when thread spawn is unsupported.
 fn fillSequential(ctx: *types.RunCtx, results: []CheckResult) void {
-    const baseline_on = ctx.cfg.baseline.enabled;
     for (registry.all, 0..) |cmd, i| {
         if (excluded(ctx, cmd.name)) continue;
-        results[i] = runCaptured(ctx, ctx.allocator, cmd, baseline_on);
+        results[i] = runCaptured(ctx, ctx.allocator, cmd);
     }
 }
 
@@ -361,7 +381,6 @@ fn spawnAndJoin(ctx: *types.RunCtx, arenas: []std.heap.ArenaAllocator, results: 
 /// into this thread's own arena + capture. Skipped checks leave `ran = false`.
 fn worker(job: *WorkerJob) void {
     const a = job.arena.allocator();
-    const baseline_on = job.base.cfg.baseline.enabled;
     // This thread's reporter; per-check output is captured, replayed by main.
     reporter.default = .{ .quiet = job.base.quiet, .use_color = false };
     while (true) {
@@ -369,14 +388,14 @@ fn worker(job: *WorkerJob) void {
         if (i >= registry.all.len) break;
         const cmd = registry.all[i];
         if (excluded(job.base, cmd.name)) continue;
-        job.results[i] = runCaptured(job.base, a, cmd, baseline_on);
+        job.results[i] = runCaptured(job.base, a, cmd);
     }
 }
 
 /// Runs one check into a fresh capture over the worker's allocator, returning
 /// its result. A copied RunCtx carries the per-worker allocator so no check
 /// allocates through the shared arena.
-fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command, baseline_on: bool) CheckResult {
+fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) CheckResult {
     var cap: reporter.Capture = .{ .allocator = a };
     reporter.default.capture = &cap;
     defer reporter.default.capture = null;
@@ -385,9 +404,15 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command, ba
     wctx.allocator = a;
 
     var res: CheckResult = .{ .ran = true };
+    const mode = base.cfg.policy.modeFor(cmd.name);
+    const baseline_on = base.cfg.policy.usesBaselineFor(cmd.name, base.cfg.baseline);
     const outcome = if (baseline_on) baseline.runWithBaseline(&wctx, cmd) else cmd.run(&wctx);
     outcome catch |e| switch (e) {
-        error.CheckFailed => res.failed = true,
+        error.CheckFailed => if (mode == .report) {
+            res.reported = true;
+        } else {
+            res.failed = true;
+        },
         else => {
             res.failed = true;
             res.err = e;
@@ -419,6 +444,7 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
             if (first_err == null) first_err = e;
         }
         if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+        if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{cmd.name});
         collectSink(ctx, acc, cmd.name, r);
     }
     if (first_err) |e| return e;
@@ -466,7 +492,12 @@ fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) ?[]const u8 {
 /// A captured check's output is replayed when it has content and either we're
 /// not quiet or the check failed (mirrors the live reporter's quiet behavior).
 fn shouldEmit(quiet: bool, r: CheckResult) bool {
-    return r.output.len > 0 and (!quiet or r.failed);
+    return r.output.len > 0 and (!quiet or r.failed or r.reported);
+}
+
+fn expectedPolicyFinding(_: *types.RunCtx) types.RunError!void {
+    reporter.fail("expected policy finding", .{});
+    return error.CheckFailed;
 }
 
 fn shouldSkip(name: []const u8, disabled: []const []const u8) bool {
@@ -538,15 +569,13 @@ test "retired check names are recognized (tolerated in disabled)" {
     try std.testing.expect(retiredInfo("not-a-real-check") == null);
 }
 
-const test_config = @import("../config.zig");
-
 // spec: Run All - Runs only the checks named by an only filter
 // spec: Run All - Excludes the checks named by a skip filter
 // spec: Run All - Rejects an only or skip name that is not a runnable check
 // spec: Run All - Detects a filtered run so the green cache stamp is suppressed
 
 test "excluded runs only the names listed by an only filter" {
-    const cfg: test_config.Config = .{};
+    const cfg: config.Config = .{};
     var ctx: types.RunCtx = .{
         .allocator = std.testing.allocator,
         .project_dir = ".",
@@ -561,7 +590,7 @@ test "excluded runs only the names listed by an only filter" {
 }
 
 test "excluded removes the names listed by a skip filter" {
-    const cfg: test_config.Config = .{};
+    const cfg: config.Config = .{};
     var ctx: types.RunCtx = .{
         .allocator = std.testing.allocator,
         .project_dir = ".",
@@ -583,8 +612,12 @@ test "isAllCheck accepts gates and rejects non-gates and typos" {
     try std.testing.expect(!isAllCheck("bogus")); // typo
 }
 
+test "validateCheckNames accepts registered gates" {
+    try validateCheckNames(&.{ "spec", "file-size" }, "test");
+}
+
 test "isFiltered is true exactly when an only or skip selection is active" {
-    const cfg: test_config.Config = .{};
+    const cfg: config.Config = .{};
     const base: types.RunCtx = .{
         .allocator = std.testing.allocator,
         .project_dir = ".",
@@ -598,6 +631,47 @@ test "isFiltered is true exactly when an only or skip selection is active" {
     var skip_ctx = base;
     skip_ctx.skip = &[_][]const u8{"spec"};
     try std.testing.expect(isFiltered(&skip_ctx));
+}
+
+// spec-case: Policy Protection - Blocks protected Guardian metadata drift unless trusted CI approves it
+
+test "policy protection and explicit blocks bypass a global baseline" {
+    const cfg: config.Config = .{
+        .baseline = .{ .enabled = true },
+        .policy = .{ .block = &.{"file-size"} },
+    };
+    try std.testing.expect(!cfg.policy.usesBaselineFor("policy-drift", cfg.baseline));
+    try std.testing.expect(!cfg.policy.usesBaselineFor("file-size", cfg.baseline));
+    try std.testing.expect(cfg.policy.usesBaselineFor("naming", cfg.baseline));
+    var ratchet = cfg.policy;
+    ratchet.ratchet = &.{"naming"};
+    try std.testing.expect(ratchet.usesBaselineFor("naming", .{}));
+    var report = cfg.policy;
+    report.report = &.{"naming"};
+    try std.testing.expect(!report.usesBaselineFor("naming", cfg.baseline));
+}
+
+// spec-case: Policy Modes - Resolves strict, agent, and safety profiles with explicit per-check overrides
+
+test "report policy preserves a finding without failing the captured check" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg: config.Config = .{ .policy = .{ .profile = .agent } };
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    const result = runCaptured(&ctx, a, .{
+        .name = "line-length",
+        .summary = "test",
+        .run = expectedPolicyFinding,
+    });
+    try std.testing.expect(result.reported);
+    try std.testing.expect(!result.failed);
+    try std.testing.expect(std.mem.indexOf(u8, result.output, "expected policy finding") != null);
 }
 
 // spec: Run All - Skips a full run only when the cache is on, unchanged, and no refresh is pending

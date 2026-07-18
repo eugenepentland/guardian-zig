@@ -6,6 +6,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
+const types = @import("cli/types.zig");
 
 pub const update_env = "GUARDIAN_UPDATE_SNAPSHOT";
 
@@ -114,6 +115,12 @@ pub fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool {
     // build (fail closed) rather than being silently ratified.
     const r = parseRefresh(allocator) catch return false;
     return refreshIncludes(r, check_name);
+}
+
+/// Context-aware refresh decision used by `accept`: an explicit command-local
+/// refresh wins, with the legacy environment variable retained as a fallback.
+pub fn shouldUpdateForCtx(ctx: *const types.RunCtx, check_name: []const u8) bool {
+    return ctx.refreshes(check_name) or shouldUpdateFor(ctx.allocator, check_name);
 }
 
 /// The check names listed in a `named` GUARDIAN_UPDATE_SNAPSHOT request, or null
@@ -330,4 +337,20 @@ test "classifyValue treats empty and zero as no refresh" {
         try testing.expect(r == .none);
         try testing.expect(!refreshIncludes(r, "pub-api-surface"));
     }
+}
+
+// spec: Snapshot Lifecycle - Accept command refreshes only its explicit context-local check names
+
+test "shouldUpdateForCtx honors explicit refreshes without an environment variable" {
+    const config = @import("config.zig");
+    const cfg: config.Config = .{};
+    const ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .refresh = &.{"file-size"},
+    };
+    try std.testing.expect(shouldUpdateForCtx(&ctx, "file-size"));
+    try std.testing.expect(!ctx.refreshes("spec"));
 }

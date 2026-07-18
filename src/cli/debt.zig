@@ -66,9 +66,9 @@ const snapshot_specs = [_]SnapshotSpec{
 const Classified = struct { label: []const u8, kind: Kind };
 
 /// Entry point for the debt command: gathers baseline + snapshot rows, sorts
-/// them by count descending, and prints the report, then the informational
-/// assert-density-by-module table. Reporting never gates; invalid filters or
-/// a failed explicitly-confirmed prune return a maintenance error.
+/// them by count descending, and prints the report. `--assert-density` adds the
+/// informational per-module appendix. Reporting never gates; invalid filters
+/// or a failed explicitly-confirmed prune return a maintenance error.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     if (ctx.check_filter) |name| {
         if (ctx.command_exists) |exists| {
@@ -82,7 +82,10 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const all_rows = try collectRows(ctx.allocator, ctx.project_dir);
     sortByCountDesc(all_rows);
     const rows = try filterRows(ctx.allocator, all_rows, ctx.check_filter);
-    const density = try collectDensityRows(ctx.allocator, ctx.project_dir);
+    const density = if (ctx.assert_density)
+        try collectDensityRows(ctx.allocator, ctx.project_dir)
+    else
+        &.{};
     if (ctx.json) {
         const json = try std.json.Stringify.valueAlloc(ctx.allocator, JsonReport{
             .project_dir = ctx.project_dir,
@@ -92,7 +95,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         print("{s}\n", .{json});
     } else {
         printReport(ctx.allocator, ctx.project_dir, rows);
-        printDensityReport(density);
+        if (ctx.assert_density) printDensityReport(density);
     }
 }
 

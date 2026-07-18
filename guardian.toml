@@ -76,7 +76,8 @@ paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/spec/pa
 check = "ban-time"
 paths = ["src/dora*"]
 
-# check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST in main; the
+# check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST /
+# GUARDIAN_POLICY_APPROVED in main; the
 # mutation runner clones the env to inject the child-build skip flag.
 [[allow]]
 check = "ban-env"

@@ -201,7 +201,7 @@ fn execute(
     const a = ctx.allocator;
     // A refresh (GUARDIAN_UPDATE_SNAPSHOT covering mutate) bypasses cache reads:
     // a fresh ratchet must be a fresh measurement, not a replay.
-    const mode: mut_cache.Reuse = if (snapshot_helper.shouldUpdateFor(a, "mutate")) .fresh else .reuse;
+    const mode: mut_cache.Reuse = if (snapshot_helper.shouldUpdateForCtx(ctx, "mutate")) .fresh else .reuse;
     const cache_map: mut_cache.Map = if (suite_hex) |h| mut_cache.load(
         a,
         ctx.project_dir,
@@ -386,7 +386,7 @@ fn ratchet(ctx: *types.RunCtx, pct: u32, cohort: u64) types.RunError!bool {
             return e;
         },
     };
-    const force = snapshot_helper.shouldUpdateFor(a, "mutate");
+    const force = snapshot_helper.shouldUpdateForCtx(ctx, "mutate");
     const old_pct: ?u32 = if (old) |prior| prior.pct else null;
     if (old) |prior| {
         if (!cohortMatches(prior.cohort, cohort)) {
