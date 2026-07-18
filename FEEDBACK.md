@@ -102,3 +102,8 @@ the same kind are fine.
 - **good:** the post-merge ReleaseSafe gate verified the actual merge commit,
   which combined the assembly/debug feature with a newer autosave/undo main
   history, before production was restarted successfully.
+
+## 2026-07-18 · codex · eda — improve assembly board interaction
+- **good:** the line-length gate caught two new 121-character HTML writer
+  lines before commit even though all 1,199 functional tests passed; splitting
+  them left all 67 checks green and the gated commit completed cleanly.
