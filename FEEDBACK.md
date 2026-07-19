@@ -243,3 +243,7 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-19 · codex · guardian-zig — commit reliability fixes to main
 - **good:** The final pre-commit `zig build test` passed all 67 checks after staging the transactional metadata, cache-identity, remediation, and structural-check fixes; only the expected advisory 1,069-line parser warning remained, and no Guardian metadata changed during verification.
+
+## 2026-07-19 · codex · eda — unified assembly search and test-point selection
+- **friction:** EDA's unpinned sibling dependency compiled Guardian directly from its concurrently dirty main checkout: the first gate failed on an in-progress `resolveEmbeddedPath` return type, and the next gate plus post-merge ReleaseSafe deploy failed on the not-yet-accepted `repeated-switch-on-enum` baseline. This cost two full gate attempts and required a detached EDA worktree wired to the last clean Guardian worktree for a trustworthy 67-check gate and deploy binary; pinning consumer builds to a committed Guardian revision would prevent unrelated WIP from blocking production.
+- **good:** On the failed aggregate runs, the new metadata transaction explicitly restored the pre-run EDA snapshots/baselines; the feature worktree stayed free of incidental `.guardian/` changes despite the late check failure.
