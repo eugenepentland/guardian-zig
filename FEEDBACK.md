@@ -271,3 +271,8 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-19 · codex · eda — assembly outside-board and Escape clearing
 - **good:** Two consecutive EDA gates passed the exact Web Server SPEC/tag contract and all project checks without Guardian metadata churn while the browser behavior was verified separately.
+
+## 2026-07-19 · claude · eda — resolved placement/routing plan in PCB settings drawer
+- **good:** The full 67-check gate ran clean in an isolated `--cache-dir` worktree; all 1,312 tests green. The one deliberate public-API addition (`plan_resolve.sectionMembers`, moved out of `pcb_progress` to de-dup a shared section-members walk) was the *only* thing that failed, and `pub-api-surface` named the exact new signature in `.guardian/cache/last-run.jsonl` with the precise `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` accept command — one targeted refresh unblocked it, no over-broad snapshot churn.
+- **good:** `deny_growth=["spec"]` made the SPEC-bullet↔test discipline obvious: adding one Web Server behavior meant one new `- ` bullet + one `// spec:` tagged test, and moving an existing tagged test to a new file (calling the relocated function) kept its bullet mapping intact with zero spec debt movement.
+- **wish:** `pub-api-surface` failing the whole gate for a genuinely intended new public helper costs one extra full build+refresh cycle (~1 min here). A non-failing "surface grew by N" advisory that still requires the snapshot commit — but doesn't red the gate on a first pass when the diff clearly adds a `pub fn` — would save the round-trip.
