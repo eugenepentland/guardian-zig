@@ -135,3 +135,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — assembly interaction corrections
 - **good:** Two consecutive `zig build test` runs passed all 1,242 tests and 67 checks while the exact SPEC bullet/tag pair covered the opt-in 3D load, hidden DRC, component-pick, and board-appearance contract; no Guardian metadata or baselines changed.
+
+## 2026-07-19 · claude · eda — 3D viewer origin axis gizmo
+- **good:** Pure JS-asset change (labeled origin gizmo in the two `@embedFile`'d Three.js viewers); `zig build` ran the full gate green on the first try with zero new violations and no baseline churn — the Zig-shaped checks correctly stayed quiet on a non-Zig edit. Verified the change end-to-end by grepping the built binary and curling `/static/*.js` from a fresh serve, per the known shared-cache stale-`@embedFile` gotcha.
