@@ -117,3 +117,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — assembly pad focus and review controls
 - **good:** The first `zig build test` caught a duplicate `spec` tag, two `function-size` parameter-count regressions, a `bool-ops-per-condition` regression in the already-large page handler, and a missing required test-fixture field. The diagnostics named each helper/condition and suggested the option-struct extraction that cleared all structural failures in one refactor; the next run passed all 1,232 tests and 67 checks without baseline acceptance.
+
+## 2026-07-19 · codex · eda — clean-cache production redeploy
+- **bug:** The main-merge hook's ordinary `zig build -Doptimize=ReleaseSafe` passed Guardian, reported build success, and restarted prod, but the resulting binary still embedded the pre-merge `assembly_debug.js` (live response 17,159 bytes versus the merged 19,338-byte source). A build with a fresh local cache took another three minutes and produced a binary whose live JS hashes matched source. A green gated build must not reuse stale `@embedFile` inputs; the deploy path should either isolate/refresh its cache or verify embedded asset fingerprints before restarting.
