@@ -155,3 +155,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — assembly search keyboard navigation
 - **good:** The new exact SPEC/tag contract for first-match activation, arrow navigation, Enter selection, and compact BOM details passed repeated full gates before and after integrating current main, with no Guardian metadata churn; browser checks supplied the event-sequence coverage outside Guardian's static asset assertions.
+
+## 2026-07-19 · claude · eda — 3D viewer align-by-points (Fusion Move>Point-to-Point)
+- **good:** Change was confined to three @embedFile'd browser assets (model_viewer_3d.js/.css/controls.html) — no Zig source touched — so `zig build` ran the full 65-check suite clean on the first try, emitting only pre-existing line-length warnings with `line-length: ratchet matches (1 key(s))` (no new violation, no metadata churn). The gate stayed correctly quiet on a JS-only change; nothing to accept or refresh.
