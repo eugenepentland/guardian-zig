@@ -141,3 +141,7 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — Route Lab feasibility-grid preview
 - **good:** The two new exact SPEC/tag contracts, bounded-grid encoding tests, and browser-asset markers passed all 67 checks without metadata or baseline churn; the gate remained green while the change added a server serializer, a read-only postMessage canvas overlay, and its toggle UI.
+
+## 2026-07-19 · codex · eda — assembly BOM badges and board selection
+- **good:** The first full gate caught the existing selection-filter browser contract that needed an intentional update when physical Assembly picks became independent of persisted editor filters; after updating that focused assertion, repeated runs passed all 1,242 tests and 67 checks without Guardian metadata churn.
+- **wish:** The static browser-contract tests could not expose a read-only runtime scope failure where `focusBoardShortcuts` was undefined and aborted both left-click selection and middle-button panning; a lightweight headless-browser smoke check in the gate would have caught the user-visible regression before manual Playwright diagnosis.
