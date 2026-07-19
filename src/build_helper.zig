@@ -68,12 +68,13 @@ pub const Options = struct {
     maintenance_steps: bool = true,
     /// When true (default) and `target_step` is the build's install step,
     /// every artifact install already attached to it is re-ordered to run
-    /// AFTER the gate. Without this, a red gate can leave the previous green
-    /// build's binaries sitting in zig-out looking current — the classic
-    /// "verified a stale binary" trap. Ordering costs ~nothing in wall-clock
-    /// (the gate is source analysis that runs concurrently with compilation;
-    /// only the final cheap copy waits). Call addAllChecks AFTER your
-    /// installArtifact calls so every install is seen.
+    /// AFTER the gate. Other install dependencies (generators, formatters, and
+    /// validation steps) retain their declared ordering and may prepare inputs
+    /// Guardian scans. Without the artifact ordering, a red gate can leave the
+    /// previous green build's binaries sitting in zig-out looking current — the
+    /// classic "verified a stale binary" trap. Ordering costs ~nothing in
+    /// wall-clock (only the final cheap copy waits). Call addAllChecks AFTER
+    /// your installArtifact calls so every artifact install is seen.
     gate_install: bool = true,
 };
 
@@ -121,11 +122,12 @@ pub fn addAllChecks(
 
 /// Re-orders every artifact install already attached to the consumer's
 /// install step to depend on the gate step(s), so a red gate withholds the
-/// install and zig-out never silently holds a stale last-green binary. Only
-/// applies when the caller wired the gate onto the install step itself (a
-/// test-step wiring must not schedule extra gate runs into plain `zig
-/// build`). No cycle risk: a gate run depends only on compiling
-/// guardian-check, never on an install.
+/// install and zig-out never silently holds a stale last-green binary. Other
+/// dependencies must remain independent: a generator or formatter may produce
+/// inputs that Guardian is expected to scan. Only applies when the caller wired
+/// the gate onto the install step itself (a test-step wiring must not schedule
+/// extra gate runs into plain `zig build`). No cycle risk: a gate run depends
+/// only on compiling guardian-check, never on an install.
 fn maybeGateInstall(
     b: *std.Build,
     target_step: *std.Build.Step,
@@ -136,9 +138,14 @@ fn maybeGateInstall(
     const install = b.getInstallStep();
     if (target_step != install) return;
     for (install.dependencies.items) |dep| {
+        if (!isArtifactInstall(dep.id)) continue;
         if (containsStep(gates, dep)) continue;
         for (gates) |gate| dep.dependOn(gate);
     }
+}
+
+fn isArtifactInstall(id: std.Build.Step.Id) bool {
+    return id == .install_artifact;
 }
 
 fn containsStep(steps: []const *std.Build.Step, step: *std.Build.Step) bool {
@@ -261,4 +268,13 @@ fn ensureMutateStep(
 
 test "canonical Guardian runner step name stays stable" {
     try std.testing.expectEqualStrings("guardian", guardian_run_step);
+}
+
+// spec: Maintenance - Gates artifact copies without delaying generators that prepare analysis inputs
+
+test "install gating selects artifact copies but not input producers" {
+    try std.testing.expect(isArtifactInstall(.install_artifact));
+    try std.testing.expect(!isArtifactInstall(.run));
+    try std.testing.expect(!isArtifactInstall(.update_source_files));
+    try std.testing.expect(!isArtifactInstall(.fmt));
 }

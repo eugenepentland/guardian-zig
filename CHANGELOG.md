@@ -27,7 +27,8 @@ sibling checkout.
 - Remember accepts for the working session: an accepted ratchet check may keep
   growing until the next commit without re-accepting (deny_growth still wins).
 - Gate artifact installs on a green suite (`Options.gate_install`, default on)
-  and caution on failure that zig-out binaries predate the red run.
+  without delaying generator/formatter dependencies that prepare analysis
+  inputs, and caution on failure that zig-out binaries predate the red run.
 - Report file/type-size regressions as volume growth with accept-first guidance,
   distinct from shape regressions whose fix guidance leads.
 - Exempt `// spec:` / `// spec-case:` tag lines from the line-length cap — their

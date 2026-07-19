@@ -186,6 +186,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Maintenance
 
 - Doctor distinguishes advisory warnings from integrity failures
+- Gates artifact copies without delaying generators that prepare analysis inputs
 - Spec sync suggests missing bullets without editing SPEC.md
 - Debt emits JSON and filters by check
 - Debt previews stale baseline pruning before explicit confirmation
