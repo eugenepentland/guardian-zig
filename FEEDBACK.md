@@ -103,3 +103,6 @@ the same kind are fine.
 
 ## 2026-07-19 · claude · eda — route-session occupied-cells grid views
 - good: clean single-pass run — two new spec bullets landed with their tagged tests, `guardian-check commit` gated + staged 6 paths first try, no ratchet friction (route_session.zig/route_session_api.zig still under their ceilings).
+
+## 2026-07-19 · codex · eda — durable interactive-routing replay proposal
+- **good:** The post-merge ReleaseSafe gate accepted a docs-only 483-line architecture proposal without snapshot churn or an inappropriate behavioral-test requirement; the documentation consistency check passed and the deployment completed on the first run.
