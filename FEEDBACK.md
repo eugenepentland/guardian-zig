@@ -212,3 +212,7 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — deterministic Route Lab scheduler and bounded recovery
 - **good:** Guardian separated the intentional 18-line public API expansion from actionable function/type-size, allocator-hygiene, repeated-literal, boolean-condition, documentation, and exact-spec-tag findings. Grouping search limits and routing records, using request-scoped scratch allocation, and adding the missing default-budget contract produced a clean 1,301-test/67-check gate without broad baseline churn.
+
+## 2026-07-19 · claude-fable · zig_genetic_cascades — band-less S-param plot fix
+- good: gate stayed clean through an embedded-asset-only fix; double `zig build test` with the `.zig-cache/h` bust (from earlier today's entry) is now my standard guard.
+- wish: embedded www assets (search.js) are invisible to every gate stage — a plot-breaking JS regression (degenerate 0–0 MHz fetch) shipped with a fully green gate. Even a syntax/lint pass over server/www/assets would have raised the bar.
