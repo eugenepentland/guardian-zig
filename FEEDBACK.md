@@ -216,3 +216,6 @@ the same kind are fine.
 ## 2026-07-19 · claude-fable · zig_genetic_cascades — band-less S-param plot fix
 - good: gate stayed clean through an embedded-asset-only fix; double `zig build test` with the `.zig-cache/h` bust (from earlier today's entry) is now my standard guard.
 - wish: embedded www assets (search.js) are invisible to every gate stage — a plot-breaking JS regression (degenerate 0–0 MHz fetch) shipped with a fully green gate. Even a syntax/lint pass over server/www/assets would have raised the bar.
+
+## 2026-07-19 · codex · eda — PCB-DSL-driven Route Lab autorouting
+- **good:** Exact SPEC/tag checks, selective `pub-api-surface` acceptance, the full 67-check gate, and the changed-line mutation tier all worked together cleanly; the mutation run sampled eight scheduler/API/layer-policy changes and killed all eight, while `guardian-check commit` staged exactly the ten intended paths.
