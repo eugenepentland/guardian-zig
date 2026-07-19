@@ -283,3 +283,6 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-19 · codex · eda — validated Barracuda RF reference routing
 - good: The first aggregate gate precisely caught an unlinked scheduler spec tag, an unverified Route Lab behavior, a new public connectivity helper, an eight-field scheduler input, and an eight-parameter adoption helper. Reusing the existing `fab_readiness.netConnectivity` seam, nesting scheduler selection state, bundling adoption inputs, and linking exact SPEC tests cleared all findings without baseline acceptance; the final 67-check gate and full unit suite passed.
+
+## 2026-07-19 · codex · eda — failed-net grid diagnostics
+- good: The new exact Route Lab SPEC/tag contract, API field, and browser markers passed the 67-check aggregate gate and full test suite without Guardian metadata churn; the only output was the repository's existing advisory baseline warnings.
