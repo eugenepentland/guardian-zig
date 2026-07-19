@@ -153,6 +153,9 @@ the same kind are fine.
 - **good:** The first gate caught both an unlinked new `spec` tag and a `type-size` increase from putting witness data directly on the shared free-space `Result`; moving path recovery to an explicit second-stage API avoided charging every analysis caller for pathfinding memory. The selective `pub-api-surface` acceptance then changed exactly one intended snapshot line, and the final run passed all 1,243 tests and 67 checks.
 - **friction:** The failure remediation printed only `guardian-check accept pub-api-surface .`, but `guardian-check` is not on this consumer repo's `PATH`; following it cost one failed command before locating the hashed binary under `.zig-cache/o/`. Printing the repo-wired `zig build guardian-accept -Dguardian-checks=pub-api-surface` form alongside the raw command would make the fix directly executable.
 
+## 2026-07-19 · codex · eda — Route Lab witness-trace toggle
+- **good:** A small four-file browser-control change passed all 1,243 tests and 67 checks both before and after merging the latest `main`; Guardian correctly required no metadata churn for the additional static-asset contract assertions.
+
 ## 2026-07-19 · codex · eda — assembly search keyboard navigation
 - **good:** The new exact SPEC/tag contract for first-match activation, arrow navigation, Enter selection, and compact BOM details passed repeated full gates before and after integrating current main, with no Guardian metadata churn; browser checks supplied the event-sequence coverage outside Guardian's static asset assertions.
 
