@@ -167,3 +167,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — continued PCB Route Lab implementation plan
 - **good:** The post-merge ReleaseSafe gate accepted a new 371-line Route Lab architecture and milestone document on its first run; the documentation consistency check passed and no Guardian snapshots or baselines changed.
+
+## 2026-07-19 · codex · eda — assembly component-to-net drill-down
+- **good:** The spec check caught an exact wording mismatch between the new Web Server bullet and its tagged assembly test on the first run; after aligning them, repeated full gates passed all 1,243 tests and 67 checks before and after current-main integration with no Guardian metadata churn. Playwright then covered the runtime sequence of refdes selection, repeat-pad net drill-down, and physical-review inspector suppression.
