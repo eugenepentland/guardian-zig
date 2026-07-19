@@ -291,3 +291,7 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 - good: bench_layout's guardian-skipping `zig build-exe` pattern let a throwaway profiling harness + timing instrumentation across 6 route-lab files build in seconds with zero baseline churn; the gate never had to be loosened or bypassed.
 - wish: generated `src/serve/templates/*.zig` only exist after a gated build, so a fresh worktree's `zig build-exe` harness fails on them until copied from the main checkout — a tiny ungated "materialize templates" step would remove that speed bump.
+
+## 2026-07-19 · claude-code · eda — RF autoroute fixes (router.zig, subagent-implemented)
+- good: full gate + guardian-check commit both green first try on a 405-line router.zig change with 3 new SPEC bullets; per-item file-size baseline absorbed growth on the at-cap file as warnings without a snapshot dance.
+- friction: subagent had to defer this FEEDBACK entry because the worktree brief forbade touching repos outside it — the caller wrote it instead; a per-repo pending-feedback drop-box the gate could sweep up would fit multi-agent sessions better.
