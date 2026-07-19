@@ -219,3 +219,7 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — PCB-DSL-driven Route Lab autorouting
 - **good:** Exact SPEC/tag checks, selective `pub-api-surface` acceptance, the full 67-check gate, and the changed-line mutation tier all worked together cleanly; the mutation run sampled eight scheduler/API/layer-policy changes and killed all eight, while `guardian-check commit` staged exactly the ten intended paths.
+
+## 2026-07-19 · claude-fable · zig_genetic_cascades — measured passband/stopband on search APIs
+- good: additive-nullable field work across three response structs (filter/name/browse) + one shared helper + five spec-tagged tests passed the server gate clean; the exact-spec-tag 1:1 check matched all five new `### measured passband` bullets first try, no baseline churn.
+- good: the `.zig-cache/h` bust + double `zig build test` guard held — both runs green, no false-green on the api/search.zig test-block edits (the known cache trap for test imports).
