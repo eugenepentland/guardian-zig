@@ -145,3 +145,6 @@ the same kind are fine.
 ## 2026-07-19 · codex · eda — assembly BOM badges and board selection
 - **good:** The first full gate caught the existing selection-filter browser contract that needed an intentional update when physical Assembly picks became independent of persisted editor filters; after updating that focused assertion, repeated runs passed all 1,242 tests and 67 checks without Guardian metadata churn.
 - **wish:** The static browser-contract tests could not expose a read-only runtime scope failure where `focusBoardShortcuts` was undefined and aborted both left-click selection and middle-button panning; a lightweight headless-browser smoke check in the gate would have caught the user-visible regression before manual Playwright diagnosis.
+
+## 2026-07-19 · codex · eda — inline assembly selection details
+- **good:** The exact SPEC/tag contract for stable sidebar alignment, search-independent net details, and removal of the copper summary passed the full gate on the first run with no Guardian metadata churn; Playwright then verified the actual scrolling and DOM placement that the static asset assertions intentionally only guard at contract level.
