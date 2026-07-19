@@ -148,3 +148,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — inline assembly selection details
 - **good:** The exact SPEC/tag contract for stable sidebar alignment, search-independent net details, and removal of the copper summary passed the full gate on the first run with no Guardian metadata churn; Playwright then verified the actual scrolling and DOM placement that the static asset assertions intentionally only guard at contract level.
+
+## 2026-07-19 · codex · eda — assembly search keyboard navigation
+- **good:** The new exact SPEC/tag contract for first-match activation, arrow navigation, Enter selection, and compact BOM details passed repeated full gates before and after integrating current main, with no Guardian metadata churn; browser checks supplied the event-sequence coverage outside Guardian's static asset assertions.
