@@ -164,3 +164,6 @@ the same kind are fine.
 
 ## 2026-07-19 · claude · eda — toolbar ⟳ Pours button with stale indicator
 - **good:** Two new exact SPEC bullets under `## Web Server` each landed with their `// spec: Web Server - <text>` tagged test in the same commit; the `deny_growth = ["spec","completeness"]` gate passed on the first full `zig build test` (EXIT 0) with zero `.guardian/` churn (`git diff --stat .guardian/` empty). Change spanned two @embedFile'd browser assets (pcb_board.js, pcb_replay.js) plus two Zig source files (pcb_layout_page.zig button/blob/CSS, drc_rules.zig tests); adding ~5 lines each to writeScorebar/writeBlobHead stayed under the function-length cap (empty baseline) and my ~101-char Zig line was well under the ≥185 line-length ceiling — no cap raised, no snapshot to accept. Smooth run.
+
+## 2026-07-19 · codex · eda — continued PCB Route Lab implementation plan
+- **good:** The post-merge ReleaseSafe gate accepted a new 371-line Route Lab architecture and milestone document on its first run; the documentation consistency check passed and no Guardian snapshots or baselines changed.
