@@ -132,3 +132,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — Route Lab bare-board PCB correction
 - **good:** `test-no-conditional` rejected a browser-contract test split across two independent marker loops; consolidating it into one data-driven asset/marker table made the intent clearer, and the subsequent full gate passed all 1,242 tests and 67 checks without baseline churn.
+
+## 2026-07-19 · codex · eda — assembly interaction corrections
+- **good:** Two consecutive `zig build test` runs passed all 1,242 tests and 67 checks while the exact SPEC bullet/tag pair covered the opt-in 3D load, hidden DRC, component-pick, and board-appearance contract; no Guardian metadata or baselines changed.
