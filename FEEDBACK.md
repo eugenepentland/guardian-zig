@@ -286,3 +286,8 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-19 · codex · eda — failed-net grid diagnostics
 - good: The new exact Route Lab SPEC/tag contract, API field, and browser markers passed the 67-check aggregate gate and full test suite without Guardian metadata churn; the only output was the repository's existing advisory baseline warnings.
+
+## 2026-07-19 · claude · eda — route-lab performance audit
+
+- good: bench_layout's guardian-skipping `zig build-exe` pattern let a throwaway profiling harness + timing instrumentation across 6 route-lab files build in seconds with zero baseline churn; the gate never had to be loosened or bypassed.
+- wish: generated `src/serve/templates/*.zig` only exist after a gated build, so a fresh worktree's `zig build-exe` harness fails on them until copied from the main checkout — a tiny ungated "materialize templates" step would remove that speed bump.
