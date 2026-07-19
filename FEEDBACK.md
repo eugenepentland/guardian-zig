@@ -120,3 +120,8 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — clean-cache production redeploy
 - **bug:** The main-merge hook's ordinary `zig build -Doptimize=ReleaseSafe` passed Guardian, reported build success, and restarted prod, but the resulting binary still embedded the pre-merge `assembly_debug.js` (live response 17,159 bytes versus the merged 19,338-byte source). A build with a fresh local cache took another three minutes and produced a binary whose live JS hashes matched source. A green gated build must not reuse stale `@embedFile` inputs; the deploy path should either isolate/refresh its cache or verify embedded asset fingerprints before restarting.
+
+## 2026-07-19 · codex · eda — standalone PCB Route Lab free-space engine
+- **good:** The first combined gate caught four duplicated spec tags, missing empty-input completeness coverage, and one over-complex path-validation condition while all 1,241 compiled tests still ran; the diagnostics cleanly separated metadata/style work from functional failures, and the next full run passed 1,242 tests and all 67 checks after merging current main.
+- **good:** `zig build guardian-accept -Dguardian-checks=pub-api-surface,type-size` previewed and refreshed only the intended 16 public declarations and two deliberate raster/result struct-size entries; the resulting `.guardian` diff contained exactly 18 additive lines.
+- **friction:** Failure remediation says `guardian-check accept <check> .`, but this consumer repo exposes `zig build guardian` and `zig build guardian-accept`, not a `zig build guardian-check` step. My first focused invocation followed the apparent build-step name and failed immediately; printing the repo-wired command alongside the raw-binary command would remove that translation guess.
