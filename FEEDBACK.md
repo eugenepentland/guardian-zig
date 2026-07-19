@@ -264,3 +264,7 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-19 · claude-code · eda — verify routing-plan surfacing in PCB design settings
 - good: `zig build` full 65-check gate ran clean in a fresh worktree with an isolated `--cache-dir` (line-length ratchet matched, only pre-existing baseline warnings) — investigation-only session, no friction.
+
+## 2026-07-19 · codex · eda — bound Route Lab multi-terminal tree growth
+- **good:** The new exact SPEC/tag, allocator, complexity, and function-size ratchets all passed without metadata churn, and `guardian-check commit` staged exactly the four intended paths after the 1,312-test gate.
+- **wish:** The prior implementation passed the unit gate while a real Barracuda `RF1_VCO` request repeatedly admitted non-progressing tree branches until the server reached 40 GB RSS. A design-scale bounded-work check that asserts terminal connectivity grows monotonically, or that representative API requests finish below a memory/time ceiling, would catch this class before manual end-to-end routing.
