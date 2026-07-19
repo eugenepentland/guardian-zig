@@ -206,3 +206,6 @@ the same kind are fine.
 ## 2026-07-19 · claude-fable · eda — pour regen button + perf: rebase×2 + merge + auto-deploy
 
 - good: two full gate runs after back-to-back rebases onto fast-moving main (SPEC.md + pcb_board.js overlapped both times, auto-merged) were clean green with zero friction — no baseline erasure this session across five total gate runs, and the post-merge deploy hook built + restarted prod first try.
+
+## 2026-07-19 · codex · eda — selected-component pad-one marker
+- **good:** The exact Web Server SPEC/tag contract and canvas-painter change passed repeated full gates with all 67 checks and no Guardian metadata churn; Playwright additionally sampled the rendered canvas to prove selected pad 1 was RGB 255/59/48 while pad 2 retained its physical copper color.
