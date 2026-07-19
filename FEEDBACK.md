@@ -209,3 +209,6 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — selected-component pad-one marker
 - **good:** The exact Web Server SPEC/tag contract and canvas-painter change passed repeated full gates with all 67 checks and no Guardian metadata churn; Playwright additionally sampled the rendered canvas to prove selected pad 1 was RGB 255/59/48 while pad 2 retained its physical copper color.
+
+## 2026-07-19 · codex · eda — deterministic Route Lab scheduler and bounded recovery
+- **good:** Guardian separated the intentional 18-line public API expansion from actionable function/type-size, allocator-hygiene, repeated-literal, boolean-condition, documentation, and exact-spec-tag findings. Grouping search limits and routing records, using request-scoped scratch allocation, and adding the missing default-budget contract produced a clean 1,301-test/67-check gate without broad baseline churn.
