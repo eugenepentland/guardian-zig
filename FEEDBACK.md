@@ -194,3 +194,7 @@ the same kind are fine.
 
 ## 2026-07-19 · codex · eda — progressive Route Lab sessions
 - **good:** Guardian isolated the seven intentional state APIs from three fixable implementation issues: 15 raw `@bitCast` hash inputs, five repeated wire-field literals, and a fourth copy of the JSON number-kind switch. Hashing typed scalars directly, centralizing keys, and using a small if/else parser cleared all non-API findings; selective public-surface acceptance changed exactly seven lines, and the final gate passed all 1,254 tests and 67 checks.
+
+## 2026-07-19 · codex · eda — multilayer Route Lab candidates
+- **good:** Guardian's first full run isolated the intentional 12-line public API expansion from fixable `function-size`, `type-size`, doc-comment, nesting-depth, repeated-literal, and repeated-switch findings. Grouping route geometry and search state and extracting portal helpers cleared all structural failures; the selective public-surface refresh changed only the intended snapshot lines before all 1,259 tests and 67 checks passed.
+- **friction:** The raw `guardian-check accept pub-api-surface .` remediation again required locating the hashed binary under `.zig-cache/o/`; the repo-wired `zig build guardian-accept -Dguardian-checks=pub-api-surface` form should be printed alongside it.
