@@ -158,3 +158,6 @@ the same kind are fine.
 
 ## 2026-07-19 · claude · eda — 3D viewer align-by-points (Fusion Move>Point-to-Point)
 - **good:** Change was confined to three @embedFile'd browser assets (model_viewer_3d.js/.css/controls.html) — no Zig source touched — so `zig build` ran the full 65-check suite clean on the first try, emitting only pre-existing line-length warnings with `line-length: ratchet matches (1 key(s))` (no new violation, no metadata churn). The gate stayed correctly quiet on a JS-only change; nothing to accept or refresh.
+
+## 2026-07-19 · claude · eda — toolbar ⟳ Pours button with stale indicator
+- **good:** Two new exact SPEC bullets under `## Web Server` each landed with their `// spec: Web Server - <text>` tagged test in the same commit; the `deny_growth = ["spec","completeness"]` gate passed on the first full `zig build test` (EXIT 0) with zero `.guardian/` churn (`git diff --stat .guardian/` empty). Change spanned two @embedFile'd browser assets (pcb_board.js, pcb_replay.js) plus two Zig source files (pcb_layout_page.zig button/blob/CSS, drc_rules.zig tests); adding ~5 lines each to writeScorebar/writeBlobHead stayed under the function-length cap (empty baseline) and my ~101-char Zig line was well under the ≥185 line-length ceiling — no cap raised, no snapshot to accept. Smooth run.
