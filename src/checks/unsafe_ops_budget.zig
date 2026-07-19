@@ -196,9 +196,9 @@ fn reportFailures(failures: []const []const u8) void {
     fail("unsafe-ops budget FAILED", .{});
     for (failures) |line| print("  {s}\n", .{line});
     print(
-        "  fix: justify the new unsafe op, OR if intentional, re-run with " ++
-            "{s}=unsafe-ops-budget and commit .guardian/{s}\n",
-        .{ snapshot_helper.update_env, snapshot_leaf },
+        "  fix: justify the new unsafe op, OR run zig build guardian-accept " ++
+            "-Dguardian-checks=unsafe-ops-budget and commit .guardian/{s}\n",
+        .{snapshot_leaf},
     );
 }
 
@@ -251,7 +251,8 @@ fn handleReadError(
             return null;
         },
         error.VersionMismatch => {
-            fail("unsafe-ops budget: stale snapshot, re-run {s}=unsafe-ops-budget", .{snapshot_helper.update_env});
+            fail("unsafe-ops budget: stale snapshot", .{});
+            print("  fix: zig build guardian-accept -Dguardian-checks=unsafe-ops-budget\n", .{});
             return error.CheckFailed;
         },
         else => return e,

@@ -67,7 +67,7 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 |---|---|
 | **file-size** | Warn above `max_file_lines` (default 1000); fail above `hard_max_file_lines` (default 10000) |
 | **module-doc-header** | Any src file over `[module_doc_header] min_lines` lines (default 200) that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); lower `min_lines` to require headers on smaller files; exempt paths via `[[allow]]` |
-| **function-size** | Any function with more than `max_params` parameters (default 6) |
+| **function-size** | Any function with more than `max_params` runtime parameters (default 6); `comptime` specialization inputs do not consume the budget |
 | **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400) |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
@@ -167,7 +167,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 ### Tier 3 Architectural Fitness
 | Check | Blocks on |
 |---|---|
-| **repeated-switch-on-enum** | The same enum prong-set switched in 2+ files (move dispatch onto the type) |
+| **repeated-switch-on-enum** | The same enum prong-set switched in 2+ production files; test blocks are ignored and the diagnostic names every collision file |
 
 Plus `zig fmt --check`, wired as a format gate alongside the checks. The
 `spec-init`, `mutate`, and `debt` steps are non-gating — see [Tools](#tools).
@@ -192,7 +192,7 @@ Two tiers:
   all of any untracked new file, sampled to `fast_max_mutants`.
 - **Full** (`--full`): the whole tree, sampled down to `max_mutants`. The
   score is ratcheted in `.guardian/mutation.txt` — it can never drop without
-  `guardian-check accept mutate .`.
+  `zig build guardian-accept -Dguardian-checks=mutate`.
 
 Both tiers fail below `min_score_pct` (default 80) — but only once the run has
 at least `min_mutants` (default 4) **viable** mutants. Below that floor a single
@@ -549,10 +549,17 @@ For a threshold check, subsequent builds report:
 | Nothing | `<check>: ratchet matches (N key(s))` | 0 |
 | An offender shrank / vanished | `<check>: R ratchet(s) lowered, P pruned (now N key(s))` — the file is auto-rewritten to the smaller ceilings | 0 |
 | A grandfathered offender grew | `<check>: <key> grew <old> -> <new> (ratcheted at <old>)` | 1 |
-| A brand-new offender over the default cap | `<check>: <key> new offender over default cap (<value>)` — never silently added | 1 |
+| A brand-new offender over the default cap | `<check>: <key> new offender over default cap (measured value: <value>)` — never silently added | 1 |
 | You set the env var | `<check>: ratchet refreshed (N key(s))` | 0 |
 
 Improvements can never be lost: a lowered ceiling is written on the same green run, so a later regression is measured against the *new, tighter* value. A new offender is one the default cap already flagged — it fails rather than being grandfathered, so history is frozen but new code stays strict.
+
+Metadata updates are transactional across an `all` run. If any check fails,
+Guardian restores every non-cache `.guardian` snapshot and baseline to its
+pre-run bytes; diagnostic JSONL/cache files remain available. Successful runs
+retain legitimate auto-lowering. When upgrading an old recommended-threshold
+ratchet to the warning/hard split, an entry is retained while its subject still
+produces an advisory warning, so a green run cannot silently empty that debt.
 
 ### Migration is automatic
 
@@ -667,6 +674,18 @@ guardian_cache_warn_mib = 1024
 name = "frontend-js-syntax"
 command = ["node", "--check", "src/serve/assets/app.js"]
 inputs = ["src/serve/assets/app.js"]
+
+[[external]]
+name = "frontend-css-syntax"
+command = ["stylelint", "src/serve/assets/app.css"]
+inputs = ["src/serve/assets/app.css", ".stylelintrc.json"]
+
+# Optional browser/runtime contract. The script may launch Playwright or any
+# project-native smoke harness; Guardian only requires a zero exit status.
+[[external]]
+name = "browser-smoke"
+command = ["node", "tools/browser-smoke.mjs"]
+inputs = ["tools/browser-smoke.mjs", "src/serve/assets/app.js", "src/serve/assets/app.css"]
 
 [[boundary]]
 module = "src/core/*"
@@ -854,7 +873,8 @@ guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry ru
 guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
 guardian-check doctor .              # Read-only metadata/integration health audit
 guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
-guardian-check accept spec,file-size . # Refresh and verify only named metadata
+zig build guardian-accept -Dguardian-checks=spec,file-size # Preferred named metadata acceptance
+guardian-check accept spec,file-size . # Raw-binary fallback for the same workflow
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
 guardian-check explain               # List every check name + summary
 guardian-check version               # Print the guardian version (also --version)
@@ -864,6 +884,13 @@ guardian-check version               # Print the guardian version (also --versio
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **Green-run cache** skips only a clean, unchanged Git worktree. Dirty feature
+  work always executes the real checks; changing HEAD, `build.zig.zon`, declared
+  external inputs, or a project-local file referenced by `@embedFile` invalidates
+  the stamp. This makes embedded JS/CSS/template changes visible to configured
+  external syntax or browser-smoke gates. Guardian cannot replace the language
+  tool itself, so configure `node --check`, Stylelint, Playwright, or an equivalent
+  argv command under `[[external]]` for the asset types the project ships.
 - **`commit`** gates the tree, then auto-commits the change set (see below).
   Never part of `all`; requires an explicit `--intent`.
 - **`accept`** previews named check failures, refreshes only their recognized

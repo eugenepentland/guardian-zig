@@ -217,10 +217,8 @@ fn readBudget(
             return null;
         }
         if (e == error.VersionMismatch) {
-            fail(
-                "int-from-float budget: stale snapshot, re-run {s}=int-from-float-budget",
-                .{snapshot_helper.update_env},
-            );
+            fail("int-from-float budget: stale snapshot", .{});
+            print("  fix: zig build guardian-accept -Dguardian-checks=int-from-float-budget\n", .{});
             return error.CheckFailed;
         }
         return e;
@@ -243,10 +241,8 @@ fn compareAndReport(total: u32, budget: u32) registry.RunError!void {
     }
     fail("int-from-float budget FAILED (casts: {d} found, {d} budgeted)", .{ total, budget });
     print("  fix: guard the new @intFromFloat (isFinite + range check, see numeric.checkedInt),\n", .{});
-    print(
-        "       or re-run with {s}=int-from-float-budget and commit .guardian/{s}\n",
-        .{ snapshot_helper.update_env, snapshot_leaf },
-    );
+    print("       or run zig build guardian-accept -Dguardian-checks=int-from-float-budget\n", .{});
+    print("       and commit .guardian/{s}\n", .{snapshot_leaf});
     return error.CheckFailed;
 }
 

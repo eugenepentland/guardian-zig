@@ -136,9 +136,10 @@ const entries = [_]Entry{
     \\(the retired `vague-name-blacklist` name is tolerated there too).
     },
     .{ .name = "function-size", .text = 
-    \\Why: a parameter list that keeps growing signals an agent bolting on args
-    \\instead of bundling related inputs — each call site gets more fragile.
-    \\Fix: group related parameters into an options/context struct.
+    \\Why: a runtime parameter list that keeps growing signals an agent bolting
+    \\on args instead of bundling related inputs — each call site gets more
+    \\fragile. `comptime` specialization parameters are reported but excluded.
+    \\Fix: group related runtime parameters into an options/context struct.
     \\Exempt: raise `[function_size] max_params`, or disable the check.
     },
     .{ .name = "doc-comments", .text = 
@@ -159,16 +160,17 @@ const entries = [_]Entry{
     \\Why: an agent silently widens (or breaks) the public API — a new pub fn, a
     \\changed signature — with no reviewer sign-off.
     \\Fix: make the API change intentional, then accept it into the snapshot.
-    \\Exempt: `guardian-check accept pub-api-surface .` and commit `.guardian/`
-    \\once the surface change is deliberate.
+    \\Exempt: `zig build guardian-accept -Dguardian-checks=pub-api-surface`
+    \\and commit `.guardian/` once the surface change is deliberate. The raw CLI
+    \\fallback is `guardian-check accept pub-api-surface .`.
     },
     .{ .name = "panic-budget", .text = 
     \\Why: agents scatter `@panic` / `unreachable` / `TODO` / `FIXME` as they
     \\stub, turning recoverable paths into crashes.
     \\Fix: handle the case explicitly (return an error) instead of panicking, or
     \\resolve the TODO.
-    \\Exempt: `guardian-check accept panic-budget .` to accept a deliberate new
-    \\site, verify it, and commit the snapshot.
+    \\Exempt: `zig build guardian-accept -Dguardian-checks=panic-budget` to
+    \\accept a deliberate new site, verify it, and commit the snapshot.
     },
     .{ .name = "catch-discipline", .text = 
     \\Why: `catch unreachable`, `catch {}` and `catch undefined` convert a real
@@ -249,15 +251,15 @@ const entries = [_]Entry{
     \\Optional strict mode: `[int_from_float] require_guard = ["src/render/*"]`
     \\hard-fails ANY unguarded cast under those path globs, so a chosen subtree can
     \\be driven to zero (independent of the snapshot budget).
-    \\Exempt: `guardian-check accept int-from-float-budget .` after guard review,
-    \\then commit the verified snapshot.
+    \\Exempt: `zig build guardian-accept -Dguardian-checks=int-from-float-budget`
+    \\after guard review, then commit the verified snapshot.
     },
     .{ .name = "unsafe-ops-budget", .text = 
     \\Why: new `@ptrCast`/`@bitCast`/`@ptrFromInt`/… or `undefined` re-assignments
     \\are unsafe operations agents reach for to make types line up.
     \\Fix: prefer a safe conversion; if genuinely needed, isolate and comment it.
-    \\Exempt: `guardian-check accept unsafe-ops-budget .` to accept the new count
-    \\and commit the verified snapshot.
+    \\Exempt: `zig build guardian-accept -Dguardian-checks=unsafe-ops-budget` to
+    \\accept the new count and commit the verified snapshot.
     },
     .{ .name = "type-size", .text = 
     \\Why: a struct that keeps gaining fields is a god-object an agent grew
@@ -598,7 +600,7 @@ const entries = [_]Entry{
         "Exempt: n/a — never part of `all`; it is always a dry run." },
     .{ .name = "accept", .text = "Why: intentional baseline/snapshot drift should be accepted by name, not through\n" ++
         "a broad environment-variable refresh that can ratify unrelated changes.\n" ++
-        "Fix: run `guardian-check accept file-size,line-length .`; Guardian previews,\n" ++
+        "Fix: run `zig build guardian-accept -Dguardian-checks=file-size,line-length`; Guardian previews,\n" ++
         "refreshes only those checks, then verifies them without refresh.\n" ++
         "Exempt: n/a — never part of `all`; always review the resulting .guardian/ diff." },
 };

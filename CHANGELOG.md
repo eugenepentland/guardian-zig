@@ -6,6 +6,14 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Make individual snapshot replacements atomic and checked-in Guardian metadata
+  transactional across aggregate runs: a red gate restores pre-run state, and
+  warning-only legacy ratchets remain until their advisory finding disappears.
+- Restrict green-cache skips to clean worktrees and hash Git HEAD,
+  `build.zig.zon`, and project-local `@embedFile` assets.
+- Prefer consumer-ready `zig build guardian-accept` remediation, exclude
+  comptime parameters from function arity, and name collision files while
+  ignoring test-only switches in `repeated-switch-on-enum`.
 - Require `GUARDIAN_UPDATE_SNAPSHOT=all` for broad refreshes; reject ambiguous
   `1` and `true` values before any metadata changes.
 - Add `zig build guardian -- <args>` as the canonical freshly-built CLI runner.

@@ -265,7 +265,14 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
     // while only the blocking records below participate in debt metadata.
     for (capture.warnings.items) |warning| reporter.warn(warning);
 
-    return processOutcome(ctx, cmd.name, capture.buf.items, capture.records.items, force_refresh);
+    return processOutcome(
+        ctx,
+        cmd.name,
+        capture.buf.items,
+        capture.records.items,
+        capture.warnings.items,
+        force_refresh,
+    );
 }
 
 /// Violation lines for the baseline diff. Prefers the structured records a
@@ -289,6 +296,7 @@ fn processOutcome(
     check_name: []const u8,
     captured: []const u8,
     records: []const reporter.Violation,
+    warnings: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
@@ -302,7 +310,12 @@ fn processOutcome(
     // name (not the presence of records), so a metric check with zero current
     // violations still ratchets — it prunes its whole baseline.
     if (ratchet.metricMode(check_name) != null) {
-        return processRatchet(a, ctx, check_name, captured, records, force_refresh);
+        return processRatchet(a, ctx, check_name, .{
+            .captured = captured,
+            .records = records,
+            .warnings = warnings,
+            .force_refresh = force_refresh,
+        });
     }
 
     const path = try pathFor(a, ctx.project_dir, check_name);
@@ -328,20 +341,26 @@ fn processOutcome(
 /// Asserts `check_name` is a threshold (ratchet) check — processOutcome only
 /// dispatches here when `metricMode(check_name)` is non-null, which the two
 /// `metricMode(check_name).?` unwraps below then rely on.
+const RatchetInput = struct {
+    captured: []const u8,
+    records: []const reporter.Violation,
+    warnings: []const reporter.Violation,
+    force_refresh: bool,
+};
+
 fn processRatchet(
     a: std.mem.Allocator,
     ctx: *types.RunCtx,
     check_name: []const u8,
-    captured: []const u8,
-    records: []const reporter.Violation,
-    force_refresh: bool,
+    input: RatchetInput,
 ) types.RunError!void {
     std.debug.assert(ratchet.metricMode(check_name) != null);
     const path = try pathFor(a, ctx.project_dir, check_name);
-    const entries = try ratchet.aggregate(a, records, ratchet.metricMode(check_name).?);
-    try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, force_refresh);
+    const blocking = try ratchet.aggregate(a, input.records, ratchet.metricMode(check_name).?);
+    const entries = try preserveAdvisoryRatchets(a, path, blocking, input.warnings, input.force_refresh);
+    try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, input.force_refresh);
 
-    const outcome = ratchet.lifecycle(a, path, entries, force_refresh) catch |e| {
+    const outcome = ratchet.lifecycle(a, path, entries, input.force_refresh) catch |e| {
         reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
@@ -362,7 +381,54 @@ fn processRatchet(
         );
         return;
     }
-    return reportRatchet(check_name, outcome, firstFixHint(captured));
+    return reportRatchet(check_name, outcome, firstFixHint(input.captured));
+}
+
+/// Keeps a legacy ratchet entry while the same subject is still being reported
+/// as advisory. Advisory findings never create or lower debt, but an upgrade
+/// from a recommended-threshold ratchet to a warning/hard split must not erase
+/// the committed entry merely because the finding moved out of the blocking
+/// record set. Once the warning itself disappears, normal auto-pruning applies.
+fn preserveAdvisoryRatchets(
+    a: std.mem.Allocator,
+    path: []const u8,
+    blocking: []const ratchet.Entry,
+    warnings: []const reporter.Violation,
+    force_refresh: bool,
+) types.RunError![]const ratchet.Entry {
+    if (force_refresh or warnings.len == 0) return blocking;
+    const snap = snapshot.read(a, path, ratchet.version) catch return blocking;
+    const old = try ratchet.decodeLines(a, snap.lines);
+    return mergeAdvisoryEntries(a, old, blocking, warnings);
+}
+
+fn mergeAdvisoryEntries(
+    a: std.mem.Allocator,
+    old: []const ratchet.Entry,
+    blocking: []const ratchet.Entry,
+    warnings: []const reporter.Violation,
+) std.mem.Allocator.Error![]const ratchet.Entry {
+    var merged: std.ArrayList(ratchet.Entry) = .empty;
+    try merged.appendSlice(a, blocking);
+    for (old) |entry| {
+        if (entryPresent(blocking, entry.key)) continue;
+        if (!warningPresent(warnings, entry.key)) continue;
+        try merged.append(a, entry);
+    }
+    return merged.toOwnedSlice(a);
+}
+
+fn entryPresent(entries: []const ratchet.Entry, key: []const u8) bool {
+    for (entries) |entry| if (std.mem.eql(u8, entry.key, key)) return true;
+    return false;
+}
+
+fn warningPresent(warnings: []const reporter.Violation, key: []const u8) bool {
+    for (warnings) |warning| {
+        const warning_key = warning.ratchet_key orelse continue;
+        if (std.mem.eql(u8, warning_key, key)) return true;
+    }
+    return false;
 }
 
 /// deny_growth for a ratchet check: on a refresh of a listed check, refuse to
@@ -425,23 +491,17 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[
         .{ check_name, g.key, g.old, g.new, g.old },
     );
     for (reg.new_offenders) |o| reporter.detail(
-        "  {s}: {s} new offender over default cap ({d})\n",
+        "  {s}: {s} new offender over default cap (measured value: {d})\n",
         .{ check_name, o.key, o.value },
     );
     switch (class) {
         .volume => {
-            reporter.detail(
-                "  accept: guardian-check accept {s} .  # locks the new size; review and commit the .guardian/ diff\n",
-                .{check_name},
-            );
+            reportAcceptCommand(check_name);
             if (fix_hint) |h| reporter.detail("  {s} (if the growth is accidental)\n", .{h});
         },
         .shape => {
             if (fix_hint) |h| reporter.detail("  {s}\n", .{h});
-            reporter.detail(
-                "  accept: guardian-check accept {s} .  # review and commit the .guardian/ diff\n",
-                .{check_name},
-            );
+            reportAcceptCommand(check_name);
         },
     }
     return error.CheckFailed;
@@ -525,13 +585,18 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
                 .{ check_name, g.new_lines.len, g.baseline_size },
             );
             for (g.new_lines) |line| reporter.detail("  {s}\n", .{line});
-            reporter.detail(
-                "  accept: guardian-check accept {s} .  # review and commit the .guardian/ diff\n",
-                .{check_name},
-            );
+            reportAcceptCommand(check_name);
             return error.CheckFailed;
         },
     }
+}
+
+fn reportAcceptCommand(check_name: []const u8) void {
+    reporter.detail(
+        "  accept: zig build guardian-accept -Dguardian-checks={s}  # review and commit .guardian/\n",
+        .{check_name},
+    );
+    reporter.detail("          raw CLI fallback: guardian-check accept {s} .\n", .{check_name});
 }
 
 fn lessThan(_: void, a: []const u8, b: []const u8) bool {
@@ -612,6 +677,33 @@ test "runWithBaseline replays warnings without ratcheting them" {
         ratchet.version,
     );
     try std.testing.expectEqual(@as(usize, 0), snap.lines.len);
+}
+
+// spec: Per-Item Ratchets - Retains legacy ratchet entries while the same subjects remain advisory warnings
+
+test "mergeAdvisoryEntries preserves old warning keys without creating advisory debt" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const old = [_]ratchet.Entry{
+        .{ .key = "src/advisory.zig", .value = 1200 },
+        .{ .key = "src/resolved.zig", .value = 1100 },
+        .{ .key = "src/still-hard.zig", .value = 11_000 },
+    };
+    const blocking = [_]ratchet.Entry{
+        .{ .key = "src/still-hard.zig", .value = 10_500 },
+    };
+    const warnings = [_]reporter.Violation{
+        .{ .check = "file-size", .message = "warning", .ratchet_key = "src/advisory.zig", .metric = 1150 },
+        // A warning with no prior baseline entry remains advisory-only.
+        .{ .check = "file-size", .message = "warning", .ratchet_key = "src/new-warning.zig", .metric = 1050 },
+    };
+    const merged = try mergeAdvisoryEntries(a, &old, &blocking, &warnings);
+    try std.testing.expectEqual(@as(usize, 2), merged.len);
+    try std.testing.expect(entryPresent(merged, "src/advisory.zig"));
+    try std.testing.expect(entryPresent(merged, "src/still-hard.zig"));
+    try std.testing.expect(!entryPresent(merged, "src/resolved.zig"));
+    try std.testing.expect(!entryPresent(merged, "src/new-warning.zig"));
 }
 
 // spec: Per-Item Ratchets - Presents file and type growth as volume with accept-first guidance
@@ -695,7 +787,7 @@ test "extract ignores multi-line fix-hint continuations" {
         \\guardian: int-from-float budget FAILED (casts: 1 found, 0 budgeted)
         \\  src/x.zig:5: unguarded @intFromFloat
         \\  fix: guard the new @intFromFloat (isFinite + range check),
-        \\       or run guardian-check accept int-from-float-budget . and commit .guardian/x.txt
+        \\       or run zig build guardian-accept -Dguardian-checks=int-from-float-budget
     ;
     const lines = try extract(a, sample);
     // Only the violation; both hint lines (incl. the non-`fix:` continuation)

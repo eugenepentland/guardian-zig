@@ -74,8 +74,11 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
     };
 }
 
-/// Errors that `write` may propagate.
-pub const WriteError = std.fs.File.OpenError || std.fs.File.WriteError || std.mem.Allocator.Error || error{WriteFailed};
+/// Errors that an atomic snapshot replacement may propagate.
+pub const WriteError = std.fs.AtomicFile.InitError ||
+    std.fs.AtomicFile.FinishError ||
+    std.mem.Allocator.Error ||
+    error{WriteFailed};
 
 /// Writes a snapshot file. Lines are sorted in place for deterministic output.
 pub fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void {
@@ -88,20 +91,16 @@ pub fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!voi
 /// <key>` lines but sorts them by *key* so a value change never reorders the
 /// file — presort and call this. `write` is `sort` + `writePresorted`.
 pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8) WriteError!void {
-    if (std.fs.path.dirname(path)) |dir| {
-        std.fs.cwd().makePath(dir) catch |e| std.log.warn("snapshot makePath {s}: {s}", .{ dir, @errorName(e) });
-    }
-    const file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
     var buf: [4096]u8 = undefined;
-    var fw = file.writer(&buf);
-    var w = &fw.interface;
+    var atomic = try std.fs.cwd().atomicFile(path, .{ .make_path = true, .write_buffer = &buf });
+    defer atomic.deinit();
+    const w = &atomic.file_writer.interface;
     try w.print("{s}{d}\n", .{ magic_prefix, version });
     for (lines) |line| {
         try w.writeAll(line);
         try w.writeByte('\n');
     }
-    try w.flush();
+    try atomic.finish();
 }
 
 /// Compute added/removed sets between sorted snapshot lines and a new sorted slice.
@@ -145,6 +144,8 @@ pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.
 fn lessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
+
+// spec: Snapshot Lifecycle - Atomically replaces snapshot files after fully writing their contents
 
 test "write then read round-trips" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

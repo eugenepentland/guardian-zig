@@ -322,6 +322,7 @@ test {
     _ = @import("config_policy.zig");
     _ = @import("build_helper.zig");
     _ = @import("required_inputs.zig");
+    _ = @import("metadata_transaction.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/init.zig");

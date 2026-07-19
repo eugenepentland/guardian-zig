@@ -149,7 +149,7 @@ are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are
 snapshot-based (pub-api-surface, panic-budget, int-from-float-budget,
-unsafe-ops-budget) — refresh with the named `guardian-check accept <check> .`
+unsafe-ops-budget) — refresh with `zig build guardian-accept -Dguardian-checks=<check>`
 flow and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` remains selective: `=all`
 is the only broad refresh, while a comma-separated check-name list
 (`=pub-api-surface,spec`) refreshes only those checks' snapshots/baselines —
@@ -187,7 +187,9 @@ entries (check + paths), not compiled into the checks.
 `all` runs are cached: when the hashed input set (src/test/build/spec/
 guardian.toml/.guardian) is unchanged since the last green run, checks are
 skipped. The green stamp is written *after* checks run (recomputed over the
-post-write tree), so a run that rewrites `.guardian/` — an auto-pruned baseline,
+post-write tree), and only clean Git worktrees may skip. Git HEAD,
+`build.zig.zon`, declared external inputs, and project-local `@embedFile` assets
+participate in the digest. Thus a run that rewrites `.guardian/` — an auto-pruned baseline,
 a freshly created snapshot — doesn't trigger a spurious full re-run next build,
 and a `.guardian/` that diverges from the stamped state always re-runs. Disable
 with `cache_enabled = false`. Turn off individual checks with a top-level

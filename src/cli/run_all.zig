@@ -15,6 +15,8 @@ const snapshot_helper = @import("../snapshot_helper.zig");
 const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
+const metadata_transaction = @import("../metadata_transaction.zig");
+const git = @import("../git.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -61,6 +63,19 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         return;
     }
 
+    // Checks may create snapshots or auto-lower several baselines before a
+    // later check fails. Capture the entire non-cache metadata tree so a red
+    // aggregate result is atomic: all checked-in metadata is restored, while
+    // operational cache/log evidence remains available for diagnosis.
+    var metadata = metadata_transaction.Transaction.begin(ctx.allocator, ctx.project_dir) catch |err| {
+        fail("cannot start Guardian metadata transaction: {s}", .{@errorName(err)});
+        return error.CheckFailed;
+    };
+    defer metadata.deinit();
+    var metadata_active = true;
+    defer if (metadata_active) metadata.rollback() catch |err|
+        fail("could not roll back Guardian metadata after an interrupted run: {s}", .{@errorName(err)});
+
     // Build the shared parsed-source index once if any check needs it, so
     // the ~17 AST checks read and parse each file once instead of per check.
     var index_storage: ast_index.Index = undefined;
@@ -93,6 +108,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
+        metadata_active = false;
         // Stamp the POST-write tree so an unchanged next run can skip. Never for
         // a filtered run — a partial suite must not claim the full suite green.
         if (!filtered) stampGreen(ctx);
@@ -100,6 +116,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     }
 
     fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
+    metadata.rollback() catch |err| {
+        fail("could not roll back Guardian metadata after the failed run: {s}", .{@errorName(err)});
+        metadata_active = false;
+        return error.CheckFailed;
+    };
+    metadata_active = false;
+    reporter.detail("  metadata: restored pre-run .guardian snapshots and baselines\n", .{});
     reporter.detail("{s}", .{stale_artifact_caution});
     return error.CheckFailed;
 }
@@ -275,10 +298,19 @@ fn requireKnownCheck(name: []const u8, origin: []const u8) types.RunError!void {
 fn shouldSkipRun(ctx: *types.RunCtx) bool {
     const enabled = ctx.cfg.cache_enabled;
     const refresh = ctx.refresh.len > 0 or snapshot_helper.shouldUpdate(ctx.allocator);
+    const clean = workingTreeClean(ctx);
     // Only pay for the digest walk when a skip is still possible (cache on, no
-    // refresh) — the `and` short-circuits otherwise.
-    const digest_matches = enabled and !refresh and digestMatchesStored(ctx);
-    return skipDecision(enabled, refresh, digest_matches);
+    // refresh, clean tree) — the `and` short-circuits otherwise. Dirty feature
+    // work always gets a real pass, avoiding the false confidence of a cached
+    // green while source/tests are actively changing.
+    const digest_matches = enabled and !refresh and clean and digestMatchesStored(ctx);
+    return skipDecision(enabled, refresh, clean, digest_matches);
+}
+
+fn workingTreeClean(ctx: *types.RunCtx) bool {
+    const changed = git.changedPaths(ctx.allocator, ctx.project_dir) catch return false;
+    const paths = changed orelse return true;
+    return paths.len == 0;
 }
 
 /// True when the current input digest equals the last green run's stored digest.
@@ -307,10 +339,11 @@ fn stampGreen(ctx: *types.RunCtx) void {
 }
 
 /// Pure skip decision, factored out for testing: a run skips only when the
-/// cache is enabled, no refresh was requested, and the input digest matches the
-/// stored green digest. A refresh (or a digest mismatch) always executes fully.
-fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bool) bool {
-    return cache_enabled and !refresh_requested and digest_matches;
+/// cache is enabled, no refresh was requested, the Git worktree is clean, and
+/// the input digest matches the stored green digest. Dirty feature work, a
+/// refresh, or a digest mismatch always executes fully.
+fn skipDecision(cache_enabled: bool, refresh_requested: bool, working_tree_clean: bool, digest_matches: bool) bool {
+    return cache_enabled and !refresh_requested and working_tree_clean and digest_matches;
 }
 
 /// One check's outcome + captured output, filled by the worker that ran it.
@@ -701,19 +734,22 @@ test "report policy preserves a finding without failing the captured check" {
     try std.testing.expect(std.mem.indexOf(u8, result.output, "expected policy finding") != null);
 }
 
-// spec: Run All - Skips a full run only when the cache is on, unchanged, and no refresh is pending
+// spec: Run All - Skips a full run only on a clean unchanged tree with no refresh pending
 
-test "skipDecision requires cache on, a digest match, and no pending refresh" {
-    // The only skip case: cache enabled, no refresh, digest matches.
-    try std.testing.expect(skipDecision(true, false, true));
+test "skipDecision requires cache on, a clean tree, a digest match, and no pending refresh" {
+    // The only skip case: cache enabled, no refresh, clean tree, digest matches.
+    try std.testing.expect(skipDecision(true, false, true, true));
     // A pending refresh always executes fully — it exists to rewrite snapshots,
     // and its post-write tree must be re-stamped, never skipped.
-    try std.testing.expect(!skipDecision(true, true, true));
+    try std.testing.expect(!skipDecision(true, true, true, true));
+    // A dirty feature tree always gets real analysis even if its content digest
+    // happens to match a prior stamp.
+    try std.testing.expect(!skipDecision(true, false, false, true));
     // A changed source or .guardian/ tree (digest mismatch) re-runs — this is
     // what makes an auto-pruned baseline re-run instead of being masked.
-    try std.testing.expect(!skipDecision(true, false, false));
+    try std.testing.expect(!skipDecision(true, false, true, false));
     // A disabled cache never skips.
-    try std.testing.expect(!skipDecision(false, false, true));
+    try std.testing.expect(!skipDecision(false, false, true, true));
 }
 
 // spec: Run All - Rejects an unknown refresh target or deny_growth check name

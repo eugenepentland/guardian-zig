@@ -8,6 +8,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
+const text = @import("../text.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -62,17 +63,24 @@ pub fn analyzeContent(
 fn collectSwitchSignatures(arena: Allocator, z: [:0]const u8) Allocator.Error![]const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     var tok = std.zig.Tokenizer.init(z);
+    var test_scope: text.TestScope = .{};
     while (true) {
-        const t = tok.next();
+        const t = nextScoped(&tok, &test_scope);
         if (t.tag == .eof) break;
         if (t.tag != .keyword_switch) continue;
-        if (try collectOneSwitch(arena, &tok, z)) |sig| try out.append(arena, sig);
+        if (test_scope.in_test) continue;
+        if (try collectOneSwitch(arena, &tok, z, &test_scope)) |sig| try out.append(arena, sig);
     }
     return out.toOwnedSlice(arena);
 }
 
-fn collectOneSwitch(arena: Allocator, tok: *std.zig.Tokenizer, z: []const u8) Allocator.Error!?[]const u8 {
-    const prongs = (try collectProngs(arena, tok, z)) orelse return null;
+fn collectOneSwitch(
+    arena: Allocator,
+    tok: *std.zig.Tokenizer,
+    z: []const u8,
+    test_scope: *text.TestScope,
+) Allocator.Error!?[]const u8 {
+    const prongs = (try collectProngs(arena, tok, z, test_scope)) orelse return null;
     if (prongs.len < min_prong_count) return null;
     return try joinSorted(arena, prongs);
 }
@@ -84,19 +92,20 @@ fn collectProngs(
     arena: Allocator,
     tok: *std.zig.Tokenizer,
     z: []const u8,
+    test_scope: *text.TestScope,
 ) Allocator.Error!?[]const []const u8 {
-    if (!skipParenGroup(tok)) return null;
-    if (tok.next().tag != .l_brace) return null;
-    return scanProngs(arena, tok, z);
+    if (!skipParenGroup(tok, test_scope)) return null;
+    if (nextScoped(tok, test_scope).tag != .l_brace) return null;
+    return scanProngs(arena, tok, z, test_scope);
 }
 
 /// Skips the `(...)` subject of a switch, starting at the token after
 /// `switch`. Returns false if the first token is not `(` or on EOF.
-fn skipParenGroup(tok: *std.zig.Tokenizer) bool {
-    if (tok.next().tag != .l_paren) return false;
+fn skipParenGroup(tok: *std.zig.Tokenizer, test_scope: *text.TestScope) bool {
+    if (nextScoped(tok, test_scope).tag != .l_paren) return false;
     var paren_depth: u32 = 1;
     while (paren_depth > 0) {
-        const ti = tok.next();
+        const ti = nextScoped(tok, test_scope);
         if (ti.tag == .eof) return false;
         if (ti.tag == .l_paren) paren_depth += 1;
         if (ti.tag == .r_paren) paren_depth -= 1;
@@ -143,14 +152,21 @@ fn scanProngs(
     arena: Allocator,
     tok: *std.zig.Tokenizer,
     z: []const u8,
+    test_scope: *text.TestScope,
 ) Allocator.Error!?[]const []const u8 {
     var scan: ProngScan = .{};
     while (scan.depth > 0) {
-        const ti = tok.next();
+        const ti = nextScoped(tok, test_scope);
         if (ti.tag == .eof) return null;
         try scan.step(arena, ti, z);
     }
     return scan.prongs.items;
+}
+
+fn nextScoped(tok: *std.zig.Tokenizer, test_scope: *text.TestScope) std.zig.Token {
+    const token = tok.next();
+    test_scope.update(token.tag);
+    return token;
 }
 
 fn joinSorted(arena: Allocator, items: []const []const u8) Allocator.Error![]const u8 {
@@ -213,12 +229,13 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     var iter = sig_to_files.iterator();
     while (iter.next()) |e| {
         const files = e.value_ptr.*.items;
-        const unique = try uniqueFileCount(allocator, files);
-        if (unique < 2) continue;
+        const unique = try uniqueFiles(allocator, files);
+        if (unique.len < 2) continue;
+        const file_list = try std.mem.join(allocator, ", ", unique);
         const msg = try std.fmt.allocPrint(
             allocator,
-            "switch on prongs ({s}) appears in {d} files",
-            .{ e.key_ptr.*, unique },
+            "switch on prongs ({s}) appears in {d} files: {s}",
+            .{ e.key_ptr.*, unique.len, file_list },
         );
         try violations.append(allocator, msg);
     }
@@ -233,7 +250,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
-fn uniqueFileCount(allocator: Allocator, files: []const []const u8) Allocator.Error!usize {
+fn uniqueFiles(allocator: Allocator, files: []const []const u8) Allocator.Error![]const []const u8 {
     var seen: std.StringHashMapUnmanaged(void) = .empty;
     defer seen.deinit(allocator);
     for (files) |f| {
@@ -241,10 +258,17 @@ fn uniqueFileCount(allocator: Allocator, files: []const []const u8) Allocator.Er
         // non-violation into a false failure — surface the allocation error.
         try seen.put(allocator, f, {});
     }
-    return seen.count();
+    var out = try allocator.alloc([]const u8, seen.count());
+    var it = seen.keyIterator();
+    var i: usize = 0;
+    while (it.next()) |file| : (i += 1) out[i] = file.*;
+    std.mem.sort([]const u8, out, {}, lessThan);
+    return out;
 }
 
 // spec: Tier 3 Architectural Fitness - Flags the same enum dot-prong set switched in 2+ files
+// spec: Tier 3 Architectural Fitness - Ignores repeated enum switches that occur only inside test blocks
+// spec: Tier 3 Architectural Fitness - Names every file sharing a repeated enum prong set
 
 test "analyzeContent collects single switch signature" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -273,4 +297,28 @@ test "analyzeContent ignores switches with too few prongs" {
         \\}
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "analyzeContent ignores test switches and resumes after the test block" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\test "helper" {
+        \\    _ = switch (value) { .alpha => 1, .beta => 2, else => 0 };
+        \\}
+        \\fn production(value: Mode) u32 {
+        \\    return switch (value) { .gamma => 3, .delta => 4, else => 0 };
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+    try std.testing.expect(std.mem.indexOf(u8, out[0], "delta,gamma") != null);
+}
+
+test "uniqueFiles sorts and deduplicates collision locations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const files = try uniqueFiles(arena.allocator(), &.{ "src/z.zig", "src/a.zig", "src/z.zig" });
+    try std.testing.expectEqual(@as(usize, 2), files.len);
+    try std.testing.expectEqualStrings("src/a.zig", files[0]);
+    try std.testing.expectEqualStrings("src/z.zig", files[1]);
 }

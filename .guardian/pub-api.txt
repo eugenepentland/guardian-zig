@@ -346,6 +346,11 @@ src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []c
 src/git.zig::parseHunkHeader | fn parseHunkHeader(line: []const u8) ?LineSpan
 src/git.zig::parseUnifiedDiff | fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff
 src/git.zig::untrackedFiles | fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]const []const u8
+src/metadata_transaction.zig::RollbackError value
+src/metadata_transaction.zig::Transaction struct_
+src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction
+src/metadata_transaction.zig::deinit | fn deinit(self: *Transaction) void
+src/metadata_transaction.zig::rollback | fn rollback(self: *Transaction) RollbackError!void
 src/mutation/cache.zig::Map value
 src/mutation/cache.zig::Reuse enum_
 src/mutation/cache.zig::append | fn append( arena: Allocator, project_dir: []const u8, suite_hex: []const u8, m: gen.Mutant, outcome: Outcome, ) void

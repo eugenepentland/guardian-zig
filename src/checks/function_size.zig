@@ -20,17 +20,18 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const a = ctx.allocator;
     const fns = if (entry.tree) |t| try ast.allFnsFromTree(a, t) else try ast.allFns(a, entry.content);
     for (fns) |f| {
-        if (f.param_count <= ctx.max_params) continue;
+        const runtime_params = f.param_count - f.comptime_param_count;
+        if (runtime_params <= ctx.max_params) continue;
         try ctx.violations.append(a, .{
             .check = "function-size",
             .file = entry.rel_path,
             .message = try std.fmt.allocPrint(
                 a,
-                "fn {s} has {d} params (limit: {d})",
-                .{ f.name, f.param_count, ctx.max_params },
+                "fn {s} has {d} runtime params (+{d} comptime; runtime limit: {d})",
+                .{ f.name, runtime_params, f.comptime_param_count, ctx.max_params },
             ),
             .ratchet_key = try std.fmt.allocPrint(a, "{s}|{s}", .{ entry.rel_path, f.name }),
-            .metric = f.param_count,
+            .metric = runtime_params,
         });
     }
 }
@@ -69,11 +70,16 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         cfg.function_size.max_params,
     });
     for (violations.items) |v| reporter.emit(v);
-    print("  fix: bundle related parameters into a struct.\n", .{});
+    print(
+        "  fix: bundle related runtime parameters into a struct; " ++
+            "comptime specialization inputs are excluded.\n",
+        .{},
+    );
     return error.CheckFailed;
 }
 
 // spec: Function Size - Caps parameter count per function
+// spec: Function Size - Excludes comptime specialization parameters from the runtime parameter cap
 
 test "visit catches over-budget functions" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -87,4 +93,20 @@ test "visit catches over-budget functions" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+test "visit excludes comptime parameters from the runtime cap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .max_params = 4, .violations = &violations };
+    const content =
+        \\fn genericOk(comptime T: type, comptime map: fn (T) T, a: T, b: T, c: T, d: T) void {}
+        \\fn runtimeLarge(comptime T: type, a: T, b: T, c: T, d: T, e: T) void {}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    try std.testing.expectEqual(@as(?u64, 5), violations.items[0].metric);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0].message, "+1 comptime") != null);
 }

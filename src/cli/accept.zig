@@ -15,7 +15,8 @@ pub const command_name = "accept";
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     if (ctx.refresh.len == 0) {
         reporter.fail("accept: name at least one check (comma-separated)", .{});
-        reporter.detail("  usage: guardian-check accept file-size,line-length .\n", .{});
+        reporter.detail("  usage: zig build guardian-accept -Dguardian-checks=file-size,line-length\n", .{});
+        reporter.detail("         raw CLI fallback: guardian-check accept file-size,line-length .\n", .{});
         return error.CheckFailed;
     }
     try run_all.validateCheckNames(ctx.refresh, "accept");

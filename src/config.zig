@@ -123,7 +123,8 @@ pub const SpecQualityCfg = struct {
 /// Per-check config for the function-size cap.
 pub const FunctionSizeCfg = struct {
     enabled: bool = true,
-    /// Max parameters per function. Default 6 (not 4) because Zig's explicit
+    /// Max runtime parameters per function; `comptime` specialization inputs
+    /// are excluded. Default 6 (not 4) because Zig's explicit
     /// style routinely threads `self` + an `Allocator` + a `writer` alongside
     /// 2-3 real payload params; the cap targets genuinely over-parameterized
     /// functions (7+) that should bundle args into a struct.

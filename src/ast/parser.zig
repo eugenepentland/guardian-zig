@@ -29,7 +29,13 @@ pub const PubFn = struct {
 pub const FnInfo = struct {
     name: []const u8,
     is_pub: bool,
+    /// Total syntactic parameters, retained for callers that describe the
+    /// complete signature.
     param_count: u32,
+    /// Parameters introduced with `comptime`; structural arity checks subtract
+    /// these because they are generic specialization inputs, not runtime data
+    /// that can usefully be bundled into an options struct.
+    comptime_param_count: u32,
     return_kind: ReturnKind,
 };
 
@@ -188,12 +194,18 @@ pub fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const F
 
         var it = proto.iterate(&tree);
         var count: u32 = 0;
-        while (it.next()) |_| count += 1;
+        var comptime_count: u32 = 0;
+        while (it.next()) |param| {
+            count += 1;
+            const modifier = param.comptime_noalias orelse continue;
+            if (tree.tokens.items(.tag)[modifier] == .keyword_comptime) comptime_count += 1;
+        }
 
         try result.append(arena, .{
             .name = name,
             .is_pub = proto.visib_token != null,
             .param_count = count,
+            .comptime_param_count = comptime_count,
             .return_kind = classifyReturn(&tree, proto),
         });
     }

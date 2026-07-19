@@ -106,6 +106,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Function Size
 
 - Caps parameter count per function
+- Excludes comptime specialization parameters from the runtime parameter cap
 
 ## Doc Comments
 
@@ -132,6 +133,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
 - Reflects a rewritten .guardian baseline in a fresh input digest
 - Includes declared external gate input files in the green-run digest
+- Includes files referenced by project-local embedFile calls
+- Invalidates a green stamp when the Git HEAD changes
 
 ## Run All
 
@@ -143,7 +146,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Excludes the checks named by a skip filter
 - Rejects an only or skip name that is not a runnable check
 - Detects a filtered run so the green cache stamp is suppressed
-- Skips a full run only when the cache is on, unchanged, and no refresh is pending
+- Skips a full run only on a clean unchanged tree with no refresh pending
 - Rejects an unknown refresh target or deny_growth check name
 - Cautions on failure that zig-out binaries predate the red run
 
@@ -215,6 +218,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 ## Snapshot Lifecycle
 
+- Atomically replaces snapshot files after fully writing their contents
 - Creates snapshot file on first run with no prior snapshot
 - Reports drift when current state differs from prior snapshot
 - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
@@ -358,6 +362,12 @@ blocking correctness checks and advisory maintainability guidance.
 ## Tier 3 Architectural Fitness
 
 - Flags the same enum dot-prong set switched in 2+ files
+- Ignores repeated enum switches that occur only inside test blocks
+- Names every file sharing a repeated enum prong set
+
+## Transactional Metadata
+
+- Restores all non-cache Guardian metadata after a failed gate
 
 ## Baseline Mode
 
@@ -384,6 +394,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Summarizes a ratchet file's worst offender
 - Presents file and type growth as volume with accept-first guidance
 - Scrapes the check's own fix hint for the regression message
+- Retains legacy ratchet entries while the same subjects remain advisory warnings
 
 ## Reporter
 

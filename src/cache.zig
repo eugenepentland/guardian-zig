@@ -1,5 +1,6 @@
-//! Skip-cache: a SHA-256 digest over guardian's whole input set (src/test/
-//! build/spec/guardian.toml/.guardian plus the guardian binary's own identity)
+//! Skip-cache: a SHA-256 digest over guardian's whole input set (src/test,
+//! build metadata, spec/config/.guardian, embedded/external inputs, Git HEAD,
+//! plus the guardian binary's own identity)
 //! so an `all` run whose inputs are unchanged since the last green run is
 //! skipped. Fail-open by design — any digest error makes run_all fall back to a
 //! full run, never to a wrong skip.
@@ -9,6 +10,7 @@ const Allocator = std.mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const walk = @import("walk.zig");
 const config = @import("config.zig");
+const git = @import("git.zig");
 
 /// SHA-256 digest of guardian's input set.
 pub const Digest = [Sha256.digest_length]u8;
@@ -22,7 +24,7 @@ pub const Error = walk.WalkError ||
 
 // Bump when the hashed input set below changes, so a stale cache written by
 // an older guardian can never produce a wrong skip.
-const cache_version = "guardian-cache-v2";
+const cache_version = "guardian-cache-v3";
 // Version tag for the mutation suite digest (see `suiteDigest`). Distinct from
 // cache_version so the two digests can never collide even over an identical item set.
 const suite_version = "guardian-mutation-suite-v1";
@@ -73,13 +75,11 @@ fn selfBinaryId(arena: Allocator) ![]const u8 {
     return std.fmt.allocPrint(arena, "{s}\x00{d}\x00{d}", .{ exe_path, st.size, st.mtime });
 }
 
-/// Digest over every file guardian reads as a check input: the `.zig` files
-/// under src/ and test/, the root build.zig, the spec file, guardian.toml,
-/// and the `.guardian/` tree (baselines + snapshots, minus the cache
-/// itself) — plus the identity of the guardian binary itself, so upgrading
-/// guardian (new or changed checks) re-scans even when the project's own
-/// files are untouched. Files outside this set — e.g. design sources —
-/// never affect it, which is what lets an unrelated edit skip the whole run.
+/// Digest over every file Guardian reads as a check input: `.zig` files under
+/// src/ and test/, build.zig/build.zig.zon, the spec/config, `.guardian`
+/// metadata, declared external inputs, and project-local `@embedFile` assets.
+/// Git HEAD and the running Guardian binary identity are mixed into the prefix,
+/// so a commit or Guardian upgrade re-scans even when project bytes are stable.
 ///
 /// Keep this in sync with what the checks actually read: if a new check
 /// reads a new path, add it here and bump version, or the cache could
@@ -90,7 +90,14 @@ pub fn inputDigest(
     spec_file: []const u8,
     external_gates: []const config.ExternalGate,
 ) Error!Digest {
-    return digestWithBinaryId(arena, project_dir, spec_file, external_gates, try selfBinaryId(arena));
+    const binary_id = try selfBinaryId(arena);
+    const head = git.headHash(arena, project_dir) orelse "no-git-head";
+    const run_identity = try runIdentity(arena, binary_id, head);
+    return digestWithBinaryId(arena, project_dir, spec_file, external_gates, run_identity);
+}
+
+fn runIdentity(arena: Allocator, binary_id: []const u8, head: []const u8) Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(arena, "{s}\x00{s}", .{ binary_id, head });
 }
 
 /// Testable core of `inputDigest`: takes the guardian binary identity as an
@@ -110,10 +117,12 @@ fn digestWithBinaryId(
     try walk.walkZigFiles(arena, src, .{ .display_root = "src" }, v);
     const tst = try std.fmt.allocPrint(arena, "{s}/test", .{project_dir});
     try walk.walkZigFiles(arena, tst, .{ .display_root = "test" }, v);
+    try collectEmbeddedAssets(arena, &items, project_dir);
     const grd = try std.fmt.allocPrint(arena, "{s}/.guardian", .{project_dir});
     try walk.walkZigFiles(arena, grd, .{ .display_root = ".guardian", .extension = "", .excludes = &.{"cache"} }, v);
 
     try readSingle(arena, &items, project_dir, "build.zig");
+    try readSingle(arena, &items, project_dir, "build.zig.zon");
     try readSingle(arena, &items, project_dir, spec_file);
     try readSingle(arena, &items, project_dir, "guardian.toml");
     for (external_gates) |gate| {
@@ -122,6 +131,63 @@ fn digestWithBinaryId(
 
     std.mem.sort(Item, items.items, {}, lessThan);
     return hashItems(cache_version, binary_id, items.items);
+}
+
+/// Adds project-local files named by literal `@embedFile("...")` calls in the
+/// collected Zig sources. These assets affect shipped behavior even though no
+/// Zig-oriented check scans their contents; hashing them prevents Guardian's
+/// green-run cache from hiding a changed JS/CSS/template behind a stale stamp.
+fn collectEmbeddedAssets(
+    arena: Allocator,
+    items: *std.ArrayList(Item),
+    project_dir: []const u8,
+) Error!void {
+    // Appending assets may reallocate `items`; iterate a stable copy of the
+    // source descriptors rather than retaining a slice into that array list.
+    const sources = try arena.dupe(Item, items.items);
+    for (sources) |source| {
+        if (!std.mem.endsWith(u8, source.path, ".zig")) continue;
+        const z = try arena.dupeZ(u8, source.content);
+        var tok = std.zig.Tokenizer.init(z);
+        while (true) {
+            const builtin = tok.next();
+            if (builtin.tag == .eof) break;
+            if (builtin.tag != .builtin or !std.mem.eql(u8, z[builtin.loc.start..builtin.loc.end], "@embedFile")) {
+                continue;
+            }
+            if (tok.next().tag != .l_paren) continue;
+            const literal = tok.next();
+            if (literal.tag != .string_literal) continue;
+            const raw = z[literal.loc.start..literal.loc.end];
+            if (raw.len < 2 or std.mem.indexOfScalar(u8, raw[1 .. raw.len - 1], '\\') != null) continue;
+            const rel = (try resolveEmbeddedPath(arena, source.path, raw[1 .. raw.len - 1])) orelse continue;
+            try readSingle(arena, items, project_dir, rel);
+        }
+    }
+}
+
+/// Resolves an embed literal against its source file while rejecting absolute
+/// paths and `..` traversal above the project root.
+fn resolveEmbeddedPath(arena: Allocator, source_path: []const u8, raw: []const u8) Allocator.Error!?[]const u8 {
+    if (std.fs.path.isAbsolute(raw)) return null;
+    var parts: std.ArrayList([]const u8) = .empty;
+    if (std.fs.path.dirname(source_path)) |dir| {
+        var base = std.mem.splitScalar(u8, dir, '/');
+        while (base.next()) |part| if (part.len > 0) try parts.append(arena, part);
+    }
+    var it = std.mem.splitScalar(u8, raw, '/');
+    while (it.next()) |part| {
+        if (part.len == 0 or std.mem.eql(u8, part, ".")) continue;
+        if (std.mem.eql(u8, part, "..")) {
+            if (parts.items.len == 0) return null;
+            _ = parts.pop();
+            continue;
+        }
+        try parts.append(arena, part);
+    }
+    if (parts.items.len == 0) return null;
+    const joined: []const u8 = try std.mem.join(arena, "/", parts.items);
+    return joined;
 }
 
 /// SHA-256 over a `version` tag, a length-prefixed `prefix` string (the
@@ -243,6 +309,19 @@ test "a different guardian binary identity changes the digest" {
     try std.testing.expect(eql(d1, d3));
 }
 
+// spec: Skip Cache - Invalidates a green stamp when the Git HEAD changes
+
+test "a different Git head changes the run identity" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const id1 = try runIdentity(a, "guardian-build", "head-1");
+    const id2 = try runIdentity(a, "guardian-build", "head-2");
+    const d1 = try digestWithBinaryId(a, "test-project", "SPEC.md", &.{}, id1);
+    const d2 = try digestWithBinaryId(a, "test-project", "SPEC.md", &.{}, id2);
+    try std.testing.expect(!eql(d1, d2));
+}
+
 // spec: Skip Cache - Includes declared external gate input files in the green-run digest
 
 test "a changed external gate input invalidates the digest" {
@@ -263,6 +342,29 @@ test "a changed external gate input invalidates the digest" {
     const d1 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
     try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 2;\n" });
     const d2 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
+    try std.testing.expect(!eql(d1, d2));
+}
+
+// spec: Skip Cache - Includes files referenced by project-local embedFile calls
+
+test "a changed embedded asset invalidates the digest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/embedded-digest-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir ++ "/src");
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("embedded digest cleanup: {s}", .{@errorName(e)});
+
+    try std.fs.cwd().writeFile(.{
+        .sub_path = dir ++ "/src/main.zig",
+        .data = "const script = @embedFile(\"../www/app.js\");\n",
+    });
+    try std.fs.cwd().makePath(dir ++ "/www");
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/www/app.js", .data = "const value = 1;\n" });
+    const d1 = try digestWithBinaryId(a, dir, "SPEC.md", &.{}, "guardian-build");
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/www/app.js", .data = "const value = 2;\n" });
+    const d2 = try digestWithBinaryId(a, dir, "SPEC.md", &.{}, "guardian-build");
     try std.testing.expect(!eql(d1, d2));
 }
 
