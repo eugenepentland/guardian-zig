@@ -202,3 +202,7 @@ the same kind are fine.
 ## 2026-07-19 · codex · eda — multi-terminal Route Lab trees
 - **good:** Guardian separated the intentional 12-line public API expansion from fixable inferred-error-set, type-size, cognitive-complexity, function-size, boolean-condition, and exact-spec-tag findings. Grouping via policy, naming build errors, splitting union-find phases, and binding the failed-candidate evidence claim to a focused test cleared every structural check before all 1,265 tests and 67 checks passed.
 - **friction:** Adding one focused test after an otherwise green gate correctly triggered the exact-spec-tag check, but required another full gate cycle to discover the missing SPEC bullet even though the tag text itself was already the complete bullet. A lightweight spec-only preflight surfaced automatically before the test build would shorten this common feedback loop.
+
+## 2026-07-19 · claude-fable · eda — pour regen button + perf: rebase×2 + merge + auto-deploy
+
+- good: two full gate runs after back-to-back rebases onto fast-moving main (SPEC.md + pcb_board.js overlapped both times, auto-merged) were clean green with zero friction — no baseline erasure this session across five total gate runs, and the post-merge deploy hook built + restarted prod first try.
