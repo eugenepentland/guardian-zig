@@ -402,3 +402,10 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 - friction: `orelse unreachable` in a NEW test trips `panic-budget` (baseline 0) — reasonable, but the fix (`orelse return error.Foo`) isn't obvious from the check name; took a cycle to connect them.
 - good: `guardian-check commit --intent "…"` gated the exact working-tree diff and committed only the 2 touched paths + `.guardian/` on green (67/67) in one shot — clean, no `git add .` footgun.
 - good: `change-classification` correctly forced me to land SPEC.md bullets + `// spec:`-tagged tests in the SAME diff as the src change; the 1:1 bullet↔tag discipline was easy to satisfy and caught that my first spec bullet ("biarc beats symmetric radius") was geometrically false before I shipped it.
+
+## 2026-07-20 · claude (coordinator) · eda — barracuda RF trace audit + 3-agent fix wave
+
+- good: three Opus subagent commits (router join geometry, bend_smooth rework, serve copper-restore/cropnet) all landed through `guardian-check commit --intent` with per-item ratchet accepts only; the Spec+Tests+Code discipline held across agents without coordination overhead.
+- bug: (relayed, reproduced twice by a subagent) `guardian-check commit` swept an untracked build-cache dir (`.zig-cache-c/`) into the commit path list; both times the agent had to amend it out. Untracked dirs matching common cache patterns (or anything in .gitignore-able state) should never enter the staged path list.
+- friction: a subagent working from a stale worktree base saw `repeated-switch-on-enum` baseline failures that don't exist on the real base and "fixed" them by refreshing — wrong-tree baselines are indistinguishable from real debt from inside the gate's output. A `guardian-check` warning when the baseline's recorded HEAD is not an ancestor of the current HEAD would catch this class.
+- good: the E1 collinear-collapse + E9 open-weld router changes were provably covered by the f64c0da `net_open` fab-readiness graph reuse — the gate's spec-tag 1:1 rule forced the agents to write the connectivity tests that made my review trivial.
