@@ -390,3 +390,8 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
   pcb_settings.js, broken since eda f64c0da) only surfaces on `zig build test`;
   cost ~20 min proving the failure pre-existed my diff (stash + rerun) before I
   could commit around it.
+
+## 2026-07-20 · claude-fable (orchestrator) · guardian-zig — commit-gate redesign + friction batch (3 parallel Opus agents)
+- good: three agent branches (gate-mode/CLI, per-check diagnostics, snapshot lifecycle) merged with only two trivial conflicts (SPEC.md bullet union + adjacent run_all.zig hunks); the union-merged `.guardian/pub-api.txt` from three independent selective accepts matched the merged tree exactly — 67/67 green on the first post-merge run, the confirmation run, and a forced `guardian-check all . --gate` blocking run.
+- good: the spec 1:1 discipline held across ~30 new bullets from three concurrent authors with zero tag collisions — section-scoped bullet naming kept parallel spec work merge-clean.
+- wish: with `[gate] on_build` now defaulting to report, `zig build test`'s exit code alone no longer proves the gate green — a blessed blocking build step (e.g. `zig build gate` wrapping `all --gate`) would spare orchestrators the zig-out binary path when verifying merges.
