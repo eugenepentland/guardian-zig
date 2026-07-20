@@ -102,11 +102,34 @@ fn leftTrim(line: []const u8) []const u8 {
     return line[i..];
 }
 
-/// The first line of a check's trailing hint/suggestion block: a `fix:` hint or
-/// the spec check's `add:` suggestions. Everything from here on is prose, not
-/// violations.
+/// Labels that begin a check's trailing prose block. Everything from the first
+/// one onward is guidance, not violations.
+///
+/// This list is the contract for check authors: **trailing prose emitted after
+/// a check's violation lines must start with one of these labels.** A check that
+/// invents a new one has its prose silently scraped as a violation — which is
+/// how `test-no-conditional`'s `why:` rationale line ended up counted as debt,
+/// polluting the baseline and blocking eda's migration with an
+/// unactionable one-line "candidate" that was really the rationale text.
+///
+/// Note that a violation body may itself start with a label (the spec check
+/// emits `unverified: <behavior>`), so this cannot be generalized to "any
+/// leading word followed by a colon" — the set has to stay explicit.
+const hint_labels = [_][]const u8{
+    "fix:", // universal remediation hint
+    "add:", // spec check's suggested `// spec:` tags
+    "why:", // rationale (test-no-conditional)
+    "note:", // aside (stdout-flush)
+    "stdout:", // captured child output (external-gates)
+    "stderr:",
+};
+
+/// True when `trimmed` starts a check's trailing prose block (see `hint_labels`).
 fn isHintStart(trimmed: []const u8) bool {
-    return std.mem.startsWith(u8, trimmed, "fix:") or std.mem.startsWith(u8, trimmed, "add:");
+    for (hint_labels) |label| {
+        if (std.mem.startsWith(u8, trimmed, label)) return true;
+    }
+    return false;
 }
 
 /// Multiset diff of a stored v3 baseline (identity keys) against the current
@@ -929,6 +952,37 @@ test "extract ignores multi-line fix-hint continuations" {
     try std.testing.expectEqualStrings("src/x.zig:5: unguarded @intFromFloat", lines[0]);
 }
 
+// spec: Baseline Mode - Stops scraping violations at every trailing prose label
+
+test "extract stops at a rationale label, not just fix and add" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // test-no-conditional's real output: violations, then a `why:` rationale,
+    // then `fix:`. Scraping only stopped at fix:/add:, so `why:` was counted as
+    // a tenth violation — it polluted the baseline and, having no file, showed
+    // up as a whole new file's worth of "debt" that blocked eda's migration
+    // while printing the rationale text as the sole culprit.
+    const sample =
+        \\guardian: test-no-conditional FAILED (2 occurrence(s))
+        \\  src/a.zig:1880: switch at top level of test body
+        \\  src/b.zig:107: while at top level of test body
+        \\  why: tests assert, helpers compute — a conditional can silently skip the assertion.
+        \\  fix: one top-level loop is fine; split a branch into two independent tests.
+    ;
+    const lines = try extract(a, sample);
+    try std.testing.expectEqual(@as(usize, 2), lines.len);
+    try std.testing.expectEqualStrings("src/b.zig:107: while at top level of test body", lines[1]);
+
+    // The other labels checks use for trailing prose are covered too.
+    const with_note =
+        \\guardian: stdout-flush FAILED (1 occurrence(s))
+        \\  src/c.zig:12: buffered writer never flushed
+        \\  note: a missing flush() truncates output in 0.15.
+    ;
+    try std.testing.expectEqual(@as(usize, 1), (try extract(a, with_note)).len);
+}
+
 test "extract stops at the spec add: suggestion block" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1130,6 +1184,55 @@ test "rewording a violation's message leaves the baseline green" {
     };
     const grew = try keyedViolations(a, "repeated-switch-on-enum", "", &.{ after, other });
     try std.testing.expect((try lifecycle(a, path, grew, false)) == .grown);
+}
+
+// spec: Baseline Mode - Preserves the count of same-key violations across a stored baseline
+
+test "six identical-key violations round-trip through the file as six" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-multiplicity.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // eda's real shape: six occurrences in one file, identical message, differing
+    // only by line — and line numbers are deliberately absent from the key, so
+    // all six share one key. Storage is a multiset, not a set: the baseline must
+    // still be able to tell six from one, or fixing five would go unnoticed.
+    const six = try keyedLines(a, "test-no-conditional", &.{
+        "src/eval/design_block.zig:1880: switch at top level of test body",
+        "src/eval/design_block.zig:1902: switch at top level of test body",
+        "src/eval/design_block.zig:1954: switch at top level of test body",
+        "src/eval/design_block.zig:1980: switch at top level of test body",
+        "src/eval/design_block.zig:2015: switch at top level of test body",
+        "src/eval/design_block.zig:2042: switch at top level of test body",
+    });
+    // They really do collapse to one key...
+    for (six) |k| try std.testing.expectEqualStrings(six[0].key, k.key);
+    try std.testing.expect((try lifecycle(a, path, six, false)) == .created);
+    // ...yet the stored file holds six lines, so the count survives.
+    const stored = try snapshot.read(a, path, version);
+    try std.testing.expectEqual(@as(usize, 6), stored.lines.len);
+
+    // Re-running with all six still matches (no churn from the duplication).
+    try std.testing.expect((try lifecycle(a, path, six, false)) == .matched);
+
+    // Fixing five is an improvement the baseline notices and prunes to.
+    const one = try keyedLines(a, "test-no-conditional", &.{
+        "src/eval/design_block.zig:1880: switch at top level of test body",
+    });
+    const shrunk = try lifecycle(a, path, one, false);
+    try std.testing.expect(shrunk == .shrunk);
+    try std.testing.expectEqual(@as(usize, 5), shrunk.shrunk.removed);
+
+    // ...and adding a seventh occurrence back is caught as new debt.
+    const two = try keyedLines(a, "test-no-conditional", &.{
+        "src/eval/design_block.zig:1880: switch at top level of test body",
+        "src/eval/design_block.zig:1999: switch at top level of test body",
+    });
+    try std.testing.expect((try lifecycle(a, path, two, false)) == .grown);
 }
 
 // spec: Baseline Mode - Re-keys a stale text baseline to stable identities without failing

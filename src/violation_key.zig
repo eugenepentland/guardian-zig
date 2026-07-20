@@ -125,17 +125,18 @@ const Located = struct { file: ?[]const u8, message: []const u8 };
 /// line. The prefix is only taken as a file when it *looks* like one
 /// (`looksLikePath`), so the spec check's `unverified: Auth - ...` keeps its
 /// whole text as the message instead of gaining a bogus `unverified` file.
+///
+/// Only the **first** colon-delimited segment is ever considered. A rendered
+/// violation puts its file at the very front or has none at all, so scanning
+/// deeper can only find a path *inside the message* and mistake it for the
+/// location — which is exactly what made `repeated-switch-on-enum` (whose
+/// message lists `file:line` pairs) bucket ten unchanged violations into ten
+/// bogus "files" and wrongly block eda's migration.
 fn splitLocation(line: []const u8) Located {
-    var i: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, line, i, ':')) |c| {
-        const candidate = line[0..c];
-        if (!looksLikePath(candidate)) {
-            i = c + 1;
-            continue;
-        }
-        return .{ .file = candidate, .message = afterLocation(line, c) };
-    }
-    return .{ .file = null, .message = line };
+    const colon = std.mem.indexOfScalar(u8, line, ':') orelse return .{ .file = null, .message = line };
+    const candidate = line[0..colon];
+    if (!looksLikePath(candidate)) return .{ .file = null, .message = line };
+    return .{ .file = candidate, .message = afterLocation(line, colon) };
 }
 
 /// The message body following a file prefix that ends at `colon`, skipping an
@@ -242,6 +243,43 @@ test "fromRecord resolves identity, ratchet key, and skeleton tiers in order" {
     try testing.expectEqualStrings(
         "ban-fs|src/y.zig|std.fs.cwd reference outside allowed paths",
         try fromRecord(a, "ban-fs", tier3),
+    );
+}
+
+// spec: Violation Identity - Ignores a path inside a message when locating the violation's file
+
+test "splitLocation only treats a leading segment as the file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // repeated-switch-on-enum's real shape: no file prefix, but the message
+    // lists `file:line` pairs. Scanning past the first colon used to latch onto
+    // `src/review.zig` and invent a per-violation "file", which bucketed ten
+    // unchanged violations as ten newly-gained files and blocked eda's
+    // migration. The location is a prefix or nothing.
+    const cross_file =
+        "switch on prongs (@\"error\",info,warning) appears in 2 files: " ++
+        "src/review.zig:368, src/serve/schematic_page.zig:236";
+    try testing.expectEqualStrings(no_file, fileOf(cross_file));
+
+    // The pre-rewording v1 rendering of that same violation (no `:line`
+    // suffixes) must land in the same bucket, which is what makes the migration
+    // guard see "nothing gained" instead of ten new files.
+    const cross_file_v1 =
+        "switch on prongs (@\"error\",info,warning) appears in 2 files: " ++
+        "src/review.zig, src/serve/schematic_page.zig";
+    try testing.expectEqualStrings(fileOf(cross_file_v1), fileOf(cross_file));
+
+    // A genuine location prefix is still recognized.
+    try testing.expectEqualStrings("src/x.zig", fileOf("src/x.zig:5: fn foo is long"));
+    // And the cross-file key keeps the whole line as its discriminator, with the
+    // file *count* skeletonized — so the same prong set spreading to a third
+    // file would not re-key either.
+    try testing.expectEqualStrings(
+        "repeated-switch-on-enum|switch on prongs (@\"error\",info,warning) appears in # files: " ++
+            "src/review.zig, src/serve/schematic_page.zig",
+        try fromLine(a, "repeated-switch-on-enum", cross_file_v1),
     );
 }
 
