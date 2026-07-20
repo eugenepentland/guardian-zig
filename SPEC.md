@@ -411,6 +411,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Keeps a baselined violation matched when its message text is reworded
 - Re-keys a stale text baseline to stable identities without failing
 - Refuses to migrate a stale baseline when a file gained violations
+- Stops scraping violations at every trailing prose label
+- Preserves the count of same-key violations across a stored baseline
 
 ## Violation Identity
 
@@ -419,6 +421,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Derives the same fallback key from a scraped line as from a record
 - Reports the file a rendered violation line names
 - Identifies a banned symbol hit by its file and symbol rather than its wording
+- Ignores a path inside a message when locating the violation's file
 
 ## Per-Item Ratchets
 
