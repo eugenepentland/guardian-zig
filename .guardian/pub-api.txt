@@ -172,6 +172,7 @@ src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.
 src/checks/policy_drift.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
+src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_switch_on_enum.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -194,6 +195,7 @@ src/checks/test_coverage.zig::run | fn run(ctx_param: *registry.RunCtx) registry
 src/checks/test_has_assertion.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_has_assertion.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/test_no_conditional.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
+src/checks/test_no_conditional.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void

@@ -27,6 +27,17 @@ pub fn analyzeContent(
     rel_path: []const u8,
     content: [:0]const u8,
 ) Allocator.Error![]const []const u8 {
+    return reporter.flatLines(allocator, try analyzeRecords(allocator, rel_path, content));
+}
+
+/// Structured entry: the violation records, carrying the stable identity the
+/// baseline keys on. `analyzeContent` renders these to the same lines it always
+/// returned, so the golden harness and string-shaped callers are unaffected.
+pub fn analyzeRecords(
+    allocator: Allocator,
+    rel_path: []const u8,
+    content: [:0]const u8,
+) Allocator.Error![]const reporter.Violation {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -112,8 +123,8 @@ fn collectViolations(
     allocator: Allocator,
     rel_path: []const u8,
     occ: *std.StringHashMapUnmanaged(std.ArrayList(u32)),
-) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayList([]const u8) = .empty;
+) Allocator.Error![]const reporter.Violation {
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var iter = occ.iterator();
     while (iter.next()) |e| {
         const lines = e.value_ptr.*.items;
@@ -122,13 +133,26 @@ fn collectViolations(
         defer allocator.free(at);
         const msg = try std.fmt.allocPrint(
             allocator,
-            "{s}: string literal {s} appears {d} times (lines {s}) — extract a const",
-            .{ rel_path, e.key_ptr.*, lines.len, at },
+            "string literal {s} appears {d} times (lines {s}) — extract a const",
+            .{ e.key_ptr.*, lines.len, at },
         );
-        try violations.append(allocator, msg);
+        // The repeated literal is what was flagged; the occurrence count and
+        // the line list are context about it that churns as the file is edited.
+        // The identity self-qualifies with the file: a tier-1 key is used whole,
+        // never re-qualified (violation_key.fromRecord).
+        const identity = try std.fmt.allocPrint(allocator, "{s}|{s}", .{ rel_path, e.key_ptr.* });
+        try violations.append(allocator, .{
+            .check = check_name,
+            .file = rel_path,
+            .message = msg,
+            .identity = identity,
+        });
     }
     return violations.toOwnedSlice(allocator);
 }
+
+/// The check's registry name, reused as each record's `check` field.
+const check_name = "repeated-string-literal";
 
 /// Renders occurrence lines ascending as `"12, 34, 56"` for the failure message.
 fn formatLineList(allocator: Allocator, lines: []const u32) Allocator.Error![]const u8 {
@@ -309,7 +333,7 @@ fn indexSeen(seen: []const usize, i: usize) bool {
 
 const MergedCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayList([]const u8),
+    violations: *std.ArrayList(reporter.Violation),
     decls: *std.ArrayList(Decl),
 };
 
@@ -334,7 +358,7 @@ fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) !vo
     var occ: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty;
     try countLiteralsTree(tree, fa, &occ);
     const out = try collectViolations(ctx.allocator, rel_path, &occ);
-    for (out) |line| try ctx.violations.append(ctx.allocator, line);
+    for (out) |rec| try ctx.violations.append(ctx.allocator, rec);
 
     // Decls persist into the cross-file pass, so they use the run allocator.
     try extractConstsTree(tree, ctx.allocator, rel_path, ctx.decls);
@@ -344,7 +368,7 @@ fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) !vo
 /// cross-file duplicate named consts).
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var violations: std.ArrayList([]const u8) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var decls: std.ArrayList(Decl) = .empty;
     var mctx: MergedCtx = .{ .allocator = allocator, .violations = &violations, .decls = &decls };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &mctx, .visit = mergedVisit });
@@ -356,7 +380,19 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
             "duplicate const {s} = \"{s}\" across {d} files",
             .{ g.name, g.value, g.files.len },
         );
-        try violations.append(allocator, msg);
+        // A cross-file finding names no single file, so — like the prong set in
+        // repeated-switch-on-enum — the const and its value stand alone as the
+        // whole identity. The file count is churn and stays out of it.
+        const identity = try std.fmt.allocPrint(
+            allocator,
+            "const {s} = \"{s}\"",
+            .{ g.name, g.value },
+        );
+        try violations.append(allocator, .{
+            .check = check_name,
+            .message = msg,
+            .identity = identity,
+        });
     }
 
     if (violations.items.len == 0) {
@@ -364,7 +400,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         return;
     }
     reporter.fail("repeated-string-literal FAILED ({d} occurrence(s))", .{violations.items.len});
-    for (violations.items) |v| detail("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     detail("  fix: extract the literal/const into a shared file-scope const and import it.\n", .{});
     return error.CheckFailed;
 }
@@ -373,6 +409,31 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
 // spec: Tier 2 Anti-patterns - Names the line of each repeated-literal occurrence
 // spec: Duplicate Const - Rejects duplicate file-scope string-literal consts (same name and value) across files
 // spec: Duplicate Const - Ignores cross-file consts shorter than the in-file minimum length
+
+// spec: Tier 2 Anti-patterns - Identifies a repeated literal by the literal itself
+
+test "analyzeRecords identifies by the literal, not its count or line list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const three =
+        \\fn a() []const u8 { return "/etc/something"; }
+        \\fn b() []const u8 { return "/etc/something"; }
+        \\fn c() []const u8 { return "/etc/something"; }
+    ;
+    const recs = try analyzeRecords(a, "src/x.zig", three);
+    try std.testing.expectEqual(@as(usize, 1), recs.len);
+    try std.testing.expectEqualStrings("src/x.zig|/etc/something", recs[0].identity.?);
+    // Rendering is unchanged: flatLine reproduces the pre-migration text.
+    const lines = try reporter.flatLines(a, recs);
+    try std.testing.expect(std.mem.startsWith(u8, lines[0], "src/x.zig: string literal /etc/something"));
+    // A fourth copy moves the count and the line list — both live in the
+    // message — while the identity, and so the baseline key, stays put.
+    const four = try analyzeRecords(a, "src/x.zig", three ++
+        "\nfn d() []const u8 { return \"/etc/something\"; }");
+    try std.testing.expectEqualStrings(recs[0].identity.?, four[0].identity.?);
+    try std.testing.expect(!std.mem.eql(u8, recs[0].message, four[0].message));
+}
 
 test "analyzeContent flags 3 copies of the same literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

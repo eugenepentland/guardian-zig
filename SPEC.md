@@ -382,6 +382,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects bare integer literals outside a small allowlist
 - Rejects identical string literals appearing 3 or more times in a single file
 - Names the line of each repeated-literal occurrence
+- Identifies a repeated literal by the literal itself
 - Caps pub fn methods per pub struct/enum/union
 - Caps the percentage of optional fields in a public struct
 - Rejects switch expressions whose case keys are string literals
@@ -533,6 +534,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
+- Identifies a flagged construct by its test and keyword
 - Rejects production code @import-ing test files
 
 ## Test Skip Ban
