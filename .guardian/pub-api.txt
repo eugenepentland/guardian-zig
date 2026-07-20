@@ -350,6 +350,7 @@ src/metadata_transaction.zig::RollbackError value
 src/metadata_transaction.zig::Transaction struct_
 src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction
 src/metadata_transaction.zig::deinit | fn deinit(self: *Transaction) void
+src/metadata_transaction.zig::preserveMetadata | fn preserveMetadata(self: *Transaction, rel_paths: []const []const u8) void
 src/metadata_transaction.zig::rollback | fn rollback(self: *Transaction) RollbackError!void
 src/mutation/cache.zig::Map value
 src/mutation/cache.zig::Reuse enum_
@@ -459,7 +460,11 @@ src/snapshot.zig::writePresorted | fn writePresorted(path: []const u8, version: 
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_
+src/snapshot_helper.zig::example_named_refresh value
 src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, ) LifecycleError!Outcome
+src/snapshot_helper.zig::preservedMetadataPaths | fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8
+src/snapshot_helper.zig::printAcceptPaths | fn printAcceptPaths(check_name: []const u8) void
+src/snapshot_helper.zig::refreshTargetSummary | fn refreshTargetSummary(allocator: Allocator) ?[]const u8
 src/snapshot_helper.zig::refreshTargets | fn refreshTargets(allocator: Allocator) ?[]const []const u8
 src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
 src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool

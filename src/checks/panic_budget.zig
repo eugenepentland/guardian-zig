@@ -17,6 +17,7 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 const snapshot_leaf = "panic-budget.txt";
+const check_name = "panic-budget";
 // v2: added comptime_calls / comptime_max (folded in comptime-quota).
 const snapshot_version: u32 = 2;
 
@@ -251,11 +252,8 @@ fn collectFailures(
 fn reportFailures(failures: []const []const u8) registry.RunError!void {
     fail("panic budget FAILED", .{});
     for (failures) |line| print("  {s}\n", .{line});
-    print(
-        "  fix: reduce, OR run zig build guardian-accept " ++
-            "-Dguardian-checks=panic-budget and commit .guardian/{s}\n",
-        .{snapshot_leaf},
-    );
+    print("  fix: reduce the panics/unreachables, or accept the new budget:\n", .{});
+    snapshot_helper.printAcceptPaths(check_name);
 }
 
 fn scanTotals(ctx_param: *registry.RunCtx) registry.RunError!Counts {
@@ -283,7 +281,7 @@ fn loadBudget(
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
     const allocator = ctx.allocator;
-    if (snapshot_helper.shouldUpdateForCtx(ctx, "panic-budget")) {
+    if (snapshot_helper.shouldUpdateForCtx(ctx, check_name)) {
         try snapshot.write(snap_path, snapshot_version, new_lines);
         okCounts("panic budget updated (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
         return null;
@@ -308,7 +306,8 @@ fn handleReadError(
         },
         error.VersionMismatch => {
             fail("panic budget version mismatch", .{});
-            print("  fix: zig build guardian-accept -Dguardian-checks=panic-budget\n", .{});
+            print("  fix: re-record the snapshot at the new format version:\n", .{});
+            snapshot_helper.printAcceptPaths(check_name);
             return error.CheckFailed;
         },
         else => return e,

@@ -226,12 +226,16 @@ blocking correctness checks and advisory maintainability guidance.
 - Requires the explicit all token for a full refresh
 - Treats an unset, empty, or zero value as no refresh
 - Accept command refreshes only its explicit context-local check names
+- Lists the metadata files a named refresh keeps through a failed gate
+- Prints every working accept path for a snapshot check's drift
+- Offers a concrete named-refresh example when a broad token is rejected
 
 ## Pub Api Surface
 
 - Snapshots every public declaration
 - Diff fails on unexpected pub additions or removals
 - Diff fails when an existing pub fn signature changes
+- Classifies surface drift as new, changed, and removed symbols
 
 ## Panic Budget
 
@@ -368,6 +372,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Transactional Metadata
 
 - Restores all non-cache Guardian metadata after a failed gate
+- Preserves a named refresh's metadata across a failed gate
 
 ## Baseline Mode
 
@@ -376,6 +381,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
 - Prefers structured records over scraped text when present
+- Leaves a matched baseline untouched when only line numbers shifted
+- Records no baseline file for a check with nothing to record
 
 ## Per-Item Ratchets
 

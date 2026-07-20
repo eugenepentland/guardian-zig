@@ -7,6 +7,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 const types = @import("cli/types.zig");
+const reporter = @import("reporter.zig");
 
 pub const update_env = "GUARDIAN_UPDATE_SNAPSHOT";
 
@@ -141,6 +142,78 @@ pub fn usesLegacyBroadToken(allocator: Allocator) bool {
     const raw = std.process.getEnvVarOwned(allocator, update_env) catch return false;
     defer allocator.free(raw);
     return isRejectedBroadToken(std.mem.trim(u8, raw, &std.ascii.whitespace));
+}
+
+/// A concrete named-refresh invocation, printed when a rejected broad token
+/// (`=1`/`=true`) is refused so the operator sees a real replacement instead of
+/// the vague "name the intended checks". Both names are real gates, so the
+/// example survives the refresh-target validator unchanged.
+pub const example_named_refresh = update_env ++ "=pub-api-surface,spec";
+
+/// A comma-separated summary of the checks named in a `named`
+/// GUARDIAN_UPDATE_SNAPSHOT request, for a human-facing notice; null under the
+/// none/all/rejected modes. Owned by `allocator`.
+pub fn refreshTargetSummary(allocator: Allocator) ?[]const u8 {
+    const names = refreshTargets(allocator) orelse return null;
+    if (names.len == 0) return null;
+    return std.mem.join(allocator, ", ", names) catch null;
+}
+
+/// The `.guardian/`-relative metadata files a selective refresh of the checks
+/// named in GUARDIAN_UPDATE_SNAPSHOT is allowed to keep across a red run — the
+/// input to `metadata_transaction`'s selective restore (see C2 in FEEDBACK.md).
+/// Empty under the none/all/rejected modes: `=all` keeps all-or-nothing
+/// semantics, and a rejected/absent value preserves nothing. Owned by `allocator`.
+///
+/// Per named check we list every path the check could own — its baseline
+/// (`baselines/<check>.txt`, covering v1 text and v2 ratchet checks), its
+/// same-named snapshot leaf (`<check>.txt`, covering the budget snapshots whose
+/// leaf equals the check name), and pub-api-surface's differently-named
+/// `pub-api.txt`. Listing a path the check never wrote is harmless: the
+/// transaction simply finds nothing to keep there.
+pub fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8 {
+    const names = refreshTargets(allocator) orelse return &.{};
+    return metadataRelPathsFor(allocator, names);
+}
+
+/// Pure name→path expansion behind `preservedMetadataPaths` (no env read), so
+/// the path set is unit-testable without touching the process environment.
+fn metadataRelPathsFor(allocator: Allocator, names: []const []const u8) Allocator.Error![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    for (names) |name| try appendMetadataRelPaths(allocator, &out, name);
+    return out.toOwnedSlice(allocator);
+}
+
+/// Appends every `.guardian/`-relative path check `name` might own (see
+/// `preservedMetadataPaths`).
+fn appendMetadataRelPaths(
+    allocator: Allocator,
+    out: *std.ArrayList([]const u8),
+    name: []const u8,
+) Allocator.Error!void {
+    try out.append(allocator, try std.fmt.allocPrint(allocator, "baselines/{s}.txt", .{name}));
+    try out.append(allocator, try std.fmt.allocPrint(allocator, "{s}.txt", .{name}));
+    if (std.mem.eql(u8, name, "pub-api-surface")) try out.append(allocator, "pub-api.txt");
+}
+
+/// Prints the full set of working ways to accept a snapshot/baseline check's
+/// drift, so remediation tells the whole truth (see C3/C4 in FEEDBACK.md): the
+/// raw CLI form (works even when the binary is only under `.zig-cache/`), the
+/// selective env-var form (which — after the C2 transaction fix — persists even
+/// when another check reds the run), and the repo-wired build step (present
+/// only when the consumer's build wired `guardian-accept`). Callers print their
+/// own `fix:` line first so baseline capture stops before this block.
+pub fn printAcceptPaths(check_name: []const u8) void {
+    reporter.detail("  accept (any one; then commit the .guardian/ change):\n", .{});
+    reporter.detail("    guardian-check accept {s} .   # raw CLI, always works\n", .{check_name});
+    reporter.detail(
+        "    {s}={s} zig build   # env var; kept even if another check fails the run\n",
+        .{ update_env, check_name },
+    );
+    reporter.detail(
+        "    zig build guardian-accept -Dguardian-checks={s}   # if your build wires guardian-accept\n",
+        .{check_name},
+    );
 }
 
 /// Joins `project_dir/.guardian/{leaf}` for snapshot file paths. Caller owns
@@ -369,4 +442,52 @@ test "shouldUpdateForCtx honors explicit refreshes without an environment variab
     };
     try std.testing.expect(shouldUpdateForCtx(&ctx, "file-size"));
     try std.testing.expect(!ctx.refreshes("spec"));
+}
+
+// spec: Snapshot Lifecycle - Lists the metadata files a named refresh keeps through a failed gate
+
+test "metadataRelPathsFor lists baseline, same-named, and pub-api leaves per check" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // A baseline/budget check: its baseline and same-named snapshot leaf, no more.
+    const budget = try metadataRelPathsFor(a, &.{"panic-budget"});
+    try testing.expectEqual(@as(usize, 2), budget.len);
+    try testing.expectEqualStrings("baselines/panic-budget.txt", budget[0]);
+    try testing.expectEqualStrings("panic-budget.txt", budget[1]);
+
+    // pub-api-surface additionally owns its differently-named pub-api.txt leaf.
+    const api = try metadataRelPathsFor(a, &.{"pub-api-surface"});
+    try testing.expectEqual(@as(usize, 3), api.len);
+    try testing.expectEqualStrings("pub-api.txt", api[2]);
+
+    // With no GUARDIAN_UPDATE_SNAPSHOT set (the case during `zig build test`),
+    // the env-reading wrappers preserve nothing and summarize nothing.
+    try testing.expectEqual(@as(usize, 0), (try preservedMetadataPaths(a)).len);
+    try testing.expect(refreshTargetSummary(a) == null);
+}
+
+// spec: Snapshot Lifecycle - Prints every working accept path for a snapshot check's drift
+
+test "printAcceptPaths shows the raw CLI, env-var, and build-step forms" {
+    var cap: reporter.Capture = .{ .allocator = testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    printAcceptPaths("pub-api-surface");
+    const out = cap.buf.items;
+    // All three working accept paths appear, so remediation tells the whole truth.
+    try testing.expect(std.mem.indexOf(u8, out, "guardian-check accept pub-api-surface .") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "guardian-accept -Dguardian-checks=pub-api-surface") != null);
+}
+
+// spec: Snapshot Lifecycle - Offers a concrete named-refresh example when a broad token is rejected
+
+test "example_named_refresh names real checks with the update env var" {
+    try testing.expect(std.mem.startsWith(u8, example_named_refresh, update_env ++ "="));
+    try testing.expect(std.mem.indexOf(u8, example_named_refresh, "pub-api-surface") != null);
 }

@@ -17,6 +17,7 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 const snapshot_leaf = "unsafe-ops-budget.txt";
+const check_name = "unsafe-ops-budget";
 const snapshot_version: u32 = 1;
 
 /// The unsafe-cast builtins tracked, each written as its own snapshot line so a
@@ -195,11 +196,8 @@ fn collectFailures(allocator: std.mem.Allocator, totals: Counts, budget: Counts)
 fn reportFailures(failures: []const []const u8) void {
     fail("unsafe-ops budget FAILED", .{});
     for (failures) |line| print("  {s}\n", .{line});
-    print(
-        "  fix: justify the new unsafe op, OR run zig build guardian-accept " ++
-            "-Dguardian-checks=unsafe-ops-budget and commit .guardian/{s}\n",
-        .{snapshot_leaf},
-    );
+    print("  fix: justify the new unsafe op, or accept the new budget:\n", .{});
+    snapshot_helper.printAcceptPaths(check_name);
 }
 
 fn scanTotals(ctx_param: *registry.RunCtx) registry.RunError!Counts {
@@ -223,7 +221,7 @@ fn loadBudget(
     new_lines: [][]const u8,
 ) registry.RunError!?Counts {
     const allocator = ctx.allocator;
-    if (snapshot_helper.shouldUpdateForCtx(ctx, "unsafe-ops-budget")) {
+    if (snapshot_helper.shouldUpdateForCtx(ctx, check_name)) {
         try snapshot.write(snap_path, snapshot_version, new_lines);
         ok("unsafe-ops budget updated (casts={d}, undefined_reassign={d})", .{
             totals.castTotal(), totals.undefined_reassign,
@@ -252,7 +250,8 @@ fn handleReadError(
         },
         error.VersionMismatch => {
             fail("unsafe-ops budget: stale snapshot", .{});
-            print("  fix: zig build guardian-accept -Dguardian-checks=unsafe-ops-budget\n", .{});
+            print("  fix: re-record the snapshot at the new format version:\n", .{});
+            snapshot_helper.printAcceptPaths(check_name);
             return error.CheckFailed;
         },
         else => return e,

@@ -72,6 +72,12 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     };
     defer metadata.deinit();
+    // C2: a selectively-named refresh (GUARDIAN_UPDATE_SNAPSHOT=<check>) keeps its
+    // freshly-written metadata even when a DIFFERENT check reds the gate — the
+    // transaction restores everything EXCEPT the named checks' files, so the
+    // operator no longer loses an accept to an unrelated failure. `=all` and the
+    // none/rejected modes preserve nothing (whole-tree rollback stands).
+    metadata.preserveMetadata(snapshot_helper.preservedMetadataPaths(ctx.allocator) catch &.{});
     var metadata_active = true;
     defer if (metadata_active) metadata.rollback() catch |err|
         fail("could not roll back Guardian metadata after an interrupted run: {s}", .{@errorName(err)});
@@ -123,6 +129,10 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     };
     metadata_active = false;
     reporter.detail("  metadata: restored pre-run .guardian snapshots and baselines\n", .{});
+    // C2: name what the restore deliberately kept, so the operator knows the
+    // selective refresh persisted rather than silently reverting.
+    if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |kept|
+        reporter.detail("  metadata: kept named refresh(es) despite the red run: {s}\n", .{kept});
     reporter.detail("{s}", .{stale_artifact_caution});
     return error.CheckFailed;
 }
@@ -261,7 +271,10 @@ pub fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void {
 fn validateRefreshTargets(allocator: std.mem.Allocator) types.RunError!void {
     if (snapshot_helper.usesLegacyBroadToken(allocator)) {
         fail("{s}=1/true is no longer accepted for a broad refresh", .{snapshot_helper.update_env});
-        fail("  use {s}=all explicitly, or name only the intended checks", .{snapshot_helper.update_env});
+        fail(
+            "  use {s}=all for everything, or name only the intended checks — e.g. {s}",
+            .{ snapshot_helper.update_env, snapshot_helper.example_named_refresh },
+        );
         return error.CheckFailed;
     }
     const names = snapshot_helper.refreshTargets(allocator) orelse return;
