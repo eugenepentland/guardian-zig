@@ -147,7 +147,10 @@ fn stageAndCommit(ctx: *types.RunCtx, intent: []const u8) types.RunError!void {
         reporter.fail("commit: `git status` failed — not a git repo, or git unavailable", .{});
         return error.CheckFailed;
     };
-    const plan = try planStaging(a, changed, ctx.cfg.spec_file);
+    // Resolved here, not inside the planner, so the staging rails stay pure over
+    // their inputs and unit-testable without touching git.
+    const hook_path = install_hook.relativeHookPath(a, ctx.project_dir);
+    const plan = try planStaging(a, changed, ctx.cfg.spec_file, hook_path);
 
     warnSkipped(plan.skipped);
     if (plan.stage.len == 0) {
@@ -185,29 +188,53 @@ const StagePlan = struct {
 
 /// Partitions `changed` into the stage set and the skipped-forbidden set. Pure
 /// over its inputs so the rails are unit-tested without touching git.
-fn planStaging(a: Allocator, changed: []const git.ChangedPath, spec_file: []const u8) Allocator.Error!StagePlan {
+fn planStaging(
+    a: Allocator,
+    changed: []const git.ChangedPath,
+    spec_file: []const u8,
+    hook_path: ?[]const u8,
+) Allocator.Error!StagePlan {
     var stage: std.ArrayList([]const u8) = .empty;
     var skipped: std.ArrayList([]const u8) = .empty;
     for (changed) |c| {
-        switch (stagingDecision(c, spec_file)) {
+        switch (stagingDecision(c, spec_file, hook_path)) {
             .stage => try stage.append(a, c.path),
             .skip_forbidden => try skipped.append(a, c.path),
+            .skip_generated => {},
         }
     }
     return .{ .stage = try stage.toOwnedSlice(a), .skipped = try skipped.toOwnedSlice(a) };
 }
 
-/// What to do with one changed path.
-const StageAction = enum { stage, skip_forbidden };
+/// What to do with one changed path. `skip_generated` is warning-free — see
+/// `stagingDecision` for why that one silent drop is safe.
+const StageAction = enum { stage, skip_forbidden, skip_generated };
 
 /// Per-path staging decision: the always-include set (guardian metadata + the
-/// spec file) wins; the forbidden filter applies only to untracked paths — a
-/// tracked path was deliberately added to the repo, and skipping its change
-/// would desync the commit from the gated tree; the default is staging.
-fn stagingDecision(c: git.ChangedPath, spec_file: []const u8) StageAction {
+/// spec file) wins; the filters apply only to untracked paths — a tracked path
+/// was deliberately added to the repo, and skipping its change would desync the
+/// commit from the gated tree; the default is staging.
+///
+/// The hook check comes first and is the one drop that is *not* warned about:
+/// `run` had `install_hook.ensure` write that exact file moments earlier, so
+/// warning would fire on every single commit. Silence is safe here in a way it
+/// is not for a forbidden path — the hook is Guardian's own machine-local
+/// output (it embeds an absolute binary path, so it must never enter history),
+/// it is never gated source, and dropping it cannot desync the commit from the
+/// tree the gate verified.
+fn stagingDecision(c: git.ChangedPath, spec_file: []const u8, hook_path: ?[]const u8) StageAction {
     if (alwaysInclude(c.path, spec_file)) return .stage;
+    if (!c.tracked and isGeneratedHook(c.path, hook_path)) return .skip_generated;
     if (!c.tracked and isForbidden(c.path)) return .skip_forbidden;
     return .stage;
+}
+
+/// True when `path` is the pre-commit hook Guardian manages for this project.
+/// `hook_path` is null when git couldn't resolve a hooks dir inside the project,
+/// in which case there is nothing to exclude.
+fn isGeneratedHook(path: []const u8, hook_path: ?[]const u8) bool {
+    const hook = hook_path orelse return false;
+    return std.mem.eql(u8, path, hook);
 }
 
 /// True for paths always carried by the commit: `.guardian/` metadata (so
@@ -229,6 +256,7 @@ fn alwaysInclude(path: []const u8, spec_file: []const u8) bool {
 fn isForbidden(path: []const u8) bool {
     const base = baseName(path);
     if (isBuildArtifactPath(path)) return true;
+    if (isSessionStatePath(path)) return true;
     if (std.ascii.eqlIgnoreCase(base, ".env") or std.ascii.startsWithIgnoreCase(base, ".env.")) return true;
     if (std.ascii.startsWithIgnoreCase(base, "id_rsa")) return true;
     if (endsWithAny(base, &.{ ".pem", ".key", ".p12" })) return true;
@@ -253,6 +281,18 @@ fn isBuildArtifactPath(path: []const u8) bool {
     return std.mem.eql(u8, seg, "zig-out") or
         std.mem.startsWith(u8, seg, ".zig-cache") or
         std.mem.startsWith(u8, seg, "zig-cache");
+}
+
+/// True when `path`'s first segment is a coding-agent session-state directory.
+/// These hold another tool's per-session scratch (worktree registries, local
+/// settings, transcripts), not project source: one commit swept a stray
+/// `.codex/worktrees/…` entry in alongside real code. Untracked only, so a
+/// project that deliberately tracks `.claude/settings.json` is unaffected, and
+/// the skip warning tells the author how to include it on purpose.
+fn isSessionStatePath(path: []const u8) bool {
+    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return false;
+    const seg = path[0..slash];
+    return std.mem.eql(u8, seg, ".codex") or std.mem.eql(u8, seg, ".claude");
 }
 
 /// The final path segment after the last `/` (the whole string if none).
@@ -327,10 +367,64 @@ test "planStaging skips suffixed zig cache dirs the exact-prefix rail missed" {
         untracked("zig-out/bin/app"),
         untracked("src/keep.zig"),
     };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 1), plan.stage.len);
     try testing.expectEqualStrings("src/keep.zig", plan.stage[0]);
     try testing.expectEqual(@as(usize, 3), plan.skipped.len);
+}
+
+// spec: Commit - Excludes untracked agent session-state directories from staging
+
+test "planStaging skips agent session dirs but stages a tracked one" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const changed = [_]git.ChangedPath{
+        // The exact entry a real commit swept in, plus its sibling agent dir.
+        untracked(".codex/worktrees/embed-cache-integrity"),
+        untracked(".claude/settings.local.json"),
+        // A project that deliberately tracks its agent config keeps it: the
+        // rail only ever drops UNtracked paths.
+        tracked(".claude/settings.json"),
+        untracked("src/keep.zig"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
+    try testing.expectEqual(@as(usize, 2), plan.stage.len);
+    try testing.expectEqualStrings(".claude/settings.json", plan.stage[0]);
+    try testing.expectEqualStrings("src/keep.zig", plan.stage[1]);
+    // Both untracked session paths are reported, never silently dropped.
+    try testing.expectEqual(@as(usize, 2), plan.skipped.len);
+    // A same-named file outside a session dir is ordinary source, not scratch.
+    try testing.expect(!isSessionStatePath("src/.codex/x"));
+    try testing.expect(!isSessionStatePath(".codexrc/x"));
+}
+
+// spec: Commit - Excludes its own generated pre-commit hook from staging
+
+test "planStaging drops the managed hook silently and warns for everything else" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const changed = [_]git.ChangedPath{
+        // ensure() wrote this moments earlier; it embeds a machine-specific
+        // absolute binary path, so it must never enter history.
+        untracked(".githooks/pre-commit"),
+        untracked("src/keep.zig"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md", ".githooks/pre-commit");
+    try testing.expectEqual(@as(usize, 1), plan.stage.len);
+    try testing.expectEqualStrings("src/keep.zig", plan.stage[0]);
+    // Silent: warning on the file guardian itself writes would fire every commit.
+    try testing.expectEqual(@as(usize, 0), plan.skipped.len);
+    // A tracked hook is the author's deliberate choice — dropping it would
+    // desync the commit from the gated tree, so the rail leaves it alone.
+    const tracked_hook = [_]git.ChangedPath{tracked(".githooks/pre-commit")};
+    const kept = try planStaging(a, &tracked_hook, "SPEC.md", ".githooks/pre-commit");
+    try testing.expectEqual(@as(usize, 1), kept.stage.len);
+    // With no resolvable hook path there is nothing to exclude.
+    try testing.expect(!isGeneratedHook(".githooks/pre-commit", null));
+    // Only the exact hook file is dropped, not its neighbors in the same dir.
+    try testing.expect(!isGeneratedHook(".githooks/post-checkout", ".githooks/pre-commit"));
 }
 
 // spec: Commit - Excludes untracked secret and build-artifact paths from staging
@@ -345,7 +439,7 @@ test "planStaging skips untracked secrets and build artifacts, keeps ordinary so
         untracked("aws_credentials.json"), untracked("zig-out/bin/app"),
         untracked(".zig-cache/x.o"),       untracked("src/keep.zig"),
     };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     // Only the ordinary source file is staged; the seven risky paths are skipped.
     try testing.expectEqual(@as(usize, 1), plan.stage.len);
     try testing.expectEqualStrings("src/keep.zig", plan.stage[0]);
@@ -365,7 +459,7 @@ test "planStaging stages every tracked path even with a secret-like name" {
         tracked("certs/server.pem"),
         tracked(".env"),
     };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 3), plan.stage.len);
     try testing.expectEqual(@as(usize, 0), plan.skipped.len);
 }
@@ -384,7 +478,7 @@ test "planStaging keeps an untracked credentials.zig but skips credentials.json"
         untracked("credentials.json"),
         untracked("notes/secret-plan.md"),
     };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 2), plan.stage.len);
     try testing.expectEqualStrings("src/server/store/credentials.zig", plan.stage[0]);
     try testing.expectEqualStrings("src/auth/secret_box.zig", plan.stage[1]);
@@ -405,7 +499,7 @@ test "planStaging skips capitalized secret names like Credentials.json" {
         untracked(".ENV"),             untracked("certs/Server.PEM"),
         untracked("deploy/ID_RSA"),    untracked("src/Credentials.zig"),
     };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 1), plan.stage.len);
     try testing.expectEqualStrings("src/Credentials.zig", plan.stage[0]);
     try testing.expectEqual(@as(usize, 5), plan.skipped.len);
@@ -444,7 +538,7 @@ test "planStaging always includes guardian and spec even against the forbidden f
         untracked(".guardian/baselines/spec.txt"), tracked("SPEC.md"),
         tracked("src/x.zig"), untracked(".guardian/secret-notes.txt"), // 'secret' but under .guardian → still staged
     };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 4), plan.stage.len);
     try testing.expectEqual(@as(usize, 0), plan.skipped.len);
 }
@@ -456,7 +550,7 @@ test "planStaging yields an empty stage set when every change is forbidden" {
     defer arena.deinit();
     const a = arena.allocator();
     const changed = [_]git.ChangedPath{ untracked(".env"), untracked("zig-out/bin/app") };
-    const plan = try planStaging(a, &changed, "SPEC.md");
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 0), plan.stage.len);
     try testing.expectEqual(@as(usize, 2), plan.skipped.len);
 }

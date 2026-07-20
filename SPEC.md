@@ -183,12 +183,15 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports nothing to commit when no eligible paths remain
 - Splits the configured test command into an argv vector
 - Excludes suffixed zig build cache directories from staging
+- Excludes untracked agent session-state directories from staging
+- Excludes its own generated pre-commit hook from staging
 
 ## Install Hook
 
 - Writes a pre-commit hook that runs the blocking gate
 - Refuses to overwrite a foreign pre-commit hook
 - Bakes the installing binary as the hook's last-resort fallback
+- Resolves the hook path relative to the project root
 
 ## Debt
 

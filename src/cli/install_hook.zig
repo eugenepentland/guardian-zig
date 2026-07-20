@@ -28,6 +28,9 @@ const hook_mode = 0o755;
 /// overwrite (refresh); its absence protects a hand-written hook.
 const marker = "# guardian-check managed pre-commit hook";
 
+/// The hook file's name within the resolved hooks directory.
+const hook_basename = "pre-commit";
+
 /// The pre-commit hook body template. Shebang first, then the marker, then a
 /// layered binary resolution and the blocking gate. `{s}` is the absolute path
 /// of the binary that installed (or last refreshed) the hook — the last-resort
@@ -130,8 +133,36 @@ fn hasMarker(content: []const u8) bool {
 /// Joins the pre-commit hook path: `hooks` as-is when absolute, else resolved
 /// under `project_dir` (git returns a project-relative path from within it).
 fn hookPath(allocator: Allocator, project_dir: []const u8, hooks: []const u8) Allocator.Error![]const u8 {
-    if (std.fs.path.isAbsolute(hooks)) return std.fs.path.join(allocator, &.{ hooks, "pre-commit" });
-    return std.fs.path.join(allocator, &.{ project_dir, hooks, "pre-commit" });
+    if (std.fs.path.isAbsolute(hooks)) return std.fs.path.join(allocator, &.{ hooks, hook_basename });
+    return std.fs.path.join(allocator, &.{ project_dir, hooks, hook_basename });
+}
+
+/// The hook file's path *relative to the project root*, in the same shape git
+/// porcelain reports (`.githooks/pre-commit`) — so `commit` can keep the file it
+/// just wrote out of the change set it stages. Null when git can't resolve the
+/// hooks dir or that dir sits outside the project (a hooks dir shared across
+/// repos, e.g. ward + wardd-deploy: nothing project-relative to exclude, and
+/// nothing inside the project for porcelain to report either).
+pub fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
+    const hooks = git.hooksDir(allocator, project_dir) orelse return null;
+    // A relative hooks dir is already project-relative (`.git/hooks`, which
+    // porcelain never reports anyway — the exclusion is simply inert there).
+    if (!std.fs.path.isAbsolute(hooks)) {
+        return std.fs.path.join(allocator, &.{ hooks, hook_basename }) catch null;
+    }
+    const root = std.fs.cwd().realpathAlloc(allocator, project_dir) catch return null;
+    const rel_dir = relativeTo(root, hooks) orelse return null;
+    return std.fs.path.join(allocator, &.{ rel_dir, hook_basename }) catch null;
+}
+
+/// `path` expressed relative to `root`, or null when it isn't strictly inside
+/// `root`. The separator check keeps a sibling prefix (`/repo-backup` under
+/// `/repo`) from reading as a child.
+fn relativeTo(root: []const u8, path: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, path, root)) return null;
+    const rest = path[root.len..];
+    if (rest.len < 2 or rest[0] != std.fs.path.sep) return null;
+    return rest[1..];
 }
 
 /// Existing hook bytes, or null when the file is absent/unreadable.
@@ -180,6 +211,24 @@ test "rendered hook bakes the installer's own absolute path" {
     const self_path = try std.fs.selfExePathAlloc(testing.allocator);
     defer testing.allocator.free(self_path);
     try testing.expect(std.mem.indexOf(u8, rendered, self_path) != null);
+}
+
+// spec: Install Hook - Resolves the hook path relative to the project root
+
+test "relativeTo yields a project-relative hooks dir and rejects outsiders" {
+    // The custom core.hooksPath case: an absolute dir inside the project
+    // becomes the porcelain-shaped path `commit` compares against.
+    try testing.expectEqualStrings(".githooks", relativeTo("/repo", "/repo/.githooks").?);
+    try testing.expectEqualStrings("a/b", relativeTo("/repo", "/repo/a/b").?);
+    // A hooks dir shared across repos (ward + wardd-deploy) is outside this
+    // project: nothing project-relative to exclude.
+    try testing.expect(relativeTo("/repo", "/elsewhere/.githooks") == null);
+    // A sibling whose name merely starts with the root is not a child.
+    try testing.expect(relativeTo("/repo", "/repo-backup/.githooks") == null);
+    // The root itself has no relative remainder.
+    try testing.expect(relativeTo("/repo", "/repo") == null);
+    // relativeHookPath is the surface commit calls to keep the hook unstaged.
+    _ = &relativeHookPath;
 }
 
 // spec: Install Hook - Refuses to overwrite a foreign pre-commit hook
