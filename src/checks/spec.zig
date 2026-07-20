@@ -23,7 +23,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, cfg.spec_file });
 
     const sections = spec_parser.parseFile(allocator, spec_path) catch {
-        printMissingSpec(cfg.spec_file);
+        printMissingSpec(allocator, project_dir, cfg.spec_file);
         return error.CheckFailed;
     };
 
@@ -51,9 +51,11 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     ok("spec coverage {d}/{d} behaviors covered", .{ result.covered_behaviors, result.total_behaviors });
 }
 
-/// Prints the guidance shown when the SPEC.md file cannot be parsed/found.
-fn printMissingSpec(spec_file: []const u8) void {
-    fail("ERROR — {s} not found", .{spec_file});
+/// Prints the guidance shown when the SPEC.md file cannot be parsed/found,
+/// naming the resolved project dir so a wrong-directory run reads as such.
+fn printMissingSpec(allocator: std.mem.Allocator, project_dir: []const u8, spec_file: []const u8) void {
+    const dir = spec_parser.resolveProjectDir(allocator, project_dir) catch project_dir;
+    fail("ERROR — {s} not found for project dir '{s}'", .{ spec_file, dir });
     print("\n", .{});
     print("  Guardian requires a SPEC.md file with your project's specification.\n", .{});
     print("  Create {s} with this structure:\n", .{spec_file});

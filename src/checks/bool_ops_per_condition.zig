@@ -148,7 +148,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     reporter.fail("bool-ops-per-condition FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| reporter.emit(v);
-    detail("  fix: extract the condition into a named bool, or split into nested ifs.\n", .{});
+    detail("  fix: split into nested/sequential ifs, or extract into a named bool.\n", .{});
     return error.CheckFailed;
 }
 

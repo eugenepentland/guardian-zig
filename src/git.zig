@@ -14,6 +14,10 @@ const reporter = @import("reporter.zig");
 /// Output cap for a captured `git` invocation (diffs on large repos).
 const max_git_output_bytes: usize = 64 * 1024 * 1024;
 
+/// `git rev-parse` subcommand — shared so the several rev-parse call sites don't
+/// each repeat the literal (repeated-string-literal).
+const rev_parse = "rev-parse";
+
 /// A run of added lines in the new side of a diff: 1-indexed `start`,
 /// `len` lines long. A pure deletion has no span.
 pub const LineSpan = struct {
@@ -274,7 +278,7 @@ pub fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8
 
 /// The current HEAD commit hash (trimmed), or null when git is unavailable.
 pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
-    const argv = [_][]const u8{ "git", "rev-parse", "HEAD" };
+    const argv = [_][]const u8{ "git", rev_parse, "HEAD" };
     const out = runGit(allocator, project_dir, &argv) orelse return null;
     return std.mem.trim(u8, out, &std.ascii.whitespace);
 }
@@ -283,11 +287,22 @@ pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
 /// is detached (`--abbrev-ref` yields "HEAD", reported as null). Used by the
 /// DORA sink to tag each recorded run.
 pub fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
-    const argv = [_][]const u8{ "git", "rev-parse", "--abbrev-ref", "HEAD" };
+    const argv = [_][]const u8{ "git", rev_parse, "--abbrev-ref", "HEAD" };
     const out = runGit(allocator, project_dir, &argv) orelse return null;
     const name = std.mem.trim(u8, out, &std.ascii.whitespace);
     if (name.len == 0 or std.mem.eql(u8, name, "HEAD")) return null;
     return name;
+}
+
+/// The repo's hooks directory for `project_dir` via `git rev-parse --git-path
+/// hooks` — correct even in a linked worktree, where `.git` is a file and the
+/// hooks live in the common dir. May be absolute or project-relative; null when
+/// git is unavailable (best-effort, so install-hook degrades to a clear error).
+pub fn hooksDir(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", rev_parse, "--git-path", "hooks" };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const trimmed = std.mem.trim(u8, out, &std.ascii.whitespace);
+    return if (trimmed.len == 0) null else trimmed;
 }
 
 /// Errors from a *checked* git run: git could not be spawned, or it ran and

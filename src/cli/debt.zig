@@ -14,6 +14,7 @@ const reporter = @import("../reporter.zig");
 const walk = @import("../walk.zig");
 const git = @import("../git.zig");
 const ratchet = @import("../ratchet.zig");
+const file_size = @import("../checks/file_size.zig");
 
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
@@ -95,8 +96,20 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         print("{s}\n", .{json});
     } else {
         printReport(ctx.allocator, ctx.project_dir, rows);
+        try reportFileSizes(ctx);
         if (ctx.assert_density) printDensityReport(density);
     }
+}
+
+/// Prints the file-size section: every source file over the recommended line
+/// limit, its production-line count against both the recommended and hard
+/// limits — so an "at the recommended cap" file reads as advisory, not blocked.
+fn reportFileSizes(ctx: *types.RunCtx) types.RunError!void {
+    const warning = ctx.cfg.max_file_lines;
+    const hard = ctx.cfg.hard_max_file_lines;
+    const raw = try collectFileSizeRows(ctx.allocator, ctx.project_dir, ctx.cfg.file_size_exclude);
+    const rows = try fileSizeReport(ctx.allocator, raw, warning);
+    printFileSizeReport(rows, warning, hard);
 }
 
 const JsonReport = struct {
@@ -368,6 +381,77 @@ fn deltaText(allocator: Allocator, delta: ?i64) []const u8 {
     return std.fmt.allocPrint(allocator, "  ({c}{d} vs HEAD)", .{ sign, @abs(d) }) catch "";
 }
 
+// ── File size (informational) ───────────────────────────────────────────
+//
+// The file-size check gates on a generous *hard* limit and only warns at the
+// *recommended* limit, but a warning never lands in `.guardian/` — so debt
+// (which reads `.guardian/`) never mentioned file size, and an agent could
+// mistake an at-recommended-cap file for one that cannot grow. This section
+// walks the source tree and lists each file's production-line count against
+// both limits, making the advisory-vs-hard distinction concrete.
+
+/// One source file's production-line count for the file-size debt section.
+const FileSizeRow = struct { file: []const u8, lines: u32 };
+
+/// Walk state: the arena and the growing row list.
+const FileSizeCtx = struct {
+    arena: Allocator,
+    rows: *std.ArrayList(FileSizeRow),
+};
+
+/// Visitor: record one source file's production (non-test) line count.
+fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) walk.VisitError!void {
+    const ctx: *FileSizeCtx = @ptrCast(@alignCast(raw_ctx));
+    const lines = try file_size.codeLines(entry.content);
+    try ctx.rows.append(ctx.arena, .{ .file = try ctx.arena.dupe(u8, entry.rel_path), .lines = lines });
+}
+
+/// Walks `<project_dir>/src` and `/test`, returning every file's production
+/// line count (before the recommended-limit filter, applied by `fileSizeReport`).
+fn collectFileSizeRows(
+    arena: Allocator,
+    project_dir: []const u8,
+    excludes: []const []const u8,
+) types.RunError![]FileSizeRow {
+    var rows: std.ArrayList(FileSizeRow) = .empty;
+    var ctx: FileSizeCtx = .{ .arena = arena, .rows = &rows };
+    for ([_][]const u8{ "src", "test" }) |dir| {
+        const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, dir });
+        const opts: walk.WalkOpts = .{ .display_root = dir, .excludes = excludes };
+        try walk.walkZigFiles(arena, path, opts, .{ .ctx = &ctx, .visit = fileSizeVisit });
+    }
+    return rows.toOwnedSlice(arena);
+}
+
+/// The pure core of the section: keep only files over the recommended limit,
+/// largest first (ties broken by path). The walk supplies `all`.
+fn fileSizeReport(arena: Allocator, all: []const FileSizeRow, warning: u32) Allocator.Error![]FileSizeRow {
+    var out: std.ArrayList(FileSizeRow) = .empty;
+    for (all) |r| if (r.lines > warning) try out.append(arena, r);
+    const slice = try out.toOwnedSlice(arena);
+    std.mem.sort(FileSizeRow, slice, {}, fileSizeMoreThan);
+    return slice;
+}
+
+/// Orders rows by descending line count, then ascending path for stable output.
+fn fileSizeMoreThan(_: void, a: FileSizeRow, b: FileSizeRow) bool {
+    if (a.lines != b.lines) return a.lines > b.lines;
+    return std.mem.order(u8, a.file, b.file) == .lt;
+}
+
+/// Prints the file-size section, or nothing when every file is within the
+/// recommended limit.
+fn printFileSizeReport(rows: []const FileSizeRow, warning: u32, hard: u32) void {
+    if (rows.len == 0) return;
+    reporter.ok(
+        "file size — files over the {d} recommended line limit ({d} hard limit blocks; recommended only warns)",
+        .{ warning, hard },
+    );
+    for (rows) |r| {
+        print("  {s:<40} {d:>6} code lines   (recommended {d}, hard {d})\n", .{ r.file, r.lines, warning, hard });
+    }
+}
+
 // ── Assert density (informational) ──────────────────────────────────────
 //
 // A non-gating companion to the debt table: assert calls per KLOC per top-level
@@ -605,6 +689,25 @@ test "stale pruning requires both prune request and explicit confirmation" {
     try testing.expect(!mutationConfirmed(true, false));
     try testing.expect(!mutationConfirmed(false, true));
     try testing.expect(mutationConfirmed(true, true));
+}
+
+// spec: Debt - Reports source files over the recommended size against both limits
+
+test "fileSizeReport keeps files over the recommended limit, largest first" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const all = [_]FileSizeRow{
+        .{ .file = "src/small.zig", .lines = 50 }, // under the recommended limit
+        .{ .file = "src/big.zig", .lines = 1200 },
+        .{ .file = "src/mid.zig", .lines = 1100 },
+    };
+    const out = try fileSizeReport(a, &all, 1000);
+    // Only the two over the recommended 1000, sorted largest-first.
+    try testing.expectEqual(@as(usize, 2), out.len);
+    try testing.expectEqualStrings("src/big.zig", out[0].file);
+    try testing.expectEqual(@as(u32, 1200), out[0].lines);
+    try testing.expectEqualStrings("src/mid.zig", out[1].file);
 }
 
 // spec: Debt - Reports assert-call density per top-level src module sorted ascending

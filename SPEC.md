@@ -35,6 +35,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
 - Parses the intent flag for the commit command
+- Parses the gate command-line flag
+- Parses the gate mode, test command, and hook install settings
 - Splits a comma-separated filter value into check names
 - Rejects combining the only and skip filters
 - Parses policy profiles, policy locks, doctor thresholds, and external argv gates
@@ -88,12 +90,14 @@ blocking correctness checks and advisory maintainability guidance.
 - Flags a managed hashmap construction such as std.StringHashMap
 - Flags the usingnamespace keyword removed in 0.15
 - Flags the pre-0.15 getStdOut and getStdErr writer idioms
+- Names the modern replacement for each flagged alias
 - Allows the unmanaged and 0.15 replacement spellings
 
 ## Spec Quality
 
 - Flags vague behavior phrases in SPEC.md
 - Rejects behaviors shorter than the minimum length
+- Fails when SPEC.md is missing instead of silently skipping
 
 ## Naming
 
@@ -135,6 +139,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Includes declared external gate input files in the green-run digest
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
+- Records the guardian binary identity in the green stamp for a drift hint
 
 ## Run All
 
@@ -149,6 +154,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Skips a full run only on a clean unchanged tree with no refresh pending
 - Rejects an unknown refresh target or deny_growth check name
 - Cautions on failure that zig-out binaries predate the red run
+- Blocks the build only when forced or configured to block
+- Names the failing checks in the run summary
+- Hints a stale binary when re-keying failures follow a binary change
 
 ## Nightly
 
@@ -173,6 +181,13 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns loudly listing every skipped path
 - Always stages guardian metadata and the spec file
 - Reports nothing to commit when no eligible paths remain
+- Splits the configured test command into an argv vector
+- Excludes suffixed zig build cache directories from staging
+
+## Install Hook
+
+- Writes a pre-commit hook that runs the blocking gate
+- Refuses to overwrite a foreign pre-commit hook
 
 ## Debt
 
@@ -184,6 +199,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Sorts the debt rows by count descending
 - Formats a committed-state delta and omits it when unchanged or absent
 - Omits a clean source with zero debt and no committed change
+- Reports source files over the recommended size against both limits
 - Reports assert-call density per top-level src module sorted ascending
 
 ## Maintenance
@@ -226,12 +242,16 @@ blocking correctness checks and advisory maintainability guidance.
 - Requires the explicit all token for a full refresh
 - Treats an unset, empty, or zero value as no refresh
 - Accept command refreshes only its explicit context-local check names
+- Lists the metadata files a named refresh keeps through a failed gate
+- Prints every working accept path for a snapshot check's drift
+- Offers a concrete named-refresh example when a broad token is rejected
 
 ## Pub Api Surface
 
 - Snapshots every public declaration
 - Diff fails on unexpected pub additions or removals
 - Diff fails when an existing pub fn signature changes
+- Classifies surface drift as new, changed, and removed symbols
 
 ## Panic Budget
 
@@ -279,6 +299,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Duplicate Const
 
 - Rejects duplicate file-scope string-literal consts (same name and value) across files
+- Ignores cross-file consts shorter than the in-file minimum length
 
 ## Debug Print Ban
 
@@ -355,6 +376,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects bool parameters in public functions
 - Rejects bare integer literals outside a small allowlist
 - Rejects identical string literals appearing 3 or more times in a single file
+- Names the line of each repeated-literal occurrence
 - Caps pub fn methods per pub struct/enum/union
 - Caps the percentage of optional fields in a public struct
 - Rejects switch expressions whose case keys are string literals
@@ -364,10 +386,12 @@ blocking correctness checks and advisory maintainability guidance.
 - Flags the same enum dot-prong set switched in 2+ files
 - Ignores repeated enum switches that occur only inside test blocks
 - Names every file sharing a repeated enum prong set
+- Renders each colliding switch location as file and line
 
 ## Transactional Metadata
 
 - Restores all non-cache Guardian metadata after a failed gate
+- Preserves a named refresh's metadata across a failed gate
 
 ## Baseline Mode
 
@@ -376,6 +400,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
 - Prefers structured records over scraped text when present
+- Leaves a matched baseline untouched when only line numbers shifted
+- Records no baseline file for a check with nothing to record
+- Prefixes a matching baseline or ratchet report with an ok marker
 
 ## Per-Item Ratchets
 
@@ -393,6 +420,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Refuses a deny_growth refresh that raises a value or adds a key
 - Summarizes a ratchet file's worst offender
 - Presents file and type growth as volume with accept-first guidance
+- Names each threshold check's metric unit for regression messages
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
 
@@ -497,6 +525,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 ## Completeness Checklist
 
+- Fails when SPEC.md is missing while enabled instead of skipping
 - Fails a feature section that omits a required completeness category
 - Passes a section whose bullets address every completeness category
 - Accepts a completeness-waiver bullet that gives a reason

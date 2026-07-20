@@ -12,6 +12,7 @@ const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
 const nightly = @import("cli/nightly.zig");
 const commit_cmd = @import("cli/commit.zig");
+const install_hook = @import("cli/install_hook.zig");
 const explain = @import("cli/explain.zig");
 const doctor = @import("cli/doctor.zig");
 const spec_sync = @import("cli/spec_sync.zig");
@@ -41,6 +42,16 @@ pub fn main() !void {
     if (envFlagActive(readEnv(allocator, mutation_runner.mutation_env))) {
         reporter.init(false);
         reporter.ok("checks skipped (mutation test run in progress)", .{});
+        return;
+    }
+
+    // A guardian-spawned child build (e.g. `commit`'s test run) sets this so the
+    // wired gate no-ops while the child's real work — compiling and running the
+    // tests — still executes. Distinct from the mutation env so its intent reads
+    // clearly; it never skips anything but guardian's own checks.
+    if (envFlagActive(readEnv(allocator, commit_cmd.child_skip_env))) {
+        reporter.init(false);
+        reporter.ok("checks skipped (guardian-spawned child build)", .{});
         return;
     }
 
@@ -91,6 +102,7 @@ pub fn main() !void {
         .quiet = parsed.quiet,
         .against = parsed.against orelse nonEmpty(readEnv(allocator, against_env)),
         .full = parsed.full,
+        .gate = parsed.gate,
         .only = try splitCsv(allocator, parsed.only),
         .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
@@ -117,6 +129,9 @@ const ParsedArgs = struct {
     project_dir: []const u8 = ".",
     quiet: bool = false,
     full: bool = false,
+    /// `--gate`: force `all` to block on violations regardless of `[gate]
+    /// on_build`. For the pre-commit hook and CI.
+    gate: bool = false,
     against: ?[]const u8 = null,
     /// Raw comma-separated `--only` value (split later); null = no filter.
     only: ?[]const u8 = null,
@@ -149,6 +164,8 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             parsed.quiet = true;
         } else if (std.mem.eql(u8, arg, "--full")) {
             parsed.full = true;
+        } else if (std.mem.eql(u8, arg, "--gate")) {
+            parsed.gate = true;
         } else if (std.mem.eql(u8, arg, "--version")) {
             parsed.show_version = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
@@ -261,6 +278,10 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     if (std.mem.eql(u8, command, commit_cmd.command_name)) {
         return commit_cmd.run(ctx);
     }
+    // install-hook writes .git/hooks/pre-commit (the blocking gate); special-
+    // dispatched like commit, so a raw `git commit` can't bypass the gate now
+    // that a dev build only reports.
+    if (std.mem.eql(u8, command, install_hook.command_name)) return install_hook.run(ctx);
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
     if (std.mem.eql(u8, command, accept.command_name)) return accept.run(ctx);
@@ -342,6 +363,7 @@ test {
     _ = @import("cli/accept.zig");
     _ = @import("cli/nightly.zig");
     _ = @import("cli/commit.zig");
+    _ = @import("cli/install_hook.zig");
     _ = @import("cli/explain.zig");
     _ = @import("version.zig");
     _ = @import("reporter.zig");
@@ -482,6 +504,25 @@ test "parseArgs reads --only, --skip and --version" {
     try std.testing.expectEqualStrings("spec,file-size", parsed.only.?);
     try std.testing.expectEqualStrings("boundaries", parsed.skip.?);
     try std.testing.expect(parsed.show_version);
+}
+
+// spec: Configuration - Parses the gate command-line flag
+
+test "parseArgs reads the --gate flag" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 3);
+    args[0] = try a.dupeZ(u8, "all");
+    args[1] = try a.dupeZ(u8, ".");
+    args[2] = try a.dupeZ(u8, "--gate");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("all", parsed.command.?);
+    try std.testing.expect(parsed.gate);
+    // Absent by default: a plain build reports rather than blocks.
+    const plain = try a.alloc([:0]u8, 1);
+    plain[0] = try a.dupeZ(u8, "all");
+    try std.testing.expect(!parseArgs(plain).gate);
 }
 
 // spec: Configuration - Parses the intent flag for the commit command

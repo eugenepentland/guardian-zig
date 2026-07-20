@@ -86,7 +86,9 @@ fn closeBrace(s: *TestLineScan, z: [:0]const u8, byte: usize) void {
 }
 
 /// Production line count: total lines minus lines inside `test {...}` blocks.
-fn codeLines(content: [:0]const u8) std.mem.Allocator.Error!u32 {
+/// Public so the debt report can list the same production-line metric this
+/// check gates on.
+pub fn codeLines(content: [:0]const u8) std.mem.Allocator.Error!u32 {
     const total = totalLines(content);
     const test_lines = try testBlockLines(content);
     return if (test_lines <= total) total - test_lines else total;
@@ -155,6 +157,15 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         cfg.hard_max_file_lines,
     });
     for (violations.items) |v| reporter.emit(v);
+    // Distinguish the two limits: only the hard limit blocks. A file merely over
+    // the recommended limit warns (advisory, never ratcheted) and can still grow
+    // up to the hard limit — so "at the recommended cap" is not "cannot grow".
+    print(
+        "  note: only the {d} hard limit blocks; the {d} recommended limit warns " ++
+            "(advisory, never ratcheted) — a file between them can still grow.\n",
+        .{ cfg.hard_max_file_lines, cfg.max_file_lines },
+    );
+    print("  fix: split the file at a cohesive module boundary.\n", .{});
     return error.CheckFailed;
 }
 

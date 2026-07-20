@@ -41,11 +41,31 @@ pub const Transaction = struct {
     storage: std.heap.ArenaAllocator,
     project_dir: []const u8,
     originals: []const Original,
+    /// `.guardian/`-relative paths a rollback must leave on disk exactly as the
+    /// run left them — the metadata a selectively-named refresh
+    /// (GUARDIAN_UPDATE_SNAPSHOT=<check>) is allowed to keep even when another
+    /// check reds the gate. Empty by default (whole-tree rollback).
+    preserve: []const []const u8 = &.{},
 
     /// Releases the captured path/content table. The project directory is
     /// copied into the transaction arena with the captured file state.
     pub fn deinit(self: *Transaction) void {
         self.storage.deinit();
+    }
+
+    /// Marks `rel_paths` (relative to `.guardian/`) as preserved: `rollback`
+    /// neither restores their pre-run bytes nor deletes them if the run created
+    /// them, so an explicitly-named refresh survives a failing gate. The slice is
+    /// borrowed, not copied — the caller must keep it alive for the transaction's
+    /// lifetime (the run allocator does, since rollback runs before deinit).
+    /// Idempotent replacement — the last call wins.
+    pub fn preserveMetadata(self: *Transaction, rel_paths: []const []const u8) void {
+        self.preserve = rel_paths;
+    }
+
+    fn isPreserved(self: *const Transaction, rel_path: []const u8) bool {
+        for (self.preserve) |p| if (std.mem.eql(u8, p, rel_path)) return true;
+        return false;
     }
 
     /// Captures every metadata file except `.guardian/cache/**`. A missing
@@ -84,6 +104,9 @@ pub const Transaction = struct {
 
         for (current.items) |rel_path| {
             if (self.had(rel_path)) continue;
+            // A preserved path created during the run stays on disk: it is the
+            // named refresh the operator asked to keep.
+            if (self.isPreserved(rel_path)) continue;
             const path = try fullPath(allocator, self.project_dir, rel_path);
             std.fs.cwd().deleteFile(path) catch |err| switch (err) {
                 error.FileNotFound => {},
@@ -91,6 +114,8 @@ pub const Transaction = struct {
             };
         }
         for (self.originals) |original| {
+            // A preserved path keeps the run's bytes, not the pre-run ones.
+            if (self.isPreserved(original.rel_path)) continue;
             const path = try fullPath(allocator, self.project_dir, original.rel_path);
             var buffer: [4096]u8 = undefined;
             var atomic = try std.fs.cwd().atomicFile(path, .{ .make_path = true, .write_buffer = &buffer });
@@ -158,4 +183,35 @@ test "rollback restores modified metadata and removes newly created files" {
     try std.testing.expectEqualStrings("old\n", old);
     try std.testing.expectEqualStrings("after\n", log);
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(dir ++ "/.guardian/pub-api.txt", .{}));
+}
+
+// spec: Transactional Metadata - Preserves a named refresh's metadata across a failed gate
+
+test "rollback keeps preserved paths' run bytes while restoring the rest" {
+    const dir = "zig-cache/test-metadata-preserve";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir ++ "/.guardian/baselines");
+    // An existing baseline that gets modified, plus none for pub-api yet.
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/other.txt", .data = "old\n" });
+
+    var txn = try Transaction.begin(std.testing.allocator, dir);
+    defer txn.deinit();
+    // The named refresh keeps pub-api.txt (created this run) and does NOT touch
+    // baselines/other.txt.
+    txn.preserveMetadata(&.{"pub-api.txt"});
+
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/other.txt", .data = "new\n" });
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/pub-api.txt", .data = "accepted\n" });
+
+    try txn.rollback();
+
+    // The unrelated baseline is restored to its pre-run bytes...
+    const other = try std.fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/baselines/other.txt", 100);
+    defer std.testing.allocator.free(other);
+    try std.testing.expectEqualStrings("old\n", other);
+    // ...while the preserved, run-created snapshot survives the failed gate.
+    const api = try std.fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/pub-api.txt", 100);
+    defer std.testing.allocator.free(api);
+    try std.testing.expectEqualStrings("accepted\n", api);
 }

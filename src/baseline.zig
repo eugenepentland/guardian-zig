@@ -205,16 +205,22 @@ fn readOrInit(
     baseline_path: []const u8,
     current: [][]const u8,
 ) (snapshot.WriteError || snapshot.ReadError)!Loaded {
-    const snap = snapshot.read(arena, baseline_path, version) catch |e| {
-        // Missing → fresh `created`; stale version → re-record as `refreshed`.
-        // Both write `current` as the new baseline; any other error propagates.
-        const outcome: Outcome = switch (e) {
-            error.Missing => .{ .created = current.len },
-            error.VersionMismatch => .{ .refreshed = current.len },
-            else => return e,
-        };
-        try snapshot.write(baseline_path, version, current);
-        return .{ .initialized = outcome };
+    const snap = snapshot.read(arena, baseline_path, version) catch |e| switch (e) {
+        // Missing → fresh `created`; but a check with nothing to record gets NO
+        // baseline file (C1b): an empty baseline is indistinguishable from an
+        // absent one, and auto-creating it dirties a source-only diff on every
+        // green run. Report matched(0) and leave the tree clean.
+        error.Missing => {
+            if (current.len == 0) return .{ .initialized = .{ .matched = 0 } };
+            try snapshot.write(baseline_path, version, current);
+            return .{ .initialized = .{ .created = current.len } };
+        },
+        // Stale version → re-record as `refreshed` (the file already exists).
+        error.VersionMismatch => {
+            try snapshot.write(baseline_path, version, current);
+            return .{ .initialized = .{ .refreshed = current.len } };
+        },
+        else => return e,
     };
     return .{ .existing = snap };
 }
@@ -462,7 +468,7 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]
     switch (outcome) {
         .created => |n| reporter.ok("{s}: ratchet baselined ({d} key(s))", .{ check_name, n }),
         .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
-        .matched => |n| reporter.ok("{s}: ratchet matches ({d} key(s))", .{ check_name, n }),
+        .matched => |n| reporter.ok("ok: {s}: ratchet matches ({d} key(s))", .{ check_name, n }),
         .improved => |imp| reporter.ok(
             "{s}: {d} ratchet(s) lowered, {d} pruned (now {d} key(s))",
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
@@ -486,13 +492,23 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[
         ),
         .shape => reporter.fail("{s}: {d} key(s) regressed above ratchet", .{ check_name, n }),
     }
+    // Name the metric's unit (ratchet.unitLabel) so a bare number reads as
+    // "8 params" / "8 fields" / "3 over-length lines" instead of leaving the
+    // reader to guess what was measured.
+    const unit = ratchet.unitLabel(check_name);
     for (reg.grown) |g| reporter.detail(
-        "  {s}: {s} grew {d} -> {d} (ratcheted at {d})\n",
-        .{ check_name, g.key, g.old, g.new, g.old },
+        "  {s}: {s} grew {d} -> {d} {s} (frozen ratchet ceiling was {d})\n",
+        .{ check_name, g.key, g.old, g.new, unit, g.old },
     );
     for (reg.new_offenders) |o| reporter.detail(
-        "  {s}: {s} new offender over default cap (measured value: {d})\n",
-        .{ check_name, o.key, o.value },
+        "  {s}: {s} — {d} {s}, a new offender at or above the cap (accept to ratchet, or reduce)\n",
+        .{ check_name, o.key, o.value, unit },
+    );
+    // A type-size subject that grew was sitting exactly at its frozen cap; make
+    // the "you can't just add a field" insight explicit rather than implied.
+    if (std.mem.eql(u8, check_name, "type-size") and reg.grown.len > 0) reporter.detail(
+        "  this container is at its frozen cap; reduce a field or split it before adding another.\n",
+        .{},
     );
     switch (class) {
         .volume => {
@@ -573,7 +589,7 @@ fn nameInList(list: []const []const u8, name: []const u8) bool {
 fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
     switch (outcome) {
         .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
-        .matched => |n| reporter.ok("{s}: baseline matches ({d} violation(s))", .{ check_name, n }),
+        .matched => |n| reporter.ok("ok: {s}: baseline matches ({d} violation(s))", .{ check_name, n }),
         .shrunk => |s| reporter.ok(
             "{s}: {d} resolved, baseline pruned (now {d})",
             .{ check_name, s.removed, s.remaining },
@@ -591,12 +607,16 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
     }
 }
 
+/// Prints both accept forms after a baseline/ratchet failure (C4). Raw CLI
+/// leads because it always works; the `guardian-accept` build step exists only
+/// when the consumer's build wired it, so it is qualified rather than assumed.
+/// Keeps the `accept:` marker `reportRegressed` orders against the `fix:` hint.
 fn reportAcceptCommand(check_name: []const u8) void {
+    reporter.detail("  accept: guardian-check accept {s} .   # raw CLI, always works\n", .{check_name});
     reporter.detail(
-        "  accept: zig build guardian-accept -Dguardian-checks={s}  # review and commit .guardian/\n",
+        "          zig build guardian-accept -Dguardian-checks={s}   # if your build wires guardian-accept\n",
         .{check_name},
     );
-    reporter.detail("          raw CLI fallback: guardian-check accept {s} .\n", .{check_name});
 }
 
 fn lessThan(_: void, a: []const u8, b: []const u8) bool {
@@ -929,6 +949,51 @@ test "lifecycle auto-prunes the baseline file after a shrink" {
     try std.testing.expectEqual(@as(usize, 1), out2.matched);
 }
 
+// spec: Baseline Mode - Leaves a matched baseline untouched when only line numbers shifted
+
+test "lifecycle does not rewrite a matched baseline whose entries only moved lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-norenumber.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // Record a baseline whose entry carries a source-line position.
+    var lines = [_][]const u8{"src/x.zig:10: std.fs.cwd reference outside allowed paths"};
+    _ = try lifecycle(a, path, &lines, false);
+    const before = try std.fs.cwd().readFileAlloc(a, path, 4096);
+
+    // The same violation, only shifted to a new line (an unrelated edit grew the
+    // file above it), must match — and must NOT rewrite the committed baseline,
+    // so a source-only diff stays clean (C1a).
+    var shifted = [_][]const u8{"src/x.zig:42: std.fs.cwd reference outside allowed paths"};
+    try std.testing.expect((try lifecycle(a, path, &shifted, false)) == .matched);
+    const after = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    try std.testing.expectEqualStrings(before, after);
+}
+
+// spec: Baseline Mode - Records no baseline file for a check with nothing to record
+
+test "lifecycle creates no baseline file when there are no violations" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-empty.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // A passing check with no prior baseline reports matched(0) and writes
+    // nothing, so a green run never dirties git with a header-only file (C1b).
+    var none = [_][]const u8{};
+    const out = try lifecycle(a, path, &none, false);
+    try std.testing.expect(out == .matched);
+    try std.testing.expectEqual(@as(usize, 0), out.matched);
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+}
+
 // spec: Baseline Mode - Refuses to refresh a deny_growth baseline that would grow
 
 test "growthDenied blocks refresh growth only for a listed check with a prior baseline" {
@@ -1033,4 +1098,21 @@ test "diffByPosition preserves multiplicity for count-based checks" {
     };
     const d = try diffByPosition(a, old, &grown);
     try std.testing.expectEqual(@as(usize, 1), d.added.len);
+}
+
+// spec: Baseline Mode - Prefixes a matching baseline or ratchet report with an ok marker
+
+test "matching ratchet and baseline reports carry an ok pass marker" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    try reportRatchet("file-size", .{ .matched = 3 }, null);
+    try reportOutcome("naming", .{ .matched = 2 });
+    // The captured (uncolored) pass lines carry an explicit "ok:" marker so the
+    // last line above a run summary can't be misread as the failing check.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: file-size: ratchet matches") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: naming: baseline matches") != null);
 }

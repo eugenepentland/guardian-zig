@@ -63,10 +63,13 @@ src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: 
 src/build_helper.zig::all_check_names value
 src/cache.zig::Digest value
 src/cache.zig::Error value
+src/cache.zig::currentBinaryIdHash | fn currentBinaryIdHash(arena: Allocator) Error!Digest
 src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
 src/cache.zig::inputDigest | fn inputDigest( arena: Allocator, project_dir: []const u8, spec_file: []const u8, external_gates: []const config.ExternalGate, ) Error!Digest
 src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
+src/cache.zig::readStoredBinaryId | fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
+src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
 src/check.zig::main | fn main() !void
 src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -133,6 +136,7 @@ src/checks/escape_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) regi
 src/checks/external_gates.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/fatal_exit.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/fatal_exit.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/file_size.zig::codeLines | fn codeLines(content: [:0]const u8) std.mem.Allocator.Error!u32
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.FunctionLengthCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -197,12 +201,16 @@ src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) regi
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/cli/accept.zig::command_name value
 src/cli/accept.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/commit.zig::child_skip_env value
 src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/debt.zig::command_name value
 src/cli/debt.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/explain.zig::run | fn run(query: ?[]const u8) bool
+src/cli/install_hook.zig::command_name value
+src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
+src/cli/install_hook.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/mutate.zig::command_name value
 src/cli/mutate.zig::gatePasses | fn gatePasses(score_pct: u32, min_pct: u32) bool
 src/cli/mutate.zig::gatedByPercentage | fn gatedByPercentage(viable: u32, min_mutants: u32) bool
@@ -246,6 +254,8 @@ src/config.zig::ExternalGate struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
 src/config.zig::FuzzPresenceCfg struct_
+src/config.zig::GateCfg struct_
+src/config.zig::GateMode enum_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
@@ -342,6 +352,7 @@ src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []c
 src/git.zig::diffPathNamesAgainst | fn diffPathNamesAgainst( allocator: Allocator, project_dir: []const u8, ref: []const u8, ) GitError!PathDiffResult
 src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8
+src/git.zig::hooksDir | fn hooksDir(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) GitError!?u32
 src/git.zig::parseHunkHeader | fn parseHunkHeader(line: []const u8) ?LineSpan
 src/git.zig::parseUnifiedDiff | fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff
@@ -350,6 +361,7 @@ src/metadata_transaction.zig::RollbackError value
 src/metadata_transaction.zig::Transaction struct_
 src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction
 src/metadata_transaction.zig::deinit | fn deinit(self: *Transaction) void
+src/metadata_transaction.zig::preserveMetadata | fn preserveMetadata(self: *Transaction, rel_paths: []const []const u8) void
 src/metadata_transaction.zig::rollback | fn rollback(self: *Transaction) RollbackError!void
 src/mutation/cache.zig::Map value
 src/mutation/cache.zig::Reuse enum_
@@ -415,6 +427,7 @@ src/ratchet.zig::lifecycle | fn lifecycle( arena: Allocator, path: []const u8, e
 src/ratchet.zig::maxEntry | fn maxEntry(entries: []const Entry) ?Entry
 src/ratchet.zig::metricMode | fn metricMode(check_name: []const u8) ?AggMode
 src/ratchet.zig::parse | fn parse(arena: Allocator, content: []const u8) Allocator.Error![]Entry
+src/ratchet.zig::unitLabel | fn unitLabel(check_name: []const u8) []const u8
 src/ratchet.zig::version value
 src/ratchet.zig::wouldGrow | fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool
 src/reporter.zig::Capture struct_
@@ -459,7 +472,11 @@ src/snapshot.zig::writePresorted | fn writePresorted(path: []const u8, version: 
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_
+src/snapshot_helper.zig::example_named_refresh value
 src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, ) LifecycleError!Outcome
+src/snapshot_helper.zig::preservedMetadataPaths | fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8
+src/snapshot_helper.zig::printAcceptPaths | fn printAcceptPaths(check_name: []const u8) void
+src/snapshot_helper.zig::refreshTargetSummary | fn refreshTargetSummary(allocator: Allocator) ?[]const u8
 src/snapshot_helper.zig::refreshTargets | fn refreshTargets(allocator: Allocator) ?[]const []const u8
 src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
 src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool
@@ -488,6 +505,7 @@ src/spec/parser.zig::Section struct_
 src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
+src/spec/parser.zig::resolveProjectDir | fn resolveProjectDir(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::tagKey | fn tagKey(allocator: Allocator, tag: []const u8) Allocator.Error![]const u8
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_

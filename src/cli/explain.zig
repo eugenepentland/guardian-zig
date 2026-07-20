@@ -416,7 +416,8 @@ const entries = [_]Entry{
     .{ .name = "bool-ops-per-condition", .text = 
     \\Why: a condition crammed with many `and`/`or`/`!` is where boolean-logic
     \\bugs hide.
-    \\Fix: name intermediate booleans, or split the condition.
+    \\Fix: split into nested/sequential ifs to cut the leaf count, or name an
+    \\intermediate boolean (naming alone doesn't reduce the leaves).
     \\Exempt: raise `[bool_ops] max_ops`, or disable the check.
     },
     .{ .name = "line-length", .text = 
@@ -442,6 +443,11 @@ const entries = [_]Entry{
     .{ .name = "repeated-string-literal", .text = 
     \\Why: the same literal repeated 3+ times (or a duplicated named const across
     \\files) is knowledge an agent copy-pasted instead of centralizing.
+    \\Two sub-analyses, both with an 8-char minimum length (short literals like
+    \\"init"/"name" are common coincidences, not shared knowledge): (1) in-file —
+    \\a literal appearing 3+ times in one file, its every occurrence line named;
+    \\(2) cross-file — the same file-scope `const NAME = "value"` (identical name
+    \\AND value) declared in 2+ files.
     \\Fix: extract a shared file-scope const and import it everywhere.
     \\Exempt: disable via the top-level `disabled` list (retired `dup-const` name
     \\also tolerated there).
@@ -586,6 +592,17 @@ const entries = [_]Entry{
     \\git untouched. Never pushes, never amends.
     \\Exempt: n/a — never part of `all`; requires an explicit non-empty --intent.
     },
+    .{ .name = "install-hook", .text = 
+    \\Why: a meta command, not a gate — with a dev build now only REPORTING, a raw
+    \\`git commit` would otherwise slip past Guardian. This writes
+    \\`.git/hooks/pre-commit` (marked with a guardian comment) that runs the
+    \\blocking gate (`guardian-check all . --gate`), so the commit aborts on red.
+    \\Fix: n/a — run `guardian-check install-hook [dir]` (commit auto-installs it
+    \\unless `[gate] install_hook = false`). The hook resolves a binary in order:
+    \\$GUARDIAN_CHECK, ./zig-out/bin/guardian-check, then guardian-check on PATH.
+    \\Exempt: an existing non-guardian pre-commit hook is never overwritten — add
+    \\`guardian-check all . --gate` to it by hand, or remove it and re-run.
+    },
     .{ .name = "doctor", .text = "Why: a read-only maintenance command that catches corrupt recognized\n" ++
         "Guardian metadata before a ratchet can silently lose meaning, while also\n" ++
         "surfacing advisory cleanup/reproducibility issues.\n" ++
@@ -627,7 +644,7 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, doctor, spec-sync, accept, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync, accept, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).

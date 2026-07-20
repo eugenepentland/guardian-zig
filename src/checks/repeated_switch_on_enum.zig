@@ -47,8 +47,8 @@ pub fn analyzeContent(
     const a = arena.allocator();
 
     const sigs = try collectSwitchSignatures(a, content);
-    for (sigs) |sig| {
-        const owned = try allocator.dupe(u8, sig);
+    for (sigs) |sl| {
+        const owned = try allocator.dupe(u8, sl.sig);
         const gop = try seen.getOrPut(allocator, owned);
         if (gop.found_existing) {
             allocator.free(owned);
@@ -60,8 +60,12 @@ pub fn analyzeContent(
     return lines.toOwnedSlice(allocator);
 }
 
-fn collectSwitchSignatures(arena: Allocator, z: [:0]const u8) Allocator.Error![]const []const u8 {
-    var out: std.ArrayList([]const u8) = .empty;
+/// One switch's prong signature paired with the source line of its `switch`
+/// keyword, so the cross-file report can point at where each collision lives.
+const SwitchSig = struct { sig: []const u8, line: u32 };
+
+fn collectSwitchSignatures(arena: Allocator, z: [:0]const u8) Allocator.Error![]const SwitchSig {
+    var out: std.ArrayList(SwitchSig) = .empty;
     var tok = std.zig.Tokenizer.init(z);
     var test_scope: text.TestScope = .{};
     while (true) {
@@ -69,7 +73,9 @@ fn collectSwitchSignatures(arena: Allocator, z: [:0]const u8) Allocator.Error![]
         if (t.tag == .eof) break;
         if (t.tag != .keyword_switch) continue;
         if (test_scope.in_test) continue;
-        if (try collectOneSwitch(arena, &tok, z, &test_scope)) |sig| try out.append(arena, sig);
+        const line = text.lineOf(z, t.loc.start);
+        if (try collectOneSwitch(arena, &tok, z, &test_scope)) |sig|
+            try out.append(arena, .{ .sig = sig, .line = line });
     }
     return out.toOwnedSlice(arena);
 }
@@ -185,9 +191,12 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
+/// A signature occurrence: the file it appeared in and the switch's line.
+const FileLoc = struct { file: []const u8, line: u32 };
+
 const ProjectCtx = struct {
     allocator: Allocator,
-    sig_to_files: *std.StringHashMapUnmanaged(std.ArrayList([]const u8)),
+    sig_to_files: *std.StringHashMapUnmanaged(std.ArrayList(FileLoc)),
     extra_allowed: []const []const u8 = &.{},
 };
 
@@ -206,18 +215,18 @@ fn projectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const sigs = try collectSwitchSignatures(arena.allocator(), entry.content);
-    for (sigs) |sig| {
-        const owned_sig = try a.dupe(u8, sig);
+    for (sigs) |sl| {
+        const owned_sig = try a.dupe(u8, sl.sig);
         const gop = try ctx.sig_to_files.getOrPut(a, owned_sig);
         if (gop.found_existing) a.free(owned_sig) else gop.value_ptr.* = .empty;
-        try gop.value_ptr.*.append(a, try a.dupe(u8, entry.rel_path));
+        try gop.value_ptr.*.append(a, .{ .file = try a.dupe(u8, entry.rel_path), .line = sl.line });
     }
 }
 
 /// Entry point for the repeated-switch-on-enum check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
-    var sig_to_files: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
+    var sig_to_files: std.StringHashMapUnmanaged(std.ArrayList(FileLoc)) = .empty;
     var pctx: ProjectCtx = .{
         .allocator = allocator,
         .sig_to_files = &sig_to_files,
@@ -228,14 +237,14 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     var violations: std.ArrayList([]const u8) = .empty;
     var iter = sig_to_files.iterator();
     while (iter.next()) |e| {
-        const files = e.value_ptr.*.items;
-        const unique = try uniqueFiles(allocator, files);
+        const locs = e.value_ptr.*.items;
+        const unique = try uniqueFileLocs(allocator, locs);
         if (unique.len < 2) continue;
-        const file_list = try std.mem.join(allocator, ", ", unique);
+        const loc_list = try std.mem.join(allocator, ", ", unique);
         const msg = try std.fmt.allocPrint(
             allocator,
             "switch on prongs ({s}) appears in {d} files: {s}",
-            .{ e.key_ptr.*, unique.len, file_list },
+            .{ e.key_ptr.*, unique.len, loc_list },
         );
         try violations.append(allocator, msg);
     }
@@ -250,18 +259,25 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
-fn uniqueFiles(allocator: Allocator, files: []const []const u8) Allocator.Error![]const []const u8 {
-    var seen: std.StringHashMapUnmanaged(void) = .empty;
-    defer seen.deinit(allocator);
-    for (files) |f| {
-        // Propagate OOM: returning files.len over-counts, which could turn a
-        // non-violation into a false failure — surface the allocation error.
-        try seen.put(allocator, f, {});
+/// The unique files sharing a signature, each rendered `file:line` (earliest
+/// line when one file switches the same prong-set more than once), sorted for
+/// deterministic output. Deduplicating by *file* — not by line — keeps the
+/// "2+ files" threshold about distinct files, so one file switching the same
+/// set twice is never miscounted as a cross-file collision.
+fn uniqueFileLocs(allocator: Allocator, locs: []const FileLoc) Allocator.Error![]const []const u8 {
+    var first_line: std.StringHashMapUnmanaged(u32) = .empty;
+    defer first_line.deinit(allocator);
+    for (locs) |l| {
+        // Propagate OOM: an undercount here could turn a real collision into a
+        // false pass — surface the allocation error instead.
+        const gop = try first_line.getOrPut(allocator, l.file);
+        if (!gop.found_existing or l.line < gop.value_ptr.*) gop.value_ptr.* = l.line;
     }
-    var out = try allocator.alloc([]const u8, seen.count());
-    var it = seen.keyIterator();
+    var out = try allocator.alloc([]const u8, first_line.count());
+    var it = first_line.iterator();
     var i: usize = 0;
-    while (it.next()) |file| : (i += 1) out[i] = file.*;
+    while (it.next()) |kv| : (i += 1)
+        out[i] = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ kv.key_ptr.*, kv.value_ptr.* });
     std.mem.sort([]const u8, out, {}, lessThan);
     return out;
 }
@@ -269,6 +285,7 @@ fn uniqueFiles(allocator: Allocator, files: []const []const u8) Allocator.Error!
 // spec: Tier 3 Architectural Fitness - Flags the same enum dot-prong set switched in 2+ files
 // spec: Tier 3 Architectural Fitness - Ignores repeated enum switches that occur only inside test blocks
 // spec: Tier 3 Architectural Fitness - Names every file sharing a repeated enum prong set
+// spec: Tier 3 Architectural Fitness - Renders each colliding switch location as file and line
 
 test "analyzeContent collects single switch signature" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -314,11 +331,17 @@ test "analyzeContent ignores test switches and resumes after the test block" {
     try std.testing.expect(std.mem.indexOf(u8, out[0], "delta,gamma") != null);
 }
 
-test "uniqueFiles sorts and deduplicates collision locations" {
+test "uniqueFileLocs dedups by file, keeps the earliest line, and sorts" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const files = try uniqueFiles(arena.allocator(), &.{ "src/z.zig", "src/a.zig", "src/z.zig" });
-    try std.testing.expectEqual(@as(usize, 2), files.len);
-    try std.testing.expectEqualStrings("src/a.zig", files[0]);
-    try std.testing.expectEqualStrings("src/z.zig", files[1]);
+    const locs = [_]FileLoc{
+        .{ .file = "src/z.zig", .line = 30 },
+        .{ .file = "src/a.zig", .line = 12 },
+        .{ .file = "src/z.zig", .line = 8 },
+    };
+    const out = try uniqueFileLocs(arena.allocator(), &locs);
+    // Two distinct files (z seen twice), each rendered file:line at its earliest.
+    try std.testing.expectEqual(@as(usize, 2), out.len);
+    try std.testing.expectEqualStrings("src/a.zig:12", out[0]);
+    try std.testing.expectEqualStrings("src/z.zig:8", out[1]);
 }

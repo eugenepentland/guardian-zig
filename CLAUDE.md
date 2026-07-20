@@ -12,7 +12,7 @@ pruning happens only when Eugene triages.
 ## Guiding Principles
 
 1. **AI-first** — Exists to catch AI agent mistakes
-2. **Hard block** — All checks fail the build. No warnings, no bypass
+2. **Hard block at commit** — Nothing enters history unverified; dev builds report, never refuse
 3. **Zero-config** — Works with sensible defaults. Config only to override
 4. **Opinionated** — SPEC.md + `// spec:` tags ARE the workflow
 5. **Invisible** — Runs on every `zig build`. The user doesn't think about it
@@ -38,14 +38,20 @@ zig build
 ## Build & Run
 
 ```bash
-zig build          # compiles AND runs all guardian checks
-zig build test     # tests AND runs all guardian checks
-zig build run      # runs AND runs all guardian checks
+zig build          # compiles AND runs all checks in REPORT mode (exit 0; findings printed)
+zig build test     # tests AND runs all checks (report mode); unit-test failures still fail
+zig build run      # runs AND runs all guardian checks (report mode)
 zig build spec-init  # generate starter SPEC.md from pub fn signatures
 zig build mutate     # mutation-test lines changed vs HEAD (fast tier)
 zig build mutate-full  # mutation-test the whole tree + score ratchet
 zig build debt       # non-gating baseline/snapshot debt report
 ```
+
+**Report during dev, block at commit** (`[gate] on_build`, default `"report"`).
+A plain `zig build` runs every check and prints findings but exits 0, so a dev
+build always produces a binary — verify guardian-clean with `guardian-check all
+. --gate` (or set `on_build = "block"`). `commit`/`nightly`/`accept` and the
+pre-commit hook always block.
 
 The `mutate` / `mutate-full` steps are auto-registered by `addAllChecks`
 (`opts.mutate_steps` defaults true), so consumers get them for free; the
@@ -54,8 +60,10 @@ registration is idempotent.
 The `guardian-check` binary also runs directly:
 
 ```bash
-guardian-check nightly .             # full suite + whole-tree mutation ratchet (CI/cron tier)
-guardian-check commit --intent "..." .  # gate the tree, then auto-commit on green
+guardian-check all . --gate          # BLOCK mode: fail on any violation (what the pre-commit hook runs)
+guardian-check nightly .             # full suite + whole-tree mutation ratchet (CI/cron tier; always blocks)
+guardian-check commit --intent "..." .  # block-gate, run tests, auto-commit + install hook on green
+guardian-check install-hook .        # write .git/hooks/pre-commit that runs the blocking gate
 guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
 guardian-check all . --skip line-length     # run every check except these
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
@@ -63,7 +71,8 @@ guardian-check explain <check>       # why it blocks, how to fix, how to exempt 
 guardian-check version               # print the version (also --version)
 ```
 
-Guardian is invisible — it gates every build automatically.
+Guardian is invisible — every build runs it (report mode by default), and
+commit/hook/`--gate` block on any violation.
 
 ## Integration
 
@@ -102,6 +111,11 @@ max_file_lines = 1000         # default
 hard_max_file_lines = 10000   # only extreme files fail; ordinary growth warns
 file_size_exclude = ["generated/*", "*/vendor_*.zig"]
 required_inputs = ["src/generated/*.zig"] # codegen must produce at least one match
+
+[gate]
+on_build = "report"          # "report" (default: dev builds report, exit 0) | "block"
+test_command = "zig build test"   # commit runs this (must pass) before committing
+install_hook = true          # commit auto-installs the blocking pre-commit hook
 
 [[boundary]]
 module = "src/core/*"
@@ -159,6 +173,22 @@ debt`) reports every baseline/snapshot total, sorted by count, with the delta
 vs the committed `.guardian/` state, then an informational assert-density table
 (assert() calls per KLOC per top-level src module, ascending).
 
+**Report vs block (`[gate]`).** By default (`on_build = "report"`) a build-wired
+`all` run prints every finding but exits 0 and appends `guardian: N check(s)
+would block commit (…) — run guardian-check commit to gate`, so a dev build
+never refuses to produce a binary; `on_build = "block"` (or `all --gate`)
+restores the hard-block. `commit`/`nightly`/`accept` always block. `commit` runs
+`[gate] test_command` (default `zig build test`, must pass) before committing,
+then auto-installs the blocking pre-commit hook unless `install_hook = false`.
+`guardian-check install-hook [dir]` writes `.git/hooks/pre-commit` (guardian
+marker; resolves `$GUARDIAN_CHECK` → `./zig-out/bin/guardian-check` →
+`guardian-check` on PATH; never clobbers a foreign hook) so a raw `git commit`
+still hits the gate. The run summary and green skip-stamp both changed: the
+failure line names the failing checks (`run-all: 2/67 failed (type-size, …)`),
+and the stamp records the guardian binary's identity so a blocking snapshot/
+ratchet failure whose binary differs from the last green run prints a
+"rebuild (zig build) and re-run" hint (the stale-binary false-positive trap).
+
 Two features diff the working tree against a git ref (`--against` flag,
 `GUARDIAN_AGAINST` env var, or `[change_classification] against`; default
 HEAD): the `change-classification` check fails behavioral src changes that
@@ -167,7 +197,9 @@ ship with no test or spec change (skips outside a git repo), and the
 suite — the fast tier mutates only changed lines, `--full` ratchets a
 whole-tree kill score in `.guardian/mutation.txt` and both gate on
 `[mutation] min_score_pct` (default 80). Child builds during mutation run
-with `GUARDIAN_MUTATION_RUN=1`, which makes every guardian command no-op.
+with `GUARDIAN_MUTATION_RUN=1`, which makes every guardian command no-op;
+`commit`'s `zig build test` child sets `GUARDIAN_SKIP_CHECKS=1` for the same
+no-op (the tree was already gated) while the tests still compile and run.
 The `mutate`/`mutate-full` build steps are auto-wired by `addAllChecks`
 (`opts.mutate_steps`, idempotent), and the `nightly` command composes `all`
 + `mutate --full` for the scheduled/CI tier (dispatched specially, like `all`,
@@ -218,7 +250,7 @@ adds `last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
 ```
 src/
   check.zig            # CLI entry / dispatch
-  cli/                 # Command registry + run_all + mutate/nightly/commit/debt/explain commands
+  cli/                 # Command registry + run_all + mutate/nightly/commit/install_hook/debt/explain commands
   checks/              # One file per check
   spec/                # SPEC.md parser, // spec: matcher, spec-init
   ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)

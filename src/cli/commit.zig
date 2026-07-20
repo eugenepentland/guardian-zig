@@ -24,12 +24,21 @@ const std = @import("std");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const run_all = @import("run_all.zig");
+const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
 
 const Allocator = std.mem.Allocator;
 
 /// CLI name that check.zig dispatches to this command.
 pub const command_name = "commit";
+
+/// Env var set on the `zig build test` child so its wired guardian gate no-ops
+/// (see check.zig) while the tests still compile and run — the commit already
+/// gated this exact tree in-process. Read by check.zig's main() short-circuit.
+pub const child_skip_env = "GUARDIAN_SKIP_CHECKS";
+
+/// Output cap for the captured child test run (a full suite's log).
+const max_test_output_bytes: usize = 16 * 1024 * 1024;
 
 /// Entry point for the commit command. Requires a non-empty `--intent`, runs
 /// the full gate, and on green stages + commits the eligible change set. On a
@@ -41,6 +50,10 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     };
 
+    // commit always BLOCKS, regardless of [gate] on_build: nothing enters
+    // history unverified even when a dev build only reports.
+    ctx.gate = true;
+
     // Gate the exact working tree we're about to commit. On red the check output
     // was already printed by run_all; git state is left untouched.
     run_all.run(ctx) catch |e| switch (e) {
@@ -51,7 +64,71 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         else => return e,
     };
 
+    // The static gate is green; the project's own tests must also pass before
+    // anything enters history.
+    try runTests(ctx);
+
+    // A raw `git commit` must not be able to bypass the gate now that a dev
+    // build only reports, so ensure a blocking pre-commit hook exists (best
+    // effort; a hook problem never blocks a commit whose gate + tests passed).
+    if (ctx.cfg.gate.install_hook) install_hook.ensure(ctx);
+
     return stageAndCommit(ctx, intent);
+}
+
+/// Runs the configured test suite (`[gate] test_command`, default `zig build
+/// test`) before committing. The child build runs with `child_skip_env` set so
+/// its own wired guardian gate no-ops while the real tests still compile and run
+/// (the commit already gated this tree in-process). A non-zero exit prints the
+/// captured output and hard-fails with nothing committed.
+fn runTests(ctx: *types.RunCtx) types.RunError!void {
+    const a = ctx.allocator;
+    const argv = try splitCommand(a, ctx.cfg.gate.test_command);
+    if (argv.len == 0) {
+        reporter.fail("commit: [gate] test_command is empty — nothing to run", .{});
+        return error.CheckFailed;
+    }
+    reporter.ok("commit: running tests (`{s}`) before committing ...", .{ctx.cfg.gate.test_command});
+    const outcome = spawnTests(a, ctx.project_dir, argv) catch |e| {
+        reporter.fail("commit: could not run tests ({s}) — nothing committed", .{@errorName(e)});
+        return error.CheckFailed;
+    };
+    if (!outcome.passed) {
+        reporter.fail("commit: tests failed — nothing committed", .{});
+        reporter.detail("{s}\n", .{outcome.output});
+        return error.CheckFailed;
+    }
+    reporter.ok("commit: tests passed", .{});
+}
+
+/// Splits a `test_command` string into an argv vector on ASCII whitespace
+/// (`zig build test` → {zig, build, test}). Pure, so the split is tested without
+/// spawning a build. No shell semantics — the argv runs directly.
+fn splitCommand(a: Allocator, cmd: []const u8) Allocator.Error![]const []const u8 {
+    var list: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.tokenizeAny(u8, cmd, " \t\r\n");
+    while (it.next()) |tok| try list.append(a, tok);
+    return list.toOwnedSlice(a);
+}
+
+/// Result of the child test run: whether it exited 0, and its captured output
+/// (stderr preferred — where a Zig test failure report lands — else stdout).
+const TestOutcome = struct { passed: bool, output: []const u8 };
+
+/// Spawns `argv` in `project_dir` with `child_skip_env` set, capturing output.
+fn spawnTests(a: Allocator, project_dir: []const u8, argv: []const []const u8) !TestOutcome {
+    var env = try std.process.getEnvMap(a);
+    try env.put(child_skip_env, "1");
+    const res = try std.process.Child.run(.{
+        .allocator = a,
+        .argv = argv,
+        .cwd = project_dir,
+        .env_map = &env,
+        .max_output_bytes = max_test_output_bytes,
+    });
+    const passed = res.term == .Exited and res.term.Exited == 0;
+    const output = if (res.stderr.len > 0) res.stderr else res.stdout;
+    return .{ .passed = passed, .output = output };
 }
 
 /// Trims `intent`; null when absent or blank — so a missing/empty `--intent`
@@ -151,7 +228,7 @@ fn alwaysInclude(path: []const u8, spec_file: []const u8) bool {
 /// guardian-sveltekit's forbidden list, Zig-flavored.
 fn isForbidden(path: []const u8) bool {
     const base = baseName(path);
-    if (underDir(path, "zig-out") or underDir(path, ".zig-cache") or underDir(path, "zig-cache")) return true;
+    if (isBuildArtifactPath(path)) return true;
     if (std.ascii.eqlIgnoreCase(base, ".env") or std.ascii.startsWithIgnoreCase(base, ".env.")) return true;
     if (std.ascii.startsWithIgnoreCase(base, "id_rsa")) return true;
     if (endsWithAny(base, &.{ ".pem", ".key", ".p12" })) return true;
@@ -163,6 +240,19 @@ fn isForbidden(path: []const u8) bool {
 /// True when `path` sits inside the directory `dir` (`<dir>/…`).
 fn underDir(path: []const u8, dir: []const u8) bool {
     return std.mem.startsWith(u8, path, dir) and path.len > dir.len and path[dir.len] == '/';
+}
+
+/// True when `path`'s first segment is a Zig build-output directory. Matches
+/// `zig-out/`, `.zig-cache/`, and — critically — the *suffixed* isolated caches
+/// the mutation runner creates (`.zig-cache-c/`, `.zig-cache-rfaudit/`, …). The
+/// old exact-`.zig-cache` boundary missed those suffixed names, so three
+/// separate reports had them swept into a commit (441 binary blobs in one).
+fn isBuildArtifactPath(path: []const u8) bool {
+    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return false;
+    const seg = path[0..slash];
+    return std.mem.eql(u8, seg, "zig-out") or
+        std.mem.startsWith(u8, seg, ".zig-cache") or
+        std.mem.startsWith(u8, seg, "zig-cache");
 }
 
 /// The final path segment after the last `/` (the whole string if none).
@@ -204,6 +294,43 @@ fn untracked(path: []const u8) git.ChangedPath {
 /// Test shorthand for a tracked porcelain entry (anything but `??`).
 fn tracked(path: []const u8) git.ChangedPath {
     return .{ .path = path, .tracked = true };
+}
+
+// spec: Commit - Splits the configured test command into an argv vector
+
+test "splitCommand tokenizes the configured test command" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const argv = try splitCommand(a, "zig build test");
+    try testing.expectEqual(@as(usize, 3), argv.len);
+    try testing.expectEqualStrings("zig", argv[0]);
+    try testing.expectEqualStrings("build", argv[1]);
+    try testing.expectEqualStrings("test", argv[2]);
+    // Extra whitespace collapses; a blank command yields an empty argv.
+    const spaced = try splitCommand(a, "  zig   build\ttest  ");
+    try testing.expectEqual(@as(usize, 3), spaced.len);
+    try testing.expectEqual(@as(usize, 0), (try splitCommand(a, "   ")).len);
+}
+
+// spec: Commit - Excludes suffixed zig build cache directories from staging
+
+test "planStaging skips suffixed zig cache dirs the exact-prefix rail missed" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The mutation runner's isolated caches (.zig-cache-c, .zig-cache-rfaudit)
+    // and zig-out are all build artifacts, never committed — only real source is.
+    const changed = [_]git.ChangedPath{
+        untracked(".zig-cache-c/o/deadbeef/app.o"),
+        untracked(".zig-cache-rfaudit/h/xyz.bin"),
+        untracked("zig-out/bin/app"),
+        untracked("src/keep.zig"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md");
+    try testing.expectEqual(@as(usize, 1), plan.stage.len);
+    try testing.expectEqualStrings("src/keep.zig", plan.stage[0]);
+    try testing.expectEqual(@as(usize, 3), plan.skipped.len);
 }
 
 // spec: Commit - Excludes untracked secret and build-artifact paths from staging

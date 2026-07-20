@@ -10,6 +10,7 @@ const ast_index = @import("../ast/index.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
+const lineOf = @import("../text.zig").lineOf;
 
 const min_occurrences: u32 = 3;
 // Length threshold tuned above 7 chars to skip common short identifiers
@@ -31,20 +32,23 @@ pub fn analyzeContent(
     const a = arena.allocator();
     var tree = try std.zig.Ast.parse(a, content, .zig);
 
-    var counts: std.StringHashMapUnmanaged(u32) = .empty;
-    defer counts.deinit(a);
+    var occ: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty;
+    defer occ.deinit(a);
 
-    try countLiteralsTree(&tree, a, &counts);
-    return collectViolations(allocator, rel_path, &counts);
+    try countLiteralsTree(&tree, a, &occ);
+    return collectViolations(allocator, rel_path, &occ);
 }
 
-/// Tallies every non-test string literal at or above the minimum length in a
-/// pre-parsed tree. Iterates the shared token stream; only string literals need
-/// their end offset (via tokenSlice).
+/// Records the source line of every non-test string literal at or above the
+/// minimum length, keyed by the literal, in a pre-parsed tree. Iterates the
+/// shared token stream; only string literals need their end offset (via
+/// tokenSlice). Keeping each occurrence's line (not just a count) lets the
+/// failure name where every copy lives, so a literal already repeated N times
+/// doesn't look like it "suddenly" failed on copy N+1.
 fn countLiteralsTree(
     tree: *const std.zig.Ast,
     a: Allocator,
-    counts: *std.StringHashMapUnmanaged(u32),
+    occ: *std.StringHashMapUnmanaged(std.ArrayList(u32)),
 ) Allocator.Error!void {
     var scan: ScanState = .{};
     const tags = tree.tokens.items(.tag);
@@ -55,9 +59,9 @@ fn countLiteralsTree(
         const end = if (tag == .string_literal) start + tree.tokenSlice(@intCast(i)).len else start;
         const inner = scan.step(tree.source, .{ .tag = tag, .loc = .{ .start = start, .end = end } }) orelse continue;
         if (inner.len < min_length) continue;
-        const gop = try counts.getOrPut(a, inner);
-        if (!gop.found_existing) gop.value_ptr.* = 0;
-        gop.value_ptr.* += 1;
+        const gop = try occ.getOrPut(a, inner);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.*.append(a, lineOf(tree.source, start));
     }
 }
 
@@ -102,24 +106,43 @@ const ScanState = struct {
     }
 };
 
-/// Builds a violation message for every literal seen `min_occurrences`+ times.
+/// Builds a violation message for every literal seen `min_occurrences`+ times,
+/// naming the line of each occurrence so it's clear which copies are new.
 fn collectViolations(
     allocator: Allocator,
     rel_path: []const u8,
-    counts: *std.StringHashMapUnmanaged(u32),
+    occ: *std.StringHashMapUnmanaged(std.ArrayList(u32)),
 ) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
-    var iter = counts.iterator();
+    var iter = occ.iterator();
     while (iter.next()) |e| {
-        if (e.value_ptr.* < min_occurrences) continue;
+        const lines = e.value_ptr.*.items;
+        if (lines.len < min_occurrences) continue;
+        const at = try formatLineList(allocator, lines);
+        defer allocator.free(at);
         const msg = try std.fmt.allocPrint(
             allocator,
-            "{s}: string literal {s} appears {d} times — extract a const",
-            .{ rel_path, e.key_ptr.*, e.value_ptr.* },
+            "{s}: string literal {s} appears {d} times (lines {s}) — extract a const",
+            .{ rel_path, e.key_ptr.*, lines.len, at },
         );
         try violations.append(allocator, msg);
     }
     return violations.toOwnedSlice(allocator);
+}
+
+/// Renders occurrence lines ascending as `"12, 34, 56"` for the failure message.
+fn formatLineList(allocator: Allocator, lines: []const u32) Allocator.Error![]const u8 {
+    const sorted = try allocator.dupe(u32, lines);
+    defer allocator.free(sorted);
+    std.mem.sort(u32, sorted, {}, std.sort.asc(u32));
+    var buf: std.ArrayList(u8) = .empty;
+    for (sorted, 0..) |ln, i| {
+        if (i > 0) try buf.appendSlice(allocator, ", ");
+        const num = try std.fmt.allocPrint(allocator, "{d}", .{ln});
+        defer allocator.free(num);
+        try buf.appendSlice(allocator, num);
+    }
+    return buf.toOwnedSlice(allocator);
 }
 
 // ── Cross-file duplicate string consts (folded in from dup-const) ────────
@@ -254,6 +277,9 @@ fn findDuplicates(allocator: Allocator, decls: []const Decl) ![]const Group {
 
     for (decls, 0..) |d, i| {
         if (indexSeen(seen.items, i)) continue;
+        // Apply the same in-file minimum length: a short shared const value
+        // (a 4-char `"name"`) is a common coincidence, not duplicated knowledge.
+        if (d.value.len < min_length) continue;
         var matches: std.ArrayList([]const u8) = .empty;
         try matches.append(allocator, d.file);
         try seen.append(allocator, i);
@@ -305,9 +331,9 @@ fn scanFile(ctx: *MergedCtx, tree: *const std.zig.Ast, rel_path: []const u8) !vo
     defer arena.deinit();
     const fa = arena.allocator();
 
-    var counts: std.StringHashMapUnmanaged(u32) = .empty;
-    try countLiteralsTree(tree, fa, &counts);
-    const out = try collectViolations(ctx.allocator, rel_path, &counts);
+    var occ: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty;
+    try countLiteralsTree(tree, fa, &occ);
+    const out = try collectViolations(ctx.allocator, rel_path, &occ);
     for (out) |line| try ctx.violations.append(ctx.allocator, line);
 
     // Decls persist into the cross-file pass, so they use the run allocator.
@@ -344,7 +370,9 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
 }
 
 // spec: Tier 2 Anti-patterns - Rejects identical string literals appearing 3 or more times in a single file
+// spec: Tier 2 Anti-patterns - Names the line of each repeated-literal occurrence
 // spec: Duplicate Const - Rejects duplicate file-scope string-literal consts (same name and value) across files
+// spec: Duplicate Const - Ignores cross-file consts shorter than the in-file minimum length
 
 test "analyzeContent flags 3 copies of the same literal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -355,6 +383,33 @@ test "analyzeContent flags 3 copies of the same literal" {
         \\fn c() []const u8 { return "/etc/something"; }
     );
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+test "analyzeContent lists every occurrence line of a repeated literal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\fn a() []const u8 { return "/etc/something"; }
+        \\fn b() []const u8 { return "/etc/something"; }
+        \\fn c() []const u8 { return "/etc/something"; }
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+    // Each copy's line is named so it's clear which are new vs pre-existing.
+    try std.testing.expect(std.mem.indexOf(u8, out[0], "lines 1, 2, 3") != null);
+}
+
+test "findDuplicates ignores a shared const value below the minimum length" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // "name" is 4 chars — below the 8-char minimum — so a shared short const is
+    // a coincidence, not duplicated knowledge, and never grouped.
+    const decls = [_]Decl{
+        .{ .file = "a.zig", .name = "Key", .value = "name" },
+        .{ .file = "b.zig", .name = "Key", .value = "name" },
+    };
+    const groups = try findDuplicates(a, &decls);
+    try std.testing.expectEqual(@as(usize, 0), groups.len);
 }
 
 test "analyzeContent allows 2 copies" {
@@ -392,14 +447,14 @@ test "findDuplicates groups by (name, value) and ignores singletons" {
     defer arena.deinit();
     const a = arena.allocator();
     const decls = [_]Decl{
-        .{ .file = "a.zig", .name = "X", .value = "shared" },
-        .{ .file = "b.zig", .name = "X", .value = "shared" },
-        .{ .file = "c.zig", .name = "X", .value = "different" },
-        .{ .file = "d.zig", .name = "Y", .value = "solo" },
+        .{ .file = "a.zig", .name = "X", .value = "shared-secret-path" },
+        .{ .file = "b.zig", .name = "X", .value = "shared-secret-path" },
+        .{ .file = "c.zig", .name = "X", .value = "different-value" },
+        .{ .file = "d.zig", .name = "Y", .value = "solo-standalone" },
     };
     const groups = try findDuplicates(a, &decls);
     try std.testing.expectEqual(@as(usize, 1), groups.len);
     try std.testing.expectEqualStrings("X", groups[0].name);
-    try std.testing.expectEqualStrings("shared", groups[0].value);
+    try std.testing.expectEqualStrings("shared-secret-path", groups[0].value);
     try std.testing.expectEqual(@as(usize, 2), groups[0].files.len);
 }

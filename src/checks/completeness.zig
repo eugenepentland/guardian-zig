@@ -12,6 +12,7 @@
 const std = @import("std");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const spec_parser = @import("../spec/parser.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -230,10 +231,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     const allocator = ctx.allocator;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ ctx.project_dir, ctx.cfg.spec_file });
-    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, max_spec_bytes) catch {
-        reporter.ok("completeness: no readable {s} — nothing to check", .{ctx.cfg.spec_file});
-        return;
-    };
+    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, max_spec_bytes) catch
+        return reportMissingSpec(allocator, ctx.project_dir, ctx.cfg.spec_file);
     const sections = try parseFeatureSections(allocator, content);
     const violations = try analyze(allocator, sections, cfg.exempt_sections);
 
@@ -248,7 +247,42 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     return error.CheckFailed;
 }
 
+/// Reports a missing SPEC.md as a hard error rather than a silent skip
+/// (guiding principle #8: missing SPEC.md = error). Only reachable once the
+/// check is enabled, so an enabled completeness gate never quietly passes when
+/// its spec is absent (e.g. a run launched from the wrong directory).
+fn reportMissingSpec(
+    allocator: Allocator,
+    project_dir: []const u8,
+    spec_file: []const u8,
+) registry.RunError!void {
+    const dir = spec_parser.resolveProjectDir(allocator, project_dir) catch project_dir;
+    reporter.fail("{s} not found for project dir '{s}'", .{ spec_file, dir });
+    detail("  completeness is enabled but SPEC.md is missing (missing SPEC.md = error, not a skip).\n", .{});
+    return error.CheckFailed;
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
+
+// spec: Completeness Checklist - Fails when SPEC.md is missing while enabled instead of skipping
+
+test "reportMissingSpec fails loudly and names the resolved project dir" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // An absolute dir passes through resolveProjectDir → deterministic message,
+    // and an enabled check errors instead of quietly reporting "nothing to check".
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportMissingSpec(arena.allocator(), "/abs/proj", "SPEC.md"),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "not found for project dir '/abs/proj'") != null);
+}
 
 // spec: Completeness Checklist - Fails a feature section that omits a required completeness category
 

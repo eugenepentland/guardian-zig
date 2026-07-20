@@ -22,6 +22,7 @@ const ok = reporter.ok;
 const fail = reporter.fail;
 
 const snapshot_leaf = "int-from-float-budget.txt";
+const check_name = "int-from-float-budget";
 const snapshot_version: u32 = 1;
 
 const ScanCtx = struct {
@@ -192,7 +193,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const snap_path = try snapshot_helper.snapshotPath(allocator, project_dir, snapshot_leaf);
     const new_lines = try countToLines(allocator, total);
 
-    if (snapshot_helper.shouldUpdateForCtx(ctx_param, "int-from-float-budget")) {
+    if (snapshot_helper.shouldUpdateForCtx(ctx_param, check_name)) {
         try snapshot.write(snap_path, snapshot_version, new_lines);
         ok("int-from-float budget updated (casts={d})", .{total});
         return;
@@ -218,7 +219,8 @@ fn readBudget(
         }
         if (e == error.VersionMismatch) {
             fail("int-from-float budget: stale snapshot", .{});
-            print("  fix: zig build guardian-accept -Dguardian-checks=int-from-float-budget\n", .{});
+            print("  fix: re-record the snapshot at the new format version:\n", .{});
+            snapshot_helper.printAcceptPaths(check_name);
             return error.CheckFailed;
         }
         return e;
@@ -241,8 +243,8 @@ fn compareAndReport(total: u32, budget: u32) registry.RunError!void {
     }
     fail("int-from-float budget FAILED (casts: {d} found, {d} budgeted)", .{ total, budget });
     print("  fix: guard the new @intFromFloat (isFinite + range check, see numeric.checkedInt),\n", .{});
-    print("       or run zig build guardian-accept -Dguardian-checks=int-from-float-budget\n", .{});
-    print("       and commit .guardian/{s}\n", .{snapshot_leaf});
+    print("       or accept the new budget:\n", .{});
+    snapshot_helper.printAcceptPaths(check_name);
     return error.CheckFailed;
 }
 

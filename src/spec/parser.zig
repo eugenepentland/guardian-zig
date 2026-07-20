@@ -32,6 +32,17 @@ pub fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Sect
     return parseContent(allocator, content);
 }
 
+/// The project dir as an absolute path for diagnostics: resolves a relative
+/// `project_dir` against the process cwd so a "SPEC.md not found" message names
+/// exactly where Guardian looked (a wrong-directory run is otherwise invisible
+/// when `project_dir` is `.`). Returns `project_dir` unchanged when it is
+/// already absolute or the cwd can't be read.
+pub fn resolveProjectDir(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
+    if (std.fs.path.isAbsolute(project_dir)) return project_dir;
+    const cwd = std.process.getCwdAlloc(allocator) catch return project_dir;
+    return std.fs.path.join(allocator, &.{ cwd, project_dir });
+}
+
 /// Mutable state threaded through parseContent while it walks SPEC.md lines.
 const ParseState = struct {
     allocator: Allocator,
@@ -304,6 +315,16 @@ test "parseFile errors when the spec file is missing" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     try std.testing.expectError(error.CouldNotReadSpec, parseFile(arena.allocator(), "definitely/not/a/spec.md"));
+}
+
+test "resolveProjectDir passes an absolute dir through and absolutizes a relative one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // An absolute dir is already the "where Guardian looked" answer — verbatim.
+    try std.testing.expectEqualStrings("/abs/project", try resolveProjectDir(a, "/abs/project"));
+    // A relative dir resolves against the cwd, so the result is absolute.
+    try std.testing.expect(std.fs.path.isAbsolute(try resolveProjectDir(a, ".")));
 }
 
 // spec: Spec Coverage - Fails when SPEC.md defines no behaviors

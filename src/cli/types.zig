@@ -42,6 +42,10 @@ pub const RunCtx = struct {
     /// True when `--full` was passed: `mutate` covers the whole tree
     /// (nightly tier) instead of only diff-touched lines.
     full: bool = false,
+    /// Forces `all` to BLOCK on violations regardless of `[gate] on_build`.
+    /// Set by `--gate` (for hooks/CI) and by the always-blocking commit/nightly/
+    /// accept paths. Default false: a plain build reports without refusing.
+    gate: bool = false,
     /// `--only a,b`: when non-empty, `all` runs exactly these check names and
     /// nothing else. Mutually exclusive with `skip`. A filtered run never
     /// writes the green skip-cache stamp (it isn't the full suite).
