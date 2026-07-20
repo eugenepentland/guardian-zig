@@ -33,21 +33,39 @@ const hook_basename = "pre-commit";
 
 /// The pre-commit hook body template. Shebang first, then the marker, then a
 /// layered binary resolution and the blocking gate. `{s}` is the absolute path
-/// of the binary that installed (or last refreshed) the hook — the last-resort
-/// fallback, because a consumer repo often has guardian-check neither in
-/// zig-out nor on PATH. `exec` makes the gate's exit status the hook's, so a
-/// red gate aborts the commit.
+/// of the binary that installed (or last refreshed) the hook — needed because a
+/// consumer repo often has guardian-check neither in zig-out nor on PATH.
+/// `exec` makes the gate's exit status the hook's, so a red gate aborts the
+/// commit.
+///
+/// Resolution order is layered by *intent*: an explicit $GUARDIAN_CHECK always
+/// wins, then a repo-local build, then PATH, then the baked path. The one
+/// departure: when a local build AND the baked path both exist, the NEWER of
+/// the two runs. A repo-local `zig-out` binary can be months old (ward and
+/// wardd-deploy were judging with a 5-day-old 65-check build), and a gate
+/// verdict from stale check semantics is worse than useless — it reads as a
+/// pass. Picking the newer one is announced on stderr, never silent.
 const hook_script_fmt =
     \\#!/bin/sh
     \\# guardian-check managed pre-commit hook
+    \\baked="{s}"
+    \\local_bin=./zig-out/bin/guardian-check
     \\if [ -n "$GUARDIAN_CHECK" ]; then
     \\  bin="$GUARDIAN_CHECK"
-    \\elif [ -x ./zig-out/bin/guardian-check ]; then
-    \\  bin=./zig-out/bin/guardian-check
+    \\elif [ -x "$local_bin" ] && [ -n "$baked" ] && [ -x "$baked" ]; then
+    \\  if [ "$baked" -nt "$local_bin" ]; then
+    \\    echo "guardian: $local_bin is older than $baked — gating with the newer binary" >&2
+    \\    echo "guardian: rebuild ($local_bin) to gate with this repo's own build" >&2
+    \\    bin="$baked"
+    \\  else
+    \\    bin="$local_bin"
+    \\  fi
+    \\elif [ -x "$local_bin" ]; then
+    \\  bin="$local_bin"
     \\elif command -v guardian-check >/dev/null 2>&1; then
     \\  bin=guardian-check
-    \\elif [ -x "{s}" ]; then
-    \\  bin="{s}"
+    \\elif [ -n "$baked" ] && [ -x "$baked" ]; then
+    \\  bin="$baked"
     \\else
     \\  echo "guardian: guardian-check not found — build it (zig build) or set GUARDIAN_CHECK" >&2
     \\  exit 1
@@ -56,14 +74,14 @@ const hook_script_fmt =
     \\
 ;
 
-/// Renders the hook script, baking this binary's absolute path in as the
-/// last-resort fallback. An unresolvable self path bakes an empty string,
-/// which the hook's `-x` test skips in favor of the guidance error.
+/// Renders the hook script, baking this binary's absolute path in. An
+/// unresolvable self path bakes an empty string, which every `baked` branch
+/// guards with `-n`, degrading cleanly to the pre-baking behavior.
 fn renderScript(allocator: Allocator) Allocator.Error![]const u8 {
     const self_path = std.fs.selfExePathAlloc(allocator) catch "";
     // The unresolved fallback is a comptime literal, not an allocation.
     defer if (self_path.len != 0) allocator.free(self_path);
-    return std.fmt.allocPrint(allocator, hook_script_fmt, .{ self_path, self_path });
+    return std.fmt.allocPrint(allocator, hook_script_fmt, .{self_path});
 }
 
 /// What `installInto` did (or couldn't). `run` maps these to exit status;
@@ -195,6 +213,27 @@ test "hook script resolves a binary and runs the blocking gate" {
     try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "command -v guardian-check") != null);
     // `ensure` stays part of the auto-install surface commit relies on.
     _ = &ensure;
+}
+
+// spec: Install Hook - Gates with the newer of a local build and the baked binary
+
+test "hook prefers the newer binary and says so, with the env override winning" {
+    // The staleness comparison exists and is announced, not silent: a verdict
+    // from a months-old local build reads as a pass and must be recognizable.
+    try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "-nt") != null);
+    try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "is older than") != null);
+    // An explicit override still wins outright — it is checked before any
+    // staleness comparison runs.
+    const env_at = std.mem.indexOf(u8, hook_script_fmt, "$GUARDIAN_CHECK").?;
+    try testing.expect(env_at < std.mem.indexOf(u8, hook_script_fmt, "-nt").?);
+    // Every use of the baked path is `-n`-guarded, so an unresolvable self
+    // path (empty bake) degrades to the pre-baking layering instead of
+    // testing `-x ""` and falling through to a spurious not-found error.
+    var it = std.mem.splitScalar(u8, hook_script_fmt, '\n');
+    while (it.next()) |line| {
+        if (std.mem.indexOf(u8, line, "-x \"$baked\"") == null) continue;
+        try testing.expect(std.mem.indexOf(u8, line, "-n \"$baked\"") != null);
+    }
 }
 
 // spec: Install Hook - Bakes the installing binary as the hook's last-resort fallback
