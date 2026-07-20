@@ -188,6 +188,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Writes a pre-commit hook that runs the blocking gate
 - Refuses to overwrite a foreign pre-commit hook
+- Bakes the installing binary as the hook's last-resort fallback
 
 ## Debt
 

@@ -1,8 +1,9 @@
 //! `install-hook` command — writes `.git/hooks/pre-commit` running the blocking
 //! gate, so a raw `git commit` can't bypass Guardian now that a dev build only
 //! reports. Binary resolution inside the hook is layered ($GUARDIAN_CHECK →
-//! ./zig-out/bin/guardian-check → guardian-check on PATH → fail with guidance),
-//! because a consumer repo rarely has guardian-check on PATH. It never clobbers a
+//! ./zig-out/bin/guardian-check → guardian-check on PATH → the installing
+//! binary's baked absolute path → fail with guidance), because a consumer repo
+//! often has guardian-check neither in zig-out nor on PATH. It never clobbers a
 //! foreign pre-commit hook: an existing hook without Guardian's marker line
 //! prints instructions instead of being overwritten. `commit` calls `ensure` to
 //! auto-install best-effort. Dispatched specially by check.zig (never a gate), so
@@ -27,10 +28,13 @@ const hook_mode = 0o755;
 /// overwrite (refresh); its absence protects a hand-written hook.
 const marker = "# guardian-check managed pre-commit hook";
 
-/// The pre-commit hook body. Shebang first, then the marker, then a layered
-/// binary resolution and the blocking gate. `exec` makes the gate's exit status
-/// the hook's, so a red gate aborts the commit.
-const hook_script =
+/// The pre-commit hook body template. Shebang first, then the marker, then a
+/// layered binary resolution and the blocking gate. `{s}` is the absolute path
+/// of the binary that installed (or last refreshed) the hook — the last-resort
+/// fallback, because a consumer repo often has guardian-check neither in
+/// zig-out nor on PATH. `exec` makes the gate's exit status the hook's, so a
+/// red gate aborts the commit.
+const hook_script_fmt =
     \\#!/bin/sh
     \\# guardian-check managed pre-commit hook
     \\if [ -n "$GUARDIAN_CHECK" ]; then
@@ -39,6 +43,8 @@ const hook_script =
     \\  bin=./zig-out/bin/guardian-check
     \\elif command -v guardian-check >/dev/null 2>&1; then
     \\  bin=guardian-check
+    \\elif [ -x "{s}" ]; then
+    \\  bin="{s}"
     \\else
     \\  echo "guardian: guardian-check not found — build it (zig build) or set GUARDIAN_CHECK" >&2
     \\  exit 1
@@ -46,6 +52,16 @@ const hook_script =
     \\exec "$bin" all . --gate
     \\
 ;
+
+/// Renders the hook script, baking this binary's absolute path in as the
+/// last-resort fallback. An unresolvable self path bakes an empty string,
+/// which the hook's `-x` test skips in favor of the guidance error.
+fn renderScript(allocator: Allocator) Allocator.Error![]const u8 {
+    const self_path = std.fs.selfExePathAlloc(allocator) catch "";
+    // The unresolved fallback is a comptime literal, not an allocation.
+    defer if (self_path.len != 0) allocator.free(self_path);
+    return std.fmt.allocPrint(allocator, hook_script_fmt, .{ self_path, self_path });
+}
 
 /// What `installInto` did (or couldn't). `run` maps these to exit status;
 /// `ensure` treats everything but a fresh install as a quiet no-op.
@@ -88,10 +104,11 @@ pub fn ensure(ctx: *types.RunCtx) void {
 fn installInto(allocator: Allocator, project_dir: []const u8) Outcome {
     const hooks = git.hooksDir(allocator, project_dir) orelse return .unavailable;
     const path = hookPath(allocator, project_dir, hooks) catch return .io_error;
+    const script = renderScript(allocator) catch return .io_error;
     switch (decide(readExisting(allocator, path))) {
         .foreign => return .foreign,
-        .write_new => return if (writeHook(path)) .installed else |_| .io_error,
-        .write_refresh => return if (writeHook(path)) .refreshed else |_| .io_error,
+        .write_new => return if (writeHook(path, script)) .installed else |_| .io_error,
+        .write_refresh => return if (writeHook(path, script)) .refreshed else |_| .io_error,
     }
 }
 
@@ -123,11 +140,11 @@ fn readExisting(allocator: Allocator, path: []const u8) ?[]const u8 {
 }
 
 /// Writes the executable hook script, creating the hooks directory if needed.
-fn writeHook(path: []const u8) !void {
+fn writeHook(path: []const u8, script: []const u8) !void {
     if (std.fs.path.dirname(path)) |dir| try std.fs.cwd().makePath(dir);
     const f = try std.fs.cwd().createFile(path, .{ .mode = hook_mode });
     defer f.close();
-    try f.writeAll(hook_script);
+    try f.writeAll(script);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -138,15 +155,31 @@ const testing = std.testing;
 
 test "hook script resolves a binary and runs the blocking gate" {
     // The script is self-marked (so a refresh recognizes its own prior write).
-    try testing.expect(hasMarker(hook_script));
+    try testing.expect(hasMarker(hook_script_fmt));
     // It invokes the blocking gate, not a plain report run.
-    try testing.expect(std.mem.indexOf(u8, hook_script, "all . --gate") != null);
+    try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "all . --gate") != null);
     // Layered binary resolution: env override, local build output, then PATH.
-    try testing.expect(std.mem.indexOf(u8, hook_script, "$GUARDIAN_CHECK") != null);
-    try testing.expect(std.mem.indexOf(u8, hook_script, "./zig-out/bin/guardian-check") != null);
-    try testing.expect(std.mem.indexOf(u8, hook_script, "command -v guardian-check") != null);
+    try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "$GUARDIAN_CHECK") != null);
+    try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "./zig-out/bin/guardian-check") != null);
+    try testing.expect(std.mem.indexOf(u8, hook_script_fmt, "command -v guardian-check") != null);
     // `ensure` stays part of the auto-install surface commit relies on.
     _ = &ensure;
+}
+
+// spec: Install Hook - Bakes the installing binary as the hook's last-resort fallback
+
+test "rendered hook bakes the installer's own absolute path" {
+    const rendered = try renderScript(testing.allocator);
+    defer testing.allocator.free(rendered);
+    // The rendered script still carries the marker and the blocking gate.
+    try testing.expect(hasMarker(rendered));
+    try testing.expect(std.mem.indexOf(u8, rendered, "all . --gate") != null);
+    // The `{s}` placeholders are gone: the self path (absolute in a test
+    // binary) was substituted into the last-resort `-x` branch.
+    try testing.expect(std.mem.indexOf(u8, rendered, "{s}") == null);
+    const self_path = try std.fs.selfExePathAlloc(testing.allocator);
+    defer testing.allocator.free(self_path);
+    try testing.expect(std.mem.indexOf(u8, rendered, self_path) != null);
 }
 
 // spec: Install Hook - Refuses to overwrite a foreign pre-commit hook
@@ -157,5 +190,5 @@ test "decide protects a foreign hook and refreshes a guardian one" {
     // A hand-written hook (no marker) is protected, never clobbered.
     try testing.expect(decide("#!/bin/sh\nnpm test\n") == .foreign);
     // A previously-installed guardian hook is refreshed in place.
-    try testing.expect(decide(hook_script) == .write_refresh);
+    try testing.expect(decide(hook_script_fmt) == .write_refresh);
 }
