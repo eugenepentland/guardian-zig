@@ -36,8 +36,17 @@ zig build spec-init
 
 4. Edit SPEC.md, add `// spec:` tags to tests, then build:
 ```bash
-zig build  # guardian gates every build
+zig build  # guardian runs every check and REPORTS findings; the binary still builds
 ```
+
+**Report during dev, block at commit.** By default (`[gate] on_build =
+"report"`) a plain `zig build` runs every check and prints all findings but
+exits 0, so a dev build never refuses to produce a binary. The gate BLOCKS —
+fails the build on any violation — at commit time: `guardian-check commit`,
+`nightly`, and `guardian-check all . --gate` (what the pre-commit hook runs)
+always block regardless of `on_build`. Set `on_build = "block"` to make every
+`zig build` hard-block as before. Run `guardian-check install-hook` (or let
+`commit` auto-install it) so a raw `git commit` can't slip past the gate.
 
 ## What It Checks
 
@@ -649,6 +658,15 @@ exclude = ["src/serve/templates"]   # path globs dropped from the scan entirely 
 parallel = true         # run checks across cores (default); false forces sequential
 cache_enabled = true    # skip a full run when the hashed input set is unchanged (default)
 
+# Report during dev, block at commit. In report mode `zig build` prints every
+# finding but exits 0; commit/nightly/`all --gate` always block. commit runs
+# test_command (and it must pass) before committing, and auto-installs the
+# blocking pre-commit hook unless install_hook = false.
+[gate]
+on_build = "report"          # "report" (default) | "block"
+test_command = "zig build test"
+install_hook = true
+
 # Severity preset plus explicit per-check overrides. strict is the
 # backward-compatible default; agent/safety make selected heuristics advisory.
 [policy]
@@ -800,6 +818,7 @@ commas.
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[external]]` | `name`, `command`, `inputs` |
+| `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[policy]` | `profile`, `block`, `ratchet`, `report`, `lock_enabled`, `lock_against`, `protected_paths` |
 | `[doctor]` | `zig_cache_warn_mib`, `guardian_cache_warn_mib` |
 | `[spec_quality]` | `enabled`, `forbidden_phrases` |
@@ -859,12 +878,14 @@ The checker binary also runs directly. Prefer `zig build guardian -- ...` during
 development so the command cannot resolve to a stale cache artifact:
 
 ```bash
-guardian-check all .                 # Run every registered gate under its policy mode
-guardian-check all . --quiet         # Same, but print only failures (what the build wiring uses)
+guardian-check all .                 # Run every gate; REPORT findings (exit 0) unless [gate] on_build = block
+guardian-check all . --gate          # Force BLOCK mode: fail on any violation (what the pre-commit hook runs)
+guardian-check all . --quiet         # Report/gate but print only failures (what the build wiring uses)
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
-guardian-check nightly .             # Full suite + whole-tree mutation ratchet
-guardian-check commit --intent "fix the parser" .   # Gate, then auto-commit on green
+guardian-check nightly .             # Full suite + whole-tree mutation ratchet (always blocks)
+guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, then auto-commit on green
+guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
 guardian-check debt . --json         # Machine-readable debt report
 guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
@@ -891,8 +912,20 @@ guardian-check version               # Print the guardian version (also --versio
   external syntax or browser-smoke gates. Guardian cannot replace the language
   tool itself, so configure `node --check`, Stylelint, Playwright, or an equivalent
   argv command under `[[external]]` for the asset types the project ships.
-- **`commit`** gates the tree, then auto-commits the change set (see below).
-  Never part of `all`; requires an explicit `--intent`.
+- **`--gate`** forces `all` to block on any violation regardless of `[gate]
+  on_build`. Report mode (the default) prints every finding but exits 0 and
+  appends `guardian: N check(s) would block commit (…) — run guardian-check
+  commit to gate`; block mode fails the build. `commit`/`nightly`/`accept`
+  always block.
+- **`commit`** block-gates the tree, runs `[gate] test_command` (which must
+  pass), auto-installs the pre-commit hook (unless `install_hook = false`), then
+  auto-commits the change set (see below). Never part of `all`; requires
+  `--intent`.
+- **`install-hook`** writes `.git/hooks/pre-commit` (marked with a guardian
+  comment) running `guardian-check all . --gate`, so a raw `git commit` still
+  hits the blocking gate now that a dev build only reports. The hook resolves a
+  binary in order: `$GUARDIAN_CHECK` → `./zig-out/bin/guardian-check` →
+  `guardian-check` on PATH. It never overwrites a non-guardian pre-commit hook.
 - **`accept`** previews named check failures, refreshes only their recognized
   snapshot/baseline metadata, then verifies those checks without refresh.
 - **`debt`** reports every baseline/snapshot total sorted high-to-low, with the
@@ -920,13 +953,20 @@ guardian-check version               # Print the guardian version (also --versio
 ### `commit` — intent-driven auto-commit
 
 `guardian-check commit --intent "<message>" [dir]` brings guardian-zig into the
-sibling guardians' workflow: run the whole gate, then commit the change set it
-just verified.
+sibling guardians' workflow: block-gate the tree, run the tests, then commit the
+change set it just verified.
 
 - **Red gate** → the violations print, git is left completely untouched, exit
-  non-zero. **Green gate** → the change set is staged and committed with the
+  non-zero. **Green gate** → the project's own tests (`[gate] test_command`,
+  default `zig build test`) run next and must pass — nothing enters history
+  unverified. The test child runs with `GUARDIAN_SKIP_CHECKS=1` set so its wired
+  guardian gate no-ops (this tree was already gated) while the tests still
+  compile and run. Only then is the change set staged and committed with the
   intent as the message subject. Missing/empty `--intent` is a clean error with
   no side effects.
+- **Auto-installs the pre-commit hook** (unless `[gate] install_hook = false`)
+  so a later raw `git commit` can't bypass the gate now that a dev build only
+  reports.
 - **Safety-railed staging** (never `git add -A` / `.`): the path list comes from
   `git status --porcelain` (modified + untracked). **Untracked** paths matching
   the forbidden secret/build list are **skipped with a loud warning** (printed
@@ -1022,7 +1062,7 @@ const r = rng.random(); // a std.Random — call r.int(u32), r.float(f64), …
 ## Principles
 
 1. **AI-first** — catches agent mistakes
-2. **Hard block** — no warnings, no bypass
+2. **Hard block at commit** — nothing enters history unverified; dev builds report, never refuse
 3. **Zero-config** — sensible defaults
 4. **Opinionated** — SPEC.md + `// spec:` tags are THE workflow
 5. **Invisible** — runs on every `zig build`

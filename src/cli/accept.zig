@@ -21,6 +21,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     }
     try run_all.validateCheckNames(ctx.refresh, "accept");
 
+    // Acceptance depends on run_all returning the blocking verdict (CheckFailed
+    // on drift) so preview/update/verify partition correctly — force blocking
+    // regardless of [gate] on_build. The copies below inherit this.
+    ctx.gate = true;
+
     var preview = ctx.*;
     preview.only = ctx.refresh;
     preview.refresh = &.{};

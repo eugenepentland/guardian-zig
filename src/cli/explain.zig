@@ -586,6 +586,17 @@ const entries = [_]Entry{
     \\git untouched. Never pushes, never amends.
     \\Exempt: n/a — never part of `all`; requires an explicit non-empty --intent.
     },
+    .{ .name = "install-hook", .text = 
+    \\Why: a meta command, not a gate — with a dev build now only REPORTING, a raw
+    \\`git commit` would otherwise slip past Guardian. This writes
+    \\`.git/hooks/pre-commit` (marked with a guardian comment) that runs the
+    \\blocking gate (`guardian-check all . --gate`), so the commit aborts on red.
+    \\Fix: n/a — run `guardian-check install-hook [dir]` (commit auto-installs it
+    \\unless `[gate] install_hook = false`). The hook resolves a binary in order:
+    \\$GUARDIAN_CHECK, ./zig-out/bin/guardian-check, then guardian-check on PATH.
+    \\Exempt: an existing non-guardian pre-commit hook is never overwritten — add
+    \\`guardian-check all . --gate` to it by hand, or remove it and re-run.
+    },
     .{ .name = "doctor", .text = "Why: a read-only maintenance command that catches corrupt recognized\n" ++
         "Guardian metadata before a ratchet can silently lose meaning, while also\n" ++
         "surfacing advisory cleanup/reproducibility issues.\n" ++
@@ -627,7 +638,7 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, doctor, spec-sync, accept, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync, accept, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).
