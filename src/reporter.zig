@@ -21,12 +21,21 @@ pub const prefix = "guardian: ";
 /// `"src/foo.zig|Config"` for a type, `"src/foo.zig"` for a file metric) and
 /// the measured scalar behind the threshold. `message` is the human-facing tail
 /// rendered after `file:line:` — see `flatLine`.
+///
+/// `identity` names *what was flagged*, independently of how the finding is
+/// worded: the prong set, the repeated literal, the deprecated alias. It is the
+/// top tier of the baseline v3 key (see `violation_key.zig`), so a check that
+/// sets it may reword its message freely without re-keying any consumer's
+/// baseline. Set it on any check whose message embeds churn-prone context
+/// (counts, file lists, measured values); leave it null to fall back to the
+/// message skeleton.
 pub const Violation = struct {
     check: []const u8 = "",
     file: ?[]const u8 = null,
     line: ?u32 = null,
     message: []const u8,
     fix_hint: ?[]const u8 = null,
+    identity: ?[]const u8 = null,
     ratchet_key: ?[]const u8 = null,
     metric: ?u64 = null,
 };

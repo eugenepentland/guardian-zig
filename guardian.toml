@@ -20,9 +20,13 @@ exclude = ["reporter.zig", "testing/golden_runner.zig"]
 # doing too much — the type-size smell doesn't apply. Exempt it. cli/types.zig
 # holds RunCtx, the per-invocation context bag threaded through every check
 # (allocator, dirs, cfg, diff base, mutate tier, --only/--skip filters) — the
-# same flat-aggregation case, not a god struct. Exempt it too.
+# same flat-aggregation case, not a god struct. Exempt it too. reporter.zig
+# holds Violation, the flat diagnostic record: check, file, line, message,
+# fix_hint, identity, ratchet_key, metric are eight independent facets of one
+# finding, each read by a different consumer (terminal render, baseline v3 key,
+# ratchet v2 aggregation, JSONL sink) — the same flat-aggregation case again.
 [type_size]
-exclude = ["config.zig", "cli/types.zig"]
+exclude = ["config.zig", "cli/types.zig", "reporter.zig"]
 
 # magic-number is opt-in (off by default) because it's pure noise in literal-heavy
 # domains. Guardian's own code passes it, so enable it here to keep dogfooding.

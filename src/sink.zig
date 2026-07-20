@@ -27,6 +27,7 @@ const ViolationLine = struct {
     line: ?u32 = null,
     message: []const u8,
     fix_hint: ?[]const u8 = null,
+    identity: ?[]const u8 = null,
     ratchet_key: ?[]const u8 = null,
     metric: ?u64 = null,
 };
@@ -59,6 +60,7 @@ pub fn violationJson(arena: Allocator, v: reporter.Violation) Allocator.Error![]
         .line = v.line,
         .message = v.message,
         .fix_hint = v.fix_hint,
+        .identity = v.identity,
         .ratchet_key = v.ratchet_key,
         .metric = v.metric,
     };
@@ -133,7 +135,7 @@ test "violationJson emits the full record for a migrated check and escapes text"
     };
     try std.testing.expectEqualStrings(
         "{\"type\":\"violation\",\"check\":\"function-length\",\"file\":\"src/x.zig\",\"line\":5," ++
-            "\"message\":\"fn \\\"foo\\\" is 246 lines (cap 200)\",\"fix_hint\":null," ++
+            "\"message\":\"fn \\\"foo\\\" is 246 lines (cap 200)\",\"fix_hint\":null,\"identity\":null," ++
             "\"ratchet_key\":\"src/x.zig|foo\",\"metric\":246}",
         try violationJson(a, v),
     );
@@ -142,7 +144,7 @@ test "violationJson emits the full record for a migrated check and escapes text"
     const u: reporter.Violation = .{ .check = "spec", .message = "unverified: Auth - Validates tokens" };
     try std.testing.expectEqualStrings(
         "{\"type\":\"violation\",\"check\":\"spec\",\"file\":null,\"line\":null," ++
-            "\"message\":\"unverified: Auth - Validates tokens\",\"fix_hint\":null," ++
+            "\"message\":\"unverified: Auth - Validates tokens\",\"fix_hint\":null,\"identity\":null," ++
             "\"ratchet_key\":null,\"metric\":null}",
         try violationJson(a, u),
     );

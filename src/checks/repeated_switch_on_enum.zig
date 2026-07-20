@@ -234,7 +234,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &pctx, .visit = projectVisit });
 
-    var violations: std.ArrayList([]const u8) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var iter = sig_to_files.iterator();
     while (iter.next()) |e| {
         const locs = e.value_ptr.*.items;
@@ -246,7 +246,16 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
             "switch on prongs ({s}) appears in {d} files: {s}",
             .{ e.key_ptr.*, unique.len, loc_list },
         );
-        try violations.append(allocator, msg);
+        // The prong set is what was flagged; the file count and the location
+        // list are context *about* it that legitimately churns as code moves.
+        // Keying the baseline on the prong set (reporter.Violation.identity) is
+        // what stopped this check re-keying every consumer baseline whenever its
+        // message gained a detail — the 2026-07-20 "all 10 reported as new" case.
+        try violations.append(allocator, .{
+            .check = "repeated-switch-on-enum",
+            .message = msg,
+            .identity = e.key_ptr.*,
+        });
     }
 
     if (violations.items.len == 0) {
@@ -254,7 +263,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         return;
     }
     reporter.fail("repeated-switch-on-enum FAILED ({d} occurrence(s))", .{violations.items.len});
-    for (violations.items) |v| detail("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     detail("  fix: move the dispatch onto the enum/tagged union itself (e.g., a method per prong).\n", .{});
     return error.CheckFailed;
 }

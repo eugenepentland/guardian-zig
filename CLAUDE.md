@@ -234,7 +234,16 @@ function-size, type-size, file-size, struct-method-cap, optional-density,
 bool-ops-per-condition, line-length) use **per-item ratchets** (baseline v2):
 each offender is stored as `<value> <key>` and gets a personal only-shrinks
 ceiling, so an improvement that's still over cap no longer reds the build; v1
-text baselines self-migrate to v2 on first build. `[baseline] deny_growth =
+text baselines self-migrate to v2 on first build. Every *other* check uses
+**identity baselines (v3)**: a violation is keyed by
+`<check>|<file>|<discriminator>` derived from content — `Violation.identity`
+(what the check flagged), else `ratchet_key`, else the message with standalone
+digit runs collapsed to `#` — never by its rendered text, so rewording a
+diagnostic no longer re-keys consumer baselines. Line numbers are in no tier.
+v1 baselines self-migrate to v3 on first run, guarded so the re-key can neither
+drop a violation nor adopt a new one (it is refused if any file gained
+violations). Reword-prone checks should set `identity` (see
+`src/violation_key.zig`). `[baseline] deny_growth =
 ["spec", ...]` freezes the named checks' baselines against ever growing — a
 refresh that would raise their count (or add a key) fails instead.
 File size, function length, and line length only emit ratchet records beyond
@@ -262,8 +271,9 @@ src/
   dora.zig             # DORA delivery-metrics JSONL sink (non-gating)
   snapshot.zig         # Read/write/diff for snapshot-based checks
   snapshot_helper.zig  # Lifecycle helper used by all snapshot checks
-  baseline.zig         # Baseline mode for legacy violations (v1 text baselines)
+  baseline.zig         # Baseline mode for legacy violations (v3 identity baselines)
   ratchet.zig          # Per-item ratchets (baseline v2) for threshold checks
+  violation_key.zig    # Content-derived violation identity (baseline v3 keys)
   cache.zig            # Skip-when-unchanged input digest for `all`
   config.zig           # guardian.toml parser
   build_helper.zig     # addAllChecks for downstream consumers

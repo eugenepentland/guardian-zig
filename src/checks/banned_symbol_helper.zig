@@ -101,8 +101,11 @@ const ScanState = struct {
 const Ctx = struct {
     allocator: Allocator,
     rel_path: []const u8,
-    violations: *std.ArrayList([]const u8),
+    violations: *std.ArrayList(reporter.Violation),
     opts: ScanOpts,
+    /// Tags emitted records for the JSONL sink. Empty under `analyzeContent`,
+    /// which renders to text and never reaches the sink.
+    check_name: []const u8 = "",
 };
 
 /// Public entry point for the in-process pure-function scan. Returns
@@ -113,7 +116,21 @@ pub fn analyzeContent(
     content: [:0]const u8,
     opts: ScanOpts,
 ) Allocator.Error![]const []const u8 {
-    var violations: std.ArrayList([]const u8) = .empty;
+    return reporter.flatLines(allocator, try analyzeRecords(allocator, rel_path, content, opts));
+}
+
+/// The structured form of `analyzeContent`: each hit as a `reporter.Violation`
+/// carrying an `identity` of `<file>|<banned symbol>`. That identity is what the
+/// baseline keys on, so this family's messages — which name the replacement
+/// inline and have been reworded before (the 2026-07-20 `deprecated-alias`
+/// consumer red) — can change without re-keying anyone's baseline.
+pub fn analyzeRecords(
+    allocator: Allocator,
+    rel_path: []const u8,
+    content: [:0]const u8,
+    opts: ScanOpts,
+) Allocator.Error![]const reporter.Violation {
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     for (opts.allowed_paths) |pat| {
         if (walk.matchGlob(rel_path, pat)) return violations.toOwnedSlice(allocator);
     }
@@ -224,28 +241,35 @@ fn recordViolation(ctx: *Ctx, z: []const u8, start_byte: usize, rule: Rule) Allo
     const a = ctx.allocator;
     const line = lineOf(z, start_byte);
     // Name the replacement inline when the rule supplies one (deprecated-alias),
-    // so the reader sees what to reach for without opening the fix hint.
+    // so the reader sees what to reach for without opening the fix hint. The
+    // file/line move into the record's own fields; `flatLine` re-renders the
+    // identical `<file>:<line>: <message>` text this used to format by hand.
     const msg = if (rule.replacement) |repl|
-        try std.fmt.allocPrint(
-            a,
-            "{s}:{d}: {s} → use {s}",
-            .{ ctx.rel_path, line, rule.display, repl },
-        )
+        try std.fmt.allocPrint(a, "{s} → use {s}", .{ rule.display, repl })
     else
-        try std.fmt.allocPrint(
-            a,
-            "{s}:{d}: {s} reference outside allowed paths",
-            .{ ctx.rel_path, line, rule.display },
-        );
-    try ctx.violations.append(a, msg);
+        try std.fmt.allocPrint(a, "{s} reference outside allowed paths", .{rule.display});
+    // The walker's rel_path is only valid for this visit, so copy it: the record
+    // outlives the walk.
+    const file = try a.dupe(u8, ctx.rel_path);
+    try ctx.violations.append(a, .{
+        .check = ctx.check_name,
+        .file = file,
+        .line = line,
+        .message = msg,
+        // What was flagged: this banned symbol in this file. Repeated hits in one
+        // file share the identity, and the baseline's multiset diff keeps their
+        // count, so removing one of three still registers as an improvement.
+        .identity = try std.fmt.allocPrint(a, "{s}|{s}", .{ file, rule.display }),
+    });
 }
 
 const lineOf = @import("../text.zig").lineOf;
 
 const FileScanCtx = struct {
     allocator: Allocator,
-    violations: *std.ArrayList([]const u8),
+    violations: *std.ArrayList(reporter.Violation),
     opts: ScanOpts,
+    check_name: []const u8,
 };
 
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -258,6 +282,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
         .rel_path = entry.rel_path,
         .violations = ctx.violations,
         .opts = ctx.opts,
+        .check_name = ctx.check_name,
     };
     // Reuse the shared parse when the index provides it; parse standalone only
     // for a single-check run with no shared index.
@@ -300,11 +325,12 @@ pub fn scan(
     var merged = opts;
     merged.allowed_paths = try mergeAllowed(allocator, opts.allowed_paths, ctx_param.cfg.extraAllowed(check_name));
 
-    var violations: std.ArrayList([]const u8) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
         .opts = merged,
+        .check_name = check_name,
     };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
 
@@ -313,12 +339,49 @@ pub fn scan(
         return;
     }
     reporter.fail("{s} FAILED ({d} occurrence(s))", .{ check_name, violations.items.len });
-    for (violations.items) |v| detail("  {s}\n", .{v});
+    for (violations.items) |v| reporter.emit(v);
     detail("  fix: {s}\n", .{opts.fix_hint});
     return error.CheckFailed;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
+
+// spec: Violation Identity - Identifies a banned symbol hit by its file and symbol rather than its wording
+
+test "analyzeRecords keys a hit by file and symbol while rendering the same text" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A rule with a replacement — the shape whose message gained "→ use ..." and
+    // re-keyed a consumer's deprecated-alias baseline on 2026-07-20.
+    const rules = [_]Rule{.{
+        .chain = &.{"ArrayListUnmanaged"},
+        .display = "std.ArrayListUnmanaged",
+        .replacement = "std.ArrayList",
+    }};
+    const content =
+        \\fn f() void {
+        \\    var x: std.ArrayListUnmanaged(u8) = .empty;
+        \\    _ = x;
+        \\}
+    ;
+    const recs = try analyzeRecords(a, "src/x.zig", content, .{ .rules = &rules });
+    try std.testing.expectEqual(@as(usize, 1), recs.len);
+    // The identity names the file and the banned symbol — no prose, no line
+    // number, no replacement text — so rewording the message cannot move it.
+    try std.testing.expectEqualStrings("src/x.zig|std.ArrayListUnmanaged", recs[0].identity.?);
+    // File and line ride in the record's own fields rather than the message.
+    try std.testing.expectEqualStrings("src/x.zig", recs[0].file.?);
+    try std.testing.expectEqual(@as(u32, 2), recs[0].line.?);
+
+    // The rendered text is unchanged from the hand-formatted line this replaced,
+    // so existing output and the text-scraping fallback both still hold.
+    const lines = try analyzeContent(a, "src/x.zig", content, .{ .rules = &rules });
+    try std.testing.expectEqualStrings(
+        "src/x.zig:2: std.ArrayListUnmanaged → use std.ArrayList",
+        lines[0],
+    );
+}
 
 test "analyzeContent flags simple chain reference" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
