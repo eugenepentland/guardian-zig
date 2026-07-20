@@ -52,9 +52,11 @@ src/ast/parser.zig::pubContainers value
 src/ast/parser.zig::pubContainersFromTree value
 src/ast/parser.zig::pubFns | fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn
 src/ast/parser.zig::pubFnsFromTree | fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubFn
+src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
-src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: [][]const u8, force_refresh: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
+src/baseline.zig::legacy_version value
+src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: []const Keyed, force_refresh: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/baseline.zig::version value
@@ -98,6 +100,7 @@ src/checks/ban_time.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!v
 src/checks/banned_symbol_helper.zig::Rule struct_
 src/checks/banned_symbol_helper.zig::ScanOpts struct_
 src/checks/banned_symbol_helper.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, opts: ScanOpts, ) Allocator.Error![]const []const u8
+src/checks/banned_symbol_helper.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, opts: ScanOpts, ) Allocator.Error![]const reporter.Violation
 src/checks/banned_symbol_helper.zig::scan | fn scan( ctx_param: *registry.RunCtx, check_name: []const u8, opts: ScanOpts, ) registry.RunError!void
 src/checks/bool_ops_per_condition.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/bool_ops_per_condition.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, max_ops: u32, ) Allocator.Error![]const []const u8
@@ -517,6 +520,12 @@ src/text.zig::TestScope struct_
 src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/version.zig::string value
+src/violation_key.zig::fileOf | fn fileOf(line: []const u8) []const u8
+src/violation_key.zig::fromLine | fn fromLine(arena: Allocator, check: []const u8, line: []const u8) Allocator.Error![]const u8
+src/violation_key.zig::fromRecord | fn fromRecord(arena: Allocator, check: []const u8, v: reporter.Violation) Allocator.Error![]const u8
+src/violation_key.zig::no_file value
+src/violation_key.zig::separator value
+src/violation_key.zig::skeleton | fn skeleton(arena: Allocator, message: []const u8) Allocator.Error![]const u8
 src/walk.zig::FileEntry struct_
 src/walk.zig::VisitError value
 src/walk.zig::VisitFn value

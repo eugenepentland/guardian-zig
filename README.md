@@ -547,9 +547,19 @@ Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is w
 Baseline mode runs one of two lifecycles per check, chosen automatically:
 
 - **Per-item ratchets (baseline v2)** for the ten **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `struct-method-cap`, `optional-density`, `bool-ops-per-condition`, `line-length`. Each blocking offender is stored as a `<value> <key>` line and gets a **personal, only-shrinks ceiling**. The advisory tier for file size, function length, and line length is deliberately excluded from ratchets.
-- **Text baselines (v1)** for every other check — the exact violation lines are frozen and diffed; a new line fails, a resolved line auto-prunes.
+- **Identity baselines (v3)** for every other check — each violation is frozen under a **content-derived key**, not its rendered text; a new key fails, a resolved key auto-prunes.
 
 This split fixes the structural flaw that made consumers raise global caps: a text baseline embeds the metric in the line, so *any* metric change (including a shrink) reads as a new violation. Ratchets store the metric as a comparable number instead.
+
+### Baseline keys survive message rewording
+
+A v3 key is `<check>|<file>|<discriminator>`, resolved in three tiers:
+
+1. **`Violation.identity`** — the check names *what it flagged* (the prong set, the banned symbol, the repeated literal). Fully rendering-independent.
+2. **`ratchet_key`** — the `file|symbol` identity the threshold checks already emit, reused verbatim.
+3. **Message skeleton** — the fallback for checks that still report prose: the message with standalone digit runs collapsed to `#` (digits glued to an identifier, like `u8` or `f32`, are preserved).
+
+Source line numbers are absent from every tier, so a violation that merely moved stays matched. Tier 1 means a diagnostic can be reworded word-for-word without re-keying any consumer's baseline; tier 3 absorbs counts, caps and measured values but *not* a prose rewrite — so **give a check an `identity` before rewording its message**. Keys are stored verbatim, so a `.guardian/` diff still reads as subjects rather than hashes.
 
 For a threshold check, subsequent builds report:
 
@@ -572,7 +582,15 @@ produces an advisory warning, so a green run cannot silently empty that debt.
 
 ### Migration is automatic
 
-A pre-upgrade project has v1 *text* baselines for these threshold checks. On the first build after upgrading, guardian reads each one, finds the version doesn't match, and **re-records it as a v2 ratchet** — reported as `<check>: migrated to per-item ratchet (N key(s))`, green, no red build. Commit the rewritten `.guardian/baselines/` and you're on ratchets. No manual step.
+A pre-upgrade project has v1 *text* baselines. On the first build after upgrading, guardian reads each one, finds the version doesn't match, and re-records it — **no manual step, no red build**. Commit the rewritten `.guardian/baselines/`.
+
+- Threshold checks → **re-recorded as a v2 ratchet**: `<check>: migrated to per-item ratchet (N key(s))`.
+- Every other check → **re-keyed to v3 identities**: `<check>: baseline re-keyed to stable identities (N violation(s))`.
+
+The v3 re-key is *guarded*, so it is a genuine no-op — the same violations under new keys:
+
+- It can never **drop** debt: every violation the check currently reports is written to the new baseline. An old entry with no current counterpart is one the check no longer reports — the ordinary auto-prune case.
+- It can never **add** debt: the migration is refused if any file now holds *more* violations than v1 recorded for it. A rewording moves violations between keys within a file; it never creates one. So a file that gained a violation gained real debt, and the run fails with `<check>: cannot re-key the legacy baseline — ...` listing that file's violations (after a re-key the new one can't be singled out, so all are shown).
 
 ### Worked example: retire a global cap
 

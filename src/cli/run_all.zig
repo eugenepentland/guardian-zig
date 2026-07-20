@@ -632,6 +632,7 @@ fn dupViolation(a: std.mem.Allocator, v: reporter.Violation) reporter.Violation 
         .line = v.line,
         .message = a.dupe(u8, v.message) catch v.message,
         .fix_hint = dupOpt(a, v.fix_hint),
+        .identity = dupOpt(a, v.identity),
         .ratchet_key = dupOpt(a, v.ratchet_key),
         .metric = v.metric,
     };

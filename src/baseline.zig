@@ -1,8 +1,14 @@
-//! Baseline mode (v1 text baselines): grandfather a check's *existing*
+//! Baseline mode (v3 identity baselines): grandfather a check's *existing*
 //! violations so only newly-added ones fail the build. Capture-once,
-//! diff-by-exact-text, auto-prune when the set shrinks; `grown` is the single
+//! diff-by-identity, auto-prune when the set shrinks; `grown` is the single
 //! failing outcome. Threshold checks use per-item ratchets (ratchet.zig)
 //! instead, which this module self-migrates to.
+//!
+//! v1 stored the *rendered violation text*, which made a diagnostic rewording
+//! re-key every consumer's baseline and red their gate on unchanged code. v3
+//! stores `violation_key` identities instead, so rendering may change freely.
+//! A v1 file self-migrates on first run (see `migrate`) — consumers upgrade with
+//! no manual refresh.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -12,9 +18,20 @@ const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
 const accept_session = @import("accept_session.zig");
+const violation_key = @import("violation_key.zig");
 
 /// Baseline file format version. Bump if the format changes meaningfully.
-pub const version: u32 = 1;
+/// v1 stored rendered violation text; v3 stores content-derived identities.
+/// (v2 is the per-item ratchet format owned by `ratchet.zig`.)
+pub const version: u32 = 3;
+
+/// The text-keyed format v3 replaces; read only by `migrate`.
+pub const legacy_version: u32 = 1;
+
+/// One current violation: the identity the baseline stores plus the rendered
+/// line used to report it. Keeping both is what lets the file be keyed by
+/// identity while failures still read as human diagnostics.
+pub const Keyed = struct { key: []const u8, line: []const u8 };
 
 /// Outcome of one check's baseline lifecycle. Maps to user-visible
 /// reporter output: `created`, `matched`, `shrunk` and `refreshed`
@@ -30,6 +47,13 @@ pub const Outcome = union(enum) {
     shrunk: struct { remaining: usize, removed: usize },
     /// `force_refresh` was set; baseline was rewritten.
     refreshed: usize,
+    /// A v1 text-keyed baseline was re-keyed to v3 identities in place.
+    migrated: usize,
+    /// A v1 baseline could not be re-keyed because a file now holds more
+    /// violations than it recorded. `lines` are that file's current violations —
+    /// after a re-key the new one can no longer be told apart from the
+    /// grandfathered ones, so all of them are shown.
+    migration_blocked: struct { lines: []const []const u8, baseline_size: usize },
     /// New violations beyond the baseline.
     grown: struct { new_lines: []const []const u8, baseline_size: usize },
 };
@@ -85,59 +109,37 @@ fn isHintStart(trimmed: []const u8) bool {
     return std.mem.startsWith(u8, trimmed, "fix:") or std.mem.startsWith(u8, trimmed, "add:");
 }
 
-/// Blanks the source-line position in a violation line so baseline matching is
-/// insensitive to line-number churn. A violation reads `<file>:<line>: <message>`;
-/// an unrelated edit *above* it shifts `<line>`, which would otherwise read as the
-/// old violation resolved + a new one added — a spurious "new violation" that fails
-/// the build and forces a needless baseline refresh. The stable identity is
-/// file + message (the message names the function / construct), so blank the first
-/// `:<digits>:` group. Lines with no such group (file-level `<file>: N lines`,
-/// plain tokens) are returned unchanged.
-fn positionKey(arena: Allocator, line: []const u8) Allocator.Error![]const u8 {
-    var i: usize = 0;
-    while (i < line.len) : (i += 1) {
-        if (line[i] != ':') continue;
-        var j = i + 1;
-        while (j < line.len and line[j] >= '0' and line[j] <= '9') j += 1;
-        if (j > i + 1 and j < line.len) {
-            if (line[j] == ':') return std.fmt.allocPrint(arena, "{s}::{s}", .{ line[0..i], line[j + 1 ..] });
-        }
-    }
-    return line;
-}
-
-/// Position-insensitive multiset diff of baseline vs. current violations: like
-/// `snapshot.diff`, but matches on `positionKey`, so a violation that only moved
-/// source lines is neither added nor removed. Multiplicity is preserved (N hits of
-/// the same message in one file still diff correctly), and a genuinely new
-/// violation still surfaces as `added`.
-fn diffByPosition(arena: Allocator, old: snapshot.Snapshot, current: []const []const u8) Allocator.Error!snapshot.Diff {
-    const Item = struct { key: []const u8, line: []const u8 };
+/// Multiset diff of a stored v3 baseline (identity keys) against the current
+/// violations. Matching is by `Keyed.key` alone, so anything the key ignores —
+/// source line numbers, counts and caps, and (for a check that sets an explicit
+/// `identity`) the entire message wording — is neither added nor removed.
+/// Multiplicity is preserved: N hits sharing one key still diff correctly, and a
+/// genuinely new violation still surfaces as `added`, reported as its rendered
+/// line rather than its key.
+fn diffKeys(arena: Allocator, old: snapshot.Snapshot, current: []const Keyed) Allocator.Error!snapshot.Diff {
     const order = struct {
-        fn lt(_: void, a: Item, b: Item) bool {
+        fn lt(_: void, a: Keyed, b: Keyed) bool {
             const c = std.mem.order(u8, a.key, b.key);
             return if (c != .eq) c == .lt else std.mem.order(u8, a.line, b.line) == .lt;
         }
     }.lt;
-    const olds = try arena.alloc(Item, old.lines.len);
-    for (old.lines, 0..) |l, k| olds[k] = .{ .key = try positionKey(arena, l), .line = l };
-    const news = try arena.alloc(Item, current.len);
-    for (current, 0..) |l, k| news[k] = .{ .key = try positionKey(arena, l), .line = l };
-    std.mem.sort(Item, olds, {}, order);
-    std.mem.sort(Item, news, {}, order);
+    const olds = try arena.dupe([]const u8, old.lines);
+    const news = try arena.dupe(Keyed, current);
+    std.mem.sort([]const u8, olds, {}, lessThan);
+    std.mem.sort(Keyed, news, {}, order);
 
     var added: std.ArrayList([]const u8) = .empty;
     var removed: std.ArrayList([]const u8) = .empty;
     var i: usize = 0;
     var j: usize = 0;
     while (i < olds.len and j < news.len) {
-        switch (std.mem.order(u8, olds[i].key, news[j].key)) {
+        switch (std.mem.order(u8, olds[i], news[j].key)) {
             .eq => {
                 i += 1;
                 j += 1;
             },
             .lt => {
-                try removed.append(arena, olds[i].line);
+                try removed.append(arena, olds[i]);
                 i += 1;
             },
             .gt => {
@@ -146,23 +148,29 @@ fn diffByPosition(arena: Allocator, old: snapshot.Snapshot, current: []const []c
             },
         }
     }
-    while (i < olds.len) : (i += 1) try removed.append(arena, olds[i].line);
+    while (i < olds.len) : (i += 1) try removed.append(arena, olds[i]);
     while (j < news.len) : (j += 1) try added.append(arena, news[j].line);
     return .{ .added = try added.toOwnedSlice(arena), .removed = try removed.toOwnedSlice(arena) };
 }
 
+/// Writes `current`'s identity keys as the baseline file contents.
+fn writeKeys(arena: Allocator, path: []const u8, current: []const Keyed) snapshot.WriteError!void {
+    const keys = try arena.alloc([]const u8, current.len);
+    for (current, 0..) |k, i| keys[i] = k.key;
+    try snapshot.write(path, version, keys);
+}
+
 /// Run the baseline lifecycle for a check.
 ///
-/// `current` may be reordered (sorted) for diffing.
 /// `force_refresh = true` rewrites the baseline regardless of state.
 pub fn lifecycle(
     arena: Allocator,
     baseline_path: []const u8,
-    current: [][]const u8,
+    current: []const Keyed,
     force_refresh: bool,
 ) (snapshot.WriteError || snapshot.ReadError)!Outcome {
     if (force_refresh) {
-        try snapshot.write(baseline_path, version, current);
+        try writeKeys(arena, baseline_path, current);
         return .{ .refreshed = current.len };
     }
 
@@ -172,10 +180,7 @@ pub fn lifecycle(
         .existing => |snap| snap,
     };
 
-    std.mem.sort([]const u8, current, {}, lessThan);
-    // Match ignoring source-line position so an unrelated edit that merely shifts a
-    // legacy violation's line number isn't reported as a new violation (see positionKey).
-    const d = try diffByPosition(arena, old, current);
+    const d = try diffKeys(arena, old, current);
     const outcome = classify(d, old.lines.len, current.len);
     // Auto-prune: a pure shrink (violations resolved, none added) rewrites the
     // baseline with the current smaller set. Removing entries is monotone-safe —
@@ -183,7 +188,7 @@ pub fn lifecycle(
     // and it retires the old "re-run with a broad snapshot refresh to prune"
     // round-trip that generated a class of .guardian/ churn commits.
     switch (outcome) {
-        .shrunk => try snapshot.write(baseline_path, version, current),
+        .shrunk => try writeKeys(arena, baseline_path, current),
         else => {},
     }
     return outcome;
@@ -198,12 +203,12 @@ const Loaded = union(enum) {
     existing: snapshot.Snapshot,
 };
 
-/// Read the baseline, initializing it when absent or stale. Both init
-/// paths write `current` as the new baseline before returning.
+/// Read the baseline, initializing it when absent or migrating it when it is
+/// still v1 text-keyed. Both init paths settle the file before returning.
 fn readOrInit(
     arena: Allocator,
     baseline_path: []const u8,
-    current: [][]const u8,
+    current: []const Keyed,
 ) (snapshot.WriteError || snapshot.ReadError)!Loaded {
     const snap = snapshot.read(arena, baseline_path, version) catch |e| switch (e) {
         // Missing → fresh `created`; but a check with nothing to record gets NO
@@ -212,17 +217,81 @@ fn readOrInit(
         // green run. Report matched(0) and leave the tree clean.
         error.Missing => {
             if (current.len == 0) return .{ .initialized = .{ .matched = 0 } };
-            try snapshot.write(baseline_path, version, current);
+            try writeKeys(arena, baseline_path, current);
             return .{ .initialized = .{ .created = current.len } };
         },
-        // Stale version → re-record as `refreshed` (the file already exists).
-        error.VersionMismatch => {
-            try snapshot.write(baseline_path, version, current);
-            return .{ .initialized = .{ .refreshed = current.len } };
-        },
+        // A stale version is a v1 text baseline in the wild → re-key in place.
+        error.VersionMismatch => return .{ .initialized = try migrate(arena, baseline_path, current) },
         else => return e,
     };
     return .{ .existing = snap };
+}
+
+/// Self-migrates a v1 text-keyed baseline to v3 identity keys, mirroring the
+/// v1→v2 ratchet migration: the consumer upgrades guardian and the next run
+/// re-keys their committed baseline with no manual refresh.
+///
+/// The rewrite is *guarded* rather than blind, which is what makes it
+/// no-op-shaped — the same violations, new keys:
+///
+///   * It can never **drop** baselined debt, because every violation the check
+///     currently reports is written to the new baseline. An old entry with no
+///     current counterpart is one the check no longer reports — precisely the
+///     `shrunk` auto-prune case, which is monotone-safe (a recurrence keys as a
+///     new violation and reds the build again).
+///   * It can never **add** a violation, because `migrationGrowth` refuses the
+///     migration when any file's violation count rose above what v1 recorded
+///     for it. Per-file counts are the strongest invariant available across a
+///     re-key: the old text keys can't be compared to the new identity keys, but
+///     a rewording moves violations *between* keys within a file, it never
+///     creates one. A file that gained a violation therefore gained real debt,
+///     and is reported as `grown` exactly as v1 would have.
+///
+/// An unreadable v1 file (corrupt, or some other version) carries no counts to
+/// guard against, so it is re-keyed unconditionally.
+fn migrate(
+    arena: Allocator,
+    baseline_path: []const u8,
+    current: []const Keyed,
+) (snapshot.WriteError || snapshot.ReadError)!Outcome {
+    const old = snapshot.read(arena, baseline_path, legacy_version) catch {
+        try writeKeys(arena, baseline_path, current);
+        return .{ .migrated = current.len };
+    };
+    if (try migrationGrowth(arena, old.lines, current)) |gained| {
+        return .{ .migration_blocked = .{ .lines = gained, .baseline_size = old.lines.len } };
+    }
+    try writeKeys(arena, baseline_path, current);
+    return .{ .migrated = current.len };
+}
+
+/// The current violation lines belonging to files that hold *more* violations
+/// than the v1 baseline recorded for them, or null when no file gained any (the
+/// migration is then provably a pure re-key or a shrink).
+fn migrationGrowth(
+    arena: Allocator,
+    old_lines: []const []const u8,
+    current: []const Keyed,
+) Allocator.Error!?[]const []const u8 {
+    var old_counts: std.StringHashMapUnmanaged(usize) = .empty;
+    for (old_lines) |l| try bump(arena, &old_counts, violation_key.fileOf(l));
+    var new_counts: std.StringHashMapUnmanaged(usize) = .empty;
+    for (current) |k| try bump(arena, &new_counts, violation_key.fileOf(k.line));
+
+    var gained: std.ArrayList([]const u8) = .empty;
+    for (current) |k| {
+        const file = violation_key.fileOf(k.line);
+        if ((new_counts.get(file) orelse 0) <= (old_counts.get(file) orelse 0)) continue;
+        try gained.append(arena, k.line);
+    }
+    if (gained.items.len == 0) return null;
+    return try gained.toOwnedSlice(arena);
+}
+
+/// Increments `map`'s counter for `key`.
+fn bump(arena: Allocator, map: *std.StringHashMapUnmanaged(usize), key: []const u8) Allocator.Error!void {
+    const gop = try map.getOrPut(arena, key);
+    gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.* + 1 else 1;
 }
 
 /// Turn a position-insensitive diff into a lifecycle outcome:
@@ -281,20 +350,34 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
     );
 }
 
-/// Violation lines for the baseline diff. Prefers the structured records a
-/// migrated check emitted through `reporter.emit` — rendered to the *same* flat
-/// lines the baseline file already stores — and falls back to scraping the
-/// captured prose for unmigrated checks. Rendering records to the identical
-/// stored form is what keeps existing committed baselines valid across the
-/// migration: the diff sees byte-identical lines whether they were scraped or
-/// rendered, so the coupling to output formatting is gone without a reformat.
-fn violationLines(
+/// Keyed violations for the baseline diff. Prefers the structured records a
+/// migrated check emitted through `reporter.emit` — which can carry an explicit
+/// `identity`, the rendering-independent top tier of the key — and falls back to
+/// scraping the captured prose for checks that still report only text. Both
+/// paths produce the same `<check>|<file>|<discriminator>` key shape, so a check
+/// gains precision by adding an identity without any baseline disruption beyond
+/// that check's own re-key.
+fn keyedViolations(
     arena: Allocator,
+    check_name: []const u8,
     captured: []const u8,
     records: []const reporter.Violation,
-) Allocator.Error![]const []const u8 {
-    if (records.len > 0) return reporter.flatLines(arena, records);
-    return extract(arena, captured);
+) Allocator.Error![]const Keyed {
+    if (records.len > 0) {
+        const out = try arena.alloc(Keyed, records.len);
+        for (records, 0..) |v, i| out[i] = .{
+            .key = try violation_key.fromRecord(arena, check_name, v),
+            .line = try reporter.flatLine(arena, v),
+        };
+        return out;
+    }
+    const lines = try extract(arena, captured);
+    const out = try arena.alloc(Keyed, lines.len);
+    for (lines, 0..) |l, i| out[i] = .{
+        .key = try violation_key.fromLine(arena, check_name, l),
+        .line = l,
+    };
+    return out;
 }
 
 fn processOutcome(
@@ -312,9 +395,9 @@ fn processOutcome(
     // A threshold check with a stable key + metric uses the per-item ratchet
     // lifecycle (baseline v2): each offender gets an only-shrinks ceiling, so a
     // metric change on a grandfathered offender no longer reds the build. Every
-    // other check keeps the v1 text-diff lifecycle below. Selection is by check
-    // name (not the presence of records), so a metric check with zero current
-    // violations still ratchets — it prunes its whole baseline.
+    // other check keeps the v3 identity-diff lifecycle below. Selection is by
+    // check name (not the presence of records), so a metric check with zero
+    // current violations still ratchets — it prunes its whole baseline.
     if (ratchet.metricMode(check_name) != null) {
         return processRatchet(a, ctx, check_name, .{
             .captured = captured,
@@ -325,9 +408,7 @@ fn processOutcome(
     }
 
     const path = try pathFor(a, ctx.project_dir, check_name);
-    const violations_const = try violationLines(a, captured, records);
-    const violations = try a.alloc([]const u8, violations_const.len);
-    @memcpy(violations, violations_const);
+    const violations = try keyedViolations(a, check_name, captured, records);
 
     // deny_growth: a refresh (global or selective) may only rewrite this
     // check's baseline if it doesn't grow. Guards the flagship 1:1 spec map —
@@ -595,6 +676,23 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
             .{ check_name, s.removed, s.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: baseline refreshed ({d} violation(s))", .{ check_name, n }),
+        .migrated => |n| reporter.ok(
+            "{s}: baseline re-keyed to stable identities ({d} violation(s); commit .guardian/)",
+            .{ check_name, n },
+        ),
+        .migration_blocked => |m| {
+            reporter.fail(
+                "{s}: cannot re-key the legacy baseline — a file now holds more violations " ++
+                    "than its {d} recorded entries grandfathered",
+                .{ check_name, m.baseline_size },
+            );
+            // The new violation can't be singled out after a re-key, so show the
+            // whole affected file(s) and say so, rather than implying all are new.
+            reporter.detail("  one or more of these is new debt:\n", .{});
+            for (m.lines) |line| reporter.detail("    {s}\n", .{line});
+            reportAcceptCommand(check_name);
+            return error.CheckFailed;
+        },
         .grown => |g| {
             reporter.fail(
                 "{s}: {d} new violation(s) above baseline of {d}",
@@ -632,30 +730,45 @@ fn deleteIfExists(path: []const u8) void {
     };
 }
 
+/// Test helper: keys plain violation lines the way an unmigrated (prose) check's
+/// scraped output is keyed, so lifecycle tests can work in readable text.
+fn keyedLines(arena: Allocator, check_name: []const u8, lines: []const []const u8) Allocator.Error![]const Keyed {
+    const out = try arena.alloc(Keyed, lines.len);
+    for (lines, 0..) |l, i| out[i] = .{ .key = try violation_key.fromLine(arena, check_name, l), .line = l };
+    return out;
+}
+
 // spec: Baseline Mode - Captures each check's current violations on first run and only fails on additions
 // spec: Baseline Mode - Wraps a single check run with capture, diff, and outcome reporting
 
 // spec: Baseline Mode - Prefers structured records over scraped text when present
 
-test "violationLines renders records when present and scrapes text otherwise" {
+test "keyedViolations renders records when present and scrapes text otherwise" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // With structured records, the flat lines come from the records — the
+    // With structured records, the keys and lines come from the records — the
     // captured prose (here a decoy indented line) is ignored, proving the
     // baseline no longer re-parses a migrated check's output.
     const records = [_]reporter.Violation{
         .{ .check = "function-length", .file = "src/x.zig", .line = 5, .message = "fn foo is 246 lines (cap 200)" },
     };
-    const from_records = try violationLines(a, "guardian: function length FAILED\n  DECOY TEXT\n", &records);
+    const from_records = try keyedViolations(a, "function-length", "guardian: FAILED\n  DECOY TEXT\n", &records);
     try std.testing.expectEqual(@as(usize, 1), from_records.len);
-    try std.testing.expectEqualStrings("src/x.zig:5: fn foo is 246 lines (cap 200)", from_records[0]);
+    try std.testing.expectEqualStrings("src/x.zig:5: fn foo is 246 lines (cap 200)", from_records[0].line);
+    // The stored key drops the line number and the measured/cap numbers.
+    try std.testing.expectEqualStrings(
+        "function-length|src/x.zig|fn foo is # lines (cap #)",
+        from_records[0].key,
+    );
 
-    // With no records (an unmigrated check), it falls back to scraping the text.
-    const from_text = try violationLines(a, "guardian: ban-fs FAILED\n  src/y.zig:8: bad\n", &.{});
+    // With no records (an unmigrated check), it falls back to scraping the text
+    // and keys the scraped line the same way.
+    const from_text = try keyedViolations(a, "ban-fs", "guardian: ban-fs FAILED\n  src/y.zig:8: bad\n", &.{});
     try std.testing.expectEqual(@as(usize, 1), from_text.len);
-    try std.testing.expectEqualStrings("src/y.zig:8: bad", from_text[0]);
+    try std.testing.expectEqualStrings("src/y.zig:8: bad", from_text[0].line);
+    try std.testing.expectEqualStrings("ban-fs|src/y.zig|bad", from_text[0].key);
 }
 
 fn warningOnly(_: *types.RunCtx) types.RunError!void {
@@ -862,8 +975,8 @@ test "lifecycle creates baseline on first run" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    var lines = [_][]const u8{ "alpha", "beta" };
-    const out = try lifecycle(a, path, &lines, false);
+    const lines = try keyedLines(a, "demo", &.{ "alpha", "beta" });
+    const out = try lifecycle(a, path, lines, false);
     try std.testing.expect(out == .created);
     try std.testing.expectEqual(@as(usize, 2), out.created);
 }
@@ -877,11 +990,8 @@ test "lifecycle returns matched on identical run" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    var lines = [_][]const u8{ "alpha", "beta" };
-    _ = try lifecycle(a, path, &lines, false);
-
-    var lines2 = [_][]const u8{ "alpha", "beta" };
-    const out = try lifecycle(a, path, &lines2, false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false);
+    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false);
     try std.testing.expect(out == .matched);
 }
 
@@ -894,13 +1004,12 @@ test "lifecycle returns grown when new violations appear" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    var lines = [_][]const u8{"alpha"};
-    _ = try lifecycle(a, path, &lines, false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{"alpha"}), false);
 
-    var lines2 = [_][]const u8{ "alpha", "gamma" };
-    const out = try lifecycle(a, path, &lines2, false);
+    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "gamma" }), false);
     try std.testing.expect(out == .grown);
     try std.testing.expectEqual(@as(usize, 1), out.grown.new_lines.len);
+    // The failure reports the human line, not the stored key.
     try std.testing.expectEqualStrings("gamma", out.grown.new_lines[0]);
 }
 
@@ -913,11 +1022,9 @@ test "lifecycle returns shrunk when violations are resolved" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    var lines = [_][]const u8{ "alpha", "beta", "gamma" };
-    _ = try lifecycle(a, path, &lines, false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta", "gamma" }), false);
 
-    var lines2 = [_][]const u8{"alpha"};
-    const out = try lifecycle(a, path, &lines2, false);
+    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{"alpha"}), false);
     try std.testing.expect(out == .shrunk);
     try std.testing.expectEqual(@as(usize, 2), out.shrunk.removed);
     try std.testing.expectEqual(@as(usize, 1), out.shrunk.remaining);
@@ -934,17 +1041,15 @@ test "lifecycle auto-prunes the baseline file after a shrink" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    var lines = [_][]const u8{ "alpha", "beta", "gamma" };
-    _ = try lifecycle(a, path, &lines, false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta", "gamma" }), false);
 
     // Resolving two violations shrinks the set AND rewrites the file.
-    var lines2 = [_][]const u8{"alpha"};
-    try std.testing.expect((try lifecycle(a, path, &lines2, false)) == .shrunk);
+    const one = try keyedLines(a, "demo", &.{"alpha"});
+    try std.testing.expect((try lifecycle(a, path, one, false)) == .shrunk);
 
     // The file was pruned to the surviving violation, so a re-run matches
     // (no lingering "resolved" entries to keep reporting).
-    var lines3 = [_][]const u8{"alpha"};
-    const out2 = try lifecycle(a, path, &lines3, false);
+    const out2 = try lifecycle(a, path, one, false);
     try std.testing.expect(out2 == .matched);
     try std.testing.expectEqual(@as(usize, 1), out2.matched);
 }
@@ -961,17 +1066,150 @@ test "lifecycle does not rewrite a matched baseline whose entries only moved lin
     defer deleteIfExists(path);
 
     // Record a baseline whose entry carries a source-line position.
-    var lines = [_][]const u8{"src/x.zig:10: std.fs.cwd reference outside allowed paths"};
-    _ = try lifecycle(a, path, &lines, false);
+    const at_10 = try keyedLines(a, "ban-fs", &.{"src/x.zig:10: std.fs.cwd reference outside allowed paths"});
+    _ = try lifecycle(a, path, at_10, false);
     const before = try std.fs.cwd().readFileAlloc(a, path, 4096);
 
     // The same violation, only shifted to a new line (an unrelated edit grew the
     // file above it), must match — and must NOT rewrite the committed baseline,
     // so a source-only diff stays clean (C1a).
-    var shifted = [_][]const u8{"src/x.zig:42: std.fs.cwd reference outside allowed paths"};
-    try std.testing.expect((try lifecycle(a, path, &shifted, false)) == .matched);
+    const at_42 = try keyedLines(a, "ban-fs", &.{"src/x.zig:42: std.fs.cwd reference outside allowed paths"});
+    try std.testing.expect((try lifecycle(a, path, at_42, false)) == .matched);
     const after = try std.fs.cwd().readFileAlloc(a, path, 4096);
     try std.testing.expectEqualStrings(before, after);
+}
+
+// spec: Baseline Mode - Keeps a baselined violation matched when its message text is reworded
+
+test "rewording a violation's message leaves the baseline green" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-reword.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // A check that names what it flagged: the identity is the prong set, the
+    // message is prose *about* that prong set. This is the real 2026-07-20
+    // regression — enriching this check's message with a file list reported all
+    // ten pre-existing violations as new.
+    const before: reporter.Violation = .{
+        .check = "repeated-switch-on-enum",
+        .message = "switch on prongs (float,integer) appears in 2 files",
+        .identity = "float,integer",
+    };
+    const baselined = try keyedViolations(a, "repeated-switch-on-enum", "", &.{before});
+    try std.testing.expect((try lifecycle(a, path, baselined, false)) == .created);
+    const on_disk = try std.fs.cwd().readFileAlloc(a, path, 4096);
+
+    // Now reword the *same* underlying violation as freely as a diagnostics
+    // batch would: new phrasing, an added count, and an appended file list. The
+    // rendered line shares almost nothing with the baselined one...
+    const after: reporter.Violation = .{
+        .check = "repeated-switch-on-enum",
+        .file = "src/a.zig",
+        .line = 12,
+        .message = "the 2-prong set (float,integer) is switched in 3 files: src/a.zig:12, src/b.zig:40, src/c.zig:7",
+        .identity = "float,integer",
+    };
+    const reworded = try keyedViolations(a, "repeated-switch-on-enum", "", &.{after});
+    try std.testing.expect(!std.mem.eql(u8, baselined[0].line, reworded[0].line));
+
+    // ...yet the run stays green, and the committed baseline is not rewritten,
+    // so a consumer's gate survives the upgrade with no accept and no churn.
+    try std.testing.expect((try lifecycle(a, path, reworded, false)) == .matched);
+    try std.testing.expectEqualStrings(on_disk, try std.fs.cwd().readFileAlloc(a, path, 4096));
+
+    // The guard rail still holds: a *different* prong set is a real new
+    // violation and reds the build.
+    const other: reporter.Violation = .{
+        .check = "repeated-switch-on-enum",
+        .message = "switch on prongs (ok,err) appears in 2 files",
+        .identity = "ok,err",
+    };
+    const grew = try keyedViolations(a, "repeated-switch-on-enum", "", &.{ after, other });
+    try std.testing.expect((try lifecycle(a, path, grew, false)) == .grown);
+}
+
+// spec: Baseline Mode - Re-keys a stale text baseline to stable identities without failing
+
+test "migrate re-keys a v1 text baseline in place and keeps enforcing afterwards" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-migrate.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // Hand-write the pre-upgrade v1 baseline: rendered violation text.
+    var v1 = [_][]const u8{
+        "src/a.zig:5: std.fs.cwd reference outside allowed paths",
+        "src/b.zig:9: std.fs.cwd reference outside allowed paths",
+    };
+    try snapshot.write(path, legacy_version, &v1);
+
+    // The upgrade also reworded the message and shifted a line — the v1 text no
+    // longer matches anything. Migration re-keys instead of reporting two new
+    // violations, so the consumer stays green with no manual refresh.
+    const current = try keyedLines(a, "ban-fs", &.{
+        "src/a.zig:5: std.fs.cwd used outside the allowed paths",
+        "src/b.zig:31: std.fs.cwd used outside the allowed paths",
+    });
+    const out = try lifecycle(a, path, current, false);
+    try std.testing.expect(out == .migrated);
+    try std.testing.expectEqual(@as(usize, 2), out.migrated);
+
+    // The rewritten file is v3, and the migrated baseline still enforces: the
+    // same two violations match, a third one reds the build.
+    try std.testing.expect((try lifecycle(a, path, current, false)) == .matched);
+    const plus_one = try keyedLines(a, "ban-fs", &.{
+        "src/a.zig:5: std.fs.cwd used outside the allowed paths",
+        "src/b.zig:31: std.fs.cwd used outside the allowed paths",
+        "src/c.zig:2: std.fs.cwd used outside the allowed paths",
+    });
+    try std.testing.expect((try lifecycle(a, path, plus_one, false)) == .grown);
+}
+
+// spec: Baseline Mode - Refuses to migrate a stale baseline when a file gained violations
+
+test "migrationGrowth allows a pure re-key but reports a file that gained debt" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const old = [_][]const u8{
+        "src/a.zig:5: old wording",
+        "src/a.zig:9: old wording",
+        "src/b.zig:1: old wording",
+    };
+
+    // Same per-file counts (2 in a, 1 in b) under completely different text —
+    // a rewording moves violations between keys but never creates one, so the
+    // migration is a provable no-op re-key and adds nothing.
+    const rekeyed = try keyedLines(a, "demo", &.{
+        "src/a.zig:5: brand new wording",
+        "src/a.zig:40: brand new wording",
+        "src/b.zig:1: brand new wording",
+    });
+    try std.testing.expect((try migrationGrowth(a, &old, rekeyed)) == null);
+
+    // Fewer violations than recorded is a shrink — also safe to adopt.
+    const shrunk = try keyedLines(a, "demo", &.{"src/a.zig:5: brand new wording"});
+    try std.testing.expect((try migrationGrowth(a, &old, shrunk)) == null);
+
+    // src/b.zig went 1 → 2: that file gained real debt, so the migration is
+    // refused and b's lines are reported as new.
+    const grew = try keyedLines(a, "demo", &.{
+        "src/a.zig:5: brand new wording",
+        "src/a.zig:40: brand new wording",
+        "src/b.zig:1: brand new wording",
+        "src/b.zig:8: brand new wording",
+    });
+    const gained = (try migrationGrowth(a, &old, grew)).?;
+    try std.testing.expectEqual(@as(usize, 2), gained.len);
+    try std.testing.expectEqualStrings("src/b.zig:1: brand new wording", gained[0]);
 }
 
 // spec: Baseline Mode - Records no baseline file for a check with nothing to record
@@ -987,8 +1225,7 @@ test "lifecycle creates no baseline file when there are no violations" {
 
     // A passing check with no prior baseline reports matched(0) and writes
     // nothing, so a green run never dirties git with a header-only file (C1b).
-    var none = [_][]const u8{};
-    const out = try lifecycle(a, path, &none, false);
+    const out = try lifecycle(a, path, &.{}, false);
     try std.testing.expect(out == .matched);
     try std.testing.expectEqual(@as(usize, 0), out.matched);
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
@@ -1020,83 +1257,69 @@ test "lifecycle force_refresh rewrites the baseline" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    var lines = [_][]const u8{ "alpha", "beta" };
-    _ = try lifecycle(a, path, &lines, false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false);
 
-    var lines2 = [_][]const u8{ "alpha", "gamma" };
-    const out = try lifecycle(a, path, &lines2, true);
+    const next = try keyedLines(a, "demo", &.{ "alpha", "gamma" });
+    const out = try lifecycle(a, path, next, true);
     try std.testing.expect(out == .refreshed);
 
     // After refresh, the new state is the baseline.
-    var lines3 = [_][]const u8{ "alpha", "gamma" };
-    const out2 = try lifecycle(a, path, &lines3, false);
+    const out2 = try lifecycle(a, path, next, false);
     try std.testing.expect(out2 == .matched);
 }
 
-test "positionKey blanks the source-line position, leaves position-free lines alone" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    try std.testing.expectEqualStrings(
-        "src/x.zig:: fn foo is 246 lines (cap 200)",
-        try positionKey(a, "src/x.zig:553: fn foo is 246 lines (cap 200)"),
-    );
-    // No `:<digits>:` group (a file-level metric line) → returned unchanged.
-    try std.testing.expectEqualStrings(
-        "src/x.zig: 1234 lines (max 1000)",
-        try positionKey(a, "src/x.zig: 1234 lines (max 1000)"),
-    );
-}
-
-test "diffByPosition ignores a pure line-number shift" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const old: snapshot.Snapshot = .{ .version = 1, .lines = &.{"src/x.zig:553: fn foo is 246 lines (cap 200)"} };
-    const new_lines = [_][]const u8{"src/x.zig:559: fn foo is 246 lines (cap 200)"};
-    const d = try diffByPosition(a, old, &new_lines);
-    try std.testing.expect(d.isEmpty());
-}
-
-test "diffByPosition still flags a genuinely new violation amid shifts" {
+test "diffKeys ignores a pure line-number shift" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const old: snapshot.Snapshot = .{
-        .version = 1,
-        .lines = &.{"src/x.zig:10: fn foo reaches nesting depth 7 (cap 6)"},
+        .version = version,
+        .lines = &.{"function-length|src/x.zig|fn foo is # lines (cap #)"},
     };
-    const new_lines = [_][]const u8{
+    const current = try keyedLines(a, "function-length", &.{"src/x.zig:559: fn foo is 246 lines (cap 200)"});
+    const d = try diffKeys(a, old, current);
+    try std.testing.expect(d.isEmpty());
+}
+
+test "diffKeys still flags a genuinely new violation amid shifts" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const old: snapshot.Snapshot = .{
+        .version = version,
+        .lines = &.{"nesting-depth|src/x.zig|fn foo reaches nesting depth # (cap #)"},
+    };
+    const current = try keyedLines(a, "nesting-depth", &.{
         "src/x.zig:14: fn foo reaches nesting depth 7 (cap 6)", // same violation, only moved
         "src/y.zig:99: fn bar reaches nesting depth 8 (cap 6)", // genuinely new
-    };
-    const d = try diffByPosition(a, old, &new_lines);
+    });
+    const d = try diffKeys(a, old, current);
     try std.testing.expectEqual(@as(usize, 1), d.added.len);
     try std.testing.expectEqualStrings("src/y.zig:99: fn bar reaches nesting depth 8 (cap 6)", d.added[0]);
     try std.testing.expectEqual(@as(usize, 0), d.removed.len);
 }
 
-test "diffByPosition preserves multiplicity for count-based checks" {
+test "diffKeys preserves multiplicity for count-based checks" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     // Two identical-message hits in one file, both shifted → still a match (no churn).
-    const old: snapshot.Snapshot = .{ .version = 1, .lines = &.{
-        "src/x.zig:5: std.fs.cwd reference outside allowed paths",
-        "src/x.zig:50: std.fs.cwd reference outside allowed paths",
+    const old: snapshot.Snapshot = .{ .version = version, .lines = &.{
+        "ban-fs|src/x.zig|std.fs.cwd reference outside allowed paths",
+        "ban-fs|src/x.zig|std.fs.cwd reference outside allowed paths",
     } };
-    const shifted = [_][]const u8{
+    const shifted = try keyedLines(a, "ban-fs", &.{
         "src/x.zig:7: std.fs.cwd reference outside allowed paths",
         "src/x.zig:60: std.fs.cwd reference outside allowed paths",
-    };
-    try std.testing.expect((try diffByPosition(a, old, &shifted)).isEmpty());
+    });
+    try std.testing.expect((try diffKeys(a, old, shifted)).isEmpty());
     // A third hit appears → exactly one new violation.
-    const grown = [_][]const u8{
+    const grown = try keyedLines(a, "ban-fs", &.{
         "src/x.zig:7: std.fs.cwd reference outside allowed paths",
         "src/x.zig:60: std.fs.cwd reference outside allowed paths",
         "src/x.zig:80: std.fs.cwd reference outside allowed paths",
-    };
-    const d = try diffByPosition(a, old, &grown);
+    });
+    const d = try diffKeys(a, old, grown);
     try std.testing.expectEqual(@as(usize, 1), d.added.len);
 }
 

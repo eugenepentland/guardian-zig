@@ -408,6 +408,17 @@ blocking correctness checks and advisory maintainability guidance.
 - Leaves a matched baseline untouched when only line numbers shifted
 - Records no baseline file for a check with nothing to record
 - Prefixes a matching baseline or ratchet report with an ok marker
+- Keeps a baselined violation matched when its message text is reworded
+- Re-keys a stale text baseline to stable identities without failing
+- Refuses to migrate a stale baseline when a file gained violations
+
+## Violation Identity
+
+- Collapses standalone digit runs while keeping digits glued to identifiers
+- Keys a record by its explicit identity then ratchet key then message skeleton
+- Derives the same fallback key from a scraped line as from a record
+- Reports the file a rendered violation line names
+- Identifies a banned symbol hit by its file and symbol rather than its wording
 
 ## Per-Item Ratchets
 
