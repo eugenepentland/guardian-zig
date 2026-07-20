@@ -486,13 +486,23 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[
         ),
         .shape => reporter.fail("{s}: {d} key(s) regressed above ratchet", .{ check_name, n }),
     }
+    // Name the metric's unit (ratchet.unitLabel) so a bare number reads as
+    // "8 params" / "8 fields" / "3 over-length lines" instead of leaving the
+    // reader to guess what was measured.
+    const unit = ratchet.unitLabel(check_name);
     for (reg.grown) |g| reporter.detail(
-        "  {s}: {s} grew {d} -> {d} (ratcheted at {d})\n",
-        .{ check_name, g.key, g.old, g.new, g.old },
+        "  {s}: {s} grew {d} -> {d} {s} (frozen ratchet ceiling was {d})\n",
+        .{ check_name, g.key, g.old, g.new, unit, g.old },
     );
     for (reg.new_offenders) |o| reporter.detail(
-        "  {s}: {s} new offender over default cap (measured value: {d})\n",
-        .{ check_name, o.key, o.value },
+        "  {s}: {s} — {d} {s}, a new offender at or above the cap (accept to ratchet, or reduce)\n",
+        .{ check_name, o.key, o.value, unit },
+    );
+    // A type-size subject that grew was sitting exactly at its frozen cap; make
+    // the "you can't just add a field" insight explicit rather than implied.
+    if (std.mem.eql(u8, check_name, "type-size") and reg.grown.len > 0) reporter.detail(
+        "  this container is at its frozen cap; reduce a field or split it before adding another.\n",
+        .{},
     );
     switch (class) {
         .volume => {

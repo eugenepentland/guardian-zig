@@ -88,12 +88,14 @@ blocking correctness checks and advisory maintainability guidance.
 - Flags a managed hashmap construction such as std.StringHashMap
 - Flags the usingnamespace keyword removed in 0.15
 - Flags the pre-0.15 getStdOut and getStdErr writer idioms
+- Names the modern replacement for each flagged alias
 - Allows the unmanaged and 0.15 replacement spellings
 
 ## Spec Quality
 
 - Flags vague behavior phrases in SPEC.md
 - Rejects behaviors shorter than the minimum length
+- Fails when SPEC.md is missing instead of silently skipping
 
 ## Naming
 
@@ -184,6 +186,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Sorts the debt rows by count descending
 - Formats a committed-state delta and omits it when unchanged or absent
 - Omits a clean source with zero debt and no committed change
+- Reports source files over the recommended size against both limits
 - Reports assert-call density per top-level src module sorted ascending
 
 ## Maintenance
@@ -279,6 +282,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Duplicate Const
 
 - Rejects duplicate file-scope string-literal consts (same name and value) across files
+- Ignores cross-file consts shorter than the in-file minimum length
 
 ## Debug Print Ban
 
@@ -355,6 +359,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects bool parameters in public functions
 - Rejects bare integer literals outside a small allowlist
 - Rejects identical string literals appearing 3 or more times in a single file
+- Names the line of each repeated-literal occurrence
 - Caps pub fn methods per pub struct/enum/union
 - Caps the percentage of optional fields in a public struct
 - Rejects switch expressions whose case keys are string literals
@@ -364,6 +369,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Flags the same enum dot-prong set switched in 2+ files
 - Ignores repeated enum switches that occur only inside test blocks
 - Names every file sharing a repeated enum prong set
+- Renders each colliding switch location as file and line
 
 ## Transactional Metadata
 
@@ -393,6 +399,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Refuses a deny_growth refresh that raises a value or adds a key
 - Summarizes a ratchet file's worst offender
 - Presents file and type growth as volume with accept-first guidance
+- Names each threshold check's metric unit for regression messages
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
 
@@ -497,6 +504,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 ## Completeness Checklist
 
+- Fails when SPEC.md is missing while enabled instead of skipping
 - Fails a feature section that omits a required completeness category
 - Passes a section whose bullets address every completeness category
 - Accepts a completeness-waiver bullet that gives a reason

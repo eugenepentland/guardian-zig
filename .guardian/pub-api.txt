@@ -133,6 +133,7 @@ src/checks/escape_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) regi
 src/checks/external_gates.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/fatal_exit.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/fatal_exit.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/file_size.zig::codeLines | fn codeLines(content: [:0]const u8) std.mem.Allocator.Error!u32
 src/checks/file_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.FunctionLengthCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -415,6 +416,7 @@ src/ratchet.zig::lifecycle | fn lifecycle( arena: Allocator, path: []const u8, e
 src/ratchet.zig::maxEntry | fn maxEntry(entries: []const Entry) ?Entry
 src/ratchet.zig::metricMode | fn metricMode(check_name: []const u8) ?AggMode
 src/ratchet.zig::parse | fn parse(arena: Allocator, content: []const u8) Allocator.Error![]Entry
+src/ratchet.zig::unitLabel | fn unitLabel(check_name: []const u8) []const u8
 src/ratchet.zig::version value
 src/ratchet.zig::wouldGrow | fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool
 src/reporter.zig::Capture struct_
@@ -488,6 +490,7 @@ src/spec/parser.zig::Section struct_
 src/spec/parser.zig::normalizeKey | fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, content: []const u8) ParseError![]const Section
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
+src/spec/parser.zig::resolveProjectDir | fn resolveProjectDir(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::tagKey | fn tagKey(allocator: Allocator, tag: []const u8) Allocator.Error![]const u8
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_

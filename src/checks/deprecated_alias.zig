@@ -24,13 +24,25 @@ const rules = [_]helper.Rule{
     // `std.ArrayListUnmanaged` is a deprecated alias of `std.ArrayList` in 0.15
     // — std.zig literally reads `pub const ArrayListUnmanaged = ArrayList;`.
     // Identical type today; a whole-tree rename when 0.16 removes the alias.
-    .{ .chain = &.{"ArrayListUnmanaged"}, .display = "std.ArrayListUnmanaged" },
+    .{
+        .chain = &.{"ArrayListUnmanaged"},
+        .display = "std.ArrayListUnmanaged",
+        .replacement = "std.ArrayList (unmanaged by default since 0.15)",
+    },
     // `std.ArrayListAlignedUnmanaged` — same deprecation, vs `array_list.Aligned`.
-    .{ .chain = &.{"ArrayListAlignedUnmanaged"}, .display = "std.ArrayListAlignedUnmanaged" },
+    .{
+        .chain = &.{"ArrayListAlignedUnmanaged"},
+        .display = "std.ArrayListAlignedUnmanaged",
+        .replacement = "std.ArrayListAligned (unmanaged by default since 0.15)",
+    },
     // `std.array_list.Managed` is the deprecated *managed* ArrayList
     // (array_list.zig: `/// Deprecated. pub fn Managed`). Prefer the unmanaged
     // `std.ArrayList`, which stores no allocator.
-    .{ .chain = &.{ "std", "array_list", "Managed" }, .display = "std.array_list.Managed" },
+    .{
+        .chain = &.{ "std", "array_list", "Managed" },
+        .display = "std.array_list.Managed",
+        .replacement = "std.ArrayList with an allocator-per-call",
+    },
     // Managed hashmap constructors. NOT deprecated in 0.15 — they still exist
     // and work — but discouraged: std has moved to the unmanaged maps, which
     // keep the allocator on the owning struct instead of inside every map. They
@@ -38,20 +50,54 @@ const rules = [_]helper.Rule{
     // `[[allow]]` path machinery is a clean per-path escape hatch for a consumer
     // that keeps managed maps on purpose. Only the `(`-application form is a
     // type/construction, so `require_call`.
-    .{ .chain = &.{ "std", "StringHashMap" }, .display = "std.StringHashMap (managed)", .require_call = true },
-    .{ .chain = &.{ "std", "AutoHashMap" }, .display = "std.AutoHashMap (managed)", .require_call = true },
-    .{ .chain = &.{ "std", "StringArrayHashMap" }, .display = "std.StringArrayHashMap", .require_call = true },
-    .{ .chain = &.{ "std", "AutoArrayHashMap" }, .display = "std.AutoArrayHashMap", .require_call = true },
+    .{
+        .chain = &.{ "std", "StringHashMap" },
+        .display = "std.StringHashMap (managed)",
+        .require_call = true,
+        .replacement = "std.StringHashMapUnmanaged with an allocator-per-call",
+    },
+    .{
+        .chain = &.{ "std", "AutoHashMap" },
+        .display = "std.AutoHashMap (managed)",
+        .require_call = true,
+        .replacement = "std.AutoHashMapUnmanaged with an allocator-per-call",
+    },
+    .{
+        .chain = &.{ "std", "StringArrayHashMap" },
+        .display = "std.StringArrayHashMap",
+        .require_call = true,
+        .replacement = "std.StringArrayHashMapUnmanaged with an allocator-per-call",
+    },
+    .{
+        .chain = &.{ "std", "AutoArrayHashMap" },
+        .display = "std.AutoArrayHashMap",
+        .require_call = true,
+        .replacement = "std.AutoArrayHashMapUnmanaged with an allocator-per-call",
+    },
     // `usingnamespace` was removed from the language outright in 0.15 (the
     // tokenizer now lexes it as a bare identifier). Overlaps usingnamespace-ban
     // by design: that check argues symbol-hiding, this one argues "the keyword
     // no longer exists in the grammar."
-    .{ .chain = &.{"usingnamespace"}, .display = "usingnamespace" },
+    .{
+        .chain = &.{"usingnamespace"},
+        .display = "usingnamespace",
+        .replacement = "explicit re-exports (`pub const x = mod.x;`)",
+    },
     // Pre-0.15 stdout/stderr writer idioms. 0.15's "Writergate" replaced
     // `std.io.getStdOut().writer()` with `std.fs.File.stdout()` plus a buffered
     // `std.io.Writer` and an explicit `flush()`. `(`-application form.
-    .{ .chain = &.{"getStdOut"}, .display = "getStdOut", .require_call = true },
-    .{ .chain = &.{"getStdErr"}, .display = "getStdErr", .require_call = true },
+    .{
+        .chain = &.{"getStdOut"},
+        .display = "getStdOut",
+        .require_call = true,
+        .replacement = "std.fs.File.stdout() + a buffered writer with an explicit flush()",
+    },
+    .{
+        .chain = &.{"getStdErr"},
+        .display = "getStdErr",
+        .require_call = true,
+        .replacement = "std.fs.File.stderr() + a buffered writer with an explicit flush()",
+    },
 };
 
 const opts: helper.ScanOpts = .{
@@ -147,6 +193,24 @@ test "analyzeContent flags getStdOut and getStdErr" {
     ;
     const out = try analyzeContent(a, "src/x.zig", content);
     try std.testing.expectEqual(@as(usize, 2), out.len);
+}
+
+// spec: Deprecated Alias - Names the modern replacement for each flagged alias
+
+test "analyzeContent names the replacement for a flagged alias" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\fn f() void {
+        \\    var xs: std.ArrayListUnmanaged(u8) = .empty;
+        \\    _ = &xs;
+        \\}
+    ;
+    const out = try analyzeContent(a, "src/x.zig", content);
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+    // The message points at the modern spelling, not just the banned one.
+    try std.testing.expect(std.mem.indexOf(u8, out[0], "→ use std.ArrayList") != null);
 }
 
 // spec: Deprecated Alias - Allows the unmanaged and 0.15 replacement spellings

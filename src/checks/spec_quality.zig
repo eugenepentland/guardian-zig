@@ -30,11 +30,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
 
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ ctx.project_dir, cfg.spec_file });
-    const sections = spec_parser.parseFile(allocator, spec_path) catch {
-        // SPEC.md is enforced by the `spec` check; here we silently skip if missing.
-        ok("spec quality skipped (no SPEC.md)", .{});
-        return;
-    };
+    const sections = spec_parser.parseFile(allocator, spec_path) catch
+        return reportMissingSpec(allocator, ctx.project_dir, cfg.spec_file);
 
     const phrases = if (cfg.spec_quality.forbidden_phrases.len > 0)
         cfg.spec_quality.forbidden_phrases
@@ -47,6 +44,21 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
 
     return report(violations.items);
+}
+
+/// Reports a missing SPEC.md as a hard error rather than a silent skip
+/// (guiding principle #8: missing SPEC.md = error). Names the resolved project
+/// dir so a run launched from the wrong directory is obvious instead of quietly
+/// passing this check.
+fn reportMissingSpec(
+    allocator: std.mem.Allocator,
+    project_dir: []const u8,
+    spec_file: []const u8,
+) registry.RunError!void {
+    const dir = spec_parser.resolveProjectDir(allocator, project_dir) catch project_dir;
+    fail("{s} not found for project dir '{s}'", .{ spec_file, dir });
+    print("  Missing SPEC.md is an error, not a skip. Run `zig build spec-init` to scaffold one.\n", .{});
+    return error.CheckFailed;
 }
 
 /// Append quality violations for one section's behaviors to `violations`.
@@ -129,10 +141,29 @@ fn containsWord(text: []const u8, phrase: []const u8) bool {
 
 // spec: Spec Quality - Flags vague behavior phrases in SPEC.md
 // spec: Spec Quality - Rejects behaviors shorter than the minimum length
+// spec: Spec Quality - Fails when SPEC.md is missing instead of silently skipping
 
 test "containsWord respects word boundaries" {
     try std.testing.expect(containsWord("handles things properly here", "properly"));
     try std.testing.expect(!containsWord("supports the proper interface", "properly"));
     try std.testing.expect(containsWord("works correctly with input", "works correctly"));
     try std.testing.expect(!containsWord("nonpropery", "propery"));
+}
+
+test "reportMissingSpec fails loudly and names the resolved project dir" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // An absolute dir passes through resolveProjectDir, so the message is
+    // deterministic — and the check errors rather than reporting a green skip.
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportMissingSpec(arena.allocator(), "/abs/proj", "SPEC.md"),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "not found for project dir '/abs/proj'") != null);
 }
