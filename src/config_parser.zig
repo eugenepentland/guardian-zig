@@ -73,6 +73,7 @@ const hard_max_lines_key = "hard_max_lines";
 const max_len_key = "max_len";
 const hard_max_len_key = "hard_max_len";
 const required_inputs_key = "required_inputs";
+const on_build_key = "on_build";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
 
@@ -134,6 +135,7 @@ const Section = enum {
     int_from_float,
     policy,
     doctor,
+    gate,
     unknown,
 };
 
@@ -527,6 +529,8 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         else
             .string_array,
         .doctor => .unsigned,
+        // on_build / test_command are strings; install_hook is a bool.
+        .gate => if (key[0] == 'i') .boolean else .string,
         .unknown => .string_array,
     };
 }
@@ -553,6 +557,13 @@ fn validateValue(
         const profile = parseString(kv.val).?;
         if (!config_policy.validProfile(profile)) {
             try setDiag(allocator, diag, line_no, "invalid policy profile '{s}'", .{profile});
+            return error.InvalidValue;
+        }
+    }
+    if (st.array_kind == .none and st.section == .gate and std.mem.eql(u8, kv.key, on_build_key)) {
+        const mode = parseString(kv.val).?;
+        if (!std.mem.eql(u8, mode, "report") and !std.mem.eql(u8, mode, "block")) {
+            try setDiag(allocator, diag, line_no, "invalid gate on_build '{s}' (want report or block)", .{mode});
             return error.InvalidValue;
         }
     }
@@ -664,6 +675,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .int_from_float => &.{ "guard_fns", "require_guard" },
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
         .doctor => &.{ "zig_cache_warn_mib", "guardian_cache_warn_mib" },
+        .gate => &.{ on_build_key, "test_command", "install_hook" },
         .unknown => &.{},
     };
 }
@@ -708,7 +720,22 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .int_from_float => try applyIntFromFloatKey(ctx, kv),
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
         .doctor => config_policy.applyDoctor(ctx.cfg, kv.key, kv.val),
+        .gate => applyGateKey(ctx, kv),
         .unknown => {},
+    }
+}
+
+/// Applies one `[gate]` key: `on_build` (report/block — already value-checked),
+/// `test_command` (the commit-time suite), and `install_hook` (auto pre-commit
+/// hook on `commit`).
+fn applyGateKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.gate;
+    if (std.mem.eql(u8, kv.key, on_build_key)) {
+        if (parseString(kv.val)) |v| g.on_build = if (std.mem.eql(u8, v, "block")) .block else .report;
+    } else if (std.mem.eql(u8, kv.key, "test_command")) {
+        if (parseString(kv.val)) |v| g.test_command = v;
+    } else if (std.mem.eql(u8, kv.key, "install_hook")) {
+        g.install_hook = parseBool(kv.val) orelse g.install_hook;
     }
 }
 
@@ -742,6 +769,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "int_from_float", Section.int_from_float },
         .{ "policy", Section.policy },
         .{ "doctor", Section.doctor },
+        .{ "gate", Section.gate },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -1032,6 +1060,31 @@ test "parse policy doctor and external gate settings" {
     try std.testing.expectEqual(@as(usize, 1), cfg.external_gates.len);
     try std.testing.expectEqualStrings("node", cfg.external_gates[0].command[0]);
     try std.testing.expectEqualStrings("src/app.js", cfg.external_gates[0].inputs[0]);
+}
+
+// spec: Configuration - Parses the gate mode, test command, and hook install settings
+
+test "parse gate section on_build test_command and install_hook" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default (no [gate]) is report mode with the default test command and hook on.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.gate.on_build == .report);
+    try std.testing.expectEqualStrings("zig build test", defaults.gate.test_command);
+    try std.testing.expect(defaults.gate.install_hook);
+
+    const cfg = try parse(arena.allocator(),
+        \\[gate]
+        \\on_build = "block"
+        \\test_command = "zig build test-fast"
+        \\install_hook = false
+    );
+    try std.testing.expect(cfg.gate.on_build == .block);
+    try std.testing.expectEqualStrings("zig build test-fast", cfg.gate.test_command);
+    try std.testing.expect(!cfg.gate.install_hook);
+
+    // An unknown on_build value fails closed with a located diagnostic.
+    try std.testing.expectError(error.InvalidValue, parse(arena.allocator(), "[gate]\non_build = \"warn\"\n"));
 }
 
 test "parse rejects an unknown policy profile and empty external command" {

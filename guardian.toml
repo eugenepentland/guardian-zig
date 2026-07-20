@@ -65,9 +65,11 @@ modules = ["src/config_parser.zig", "src/walk.zig", "src/text.zig"]
 # bullets — the unstaged new side isn't in git's object store, so it reads disk.
 # completeness reads SPEC.md directly (raw bullets incl. waivers); the DORA sink
 # appends its JSONL delivery-telemetry file.
+# install-hook writes .git/hooks/pre-commit (createFile/makePath/readFileAlloc)
+# — the same static-analyzer-writes-files category as spec_init.
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/required_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/doctor*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
+paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/required_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
 
 # Delivery telemetry is guardian's one legitimate wall-clock consumer: the DORA
 # sink times each gate run with std.time.Timer to record duration_ms. This
@@ -78,10 +80,11 @@ paths = ["src/dora*"]
 
 # check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST /
 # GUARDIAN_POLICY_APPROVED in main; the
-# mutation runner clones the env to inject the child-build skip flag.
+# mutation runner clones the env to inject the child-build skip flag; commit
+# clones the env to set GUARDIAN_SKIP_CHECKS on its `zig build test` child.
 [[allow]]
 check = "ban-env"
-paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*"]
+paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*", "src/cli/commit*"]
 
 # reporter is Guardian's logging boundary; it legitimately owns a global + prints.
 # The mutation journal owns process-global in-flight state because a signal
@@ -114,9 +117,12 @@ check = "debug-print-ban"
 paths = ["src/ast/parser*", "src/snapshot.zig", "src/snapshot_helper*", "src/baseline.zig", "src/ratchet.zig", "src/reporter.zig", "src/sink*", "src/dora*", "src/mutation/*"]
 
 # This check's own file: its pattern strings look like the paths it flags.
+# install_hook embeds a POSIX pre-commit shell script (#!/bin/sh, /dev/null,
+# ./zig-out/bin/guardian-check) as a string template — paths in a shell snippet,
+# not environment assumptions baked into Zig logic.
 [[allow]]
 check = "ban-hardcoded-paths"
-paths = ["src/checks/ban_hardcoded_paths*"]
+paths = ["src/checks/ban_hardcoded_paths*", "src/cli/install_hook*"]
 
 [[allow]]
 check = "static-factory-ban"
@@ -148,4 +154,4 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # the same untestable-process-shell category as runOne/commit/currentBranch.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "measureBaseline", "install", "trackChild"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "hooksDir", "measureBaseline", "install", "trackChild"]

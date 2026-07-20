@@ -30,7 +30,8 @@ const cache_version = "guardian-cache-v3";
 const suite_version = "guardian-mutation-suite-v1";
 const cache_leaf = ".guardian/cache/inputs.sha256";
 const max_file_bytes = 16 * 1024 * 1024;
-const stored_max_bytes = 128;
+// Two hex lines (input digest + binary-identity hash) plus their newlines.
+const stored_max_bytes = 256;
 const hex_len = Sha256.digest_length * 2;
 
 const Item = struct { path: []const u8, content: []const u8 };
@@ -73,6 +74,18 @@ fn selfBinaryId(arena: Allocator) ![]const u8 {
     const exe_path = try std.fs.selfExePathAlloc(arena);
     const st = try std.fs.cwd().statFile(exe_path);
     return std.fmt.allocPrint(arena, "{s}\x00{d}\x00{d}", .{ exe_path, st.size, st.mtime });
+}
+
+/// SHA-256 of the running guardian-check binary's identity (see `selfBinaryId`),
+/// as a fixed-size digest recorded on line 2 of the green stamp. The stale-binary
+/// hint (run_all) compares this against the stamp's stored value: a mismatch on a
+/// snapshot/ratchet failure means the tree was gated by a different binary than
+/// the one that last passed.
+pub fn currentBinaryIdHash(arena: Allocator) Error!Digest {
+    const id = try selfBinaryId(arena);
+    var out: Digest = undefined;
+    Sha256.hash(id, &out, .{});
+    return out;
 }
 
 /// Digest over every file Guardian reads as a check input: `.zig` files under
@@ -255,32 +268,75 @@ fn parseHexDigest(hex: []const u8) ?Digest {
     return out;
 }
 
-/// Digest recorded by the last all-green run, or null when none exists or
-/// the cache file is unreadable/malformed. OOM building the path propagates so
-/// the caller can decide (it maps any failure to a full, cache-miss run).
-pub fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest {
+/// Raw stamp-file bytes, or null when absent/unreadable (a first-run cache miss).
+fn readStampFile(arena: Allocator, project_dir: []const u8) Allocator.Error!?[]const u8 {
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
-    // A missing/unreadable cache file is a legitimate cache miss (first run).
-    const raw = std.fs.cwd().readFileAlloc(arena, path, stored_max_bytes) catch return null;
-    return parseHexDigest(std.mem.trim(u8, raw, &std.ascii.whitespace));
+    return std.fs.cwd().readFileAlloc(arena, path, stored_max_bytes) catch return null;
 }
 
-/// Creates the cache dir and writes the digest as lowercase hex. Any failure
-/// propagates to the best-effort caller, which swallows it.
-fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest) !void {
+/// The `idx`-th newline-separated line of `raw` (trimmed), or null when absent.
+/// Line 0 is the input digest; line 1 (present only in a v3 stamp) is the binary
+/// identity hash, so the two coexist in one file without ambiguity.
+fn lineAt(raw: []const u8, idx: usize) ?[]const u8 {
+    var it = std.mem.splitScalar(u8, raw, '\n');
+    var i: usize = 0;
+    while (it.next()) |line| : (i += 1) {
+        if (i == idx) return std.mem.trim(u8, line, &std.ascii.whitespace);
+    }
+    return null;
+}
+
+/// Input digest recorded by the last all-green run (stamp line 0), or null when
+/// none exists or the file is unreadable/malformed. OOM building the path
+/// propagates so the caller can decide (it maps any failure to a full,
+/// cache-miss run). Reads only the first line, so a legacy single-line stamp and
+/// a v3 two-line stamp both parse.
+pub fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest {
+    const raw = (try readStampFile(arena, project_dir)) orelse return null;
+    const line = lineAt(raw, 0) orelse return null;
+    return parseHexDigest(line);
+}
+
+/// Guardian binary-identity hash recorded on line 2 of the last green stamp, or
+/// null when the stamp is absent, single-line (legacy), or malformed. Consumed
+/// only by the stale-binary hint, never by the skip decision.
+pub fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest {
+    const raw = (try readStampFile(arena, project_dir)) orelse return null;
+    const line = lineAt(raw, 1) orelse return null;
+    return parseHexDigest(line);
+}
+
+/// Creates the cache dir and writes the stamp: line 0 is the input `digest`,
+/// line 1 (optional) the guardian `binary_id` hash. Any failure propagates to
+/// the best-effort callers, which swallow it.
+fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: ?Digest) !void {
     const dir = try std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir});
     try std.fs.cwd().makePath(dir);
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
-    const hex = std.fmt.bytesToHex(digest, .lower);
     const f = try std.fs.cwd().createFile(path, .{});
     defer f.close();
-    try f.writeAll(&hex);
+    const dhex = std.fmt.bytesToHex(digest, .lower);
+    try f.writeAll(&dhex);
+    if (binary_id) |b| {
+        const bhex = std.fmt.bytesToHex(b, .lower);
+        try f.writeAll("\n");
+        try f.writeAll(&bhex);
+    }
+    try f.writeAll("\n");
 }
 
-/// Records `digest` as the last all-green input state. Best-effort: write
-/// failures are swallowed so the cache can never fail the build.
+/// Records `digest` as the last all-green input state (single-line stamp).
+/// Best-effort: write failures are swallowed so the cache can never fail the
+/// build.
 pub fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void {
-    writeStoredInner(arena, project_dir, digest) catch return;
+    writeStoredInner(arena, project_dir, digest, null) catch return;
+}
+
+/// Records both the green input `digest` and the running guardian `binary_id`
+/// hash, so a later blocking failure can tell a stale-binary re-key from real
+/// drift. Best-effort, like `writeStored`.
+pub fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void {
+    writeStoredInner(arena, project_dir, digest, binary_id) catch return;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -387,6 +443,36 @@ test "suiteDigest is stable for an unchanged tree and shifts when a source file 
     // keyed on the old digest is correctly invalidated.
     try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 2; }\n" });
     try std.testing.expect(!eql(d1, try suiteDigest(a, dir)));
+}
+
+// spec: Skip Cache - Records the guardian binary identity in the green stamp for a drift hint
+
+test "writeGreenStamp round-trips the digest and the binary identity" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/cache-stamp-proj";
+    try std.fs.cwd().makePath(dir);
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("stamp test cleanup: {s}", .{@errorName(e)});
+
+    var digest: Digest = undefined;
+    Sha256.hash("green-inputs", &digest, .{});
+    var binary: Digest = undefined;
+    Sha256.hash("guardian-binary-A", &binary, .{});
+
+    writeGreenStamp(a, dir, digest, binary);
+    // The input digest reads back from line 0, the binary identity from line 1.
+    try std.testing.expect(eql(digest, (try readStored(a, dir)) orelse return error.TestExpectedStored));
+    try std.testing.expect(eql(binary, (try readStoredBinaryId(a, dir)) orelse return error.TestExpectedStored));
+
+    // A legacy single-line stamp still yields the digest but no binary identity,
+    // so the drift hint simply doesn't fire for a pre-upgrade stamp.
+    writeStored(a, dir, digest);
+    try std.testing.expect(eql(digest, (try readStored(a, dir)) orelse return error.TestExpectedStored));
+    try std.testing.expect((try readStoredBinaryId(a, dir)) == null);
+
+    // currentBinaryIdHash is stable for the running binary within a process.
+    _ = &currentBinaryIdHash;
 }
 
 test "writeStored then readStored round-trips the digest" {

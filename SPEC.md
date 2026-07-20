@@ -35,6 +35,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
 - Parses the intent flag for the commit command
+- Parses the gate command-line flag
+- Parses the gate mode, test command, and hook install settings
 - Splits a comma-separated filter value into check names
 - Rejects combining the only and skip filters
 - Parses policy profiles, policy locks, doctor thresholds, and external argv gates
@@ -135,6 +137,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Includes declared external gate input files in the green-run digest
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
+- Records the guardian binary identity in the green stamp for a drift hint
 
 ## Run All
 
@@ -149,6 +152,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Skips a full run only on a clean unchanged tree with no refresh pending
 - Rejects an unknown refresh target or deny_growth check name
 - Cautions on failure that zig-out binaries predate the red run
+- Blocks the build only when forced or configured to block
+- Names the failing checks in the run summary
+- Hints a stale binary when re-keying failures follow a binary change
 
 ## Nightly
 
@@ -173,6 +179,13 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns loudly listing every skipped path
 - Always stages guardian metadata and the spec file
 - Reports nothing to commit when no eligible paths remain
+- Splits the configured test command into an argv vector
+- Excludes suffixed zig build cache directories from staging
+
+## Install Hook
+
+- Writes a pre-commit hook that runs the blocking gate
+- Refuses to overwrite a foreign pre-commit hook
 
 ## Debt
 
@@ -383,6 +396,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Prefers structured records over scraped text when present
 - Leaves a matched baseline untouched when only line numbers shifted
 - Records no baseline file for a check with nothing to record
+- Prefixes a matching baseline or ratchet report with an ok marker
 
 ## Per-Item Ratchets
 

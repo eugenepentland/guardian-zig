@@ -216,6 +216,23 @@ pub const BaselineCfg = struct {
     deny_growth: []const []const u8 = &.{},
 };
 
+/// How a build-wired gate behaves on a violation. `report` (the default) runs
+/// every check and prints all findings but exits 0, so a dev build always
+/// produces a binary; `block` fails the build on any violation (the historical
+/// hard-block behavior).
+pub const GateMode = enum { report, block };
+
+/// `[gate]` — the report-during-dev, block-at-commit policy. In `report` mode a
+/// plain `zig build` surfaces violations without refusing to produce a binary;
+/// `commit`/`nightly` and `all --gate` always block regardless of `on_build`.
+/// `test_command` is the suite `commit` runs (and must pass) before committing;
+/// `install_hook` auto-installs the blocking pre-commit gate on a `commit` run.
+pub const GateCfg = struct {
+    on_build: GateMode = .report,
+    test_command: []const u8 = "zig build test",
+    install_hook: bool = true,
+};
+
 /// Per-check config for the line-length cap.
 pub const LineLengthCfg = struct {
     enabled: bool = true,
@@ -439,6 +456,7 @@ pub const Config = struct {
     bool_ops: BoolOpsCfg = .{},
     line_length: LineLengthCfg = .{},
     baseline: BaselineCfg = .{},
+    gate: GateCfg = .{},
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
     magic_number: MagicNumberCfg = .{},

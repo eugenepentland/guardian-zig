@@ -468,7 +468,7 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]
     switch (outcome) {
         .created => |n| reporter.ok("{s}: ratchet baselined ({d} key(s))", .{ check_name, n }),
         .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
-        .matched => |n| reporter.ok("{s}: ratchet matches ({d} key(s))", .{ check_name, n }),
+        .matched => |n| reporter.ok("ok: {s}: ratchet matches ({d} key(s))", .{ check_name, n }),
         .improved => |imp| reporter.ok(
             "{s}: {d} ratchet(s) lowered, {d} pruned (now {d} key(s))",
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
@@ -579,7 +579,7 @@ fn nameInList(list: []const []const u8, name: []const u8) bool {
 fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
     switch (outcome) {
         .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
-        .matched => |n| reporter.ok("{s}: baseline matches ({d} violation(s))", .{ check_name, n }),
+        .matched => |n| reporter.ok("ok: {s}: baseline matches ({d} violation(s))", .{ check_name, n }),
         .shrunk => |s| reporter.ok(
             "{s}: {d} resolved, baseline pruned (now {d})",
             .{ check_name, s.removed, s.remaining },
@@ -1088,4 +1088,21 @@ test "diffByPosition preserves multiplicity for count-based checks" {
     };
     const d = try diffByPosition(a, old, &grown);
     try std.testing.expectEqual(@as(usize, 1), d.added.len);
+}
+
+// spec: Baseline Mode - Prefixes a matching baseline or ratchet report with an ok marker
+
+test "matching ratchet and baseline reports carry an ok pass marker" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    try reportRatchet("file-size", .{ .matched = 3 }, null);
+    try reportOutcome("naming", .{ .matched = 2 });
+    // The captured (uncolored) pass lines carry an explicit "ok:" marker so the
+    // last line above a run summary can't be misread as the failing check.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: file-size: ratchet matches") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: naming: baseline matches") != null);
 }

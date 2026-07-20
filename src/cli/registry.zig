@@ -441,6 +441,7 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "all", .summary = "Run every hard-block check (filter with --only/--skip a,b)" },
     .{ .name = "nightly", .summary = "Full suite + whole-tree mutation ratchet (scheduled/CI tier)" },
     .{ .name = "commit", .summary = "Gate the tree, then auto-commit the change set with --intent" },
+    .{ .name = "install-hook", .summary = "Write a pre-commit hook that runs the blocking gate" },
     .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
     .{ .name = "doctor", .summary = "Audit Guardian metadata/integration health (read-only)" },
     .{ .name = "spec-sync", .summary = "Suggest missing SPEC.md bullets without editing files" },

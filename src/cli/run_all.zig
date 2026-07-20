@@ -117,11 +117,20 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         metadata_active = false;
         // Stamp the POST-write tree so an unchanged next run can skip. Never for
         // a filtered run — a partial suite must not claim the full suite green.
+        // A fully-green report-mode run is identical work to a green blocking
+        // run, so it stamps too.
         if (!filtered) stampGreen(ctx);
         return;
     }
 
-    fail("run-all: {d}/{d} check(s) failed", .{ failed, ran });
+    // Name the failing checks in the summary so an agent fixes the right one
+    // (shown even under --quiet, via the always-visible failure channel).
+    const names = joinNames(ctx.allocator, acc.failed_checks.items);
+    fail("run-all: {d}/{d} failed ({s})", .{ failed, ran, names });
+
+    // A run that found violations restores metadata in BOTH modes: report mode
+    // is a side-effect-free dry run, block mode fails the build. Either way,
+    // half-written snapshots/baselines from the failing checks must not persist.
     metadata.rollback() catch |err| {
         fail("could not roll back Guardian metadata after the failed run: {s}", .{@errorName(err)});
         metadata_active = false;
@@ -133,8 +142,82 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // selective refresh persisted rather than silently reverting.
     if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |kept|
         reporter.detail("  metadata: kept named refresh(es) despite the red run: {s}\n", .{kept});
+
+    if (!blocks(ctx.gate, ctx.cfg.gate.on_build)) {
+        // Report mode: surface what would block a commit, then exit 0 so the dev
+        // build still produces a binary. No green stamp — this run wasn't green.
+        // Emitted through the always-visible channel: the build wiring runs
+        // `all --quiet`, where `ok` is suppressed but this summary must still show.
+        fail(
+            "{d} check(s) would block commit ({s}) — run guardian-check commit to gate",
+            .{ failed, names },
+        );
+        return;
+    }
+
+    // Block mode: fail the build. If the failures look like snapshot/ratchet
+    // re-keying and the binary differs from the last green stamp's, hint that a
+    // stale binary — not the tree — is the likely cause.
     reporter.detail("{s}", .{stale_artifact_caution});
+    binaryDriftHint(ctx, acc.failed_checks.items);
     return error.CheckFailed;
+}
+
+/// Pure gate decision: a run BLOCKS (fails the build on any violation) only when
+/// the caller forced it (`--gate`, or the always-blocking commit/nightly/accept
+/// paths) or `[gate] on_build = "block"`. Default report mode surfaces findings
+/// but exits 0, so a dev build always produces a binary.
+fn blocks(forced: bool, on_build: config.GateMode) bool {
+    return forced or on_build == .block;
+}
+
+/// Comma-joins the failed-check names for the run summary; "?" when the
+/// telemetry list is empty (every failure records its name, so this is only a
+/// defensive floor for an OOM-dropped note).
+fn joinNames(allocator: std.mem.Allocator, names: []const []const u8) []const u8 {
+    if (names.len == 0) return "?";
+    return std.mem.join(allocator, ", ", names) catch names[0];
+}
+
+/// Checks whose baselines/snapshots re-key when the guardian binary itself
+/// changes: a stale zig-out binary reds exactly these against an unchanged tree
+/// (the ~180-false-positive stale-binary trap). Ordinary content checks aren't
+/// listed, so an unrelated failure never triggers the hint.
+const identity_sensitive_checks = [_][]const u8{
+    "pub-api-surface",        "panic-budget",  "int-from-float-budget", "unsafe-ops-budget",
+    "function-length",        "nesting-depth", "cognitive-complexity",  "function-size",
+    "type-size",              "file-size",     "struct-method-cap",     "optional-density",
+    "bool-ops-per-condition", "line-length",
+};
+
+/// True when at least one failed check is snapshot/ratchet-based — the shape of
+/// failure a stale guardian binary produces against an unchanged tree.
+fn failuresLookLikeRekey(failed_checks: []const []const u8) bool {
+    for (failed_checks) |name|
+        for (identity_sensitive_checks) |s|
+            if (std.mem.eql(u8, name, s)) return true;
+    return false;
+}
+
+/// Pure hint decision: warn about a stale binary only when the failures look
+/// like re-keying AND the running binary differs from the last green stamp's.
+fn binaryDriftHintApplies(rekey_failures: bool, binary_matches_stamp: bool) bool {
+    return rekey_failures and !binary_matches_stamp;
+}
+
+/// Prints the stale-binary rebuild hint when a blocking failure's shape matches
+/// snapshot/ratchet re-keying and the running binary identity differs from the
+/// last green stamp's. Best-effort: any missing stamp or I/O failure skips it.
+fn binaryDriftHint(ctx: *types.RunCtx, failed_checks: []const []const u8) void {
+    if (!failuresLookLikeRekey(failed_checks)) return;
+    const stored = (cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return) orelse return;
+    const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
+    if (!binaryDriftHintApplies(true, cache.eql(stored, current))) return;
+    reporter.detail(
+        "  hint: guardian-check binary differs from the last green run — " ++
+            "rebuild (zig build) and re-run before accepting\n",
+        .{},
+    );
 }
 
 /// Printed under every run-all failure. With install gating (the build-helper
@@ -348,7 +431,13 @@ fn digestMatchesStored(ctx: *types.RunCtx) bool {
 fn stampGreen(ctx: *types.RunCtx) void {
     if (!ctx.cfg.cache_enabled) return;
     const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file, ctx.cfg.external_gates) catch return;
-    cache.writeStored(ctx.allocator, ctx.project_dir, d);
+    // Record the running binary's identity alongside the digest so a later
+    // blocking failure can distinguish a stale-binary re-key from real drift.
+    const bin = cache.currentBinaryIdHash(ctx.allocator) catch {
+        cache.writeStored(ctx.allocator, ctx.project_dir, d);
+        return;
+    };
+    cache.writeGreenStamp(ctx.allocator, ctx.project_dir, d, bin);
 }
 
 /// Pure skip decision, factored out for testing: a run skips only when the
@@ -612,6 +701,45 @@ test "shouldEmit gates captured output by quiet failure and warnings" {
 
 test "threadCount is at least one" {
     try std.testing.expect(threadCount() >= 1);
+}
+
+// spec: Run All - Blocks the build only when forced or configured to block
+
+test "blocks only when forced or when on_build is block" {
+    // Default report mode: an unforced run does not block (dev build succeeds).
+    try std.testing.expect(!blocks(false, .report));
+    // --gate / commit / nightly / accept force blocking even in report mode.
+    try std.testing.expect(blocks(true, .report));
+    // on_build = block preserves the historical hard-block on any build.
+    try std.testing.expect(blocks(false, .block));
+    try std.testing.expect(blocks(true, .block));
+}
+
+// spec: Run All - Names the failing checks in the run summary
+
+test "joinNames comma-joins the failed check names" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings(
+        "type-size, cognitive-complexity",
+        joinNames(a, &.{ "type-size", "cognitive-complexity" }),
+    );
+    // Defensive floor: a dropped telemetry list still yields a printable token.
+    try std.testing.expectEqualStrings("?", joinNames(a, &.{}));
+}
+
+// spec: Run All - Hints a stale binary when re-keying failures follow a binary change
+
+test "binary drift hint fires only on re-keying failures after a binary change" {
+    // Snapshot/ratchet checks are the re-key shape a stale binary produces.
+    try std.testing.expect(failuresLookLikeRekey(&.{ "naming", "pub-api-surface" }));
+    // A purely content failure never triggers the hint.
+    try std.testing.expect(!failuresLookLikeRekey(&.{ "naming", "boundaries" }));
+    // The hint fires only when the shape matches AND the binary changed.
+    try std.testing.expect(binaryDriftHintApplies(true, false));
+    try std.testing.expect(!binaryDriftHintApplies(true, true));
+    try std.testing.expect(!binaryDriftHintApplies(false, false));
 }
 
 // spec: Run All - Cautions on failure that zig-out binaries predate the red run
