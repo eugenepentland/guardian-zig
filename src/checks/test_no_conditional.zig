@@ -209,7 +209,10 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     reporter.fail("test-no-conditional FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| detail("  {s}\n", .{v});
-    detail("  fix: split a conditional test into two independent tests; use a single table-driven `for`.\n", .{});
+    detail("  why: tests assert, helpers compute — a conditional or a second loop can " ++
+        "silently skip the assertion it was meant to pin.\n", .{});
+    detail("  fix: one top-level loop is fine; merge multiple loops into one table-driven " ++
+        "loop, split a branch into two independent tests, or hoist the computation into a helper.\n", .{});
     return error.CheckFailed;
 }
 

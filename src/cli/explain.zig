@@ -416,7 +416,8 @@ const entries = [_]Entry{
     .{ .name = "bool-ops-per-condition", .text = 
     \\Why: a condition crammed with many `and`/`or`/`!` is where boolean-logic
     \\bugs hide.
-    \\Fix: name intermediate booleans, or split the condition.
+    \\Fix: split into nested/sequential ifs to cut the leaf count, or name an
+    \\intermediate boolean (naming alone doesn't reduce the leaves).
     \\Exempt: raise `[bool_ops] max_ops`, or disable the check.
     },
     .{ .name = "line-length", .text = 
@@ -442,6 +443,11 @@ const entries = [_]Entry{
     .{ .name = "repeated-string-literal", .text = 
     \\Why: the same literal repeated 3+ times (or a duplicated named const across
     \\files) is knowledge an agent copy-pasted instead of centralizing.
+    \\Two sub-analyses, both with an 8-char minimum length (short literals like
+    \\"init"/"name" are common coincidences, not shared knowledge): (1) in-file —
+    \\a literal appearing 3+ times in one file, its every occurrence line named;
+    \\(2) cross-file — the same file-scope `const NAME = "value"` (identical name
+    \\AND value) declared in 2+ files.
     \\Fix: extract a shared file-scope const and import it everywhere.
     \\Exempt: disable via the top-level `disabled` list (retired `dup-const` name
     \\also tolerated there).

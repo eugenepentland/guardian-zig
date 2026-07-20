@@ -24,6 +24,10 @@ pub const Rule = struct {
     /// the safer default for hidden-dependency bans, since aliasing
     /// would otherwise launder a forbidden symbol.
     require_call: bool = false,
+    /// The modern spelling to reach for instead, appended to the violation as
+    /// `<display> → use <replacement>`. Null for the hidden-dependency bans,
+    /// whose fix is "inject a port", not a one-to-one rename.
+    replacement: ?[]const u8 = null,
 };
 
 /// Scanner options. Each ban check builds these once and hands them to
@@ -219,11 +223,20 @@ fn resetAll(states: []Match) void {
 fn recordViolation(ctx: *Ctx, z: []const u8, start_byte: usize, rule: Rule) Allocator.Error!void {
     const a = ctx.allocator;
     const line = lineOf(z, start_byte);
-    const msg = try std.fmt.allocPrint(
-        a,
-        "{s}:{d}: {s} reference outside allowed paths",
-        .{ ctx.rel_path, line, rule.display },
-    );
+    // Name the replacement inline when the rule supplies one (deprecated-alias),
+    // so the reader sees what to reach for without opening the fix hint.
+    const msg = if (rule.replacement) |repl|
+        try std.fmt.allocPrint(
+            a,
+            "{s}:{d}: {s} → use {s}",
+            .{ ctx.rel_path, line, rule.display, repl },
+        )
+    else
+        try std.fmt.allocPrint(
+            a,
+            "{s}:{d}: {s} reference outside allowed paths",
+            .{ ctx.rel_path, line, rule.display },
+        );
     try ctx.violations.append(a, msg);
 }
 

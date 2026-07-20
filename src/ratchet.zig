@@ -40,25 +40,44 @@ pub const AggMode = enum { max, count };
 pub const GrowthClass = enum { shape, volume };
 
 /// A threshold check routed to the ratchet lifecycle, with its aggregation
-/// mode and how its regressions read (shape smell vs volume growth).
-const MetricCheck = struct { name: []const u8, mode: AggMode, class: GrowthClass = .shape };
+/// mode, how its regressions read (shape smell vs volume growth), and the
+/// human unit its metric counts (`unit`) so a regression line names what a
+/// bare number measures ("8" → "8 params") instead of leaving the reader to
+/// guess line-count vs param-count vs field-count.
+const MetricCheck = struct {
+    name: []const u8,
+    mode: AggMode,
+    class: GrowthClass = .shape,
+    unit: []const u8,
+};
 
 /// The ten threshold checks that emit `ratchet_key` + `metric`. Membership here
 /// (not the presence of records in a given run) is what selects the ratchet
 /// lifecycle, so a check with zero current violations still ratchets — it prunes
 /// its whole baseline rather than being mistaken for a non-metric check.
 const metric_checks = [_]MetricCheck{
-    .{ .name = "function-length", .mode = .max },
-    .{ .name = "nesting-depth", .mode = .max },
-    .{ .name = "cognitive-complexity", .mode = .max },
-    .{ .name = "function-size", .mode = .max },
-    .{ .name = "type-size", .mode = .max, .class = .volume },
-    .{ .name = "file-size", .mode = .max, .class = .volume },
-    .{ .name = "struct-method-cap", .mode = .max },
-    .{ .name = "optional-density", .mode = .max },
-    .{ .name = "bool-ops-per-condition", .mode = .max },
-    .{ .name = "line-length", .mode = .count },
+    .{ .name = "function-length", .mode = .max, .unit = "lines" },
+    .{ .name = "nesting-depth", .mode = .max, .unit = "nesting levels" },
+    .{ .name = "cognitive-complexity", .mode = .max, .unit = "complexity points" },
+    .{ .name = "function-size", .mode = .max, .unit = "params" },
+    .{ .name = "type-size", .mode = .max, .class = .volume, .unit = "fields" },
+    .{ .name = "file-size", .mode = .max, .class = .volume, .unit = "code lines" },
+    .{ .name = "struct-method-cap", .mode = .max, .unit = "pub methods" },
+    .{ .name = "optional-density", .mode = .max, .unit = "% optional fields" },
+    .{ .name = "bool-ops-per-condition", .mode = .max, .unit = "boolean ops" },
+    .{ .name = "line-length", .mode = .count, .unit = "over-length lines" },
 };
+
+/// The human unit for `check_name`'s ratchet metric ("params", "fields",
+/// "over-length lines", …), used in the regression message so a bare measured
+/// value names its dimension. Empty string for a non-ratchet name (callers only
+/// consult it on the ratchet path, where the unit is always defined).
+pub fn unitLabel(check_name: []const u8) []const u8 {
+    for (metric_checks) |m| {
+        if (std.mem.eql(u8, m.name, check_name)) return m.unit;
+    }
+    return "";
+}
 
 /// The aggregation mode for `check_name`, or null when it is not a ratchet
 /// (threshold) check — baseline mode then uses the v1 text-diff lifecycle.
@@ -334,6 +353,18 @@ test "metricMode routes the ten threshold checks and rejects others" {
     try testing.expect(growthClass("type-size") == .volume);
     try testing.expect(growthClass("function-length") == .shape);
     try testing.expect(growthClass("ban-fs") == .shape);
+}
+
+// spec: Per-Item Ratchets - Names each threshold check's metric unit for regression messages
+
+test "unitLabel names the dimension a ratchet metric measures" {
+    // Distinct units so a bare "measured 8" reads as "8 params" / "8 fields".
+    try testing.expectEqualStrings("params", unitLabel("function-size"));
+    try testing.expectEqualStrings("fields", unitLabel("type-size"));
+    try testing.expectEqualStrings("over-length lines", unitLabel("line-length"));
+    try testing.expectEqualStrings("code lines", unitLabel("file-size"));
+    // A non-ratchet name has no unit (callers only read it on the ratchet path).
+    try testing.expectEqualStrings("", unitLabel("ban-fs"));
 }
 
 // spec: Per-Item Ratchets - Aggregates violation records to the max metric per key
