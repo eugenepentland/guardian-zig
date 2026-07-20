@@ -372,3 +372,21 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 ## 2026-07-20 · claude · eda — net_open DRC policy row in settings drawer
 
 - good: enum-driven needle test (drc_policy_required built from drc.Kind fields) caught the missing pcb_settings.js row exactly as designed; guardian-check commit gated and landed the one-file fix cleanly, 67/67 checks green.
+
+## 2026-07-20 · Claude · eda — router RF join-geometry fixes (E1/E4/E7/E8/E9)
+- **bug:** `guardian-check commit` swept an untracked build-cache directory
+  (`.zig-cache-rfaudit/`, created by an isolated `--cache-dir` build) into the
+  commit as one of its "safe paths" — 441 binary blobs / 23k insertions landed
+  in a code commit. The path list should honor gitignore-style pruning of
+  known build-artifact dirs (`.zig-cache*`, `zig-out`) even when untracked and
+  not yet ignored. Cost: one reset + re-commit after adding `.zig-cache-*/` to
+  `.gitignore`.
+- **good:** `function-size` caught an 8-param function in the fresh diff and
+  `explain function-size` gave the exact fix (options struct) first try; the
+  67-check run stayed green through two commit cycles with zero baseline noise.
+- **friction:** `zig build` (deploy path) runs guardian but not the unit-test
+  suite, so a unit test broken by a prior merge (`serve.drc_rules` "settings
+  drawer DRC policy edits every kind" — `net_open` never added to
+  pcb_settings.js, broken since eda f64c0da) only surfaces on `zig build test`;
+  cost ~20 min proving the failure pre-existed my diff (stash + rerun) before I
+  could commit around it.
