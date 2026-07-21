@@ -16,7 +16,6 @@ const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
-const git = @import("../git.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -394,19 +393,13 @@ fn requireKnownCheck(name: []const u8, origin: []const u8) types.RunError!void {
 fn shouldSkipRun(ctx: *types.RunCtx) bool {
     const enabled = ctx.cfg.cache_enabled;
     const refresh = ctx.refresh.len > 0 or snapshot_helper.shouldUpdate(ctx.allocator);
-    const clean = workingTreeClean(ctx);
     // Only pay for the digest walk when a skip is still possible (cache on, no
-    // refresh, clean tree) — the `and` short-circuits otherwise. Dirty feature
-    // work always gets a real pass, avoiding the false confidence of a cached
-    // green while source/tests are actively changing.
-    const digest_matches = enabled and !refresh and clean and digestMatchesStored(ctx);
-    return skipDecision(enabled, refresh, clean, digest_matches);
-}
-
-fn workingTreeClean(ctx: *types.RunCtx) bool {
-    const changed = git.changedPaths(ctx.allocator, ctx.project_dir) catch return false;
-    const paths = changed orelse return true;
-    return paths.len == 0;
+    // refresh) — the `and` short-circuits otherwise. A Git-clean tree is NOT a
+    // precondition: the digest hashes every file each check reads (see the audit
+    // in `skipDecision`), so a content-identical tree is safe to skip whether or
+    // not git reports uncommitted edits.
+    const digest_matches = enabled and !refresh and digestMatchesStored(ctx);
+    return skipDecision(enabled, refresh, digest_matches);
 }
 
 /// True when the current input digest equals the last green run's stored digest.
@@ -441,11 +434,26 @@ fn stampGreen(ctx: *types.RunCtx) void {
 }
 
 /// Pure skip decision, factored out for testing: a run skips only when the
-/// cache is enabled, no refresh was requested, the Git worktree is clean, and
-/// the input digest matches the stored green digest. Dirty feature work, a
-/// refresh, or a digest mismatch always executes fully.
-fn skipDecision(cache_enabled: bool, refresh_requested: bool, working_tree_clean: bool, digest_matches: bool) bool {
-    return cache_enabled and !refresh_requested and working_tree_clean and digest_matches;
+/// cache is enabled, no refresh was requested, and the input digest matches the
+/// stored green digest. A refresh or a digest mismatch always executes fully.
+///
+/// There is deliberately no clean-worktree precondition. The input digest
+/// (`cache.inputDigest`) hashes every file each registered gate reads —
+/// src/ + test/ `.zig`, build.zig(.zon), the SPEC file, guardian.toml,
+/// `.guardian/` (excluding cache/), declared `[[external]]` inputs, project
+/// `@embedFile` assets — plus the Git HEAD hash and the guardian binary's own
+/// identity. So a matching digest means every check's inputs are byte-identical
+/// to the last green run. The two git-diff gates (change-classification,
+/// policy-drift) diff the working tree against HEAD, but that diff is a pure
+/// function of (working-tree content, HEAD) — both digest-covered — never of the
+/// git index or staging state, so a "dirty" tree cannot change their verdict
+/// while the digest matches. Files git calls dirty but the digest ignores
+/// (README, docs, loose JSON) are read by no gate. The clean-tree requirement
+/// was therefore redundant, and dropping it lets the extremely common no-change
+/// rebuild — the agent edit/build loop, and eda's long-lived `.guardian/`
+/// baseline drift — skip instead of paying the full suite every time.
+fn skipDecision(cache_enabled: bool, refresh_requested: bool, digest_matches: bool) bool {
+    return cache_enabled and !refresh_requested and digest_matches;
 }
 
 /// One check's outcome + captured output, filled by the worker that ran it.
@@ -876,22 +884,22 @@ test "report policy preserves a finding without failing the captured check" {
     try std.testing.expect(std.mem.indexOf(u8, result.output, "expected policy finding") != null);
 }
 
-// spec: Run All - Skips a full run only on a clean unchanged tree with no refresh pending
+// spec: Run All - Skips a full run when the input digest matches the last green run and no refresh is pending
 
-test "skipDecision requires cache on, a clean tree, a digest match, and no pending refresh" {
-    // The only skip case: cache enabled, no refresh, clean tree, digest matches.
-    try std.testing.expect(skipDecision(true, false, true, true));
+test "skipDecision requires cache on, a digest match, and no pending refresh" {
+    // The skip case: cache enabled, no refresh, digest matches. A dirty working
+    // tree is NOT a factor — a content-identical (digest-matching) tree skips
+    // whether or not git reports uncommitted edits, because the digest covers
+    // every file each check reads.
+    try std.testing.expect(skipDecision(true, false, true));
     // A pending refresh always executes fully — it exists to rewrite snapshots,
     // and its post-write tree must be re-stamped, never skipped.
-    try std.testing.expect(!skipDecision(true, true, true, true));
-    // A dirty feature tree always gets real analysis even if its content digest
-    // happens to match a prior stamp.
-    try std.testing.expect(!skipDecision(true, false, false, true));
+    try std.testing.expect(!skipDecision(true, true, true));
     // A changed source or .guardian/ tree (digest mismatch) re-runs — this is
     // what makes an auto-pruned baseline re-run instead of being masked.
-    try std.testing.expect(!skipDecision(true, false, true, false));
+    try std.testing.expect(!skipDecision(true, false, false));
     // A disabled cache never skips.
-    try std.testing.expect(!skipDecision(false, false, true, true));
+    try std.testing.expect(!skipDecision(false, false, true));
 }
 
 // spec: Run All - Rejects an unknown refresh target or deny_growth check name
