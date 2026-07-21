@@ -556,3 +556,7 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 ## 2026-07-21 · claude (orchestrator) · eda — DSL-loop batch 2 (negotiation/CDT-probe/trial-memory)
 - good: three concurrent agents on adjacent code (two sharing router.zig territory) all gated 67/67 independently; the two mergeable branches merged into main with zero conflicts. change-classification + spec lockstep again forced honest test coverage on a 644-line router phase that shipped as a documented negative result — the gate made "commit the clean attempt, report the negative" cheap.
 - friction: same v1→v3 re-key churn as every entry above; all agents used the stage-exact-paths + checkout-discard pattern. One-shot migration command remains the wish.
+
+## 2026-07-21 · claude-fable · eda — custom copper pours merge flow
+- good: after main committed the v1→v3 re-key (eda c658947), the merged-branch gate ran green with a clean tree — no baseline churn to restore, digest skip-cache made the no-change re-run fast. The re-key + skip-cache pairing fixed the recurring worktree churn trap for real.
+- friction: not guardian's fault, but worth noting — the first two gate runs on the merged tree "hung" past 10 min due to a concurrent agent session's build sharing CPU + the shared .zig-cache; an isolated --cache-dir run completed normally. A gate heartbeat line ("still running check N/67") would have distinguished hang from contention immediately.
