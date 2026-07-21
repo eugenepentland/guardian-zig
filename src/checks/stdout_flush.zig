@@ -83,9 +83,12 @@ fn scan(
                 prev_ident = "";
             },
             .identifier => prev_ident = z[t.loc.start..t.loc.end],
-            // A `(` after an interesting identifier is a call to it.
+            // A `(` after an interesting identifier is a call to it. The byte
+            // offset is passed raw — `classifyCall` resolves it to a line only
+            // for the first source hit per region, so the O(offset) `lineOf`
+            // scan runs at most once per function instead of per `(`.
             .l_paren => {
-                classifyCall(&region, prev_ident, lineOf(z, t.loc.start));
+                classifyCall(&region, prev_ident, z, t.loc.start);
                 prev_ident = "";
             },
             else => prev_ident = "",
@@ -94,11 +97,14 @@ fn scan(
     try finalize(allocator, rel_path, region, findings);
 }
 
-/// Records a call to `ident` into the region's signal set.
-fn classifyCall(region: *Region, ident: []const u8, line: u32) void {
+/// Records a call to `ident` into the region's signal set. `offset` is the byte
+/// position of the call's `(`; it is resolved to a line only for the first
+/// source hit per region (`source_line == 0`), keeping the O(offset) `lineOf`
+/// scan off the hot path of every other `(`.
+fn classifyCall(region: *Region, ident: []const u8, source: []const u8, offset: usize) void {
     if (isSource(ident)) {
         region.saw_source = true;
-        if (region.source_line == 0) region.source_line = line;
+        if (region.source_line == 0) region.source_line = lineOf(source, offset);
     } else if (isWriter(ident)) {
         region.saw_writer = true;
     } else if (std.mem.eql(u8, ident, "flush")) {
@@ -210,6 +216,23 @@ test "analyzeContent flags a buffered stdout writer that never flushes" {
         \\}
     );
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+test "analyzeContent reports the line of the first source call" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // stdout()'s `(` sits on line 3; the lazily-resolved source line must still
+    // pin the finding to that line (the perf fix defers lineOf but must not
+    // move the reported line).
+    const out = try analyzeContent(arena.allocator(), "src/x.zig",
+        \\fn emit() void {
+        \\    var buf: [256]u8 = undefined;
+        \\    var w = std.fs.File.stdout().writer(&buf);
+        \\    w.interface.print("hi", .{}) catch {};
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 1), out.len);
+    try std.testing.expect(std.mem.startsWith(u8, out[0], "src/x.zig:3:"));
 }
 
 // spec: Stdout Flush - Allows a buffered stdout writer that flushes before returning
