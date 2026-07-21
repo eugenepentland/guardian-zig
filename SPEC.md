@@ -151,7 +151,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Excludes the checks named by a skip filter
 - Rejects an only or skip name that is not a runnable check
 - Detects a filtered run so the green cache stamp is suppressed
-- Skips a full run only on a clean unchanged tree with no refresh pending
+- Skips a full run when the input digest matches the last green run and no refresh is pending
 - Rejects an unknown refresh target or deny_growth check name
 - Cautions on failure that zig-out binaries predate the red run
 - Blocks the build only when forced or configured to block

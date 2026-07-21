@@ -923,11 +923,18 @@ guardian-check version               # Print the guardian version (also --versio
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
-- **Green-run cache** skips only a clean, unchanged Git worktree. Dirty feature
-  work always executes the real checks; changing HEAD, `build.zig.zon`, declared
-  external inputs, or a project-local file referenced by `@embedFile` invalidates
-  the stamp. This makes embedded JS/CSS/template changes visible to configured
-  external syntax or browser-smoke gates. Guardian cannot replace the language
+- **Green-run cache** skips a run when the input digest matches the last green
+  run, regardless of whether the Git worktree is dirty. The digest hashes every
+  file each check reads (src/ + test/ `.zig`, `build.zig`/`build.zig.zon`, the
+  SPEC file, `guardian.toml`, `.guardian/` excluding cache/, declared external
+  inputs, and project-local `@embedFile` assets) plus HEAD and the guardian
+  binary identity, so a content-identical tree runs the same checks to the same
+  verdict — the common no-change rebuild in an agent edit/build loop skips even
+  with mid-feature edits or long-lived `.guardian/` baseline drift in the tree.
+  Changing HEAD, `build.zig.zon`, declared external inputs, or a project-local
+  file referenced by `@embedFile` invalidates the stamp. This makes embedded
+  JS/CSS/template changes visible to configured external syntax or browser-smoke
+  gates. Guardian cannot replace the language
   tool itself, so configure `node --check`, Stylelint, Playwright, or an equivalent
   argv command under `[[external]]` for the asset types the project ships.
 - **`--gate`** forces `all` to block on any violation regardless of `[gate]
