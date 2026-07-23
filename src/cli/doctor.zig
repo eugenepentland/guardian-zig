@@ -4,6 +4,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
+const cache = @import("../cache.zig");
 
 const max_metadata_bytes = 16 * 1024 * 1024;
 const retired = [_][]const u8{
@@ -30,6 +31,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     try inspectMutationAdoption(ctx, &findings);
     try inspectIntegration(ctx, &findings);
     try inspectCache(ctx, &findings);
+    inspectBinaryIdentity(ctx, &findings);
 
     if (findings.integrity > 0) {
         reporter.fail("doctor found {d} metadata integrity problem(s) and {d} advisory warning(s)", .{
@@ -178,6 +180,27 @@ fn dirSize(allocator: std.mem.Allocator, path: []const u8) std.mem.Allocator.Err
     return total;
 }
 
+/// Advises when the last green run recorded a guardian binary identity that
+/// differs from the running one — the phantom-red trap (a stale binary reports
+/// snapshot/ratchet drift a fresh dep-built gate does not). Best-effort: a
+/// missing stamp / I/O error is simply not reported.
+fn inspectBinaryIdentity(ctx: *types.RunCtx, findings: *Findings) void {
+    const stored = cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return;
+    const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
+    if (staleGatingBinary(stored, current)) advisory(
+        findings,
+        "the last green run was gated by a different guardian-check binary; rebuild (zig build) before trusting any snapshot/ratchet drift",
+        .{},
+    );
+}
+
+/// Pure decision behind `inspectBinaryIdentity`: stale only when a green stamp
+/// recorded a binary identity (present) that differs from the running binary's.
+fn staleGatingBinary(stored: ?cache.Digest, current: cache.Digest) bool {
+    const s = stored orelse return false;
+    return !cache.eql(s, current);
+}
+
 fn knownCheck(name: []const u8) bool {
     if (registry.find(name) != null) return true;
     return contains(retired[0..], name);
@@ -209,4 +232,19 @@ test "knownCheck accepts live and intentionally retired names" {
 test "path integration detector ignores the package paths field" {
     try std.testing.expect(!usesPathIntegration(".name = .guardian, .paths = .{ \"src\" }"));
     try std.testing.expect(usesPathIntegration(".guardian = .{ .path = \"../guardian-zig\" }"));
+}
+
+// spec: Maintenance - Doctor reports a stale gating binary
+
+test "staleGatingBinary flags only a present, differing stamp" {
+    var a: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("binary-A", &a, .{});
+    var b: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("binary-B", &b, .{});
+    // No stamp recorded yet: nothing to compare, so no finding.
+    try std.testing.expect(!staleGatingBinary(null, a));
+    // The same binary that last gated the tree: healthy.
+    try std.testing.expect(!staleGatingBinary(a, a));
+    // A different binary than the last green run's: stale, worth a warning.
+    try std.testing.expect(staleGatingBinary(a, b));
 }

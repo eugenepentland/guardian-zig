@@ -157,11 +157,18 @@ blocking correctness checks and advisory maintainability guidance.
 - Blocks the build only when forced or configured to block
 - Names the failing checks in the run summary
 - Hints a stale binary when re-keying failures follow a binary change
+- Warns before the run when the binary differs from the last green stamp
+- Runs a metadata transaction only when the run can write metadata
+- Names a check that runs past the heartbeat threshold
 
 ## Nightly
 
 - Fails when either the suite or the whole-tree mutation ratchet fails
 - Runs the whole-tree mutation tier by setting the full flag
+
+## Migrate
+
+- Persists a deferred metadata format re-key as one deliberate step
 
 ## Explain
 
@@ -185,6 +192,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Excludes suffixed zig build cache directories from staging
 - Excludes untracked agent session-state directories from staging
 - Excludes its own generated pre-commit hook from staging
+- Never stages the git-ignored guardian cache directory
+- Reports a gate and test timing split
 
 ## Install Hook
 
@@ -210,6 +219,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Maintenance
 
 - Doctor distinguishes advisory warnings from integrity failures
+- Doctor reports a stale gating binary
 - Gates artifact copies without delaying generators that prepare analysis inputs
 - Spec sync suggests missing bullets without editing SPEC.md
 - Debt emits JSON and filters by check
@@ -240,6 +250,8 @@ blocking correctness checks and advisory maintainability guidance.
 ## Snapshot Lifecycle
 
 - Atomically replaces snapshot files after fully writing their contents
+- Skips an identical rewrite and leaves the file untouched
+- Defers snapshot creation to a metadata-writable run
 - Creates snapshot file on first run with no prior snapshot
 - Reports drift when current state differs from prior snapshot
 - Honors GUARDIAN_UPDATE_SNAPSHOT to regenerate snapshot
@@ -402,6 +414,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Baseline Mode
 
 - Captures each check's current violations on first run and only fails on additions
+- Defers first-record and prune writes to a metadata-writable run
 - Wraps a single check run with capture, diff, and outcome reporting
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
@@ -427,6 +440,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Per-Item Ratchets
 
 - Selects the ratchet lifecycle only for threshold checks
+- Defers the auto-lower write to a metadata-writable run
 - Aggregates violation records to the max metric per key
 - Counts over-limit records per key in count mode
 - Encodes and decodes a value key line
@@ -492,6 +506,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 ## Mutation Testing
 
+- Reports running elapsed and survivor count per mutant
 - Generates mutants by flipping comparison operators outside test blocks
 - Generates mutants by swapping binary plus and minus operators
 - Skips unary minus when generating arithmetic mutants

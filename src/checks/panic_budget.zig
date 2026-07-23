@@ -287,20 +287,25 @@ fn loadBudget(
         return null;
     }
     const old = snapshot.read(allocator, snap_path, snapshot_version) catch |e| {
-        return handleReadError(e, snap_path, totals, new_lines);
+        return handleReadError(allocator, e, snap_path, totals, new_lines, ctx.metadata_writable);
     };
     return linesToCounts(old.lines);
 }
 
 fn handleReadError(
+    allocator: std.mem.Allocator,
     e: snapshot.ReadError,
     snap_path: []const u8,
     totals: Counts,
     new_lines: [][]const u8,
+    write_allowed: bool,
 ) registry.RunError!?Counts {
     switch (e) {
         error.Missing => {
-            try snapshot.write(snap_path, snapshot_version, new_lines);
+            // Grandfather the first sighting green, but persist only on a
+            // metadata-writable run (accept/commit/migrate) — an ordinary run
+            // stays read-only on .guardian/.
+            if (write_allowed) _ = try snapshot.writeChecked(allocator, snap_path, snapshot_version, new_lines);
             okCounts("panic budget created (panics={d}, unreachables={d}, todos={d}, fixmes={d})", totals);
             return null;
         },

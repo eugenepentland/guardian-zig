@@ -26,6 +26,7 @@ const reporter = @import("../reporter.zig");
 const run_all = @import("run_all.zig");
 const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
+const dora = @import("../dora.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -53,7 +54,17 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // commit always BLOCKS, regardless of [gate] on_build: nothing enters
     // history unverified even when a dev build only reports.
     ctx.gate = true;
+    // commit is a metadata-writable run: it persists the baseline/ratchet/
+    // snapshot prune/create/re-key that ordinary runs defer, so the `.guardian/`
+    // change the gate produced rides the commit that caused it (the same diff
+    // the old always-writing auto-path staged).
+    ctx.metadata_writable = true;
 
+    // Phase markers + a per-phase timing split turn a long commit from a silent
+    // wait into a visibly-progressing gate → tests → stage → commit sequence.
+    // Both timers run through the dora clock seam (std.time lives in dora only).
+    reporter.ok("commit: phase 1/4 — gate (full suite)", .{});
+    var gate_sw = dora.startStopwatch();
     // Gate the exact working tree we're about to commit. On red the check output
     // was already printed by run_all; git state is left untouched.
     run_all.run(ctx) catch |e| switch (e) {
@@ -63,17 +74,36 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         },
         else => return e,
     };
+    const gate_ms = gate_sw.elapsedMs();
 
     // The static gate is green; the project's own tests must also pass before
     // anything enters history.
+    reporter.ok("commit: phase 2/4 — tests", .{});
+    var tests_sw = dora.startStopwatch();
     try runTests(ctx);
+    const tests_ms = tests_sw.elapsedMs();
+    reporter.ok("commit: timing — {s}", .{try formatTimingSplit(ctx.allocator, gate_ms, tests_ms)});
 
     // A raw `git commit` must not be able to bypass the gate now that a dev
     // build only reports, so ensure a blocking pre-commit hook exists (best
     // effort; a hook problem never blocks a commit whose gate + tests passed).
+    reporter.ok("commit: phase 3/4 — stage", .{});
     if (ctx.cfg.gate.install_hook) install_hook.ensure(ctx);
 
+    reporter.ok("commit: phase 4/4 — commit", .{});
     return stageAndCommit(ctx, intent);
+}
+
+/// Renders the gate/test wall-clock split as `gate <s>.<t>s · tests <s>.<t>s`
+/// (one decimal, floored) for the commit timing line. Pure over its ms inputs,
+/// so it is unit-tested without a clock.
+fn formatTimingSplit(a: Allocator, gate_ms: u64, tests_ms: u64) Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(a, "gate {d}.{d}s \u{00B7} tests {d}.{d}s", .{
+        gate_ms / std.time.ms_per_s,
+        (gate_ms % std.time.ms_per_s) / 100,
+        tests_ms / std.time.ms_per_s,
+        (tests_ms % std.time.ms_per_s) / 100,
+    });
 }
 
 /// Runs the configured test suite (`[gate] test_command`, default `zig build
@@ -223,10 +253,24 @@ const StageAction = enum { stage, skip_forbidden, skip_generated };
 /// it is never gated source, and dropping it cannot desync the commit from the
 /// tree the gate verified.
 fn stagingDecision(c: git.ChangedPath, spec_file: []const u8, hook_path: ?[]const u8) StageAction {
+    // Guardian's own operational cache is git-ignored, digest-excluded state that
+    // must never enter history — checked BEFORE alwaysInclude, which otherwise
+    // carries everything under `.guardian/` wholesale. Silent, like the hook: it
+    // is never tracked source and dropping it can't desync the gated tree.
+    if (isGuardianCache(c.path)) return .skip_generated;
     if (alwaysInclude(c.path, spec_file)) return .stage;
     if (!c.tracked and isGeneratedHook(c.path, hook_path)) return .skip_generated;
     if (!c.tracked and isForbidden(c.path)) return .skip_forbidden;
     return .stage;
+}
+
+/// True when `path` is guardian's operational cache tree — the git-ignored,
+/// digest-excluded `.guardian/cache/` (inputs.sha256, last-run.jsonl, …). It is
+/// the one cache-pattern hole sitting under an always-include prefix; the
+/// zig-out / .zig-cache rail (`isBuildArtifactPath`) never sees it because its
+/// first path segment is `.guardian`.
+fn isGuardianCache(path: []const u8) bool {
+    return underDir(path, ".guardian/cache");
 }
 
 /// True when `path` is the pre-commit hook Guardian manages for this project.
@@ -334,6 +378,18 @@ fn untracked(path: []const u8) git.ChangedPath {
 /// Test shorthand for a tracked porcelain entry (anything but `??`).
 fn tracked(path: []const u8) git.ChangedPath {
     return .{ .path = path, .tracked = true };
+}
+
+// spec: Commit - Reports a gate and test timing split
+
+test "formatTimingSplit renders one-decimal seconds for each phase" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 1100 ms → 1.1s, 2300 ms → 2.3s (floored tenths).
+    try testing.expectEqualStrings("gate 1.1s \u{00B7} tests 2.3s", try formatTimingSplit(a, 1100, 2300));
+    // Sub-second and multi-second phases both render.
+    try testing.expectEqualStrings("gate 0.7s \u{00B7} tests 32.0s", try formatTimingSplit(a, 770, 32_000));
 }
 
 // spec: Commit - Splits the configured test command into an argv vector
@@ -541,6 +597,30 @@ test "planStaging always includes guardian and spec even against the forbidden f
     const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 4), plan.stage.len);
     try testing.expectEqual(@as(usize, 0), plan.skipped.len);
+}
+
+// spec: Commit - Never stages the git-ignored guardian cache directory
+
+test "planStaging skips the guardian cache tree while keeping real metadata" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // .guardian/cache/ is git-ignored operational state (a swept-in cache dir is
+    // the 4.5 bug); it must be dropped silently even though it sits under the
+    // always-include `.guardian/` prefix — while a real baseline still stages.
+    const changed = [_]git.ChangedPath{
+        untracked(".guardian/cache/inputs.sha256"),
+        untracked(".guardian/cache/last-run.jsonl"),
+        untracked(".guardian/baselines/spec.txt"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
+    try testing.expectEqual(@as(usize, 1), plan.stage.len);
+    try testing.expectEqualStrings(".guardian/baselines/spec.txt", plan.stage[0]);
+    // Silent drop (git-ignored guardian output), so no skip warning fires.
+    try testing.expectEqual(@as(usize, 0), plan.skipped.len);
+    // A file literally named "cache" one level up is ordinary source, not the tree.
+    try testing.expect(!isGuardianCache(".guardian/cache-notes.txt"));
+    try testing.expect(isGuardianCache(".guardian/cache/x"));
 }
 
 // spec: Commit - Reports nothing to commit when no eligible paths remain

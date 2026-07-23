@@ -31,6 +31,7 @@ const report_mod = @import("../mutation/report.zig");
 const cache = @import("../cache.zig");
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
+const dora = @import("../dora.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -221,6 +222,10 @@ fn execute(
 
     var deadline_ns: ?u64 = null; // measured lazily on the first non-cached mutant
     var scored: ScoredRun = .{};
+    // Whole-run stopwatch (dora clock seam) so each mutant line carries elapsed
+    // wall time and the running survivor count — a stalled campaign is then
+    // distinguishable from a merely long one.
+    var run_sw = dora.startStopwatch();
     for (picked, 1..) |m, i| {
         const key = try mut_cache.keyFor(a, m);
         const label = try std.fmt.allocPrint(a, "[{d}/{d}] {s}:{d}", .{
@@ -229,10 +234,11 @@ fn execute(
         if (cache_map.get(key)) |cached_outcome| {
             scored.score.add(cached_outcome);
             scored.cached += 1;
-            detail("  {s} `{s}` -> `{s}` ... {s} (cached)\n", .{
-                label, m.original, m.replacement, @tagName(cached_outcome),
-            });
             if (cached_outcome == .survived) try scored.addSurvivor(a, m);
+            detail("  {s} `{s}` -> `{s}` ... {s} (cached){s}\n", .{
+                label,                                                               m.original, m.replacement, @tagName(cached_outcome),
+                try progressTail(a, run_sw.elapsedMs(), scored.survivors.items.len),
+            });
             continue;
         }
         if (deadline_ns == null) deadline_ns = computeDeadline(ctx, build_cache_dir);
@@ -260,10 +266,20 @@ fn execute(
         if (outcome != .inconclusive) {
             if (suite_hex) |h| mut_cache.append(a, ctx.project_dir, h, m, outcome);
         }
-        detail("  {s} ... {s}\n", .{ label, @tagName(outcome) });
         if (outcome == .survived) try scored.addSurvivor(a, m);
+        detail("  {s} ... {s}{s}\n", .{
+            label,                                                               @tagName(outcome),
+            try progressTail(a, run_sw.elapsedMs(), scored.survivors.items.len),
+        });
     }
     return scored;
+}
+
+/// The per-mutant progress tail: running elapsed seconds and survivor count so
+/// far, appended to each mutant's outcome line. Pure over its inputs, so it is
+/// unit-tested without a clock.
+fn progressTail(a: Allocator, elapsed_ms: u64, survivors: usize) Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(a, " [{d}s, {d} survived]", .{ elapsed_ms / std.time.ms_per_s, survivors });
 }
 
 /// Measures the clean-suite baseline once and derives the per-mutant deadline
@@ -480,6 +496,18 @@ fn listSurvivors(survivors: []const report_mod.Survivor) void {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+// spec: Mutation Testing - Reports running elapsed and survivor count per mutant
+
+test "progressTail renders elapsed seconds and the running survivor count" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 12_500 ms → 12s (floored), 3 survivors so far.
+    try testing.expectEqualStrings(" [12s, 3 survived]", try progressTail(a, 12_500, 3));
+    // Fresh run, none survived yet.
+    try testing.expectEqualStrings(" [0s, 0 survived]", try progressTail(a, 200, 0));
+}
 
 // spec: Mutation Testing - Fails a run whose score drops below the configured minimum
 

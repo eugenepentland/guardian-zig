@@ -176,28 +176,36 @@ fn diffKeys(arena: Allocator, old: snapshot.Snapshot, current: []const Keyed) Al
     return .{ .added = try added.toOwnedSlice(arena), .removed = try removed.toOwnedSlice(arena) };
 }
 
-/// Writes `current`'s identity keys as the baseline file contents.
+/// Writes `current`'s identity keys as the baseline file contents. Uses the
+/// content-identical short-circuit so re-emitting the same key set leaves the
+/// committed baseline (and the diff) untouched.
 fn writeKeys(arena: Allocator, path: []const u8, current: []const Keyed) snapshot.WriteError!void {
     const keys = try arena.alloc([]const u8, current.len);
     for (current, 0..) |k, i| keys[i] = k.key;
-    try snapshot.write(path, version, keys);
+    _ = try snapshot.writeChecked(arena, path, version, keys);
 }
 
 /// Run the baseline lifecycle for a check.
 ///
-/// `force_refresh = true` rewrites the baseline regardless of state.
+/// `force_refresh = true` rewrites the baseline regardless of state (the accept
+/// path). `write_allowed` gates every OTHER persistence — first-record creation,
+/// auto-prune, and v1→v3 re-keying: an ordinary (read-only) run leaves it false
+/// and computes the outcome in memory without touching disk, so a plain build's
+/// `git status` stays clean; `commit`/`migrate` flip it so the same writes the
+/// old auto-path produced ride the deliberate command.
 pub fn lifecycle(
     arena: Allocator,
     baseline_path: []const u8,
     current: []const Keyed,
     force_refresh: bool,
+    write_allowed: bool,
 ) (snapshot.WriteError || snapshot.ReadError)!Outcome {
     if (force_refresh) {
         try writeKeys(arena, baseline_path, current);
         return .{ .refreshed = current.len };
     }
 
-    const loaded = try readOrInit(arena, baseline_path, current);
+    const loaded = try readOrInit(arena, baseline_path, current, write_allowed);
     const old = switch (loaded) {
         .initialized => |outcome| return outcome,
         .existing => |snap| snap,
@@ -206,12 +214,12 @@ pub fn lifecycle(
     const d = try diffKeys(arena, old, current);
     const outcome = classify(d, old.lines.len, current.len);
     // Auto-prune: a pure shrink (violations resolved, none added) rewrites the
-    // baseline with the current smaller set. Removing entries is monotone-safe —
-    // it can never introduce a false failure — so it needs no refresh env var,
-    // and it retires the old "re-run with a broad snapshot refresh to prune"
-    // round-trip that generated a class of .guardian/ churn commits.
+    // baseline with the current smaller set — but only on a metadata-writable
+    // run. An ordinary run reports the shrink and leaves the file in place, so a
+    // source-only diff never carries an incidental prune. Removing entries is
+    // monotone-safe, so deferring it never risks a false failure.
     switch (outcome) {
-        .shrunk => try writeKeys(arena, baseline_path, current),
+        .shrunk => if (write_allowed) try writeKeys(arena, baseline_path, current),
         else => {},
     }
     return outcome;
@@ -227,11 +235,13 @@ const Loaded = union(enum) {
 };
 
 /// Read the baseline, initializing it when absent or migrating it when it is
-/// still v1 text-keyed. Both init paths settle the file before returning.
+/// still v1 text-keyed. `write_allowed` gates the two init writes: on a
+/// read-only run both are computed but the file is left untouched.
 fn readOrInit(
     arena: Allocator,
     baseline_path: []const u8,
     current: []const Keyed,
+    write_allowed: bool,
 ) (snapshot.WriteError || snapshot.ReadError)!Loaded {
     const snap = snapshot.read(arena, baseline_path, version) catch |e| switch (e) {
         // Missing → fresh `created`; but a check with nothing to record gets NO
@@ -240,11 +250,12 @@ fn readOrInit(
         // green run. Report matched(0) and leave the tree clean.
         error.Missing => {
             if (current.len == 0) return .{ .initialized = .{ .matched = 0 } };
-            try writeKeys(arena, baseline_path, current);
+            if (write_allowed) try writeKeys(arena, baseline_path, current);
             return .{ .initialized = .{ .created = current.len } };
         },
-        // A stale version is a v1 text baseline in the wild → re-key in place.
-        error.VersionMismatch => return .{ .initialized = try migrate(arena, baseline_path, current) },
+        // A stale version is a v1 text baseline in the wild → re-key, but only
+        // persist the re-key on a metadata-writable run.
+        error.VersionMismatch => return .{ .initialized = try migrate(arena, baseline_path, current, write_allowed) },
         else => return e,
     };
     return .{ .existing = snap };
@@ -272,19 +283,24 @@ fn readOrInit(
 ///
 /// An unreadable v1 file (corrupt, or some other version) carries no counts to
 /// guard against, so it is re-keyed unconditionally.
+///
+/// `write_allowed` gates the persistence: a read-only run classifies the
+/// migration (so genuine `migration_blocked` debt still reds the build) but
+/// leaves the v1 file on disk, deferring the re-key to `accept`/`migrate`.
 fn migrate(
     arena: Allocator,
     baseline_path: []const u8,
     current: []const Keyed,
+    write_allowed: bool,
 ) (snapshot.WriteError || snapshot.ReadError)!Outcome {
     const old = snapshot.read(arena, baseline_path, legacy_version) catch {
-        try writeKeys(arena, baseline_path, current);
+        if (write_allowed) try writeKeys(arena, baseline_path, current);
         return .{ .migrated = current.len };
     };
     if (try migrationGrowth(arena, old.lines, current)) |gained| {
         return .{ .migration_blocked = .{ .lines = gained, .baseline_size = old.lines.len } };
     }
-    try writeKeys(arena, baseline_path, current);
+    if (write_allowed) try writeKeys(arena, baseline_path, current);
     return .{ .migrated = current.len };
 }
 
@@ -411,6 +427,9 @@ fn processOutcome(
     warnings: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
+    // write_allowed rides on the context — accept/commit/migrate flip it; an
+    // ordinary run leaves it false and every lifecycle write below is deferred.
+    const write_allowed = ctx.metadata_writable;
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -427,6 +446,7 @@ fn processOutcome(
             .records = records,
             .warnings = warnings,
             .force_refresh = force_refresh,
+            .write_allowed = write_allowed,
         });
     }
 
@@ -438,12 +458,12 @@ fn processOutcome(
     // today's fastest-growing frozen debt — from being ratified upward.
     try denyGrowthGuard(a, ctx, check_name, path, violations.len, force_refresh);
 
-    const outcome = lifecycle(a, path, violations, force_refresh) catch |e| {
+    const outcome = lifecycle(a, path, violations, force_refresh, write_allowed) catch |e| {
         reporter.fail("{s}: baseline I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
 
-    return reportOutcome(check_name, outcome);
+    return reportOutcome(check_name, outcome, write_allowed);
 }
 
 /// Ratchet (baseline v2) path for a threshold check: aggregate its records to
@@ -456,6 +476,9 @@ const RatchetInput = struct {
     records: []const reporter.Violation,
     warnings: []const reporter.Violation,
     force_refresh: bool,
+    /// Gates the auto-lower / first-record / migrate writes: false on an
+    /// ordinary run (report-only), true on accept/commit/migrate.
+    write_allowed: bool,
 };
 
 fn processRatchet(
@@ -470,7 +493,7 @@ fn processRatchet(
     const entries = try preserveAdvisoryRatchets(a, path, blocking, input.warnings, input.force_refresh);
     try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, input.force_refresh);
 
-    const outcome = ratchet.lifecycle(a, path, entries, input.force_refresh) catch |e| {
+    const outcome = ratchet.lifecycle(a, path, entries, input.force_refresh, input.write_allowed) catch |e| {
         reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
@@ -481,17 +504,28 @@ fn processRatchet(
     // deny_growth still wins: a guarded check never rides a session note.
     if (outcome == .regressed and accept_session.isPending(a, ctx.project_dir, check_name)) {
         try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, true);
-        const relocked = ratchet.lifecycle(a, path, entries, true) catch |e| {
-            reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
-            return error.CheckFailed;
-        };
-        reporter.ok(
-            "{s}: ratchet re-accepted under this session's pending accept ({d} key(s); locks at commit)",
-            .{ check_name, relocked.refreshed },
-        );
+        // On a metadata-writable run the re-lock persists (commit locks the
+        // ratchet). On an ordinary read-only run the growth is tolerated green
+        // under the session note but nothing is written — the same read-only
+        // contract as every other lifecycle write.
+        if (input.write_allowed) {
+            const relocked = ratchet.lifecycle(a, path, entries, true, true) catch |e| {
+                reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
+                return error.CheckFailed;
+            };
+            reporter.ok(
+                "{s}: ratchet re-accepted under this session's pending accept ({d} key(s); locked)",
+                .{ check_name, relocked.refreshed },
+            );
+        } else {
+            reporter.ok(
+                "{s}: ratchet growth tolerated under this session's pending accept (locks at commit)",
+                .{check_name},
+            );
+        }
         return;
     }
-    return reportRatchet(check_name, outcome, firstFixHint(input.captured));
+    return reportRatchet(check_name, outcome, firstFixHint(input.captured), input.write_allowed);
 }
 
 /// Keeps a legacy ratchet entry while the same subject is still being reported
@@ -568,7 +602,24 @@ fn ratchetDenyGrowthGuard(
 
 /// Reports a ratchet outcome; `regressed` prints each grown / new-offender key
 /// (with the check's own fix hint, scraped from its captured output) and fails.
-fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]const u8) types.RunError!void {
+fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]const u8, write_allowed: bool) types.RunError!void {
+    // On a read-only run the create/migrate/improve outcomes were classified but
+    // not persisted — word them as pending, all green.
+    if (!write_allowed) switch (outcome) {
+        .created => |n| {
+            reporter.ok("ok: {s}: {d} key(s) grandfathered (run `guardian-check accept {s} .` to record)", .{ check_name, n, check_name });
+            return;
+        },
+        .migrated => |n| {
+            reporter.ok("ok: {s}: legacy ratchet format ({d} key(s); run `guardian-check migrate .` to re-key)", .{ check_name, n });
+            return;
+        },
+        .improved => |imp| {
+            reporter.ok("ok: {s}: {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)", .{ check_name, imp.lowered, imp.pruned, check_name });
+            return;
+        },
+        else => {},
+    };
     switch (outcome) {
         .created => |n| reporter.ok("{s}: ratchet baselined ({d} key(s))", .{ check_name, n }),
         .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
@@ -690,7 +741,26 @@ fn nameInList(list: []const []const u8, name: []const u8) bool {
     return false;
 }
 
-fn reportOutcome(check_name: []const u8, outcome: Outcome) types.RunError!void {
+fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) types.RunError!void {
+    // On a read-only run the create/prune/re-key outcomes were classified but
+    // NOT persisted, so word them as pending rather than as done — an honest
+    // "run accept to record it" instead of a "baselined/pruned/re-keyed" that
+    // never touched disk. All stay green.
+    if (!write_allowed) switch (outcome) {
+        .created => |n| {
+            reporter.ok("ok: {s}: {d} violation(s) grandfathered (run `guardian-check accept {s} .` to record)", .{ check_name, n, check_name });
+            return;
+        },
+        .shrunk => |s| {
+            reporter.ok("ok: {s}: {d} resolved (run `guardian-check accept {s} .` to prune the baseline)", .{ check_name, s.removed, check_name });
+            return;
+        },
+        .migrated => |n| {
+            reporter.ok("ok: {s}: legacy baseline format ({d} violation(s); run `guardian-check migrate .` to re-key)", .{ check_name, n });
+            return;
+        },
+        else => {},
+    };
     switch (outcome) {
         .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
         .matched => |n| reporter.ok("ok: {s}: baseline matches ({d} violation(s))", .{ check_name, n }),
@@ -809,11 +879,14 @@ test "runWithBaseline replays warnings without ratcheting them" {
     try std.fs.cwd().makePath(dir);
 
     const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    // metadata_writable so the (empty) ratchet is actually recorded — the test
+    // asserts warnings add zero ratchet debt even on a writing run.
     var ctx: types.RunCtx = .{
         .allocator = std.testing.allocator,
         .project_dir = dir,
         .cfg = &cfg,
         .quiet = true,
+        .metadata_writable = true,
     };
     var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
     defer outer.deinit();
@@ -1030,9 +1103,37 @@ test "lifecycle creates baseline on first run" {
     defer deleteIfExists(path);
 
     const lines = try keyedLines(a, "demo", &.{ "alpha", "beta" });
-    const out = try lifecycle(a, path, lines, false);
+    const out = try lifecycle(a, path, lines, false, true);
     try std.testing.expect(out == .created);
     try std.testing.expectEqual(@as(usize, 2), out.created);
+}
+
+// spec: Baseline Mode - Defers first-record and prune writes to a metadata-writable run
+
+test "lifecycle defers creation and pruning on a read-only run" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-readonly.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // write_allowed = false: a missing baseline is grandfathered as `created`
+    // (all current violations accepted, green) but NOT written, so an ordinary
+    // run leaves the tree clean.
+    const two = try keyedLines(a, "demo", &.{ "alpha", "beta" });
+    try std.testing.expect((try lifecycle(a, path, two, false, false)) == .created);
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+
+    // Record it with a writable run, then resolve one violation on a read-only
+    // run: the shrink is reported but the committed baseline is left untouched.
+    _ = try lifecycle(a, path, two, false, true);
+    const before = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    const one = try keyedLines(a, "demo", &.{"alpha"});
+    try std.testing.expect((try lifecycle(a, path, one, false, false)) == .shrunk);
+    const after = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    try std.testing.expectEqualStrings(before, after);
 }
 
 test "lifecycle returns matched on identical run" {
@@ -1044,8 +1145,8 @@ test "lifecycle returns matched on identical run" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false);
-    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false, true);
+    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false, true);
     try std.testing.expect(out == .matched);
 }
 
@@ -1058,9 +1159,9 @@ test "lifecycle returns grown when new violations appear" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{"alpha"}), false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{"alpha"}), false, true);
 
-    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "gamma" }), false);
+    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "gamma" }), false, true);
     try std.testing.expect(out == .grown);
     try std.testing.expectEqual(@as(usize, 1), out.grown.new_lines.len);
     // The failure reports the human line, not the stored key.
@@ -1076,9 +1177,9 @@ test "lifecycle returns shrunk when violations are resolved" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta", "gamma" }), false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta", "gamma" }), false, true);
 
-    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{"alpha"}), false);
+    const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{"alpha"}), false, true);
     try std.testing.expect(out == .shrunk);
     try std.testing.expectEqual(@as(usize, 2), out.shrunk.removed);
     try std.testing.expectEqual(@as(usize, 1), out.shrunk.remaining);
@@ -1095,15 +1196,15 @@ test "lifecycle auto-prunes the baseline file after a shrink" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta", "gamma" }), false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta", "gamma" }), false, true);
 
     // Resolving two violations shrinks the set AND rewrites the file.
     const one = try keyedLines(a, "demo", &.{"alpha"});
-    try std.testing.expect((try lifecycle(a, path, one, false)) == .shrunk);
+    try std.testing.expect((try lifecycle(a, path, one, false, true)) == .shrunk);
 
     // The file was pruned to the surviving violation, so a re-run matches
     // (no lingering "resolved" entries to keep reporting).
-    const out2 = try lifecycle(a, path, one, false);
+    const out2 = try lifecycle(a, path, one, false, true);
     try std.testing.expect(out2 == .matched);
     try std.testing.expectEqual(@as(usize, 1), out2.matched);
 }
@@ -1121,14 +1222,14 @@ test "lifecycle does not rewrite a matched baseline whose entries only moved lin
 
     // Record a baseline whose entry carries a source-line position.
     const at_10 = try keyedLines(a, "ban-fs", &.{"src/x.zig:10: std.fs.cwd reference outside allowed paths"});
-    _ = try lifecycle(a, path, at_10, false);
+    _ = try lifecycle(a, path, at_10, false, true);
     const before = try std.fs.cwd().readFileAlloc(a, path, 4096);
 
     // The same violation, only shifted to a new line (an unrelated edit grew the
     // file above it), must match — and must NOT rewrite the committed baseline,
     // so a source-only diff stays clean (C1a).
     const at_42 = try keyedLines(a, "ban-fs", &.{"src/x.zig:42: std.fs.cwd reference outside allowed paths"});
-    try std.testing.expect((try lifecycle(a, path, at_42, false)) == .matched);
+    try std.testing.expect((try lifecycle(a, path, at_42, false, true)) == .matched);
     const after = try std.fs.cwd().readFileAlloc(a, path, 4096);
     try std.testing.expectEqualStrings(before, after);
 }
@@ -1154,7 +1255,7 @@ test "rewording a violation's message leaves the baseline green" {
         .identity = "float,integer",
     };
     const baselined = try keyedViolations(a, "repeated-switch-on-enum", "", &.{before});
-    try std.testing.expect((try lifecycle(a, path, baselined, false)) == .created);
+    try std.testing.expect((try lifecycle(a, path, baselined, false, true)) == .created);
     const on_disk = try std.fs.cwd().readFileAlloc(a, path, 4096);
 
     // Now reword the *same* underlying violation as freely as a diagnostics
@@ -1172,7 +1273,7 @@ test "rewording a violation's message leaves the baseline green" {
 
     // ...yet the run stays green, and the committed baseline is not rewritten,
     // so a consumer's gate survives the upgrade with no accept and no churn.
-    try std.testing.expect((try lifecycle(a, path, reworded, false)) == .matched);
+    try std.testing.expect((try lifecycle(a, path, reworded, false, true)) == .matched);
     try std.testing.expectEqualStrings(on_disk, try std.fs.cwd().readFileAlloc(a, path, 4096));
 
     // The guard rail still holds: a *different* prong set is a real new
@@ -1183,7 +1284,7 @@ test "rewording a violation's message leaves the baseline green" {
         .identity = "ok,err",
     };
     const grew = try keyedViolations(a, "repeated-switch-on-enum", "", &.{ after, other });
-    try std.testing.expect((try lifecycle(a, path, grew, false)) == .grown);
+    try std.testing.expect((try lifecycle(a, path, grew, false, true)) == .grown);
 }
 
 // spec: Baseline Mode - Preserves the count of same-key violations across a stored baseline
@@ -1211,19 +1312,19 @@ test "six identical-key violations round-trip through the file as six" {
     });
     // They really do collapse to one key...
     for (six) |k| try std.testing.expectEqualStrings(six[0].key, k.key);
-    try std.testing.expect((try lifecycle(a, path, six, false)) == .created);
+    try std.testing.expect((try lifecycle(a, path, six, false, true)) == .created);
     // ...yet the stored file holds six lines, so the count survives.
     const stored = try snapshot.read(a, path, version);
     try std.testing.expectEqual(@as(usize, 6), stored.lines.len);
 
     // Re-running with all six still matches (no churn from the duplication).
-    try std.testing.expect((try lifecycle(a, path, six, false)) == .matched);
+    try std.testing.expect((try lifecycle(a, path, six, false, true)) == .matched);
 
     // Fixing five is an improvement the baseline notices and prunes to.
     const one = try keyedLines(a, "test-no-conditional", &.{
         "src/eval/design_block.zig:1880: switch at top level of test body",
     });
-    const shrunk = try lifecycle(a, path, one, false);
+    const shrunk = try lifecycle(a, path, one, false, true);
     try std.testing.expect(shrunk == .shrunk);
     try std.testing.expectEqual(@as(usize, 5), shrunk.shrunk.removed);
 
@@ -1232,7 +1333,7 @@ test "six identical-key violations round-trip through the file as six" {
         "src/eval/design_block.zig:1880: switch at top level of test body",
         "src/eval/design_block.zig:1999: switch at top level of test body",
     });
-    try std.testing.expect((try lifecycle(a, path, two, false)) == .grown);
+    try std.testing.expect((try lifecycle(a, path, two, false, true)) == .grown);
 }
 
 // spec: Baseline Mode - Re-keys a stale text baseline to stable identities without failing
@@ -1260,19 +1361,19 @@ test "migrate re-keys a v1 text baseline in place and keeps enforcing afterwards
         "src/a.zig:5: std.fs.cwd used outside the allowed paths",
         "src/b.zig:31: std.fs.cwd used outside the allowed paths",
     });
-    const out = try lifecycle(a, path, current, false);
+    const out = try lifecycle(a, path, current, false, true);
     try std.testing.expect(out == .migrated);
     try std.testing.expectEqual(@as(usize, 2), out.migrated);
 
     // The rewritten file is v3, and the migrated baseline still enforces: the
     // same two violations match, a third one reds the build.
-    try std.testing.expect((try lifecycle(a, path, current, false)) == .matched);
+    try std.testing.expect((try lifecycle(a, path, current, false, true)) == .matched);
     const plus_one = try keyedLines(a, "ban-fs", &.{
         "src/a.zig:5: std.fs.cwd used outside the allowed paths",
         "src/b.zig:31: std.fs.cwd used outside the allowed paths",
         "src/c.zig:2: std.fs.cwd used outside the allowed paths",
     });
-    try std.testing.expect((try lifecycle(a, path, plus_one, false)) == .grown);
+    try std.testing.expect((try lifecycle(a, path, plus_one, false, true)) == .grown);
 }
 
 // spec: Baseline Mode - Refuses to migrate a stale baseline when a file gained violations
@@ -1328,7 +1429,7 @@ test "lifecycle creates no baseline file when there are no violations" {
 
     // A passing check with no prior baseline reports matched(0) and writes
     // nothing, so a green run never dirties git with a header-only file (C1b).
-    const out = try lifecycle(a, path, &.{}, false);
+    const out = try lifecycle(a, path, &.{}, false, true);
     try std.testing.expect(out == .matched);
     try std.testing.expectEqual(@as(usize, 0), out.matched);
     try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
@@ -1360,14 +1461,14 @@ test "lifecycle force_refresh rewrites the baseline" {
     deleteIfExists(path);
     defer deleteIfExists(path);
 
-    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false);
+    _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false, true);
 
     const next = try keyedLines(a, "demo", &.{ "alpha", "gamma" });
-    const out = try lifecycle(a, path, next, true);
+    const out = try lifecycle(a, path, next, true, true);
     try std.testing.expect(out == .refreshed);
 
     // After refresh, the new state is the baseline.
-    const out2 = try lifecycle(a, path, next, false);
+    const out2 = try lifecycle(a, path, next, false, true);
     try std.testing.expect(out2 == .matched);
 }
 
@@ -1435,8 +1536,8 @@ test "matching ratchet and baseline reports carry an ok pass marker" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
 
-    try reportRatchet("file-size", .{ .matched = 3 }, null);
-    try reportOutcome("naming", .{ .matched = 2 });
+    try reportRatchet("file-size", .{ .matched = 3 }, null, true);
+    try reportOutcome("naming", .{ .matched = 2 }, true);
     // The captured (uncolored) pass lines carry an explicit "ok:" marker so the
     // last line above a run summary can't be misread as the failing check.
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: file-size: ratchet matches") != null);

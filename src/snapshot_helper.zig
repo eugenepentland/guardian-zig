@@ -233,6 +233,12 @@ pub const SnapSpec = struct {
 /// set, write the current `new_lines` and report created/updated. Otherwise
 /// read the prior snapshot and diff against the (sorted) current state.
 ///
+/// `write_allowed` gates every persistence: an ordinary (read-only) run leaves
+/// it false, so a missing snapshot is grandfathered as `created` **without**
+/// writing the file — the surface is still reported clean and `git status` stays
+/// untouched until `accept`/`commit`/`migrate` records it. `force_update` (an
+/// accept) always implies `write_allowed`.
+///
 /// `new_lines` is sorted in place when needed for diffing. The slice may be
 /// retained by the returned Outcome.
 pub fn lifecycle(
@@ -240,22 +246,32 @@ pub fn lifecycle(
     spec: SnapSpec,
     new_lines: [][]const u8,
     force_update: bool,
+    write_allowed: bool,
 ) LifecycleError!Outcome {
     if (force_update) {
-        try snapshot.write(spec.path, spec.version, new_lines);
+        // writeChecked applies the content-identical short-circuit: an accept
+        // that re-emits the same set leaves the file (and the diff) untouched.
+        _ = try snapshot.writeChecked(allocator, spec.path, spec.version, new_lines);
         return .{ .updated = new_lines.len };
     }
     const old = snapshot.read(allocator, spec.path, spec.version) catch |e|
-        return onReadError(e, spec, new_lines);
+        return onReadError(allocator, e, spec, new_lines, write_allowed);
     return finishDiff(allocator, old, new_lines);
 }
 
-/// Handles a failed snapshot read: a missing file is written fresh (created),
-/// a stale version is surfaced, and any other error propagates.
-fn onReadError(e: snapshot.ReadError, spec: SnapSpec, new_lines: [][]const u8) LifecycleError!Outcome {
+/// Handles a failed snapshot read: a missing file is grandfathered as `created`
+/// — written only on a metadata-writable run — a stale version is surfaced, and
+/// any other error propagates.
+fn onReadError(
+    allocator: Allocator,
+    e: snapshot.ReadError,
+    spec: SnapSpec,
+    new_lines: [][]const u8,
+    write_allowed: bool,
+) LifecycleError!Outcome {
     switch (e) {
         error.Missing => {
-            try snapshot.write(spec.path, spec.version, new_lines);
+            if (write_allowed) _ = try snapshot.writeChecked(allocator, spec.path, spec.version, new_lines);
             return .{ .created = new_lines.len };
         },
         error.VersionMismatch => return .version_mismatch,
@@ -308,14 +324,39 @@ test "lifecycle creates snapshot when missing" {
     defer deleteIfExists(path);
 
     var lines = [_][]const u8{ "alpha", "beta" };
-    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false);
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false, true);
     try testing.expect(out == .created);
     try testing.expectEqual(@as(usize, 2), out.created);
 
     // Re-running with no change should return .unchanged.
     var lines2 = [_][]const u8{ "alpha", "beta" };
-    const out2 = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false);
+    const out2 = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false, true);
     try testing.expect(out2 == .unchanged);
+}
+
+// spec: Snapshot Lifecycle - Defers snapshot creation to a metadata-writable run
+
+test "lifecycle grandfathers a missing snapshot without writing on a read-only run" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-lifecycle-readonly.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // write_allowed = false: the missing snapshot is grandfathered as `created`
+    // (green, all current lines accepted) but the file is NOT written, so an
+    // ordinary run leaves the tree clean.
+    var lines = [_][]const u8{ "alpha", "beta" };
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false, false);
+    try testing.expect(out == .created);
+    try testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+
+    // The same call on a metadata-writable run records it.
+    var lines2 = [_][]const u8{ "alpha", "beta" };
+    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false, true);
+    try std.fs.cwd().access(path, .{});
 }
 
 test "lifecycle reports drift when changed" {
@@ -328,10 +369,10 @@ test "lifecycle reports drift when changed" {
     defer deleteIfExists(path);
 
     var lines = [_][]const u8{ "alpha", "beta" };
-    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false);
+    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false, true);
 
     var lines2 = [_][]const u8{ "alpha", "gamma" };
-    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false);
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false, true);
     try testing.expect(out == .drift);
     try testing.expectEqual(@as(usize, 1), out.drift.added.len);
     try testing.expectEqualStrings("gamma", out.drift.added[0]);
@@ -349,15 +390,15 @@ test "lifecycle force_update overwrites existing snapshot" {
     defer deleteIfExists(path);
 
     var lines = [_][]const u8{ "alpha", "beta" };
-    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false);
+    _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false, true);
 
     var lines2 = [_][]const u8{ "alpha", "gamma" };
-    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, true);
+    const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, true, true);
     try testing.expect(out == .updated);
 
     // After force-update, the new state is now the baseline.
     var lines3 = [_][]const u8{ "alpha", "gamma" };
-    const out2 = try lifecycle(a, .{ .path = path, .version = 1 }, &lines3, false);
+    const out2 = try lifecycle(a, .{ .path = path, .version = 1 }, &lines3, false, true);
     try testing.expect(out2 == .unchanged);
 }
 
@@ -374,7 +415,7 @@ test "lifecycle reports version_mismatch on stale snapshot" {
     try snapshot.write(path, 1, &lines);
 
     var lines2 = [_][]const u8{"x"};
-    const out = try lifecycle(a, .{ .path = path, .version = 2 }, &lines2, false);
+    const out = try lifecycle(a, .{ .path = path, .version = 2 }, &lines2, false, true);
     try testing.expect(out == .version_mismatch);
 }
 

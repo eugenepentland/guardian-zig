@@ -53,6 +53,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // so a typo can't silently refresh nothing / guard nothing.
     try validateSelectiveConfig(ctx);
 
+    // 4.2: `accept` is the one documented acceptance path. When the legacy
+    // GUARDIAN_UPDATE_SNAPSHOT env var drives a named refresh, surface the
+    // equivalent `accept` invocation so both baseline- and snapshot-class checks
+    // converge on the single mechanism (the env var stays a thin alias).
+    if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |names|
+        reporter.ok("note: GUARDIAN_UPDATE_SNAPSHOT={s} is an alias for `guardian-check accept {s} .`", .{ names, names });
+
     // A filtered run (--only/--skip) is a subset, not the full suite, so it
     // must neither trust nor write the green skip-cache — recording green from
     // a partial run would mask a failure in the checks it didn't run.
@@ -62,24 +69,37 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         return;
     }
 
-    // Checks may create snapshots or auto-lower several baselines before a
-    // later check fails. Capture the entire non-cache metadata tree so a red
-    // aggregate result is atomic: all checked-in metadata is restored, while
-    // operational cache/log evidence remains available for diagnosis.
-    var metadata = metadata_transaction.Transaction.begin(ctx.allocator, ctx.project_dir) catch |err| {
-        fail("cannot start Guardian metadata transaction: {s}", .{@errorName(err)});
-        return error.CheckFailed;
+    // Stale-binary warning BEFORE any violation listing: a standalone binary a
+    // build or two old reports snapshot/ratchet drift a fresh dep-built gate
+    // does not (the phantom-red trap). Printing it up front turns a confusing
+    // red into a one-line "rebuild first". Best-effort; a green run's stamp then
+    // records this binary so it doesn't repeat.
+    warnStaleBinary(ctx);
+
+    // A transaction is only needed when this run can WRITE `.guardian/`: a
+    // metadata-writable command (accept/commit/migrate) or a pending
+    // GUARDIAN_UPDATE_SNAPSHOT refresh. An ordinary run is read-only on metadata
+    // — the baseline/ratchet/snapshot lifecycles defer every write — so it needs
+    // no begin+restore dance at all (the biggest-evidence-base churn source is
+    // simply gone for the common path).
+    const writes = writesMetadata(ctx);
+    var metadata: ?metadata_transaction.Transaction = null;
+    if (writes) {
+        metadata = metadata_transaction.Transaction.begin(ctx.allocator, ctx.project_dir) catch |err| {
+            fail("cannot start Guardian metadata transaction: {s}", .{@errorName(err)});
+            return error.CheckFailed;
+        };
+        // C2: a selectively-named refresh (GUARDIAN_UPDATE_SNAPSHOT=<check>) keeps
+        // its freshly-written metadata even when a DIFFERENT check reds the gate —
+        // the transaction restores everything EXCEPT the named checks' files.
+        if (metadata) |*m| m.preserveMetadata(snapshot_helper.preservedMetadataPaths(ctx.allocator) catch &.{});
+    }
+    defer if (metadata) |*m| m.deinit();
+    var metadata_active = writes;
+    defer if (metadata_active) {
+        if (metadata) |*m| m.rollback() catch |err|
+            fail("could not roll back Guardian metadata after an interrupted run: {s}", .{@errorName(err)});
     };
-    defer metadata.deinit();
-    // C2: a selectively-named refresh (GUARDIAN_UPDATE_SNAPSHOT=<check>) keeps its
-    // freshly-written metadata even when a DIFFERENT check reds the gate — the
-    // transaction restores everything EXCEPT the named checks' files, so the
-    // operator no longer loses an accept to an unrelated failure. `=all` and the
-    // none/rejected modes preserve nothing (whole-tree rollback stands).
-    metadata.preserveMetadata(snapshot_helper.preservedMetadataPaths(ctx.allocator) catch &.{});
-    var metadata_active = true;
-    defer if (metadata_active) metadata.rollback() catch |err|
-        fail("could not roll back Guardian metadata after an interrupted run: {s}", .{@errorName(err)});
 
     // Build the shared parsed-source index once if any check needs it, so
     // the ~17 AST checks read and parse each file once instead of per check.
@@ -127,20 +147,23 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const names = joinNames(ctx.allocator, acc.failed_checks.items);
     fail("run-all: {d}/{d} failed ({s})", .{ failed, ran, names });
 
-    // A run that found violations restores metadata in BOTH modes: report mode
-    // is a side-effect-free dry run, block mode fails the build. Either way,
-    // half-written snapshots/baselines from the failing checks must not persist.
-    metadata.rollback() catch |err| {
-        fail("could not roll back Guardian metadata after the failed run: {s}", .{@errorName(err)});
+    // A run that found violations restores metadata when a transaction is active
+    // (a writable/refresh run) — half-written snapshots/baselines from the
+    // failing checks must not persist. An ordinary read-only run wrote nothing,
+    // so there is nothing to restore.
+    if (metadata) |*m| {
+        m.rollback() catch |err| {
+            fail("could not roll back Guardian metadata after the failed run: {s}", .{@errorName(err)});
+            metadata_active = false;
+            return error.CheckFailed;
+        };
         metadata_active = false;
-        return error.CheckFailed;
-    };
-    metadata_active = false;
-    reporter.detail("  metadata: restored pre-run .guardian snapshots and baselines\n", .{});
-    // C2: name what the restore deliberately kept, so the operator knows the
-    // selective refresh persisted rather than silently reverting.
-    if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |kept|
-        reporter.detail("  metadata: kept named refresh(es) despite the red run: {s}\n", .{kept});
+        reporter.detail("  metadata: restored pre-run .guardian snapshots and baselines\n", .{});
+        // C2: name what the restore deliberately kept, so the operator knows the
+        // selective refresh persisted rather than silently reverting.
+        if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |kept|
+            reporter.detail("  metadata: kept named refresh(es) despite the red run: {s}\n", .{kept});
+    }
 
     if (!blocks(ctx.gate, ctx.cfg.gate.on_build)) {
         // Report mode: surface what would block a commit, then exit 0 so the dev
@@ -217,6 +240,39 @@ fn binaryDriftHint(ctx: *types.RunCtx, failed_checks: []const []const u8) void {
             "rebuild (zig build) and re-run before accepting\n",
         .{},
     );
+}
+
+/// True when this run may WRITE `.guardian/` metadata and therefore needs the
+/// restore-on-red transaction: a metadata-writable command (accept/commit/
+/// migrate) or a pending GUARDIAN_UPDATE_SNAPSHOT refresh (accept-set or env).
+/// An ordinary run is read-only on metadata — every lifecycle defers its writes
+/// — so it needs no begin+restore transaction.
+fn writesMetadata(ctx: *types.RunCtx) bool {
+    if (ctx.metadata_writable) return true;
+    if (ctx.refresh.len > 0) return true;
+    return snapshot_helper.shouldUpdate(ctx.allocator);
+}
+
+/// Prints a one-line stale-binary warning when a green stamp records a guardian
+/// binary identity that differs from the running binary's — before any check
+/// runs, so a phantom re-key red reads as "rebuild first". Best-effort: a
+/// missing stamp or any I/O error skips it silently.
+fn warnStaleBinary(ctx: *types.RunCtx) void {
+    const stored = cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return;
+    const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
+    if (!staleBinaryWarnable(stored, current)) return;
+    reporter.detail(
+        "guardian: warning: this guardian-check binary differs from the one that last gated this tree — " ++
+            "rebuild (zig build) and re-run; any snapshot/ratchet drift below may be phantom\n",
+        .{},
+    );
+}
+
+/// Pure decision for warnStaleBinary: warn only when a green stamp recorded a
+/// binary identity (present) that differs from the running binary's.
+fn staleBinaryWarnable(stored: ?cache.Digest, current: cache.Digest) bool {
+    const s = stored orelse return false;
+    return !cache.eql(s, current);
 }
 
 /// Printed under every run-all failure. With install gating (the build-helper
@@ -467,7 +523,20 @@ const CheckResult = struct {
     err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
+    /// Wall-clock ms this check took (dora clock seam). A check over the
+    /// heartbeat threshold gets a named "slow check" line so a long run reads as
+    /// alive, not hung, and the bottleneck is identifiable.
+    elapsed_ms: u64 = 0,
 };
+
+/// A check at or beyond this wall time gets a heartbeat line naming it — the
+/// signal that turns a silent long run into "check X is still the slow one".
+const slow_check_ms: u64 = 5000;
+
+/// True when a check's wall time reached the heartbeat threshold.
+fn isSlowCheck(elapsed_ms: u64) bool {
+    return elapsed_ms >= slow_check_ms;
+}
 
 /// Shared handle passed to each worker thread.
 const WorkerJob = struct {
@@ -565,7 +634,10 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
     var res: CheckResult = .{ .ran = true };
     const mode = base.cfg.policy.modeFor(cmd.name);
     const baseline_on = base.cfg.policy.usesBaselineFor(cmd.name, base.cfg.baseline);
+    // Time each check via the dora clock seam so a slow one can be named.
+    var sw = dora.startStopwatch();
     const outcome = if (baseline_on) baseline.runWithBaseline(&wctx, cmd) else cmd.run(&wctx);
+    res.elapsed_ms = sw.elapsedMs();
     outcome catch |e| switch (e) {
         error.CheckFailed => if (mode == .report) {
             res.reported = true;
@@ -605,6 +677,13 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
         }
         if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
         if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{cmd.name});
+        // Heartbeat: a check over the threshold is named with its wall time, so a
+        // long run reads as alive and its slowest check is obvious. Routed through
+        // the always-visible detail channel so it shows even under --quiet.
+        if (isSlowCheck(r.elapsed_ms)) reporter.detail(
+            "guardian: heartbeat: {s} took {d}s (slow check)\n",
+            .{ cmd.name, r.elapsed_ms / std.time.ms_per_s },
+        );
         collectSink(ctx, acc, cmd.name, r);
     }
     if (first_err) |e| return e;
@@ -749,6 +828,55 @@ test "binary drift hint fires only on re-keying failures after a binary change" 
     try std.testing.expect(binaryDriftHintApplies(true, false));
     try std.testing.expect(!binaryDriftHintApplies(true, true));
     try std.testing.expect(!binaryDriftHintApplies(false, false));
+}
+
+// spec: Run All - Names a check that runs past the heartbeat threshold
+
+test "isSlowCheck fires at or beyond the heartbeat threshold" {
+    // A fast check (the common case) gets no heartbeat line.
+    try std.testing.expect(!isSlowCheck(0));
+    try std.testing.expect(!isSlowCheck(slow_check_ms - 1));
+    // At or past ~5s the check is named as slow so a long run reads as alive.
+    try std.testing.expect(isSlowCheck(slow_check_ms));
+    try std.testing.expect(isSlowCheck(slow_check_ms * 3));
+}
+
+// spec: Run All - Warns before the run when the binary differs from the last green stamp
+
+test "staleBinaryWarnable fires only on a present, differing stamp" {
+    var a: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("binary-A", &a, .{});
+    var b: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("binary-B", &b, .{});
+    // No stamp yet (first run): nothing to compare against, so no warning.
+    try std.testing.expect(!staleBinaryWarnable(null, a));
+    // Same binary as the last green run: not stale.
+    try std.testing.expect(!staleBinaryWarnable(a, a));
+    // A different binary than the one that last gated: warn.
+    try std.testing.expect(staleBinaryWarnable(a, b));
+}
+
+// spec: Run All - Runs a metadata transaction only when the run can write metadata
+
+test "writesMetadata is true only for a writable or refreshing run" {
+    const cfg: config.Config = .{};
+    const base: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    // accept/commit/migrate flip metadata_writable → a transaction is needed.
+    var writable = base;
+    writable.metadata_writable = true;
+    try std.testing.expect(writesMetadata(&writable));
+    // A pending accept refresh set also writes (the named checks' baselines).
+    var refreshing = base;
+    refreshing.refresh = &.{"pub-api-surface"};
+    try std.testing.expect(writesMetadata(&refreshing));
+    // A plain run with no refresh env set is read-only → no transaction.
+    var plain = base;
+    try std.testing.expect(!writesMetadata(&plain));
 }
 
 // spec: Run All - Cautions on failure that zig-out binaries predate the red run
