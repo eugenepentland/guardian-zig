@@ -609,3 +609,6 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-23 · claude · eda — route-live cancel-skip hotfix
 - **good:** smooth follow-up run — the fast `zig build` gate (spec mapping + all 67 checks) went green first try on the new bullet+tagged test, and background `guardian-check commit` (per the earlier lesson) landed 4ebca06 without a single retry.
+
+## 2026-07-23 · claude · eda — route-diagnose hard-cap follow-up
+- **good:** clean run — lowering an existing bound (`max_stuck` 64→16) plus one SPEC bullet and a stacked-pads fixture test went through the fast `zig build` gate first try, and the background `guardian-check commit` landed 72e5ba4 green with zero retries; nothing fired that shouldn't have.
