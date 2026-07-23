@@ -199,7 +199,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         return;
     }
 
-    const budget = try readBudget(allocator, snap_path, new_lines, total) orelse return;
+    const budget = try readBudget(allocator, snap_path, new_lines, total, ctx_param.metadata_writable) orelse return;
     return compareAndReport(total, budget);
 }
 
@@ -210,10 +210,13 @@ fn readBudget(
     snap_path: []const u8,
     new_lines: [][]const u8,
     total: u32,
+    write_allowed: bool,
 ) registry.RunError!?u32 {
     const old = snapshot.read(allocator, snap_path, snapshot_version) catch |e| {
         if (e == error.Missing) {
-            try snapshot.write(snap_path, snapshot_version, new_lines);
+            // Persist the first sighting only on a metadata-writable run;
+            // an ordinary run grandfathers it green but stays read-only.
+            if (write_allowed) _ = try snapshot.writeChecked(allocator, snap_path, snapshot_version, new_lines);
             ok("int-from-float budget created (casts={d})", .{total});
             return null;
         }

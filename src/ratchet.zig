@@ -227,7 +227,9 @@ fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snap
     std.mem.sort(Entry, sorted, {}, byKey);
     const lines = try arena.alloc([]const u8, sorted.len);
     for (sorted, 0..) |e, i| lines[i] = try encode(arena, e);
-    try snapshot.writePresorted(path, version, lines);
+    // Content-identical short-circuit: re-emitting the same ratchet leaves the
+    // committed file (and the diff) untouched.
+    _ = try snapshot.writePresortedChecked(arena, path, version, lines);
 }
 
 pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
@@ -236,11 +238,17 @@ pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
 /// state. `force_refresh` re-records unconditionally (the deny-growth guard runs
 /// in the caller, before this). A missing file creates; a stale-version file
 /// migrates; otherwise the current state is compared against the recorded one.
+///
+/// `write_allowed` gates the non-refresh writes — first-record creation, v1→v2
+/// migration, and auto-lower/prune: an ordinary (read-only) run classifies the
+/// outcome but leaves the file untouched, so a source-only diff never carries an
+/// incidental ratchet rewrite; `commit`/`migrate` flip it to persist.
 pub fn lifecycle(
     arena: Allocator,
     path: []const u8,
     entries: []const Entry,
     force_refresh: bool,
+    write_allowed: bool,
 ) LifecycleError!Outcome {
     if (force_refresh) {
         try writeEntries(arena, path, entries);
@@ -248,12 +256,12 @@ pub fn lifecycle(
     }
     const snap = snapshot.read(arena, path, version) catch |e| switch (e) {
         error.Missing => {
-            try writeEntries(arena, path, entries);
+            if (write_allowed) try writeEntries(arena, path, entries);
             return .{ .created = entries.len };
         },
         // A v1 text baseline read as v2 mismatches → re-record as a ratchet.
         error.VersionMismatch => {
-            try writeEntries(arena, path, entries);
+            if (write_allowed) try writeEntries(arena, path, entries);
             return .{ .migrated = entries.len };
         },
         else => return e,
@@ -261,9 +269,10 @@ pub fn lifecycle(
     const old = try decodeLines(arena, snap.lines);
     const outcome = try classify(arena, old, entries);
     // Auto-lower/prune: a green run whose keys only shrank or vanished rewrites
-    // the file to the smaller set, so improvements are never lost.
+    // the file to the smaller set — but only on a metadata-writable run, so an
+    // ordinary run reports the improvement without persisting it.
     switch (outcome) {
-        .improved => try writeEntries(arena, path, entries),
+        .improved => if (write_allowed) try writeEntries(arena, path, entries),
         else => {},
     }
     return outcome;
@@ -495,20 +504,46 @@ test "lifecycle creates, matches, and auto-lowers a ratchet file" {
     defer deleteIfExists(path);
 
     const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
-    try testing.expect((try lifecycle(a, path, &at130, false)) == .created);
-    try testing.expect((try lifecycle(a, path, &at130, false)) == .matched);
+    try testing.expect((try lifecycle(a, path, &at130, false, true)) == .created);
+    try testing.expect((try lifecycle(a, path, &at130, false, true)) == .matched);
 
     // Shrinking rewrites the file to 125; a re-run then matches at the new floor.
     const at125 = [_]Entry{.{ .key = "src/a.zig|f", .value = 125 }};
-    try testing.expect((try lifecycle(a, path, &at125, false)) == .improved);
-    const reread = try lifecycle(a, path, &at125, false);
+    try testing.expect((try lifecycle(a, path, &at125, false, true)) == .improved);
+    const reread = try lifecycle(a, path, &at125, false, true);
     try testing.expect(reread == .matched);
 
     // A later growth beyond the lowered floor now fails.
     const at140 = [_]Entry{.{ .key = "src/a.zig|f", .value = 140 }};
-    const grew = try lifecycle(a, path, &at140, false);
+    const grew = try lifecycle(a, path, &at140, false, true);
     try testing.expect(grew == .regressed);
     try testing.expectEqual(@as(u64, 125), grew.regressed.grown[0].old);
+}
+
+// spec: Per-Item Ratchets - Defers the auto-lower write to a metadata-writable run
+
+test "lifecycle defers create and auto-lower on a read-only run" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = "zig-cache/test-ratchet-readonly.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // write_allowed = false: a missing ratchet is grandfathered green but NOT
+    // written, so an ordinary run leaves the tree clean.
+    const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
+    try testing.expect((try lifecycle(a, path, &at130, false, false)) == .created);
+    try testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+
+    // Record it writably, then improve on a read-only run: the auto-lower is
+    // reported but the committed ratchet keeps its higher ceiling untouched.
+    _ = try lifecycle(a, path, &at130, false, true);
+    const at125 = [_]Entry{.{ .key = "src/a.zig|f", .value = 125 }};
+    try testing.expect((try lifecycle(a, path, &at125, false, false)) == .improved);
+    const snap = try snapshot.read(a, path, version);
+    const kept = try decodeLines(a, snap.lines);
+    try testing.expectEqual(@as(u64, 130), kept[0].value);
 }
 
 // spec: Per-Item Ratchets - Re-records a stale-version baseline as a ratchet
@@ -527,10 +562,10 @@ test "lifecycle migrates a v1 text baseline without failing" {
 
     // First v2 run re-records without red...
     const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
-    try testing.expect((try lifecycle(a, path, &at130, false)) == .migrated);
+    try testing.expect((try lifecycle(a, path, &at130, false, true)) == .migrated);
     // ...and the migrated ratchet then enforces growth.
     const at140 = [_]Entry{.{ .key = "src/a.zig|f", .value = 140 }};
-    try testing.expect((try lifecycle(a, path, &at140, false)) == .regressed);
+    try testing.expect((try lifecycle(a, path, &at140, false, true)) == .regressed);
 }
 
 // spec: Per-Item Ratchets - Refuses a deny_growth refresh that raises a value or adds a key

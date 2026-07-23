@@ -36,6 +36,9 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     var update = ctx.*;
     update.only = ctx.refresh;
+    // The update pass is the one metadata-writable step: it persists the named
+    // checks' refreshes AND any deferred prune/create/re-key on those checks.
+    update.metadata_writable = true;
     try run_all.run(&update);
 
     var verify = ctx.*;

@@ -12,6 +12,7 @@ const registry = @import("cli/registry.zig");
 const run_all = @import("cli/run_all.zig");
 const nightly = @import("cli/nightly.zig");
 const commit_cmd = @import("cli/commit.zig");
+const migrate_cmd = @import("cli/migrate.zig");
 const install_hook = @import("cli/install_hook.zig");
 const explain = @import("cli/explain.zig");
 const doctor = @import("cli/doctor.zig");
@@ -285,6 +286,9 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
     if (std.mem.eql(u8, command, accept.command_name)) return accept.run(ctx);
+    // migrate persists a deferred metadata format re-key across the whole suite;
+    // special-dispatched like accept (it composes run_all.run → registry cycle).
+    if (std.mem.eql(u8, command, migrate_cmd.command_name)) return migrate_cmd.run(ctx);
     const cmd = registry.find(command) orelse {
         registry.printHelp();
         std.process.exit(1);
@@ -314,6 +318,7 @@ fn needsRequiredInputs(command: []const u8) bool {
     if (std.mem.eql(u8, command, run_all.command_name)) return true;
     if (std.mem.eql(u8, command, nightly.command_name)) return true;
     if (std.mem.eql(u8, command, commit_cmd.command_name)) return true;
+    if (std.mem.eql(u8, command, migrate_cmd.command_name)) return true;
     if (std.mem.eql(u8, command, accept.command_name)) return true;
     if (std.mem.eql(u8, command, "mutate")) return true;
     return run_all.isAllCheck(command);
@@ -363,6 +368,7 @@ test {
     _ = @import("cli/accept.zig");
     _ = @import("cli/nightly.zig");
     _ = @import("cli/commit.zig");
+    _ = @import("cli/migrate.zig");
     _ = @import("cli/install_hook.zig");
     _ = @import("cli/explain.zig");
     _ = @import("version.zig");

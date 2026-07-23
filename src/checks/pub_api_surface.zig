@@ -60,7 +60,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     const force = snapshot_helper.shouldUpdateForCtx(ctx_param, check_name);
     const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = snapshot_version };
-    const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force);
+    const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force, ctx_param.metadata_writable);
     return reportOutcome(outcome);
 }
 

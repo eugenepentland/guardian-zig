@@ -53,6 +53,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // commit always BLOCKS, regardless of [gate] on_build: nothing enters
     // history unverified even when a dev build only reports.
     ctx.gate = true;
+    // commit is a metadata-writable run: it persists the baseline/ratchet/
+    // snapshot prune/create/re-key that ordinary runs defer, so the `.guardian/`
+    // change the gate produced rides the commit that caused it (the same diff
+    // the old always-writing auto-path staged).
+    ctx.metadata_writable = true;
 
     // Gate the exact working tree we're about to commit. On red the check output
     // was already printed by run_all; git state is left untouched.
@@ -223,10 +228,24 @@ const StageAction = enum { stage, skip_forbidden, skip_generated };
 /// it is never gated source, and dropping it cannot desync the commit from the
 /// tree the gate verified.
 fn stagingDecision(c: git.ChangedPath, spec_file: []const u8, hook_path: ?[]const u8) StageAction {
+    // Guardian's own operational cache is git-ignored, digest-excluded state that
+    // must never enter history — checked BEFORE alwaysInclude, which otherwise
+    // carries everything under `.guardian/` wholesale. Silent, like the hook: it
+    // is never tracked source and dropping it can't desync the gated tree.
+    if (isGuardianCache(c.path)) return .skip_generated;
     if (alwaysInclude(c.path, spec_file)) return .stage;
     if (!c.tracked and isGeneratedHook(c.path, hook_path)) return .skip_generated;
     if (!c.tracked and isForbidden(c.path)) return .skip_forbidden;
     return .stage;
+}
+
+/// True when `path` is guardian's operational cache tree — the git-ignored,
+/// digest-excluded `.guardian/cache/` (inputs.sha256, last-run.jsonl, …). It is
+/// the one cache-pattern hole sitting under an always-include prefix; the
+/// zig-out / .zig-cache rail (`isBuildArtifactPath`) never sees it because its
+/// first path segment is `.guardian`.
+fn isGuardianCache(path: []const u8) bool {
+    return underDir(path, ".guardian/cache");
 }
 
 /// True when `path` is the pre-commit hook Guardian manages for this project.
@@ -541,6 +560,30 @@ test "planStaging always includes guardian and spec even against the forbidden f
     const plan = try planStaging(a, &changed, "SPEC.md", null);
     try testing.expectEqual(@as(usize, 4), plan.stage.len);
     try testing.expectEqual(@as(usize, 0), plan.skipped.len);
+}
+
+// spec: Commit - Never stages the git-ignored guardian cache directory
+
+test "planStaging skips the guardian cache tree while keeping real metadata" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // .guardian/cache/ is git-ignored operational state (a swept-in cache dir is
+    // the 4.5 bug); it must be dropped silently even though it sits under the
+    // always-include `.guardian/` prefix — while a real baseline still stages.
+    const changed = [_]git.ChangedPath{
+        untracked(".guardian/cache/inputs.sha256"),
+        untracked(".guardian/cache/last-run.jsonl"),
+        untracked(".guardian/baselines/spec.txt"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
+    try testing.expectEqual(@as(usize, 1), plan.stage.len);
+    try testing.expectEqualStrings(".guardian/baselines/spec.txt", plan.stage[0]);
+    // Silent drop (git-ignored guardian output), so no skip warning fires.
+    try testing.expectEqual(@as(usize, 0), plan.skipped.len);
+    // A file literally named "cache" one level up is ordinary source, not the tree.
+    try testing.expect(!isGuardianCache(".guardian/cache-notes.txt"));
+    try testing.expect(isGuardianCache(".guardian/cache/x"));
 }
 
 // spec: Commit - Reports nothing to commit when no eligible paths remain

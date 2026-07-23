@@ -103,6 +103,47 @@ pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8)
     try atomic.finish();
 }
 
+/// Sorts `lines`, then writes only when the result differs from what is already
+/// on disk — the content-identical short-circuit. Returns true when the file was
+/// (re)written, false when an identical file was left untouched. The `sort` +
+/// `writePresortedChecked` twin of `write`, used by the baseline/ratchet/snapshot
+/// lifecycle so a rewrite that would only re-emit the same set (unchanged
+/// content, a re-order, a re-stamp) never dirties a consumer's `git status`.
+pub fn writeChecked(arena: Allocator, path: []const u8, version: u32, lines: [][]const u8) WriteError!bool {
+    std.mem.sort([]const u8, lines, {}, lessThan);
+    return writePresortedChecked(arena, path, version, lines);
+}
+
+/// Writes `lines` in the caller's order only when the rendered bytes differ from
+/// the file already on disk. Returns true when it (re)wrote, false when the
+/// existing file was byte-identical and left in place. See `writeChecked`.
+pub fn writePresortedChecked(arena: Allocator, path: []const u8, version: u32, lines: []const []const u8) WriteError!bool {
+    const rendered = try render(arena, version, lines);
+    if (onDiskEquals(arena, path, rendered)) return false;
+    try writePresorted(path, version, lines);
+    return true;
+}
+
+/// Renders the exact bytes `writePresorted` would emit (version header + one
+/// line each) into an arena buffer, so a write can be compared against the file
+/// on disk before replacing it.
+fn render(arena: Allocator, version: u32, lines: []const []const u8) Allocator.Error![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.writer(arena).print("{s}{d}\n", .{ magic_prefix, version });
+    for (lines) |line| {
+        try buf.appendSlice(arena, line);
+        try buf.append(arena, '\n');
+    }
+    return buf.toOwnedSlice(arena);
+}
+
+/// True when the file at `path` exists and holds exactly `bytes`. A missing or
+/// unreadable file is "not equal" (so the write proceeds), never an error.
+fn onDiskEquals(arena: Allocator, path: []const u8, bytes: []const u8) bool {
+    const existing = std.fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch return false;
+    return std.mem.eql(u8, existing, bytes);
+}
+
 /// Compute added/removed sets between sorted snapshot lines and a new sorted slice.
 /// Asserts both `old.lines` and `new_lines` are sorted ascending — the linear
 /// merge below is only correct on ordered inputs (`old` is read from a
@@ -183,6 +224,44 @@ test "writePresorted keeps the caller's line order" {
     try std.testing.expectEqual(@as(usize, 2), snap.lines.len);
     try std.testing.expectEqualStrings("130 zebra", snap.lines[0]);
     try std.testing.expectEqualStrings("95 apple", snap.lines[1]);
+}
+
+// spec: Snapshot Lifecycle - Skips an identical rewrite and leaves the file untouched
+
+test "writeChecked rewrites only when the content differs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const tmp_path = "zig-cache/test-snapshot-checked.txt";
+    std.fs.cwd().deleteFile(tmp_path) catch {};
+    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+        std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
+
+    // First write of a missing file reports a real write.
+    var first = [_][]const u8{ "beta", "alpha" };
+    try std.testing.expect(try writeChecked(a, tmp_path, 1, &first));
+
+    // Re-writing the SAME set (even given in a different order — writeChecked
+    // sorts first) renders byte-identical content, so the file is left untouched
+    // and nothing is reported as written: the content-identical short-circuit.
+    const before = try std.fs.cwd().readFileAlloc(a, tmp_path, 4096);
+    var same = [_][]const u8{ "alpha", "beta" };
+    try std.testing.expect(!try writeChecked(a, tmp_path, 1, &same));
+    const after = try std.fs.cwd().readFileAlloc(a, tmp_path, 4096);
+    try std.testing.expectEqualStrings(before, after);
+
+    // A genuine change writes again.
+    var changed = [_][]const u8{ "alpha", "gamma" };
+    try std.testing.expect(try writeChecked(a, tmp_path, 1, &changed));
+
+    // writePresortedChecked is the presorted twin (no sort) the ratchet uses:
+    // it preserves the caller's order and applies the same short-circuit.
+    const ordered = [_][]const u8{ "130 zebra", "95 apple" };
+    try std.testing.expect(try writePresortedChecked(a, tmp_path, 2, &ordered));
+    try std.testing.expect(!try writePresortedChecked(a, tmp_path, 2, &ordered));
+    const snap = try read(a, tmp_path, 2);
+    try std.testing.expectEqualStrings("130 zebra", snap.lines[0]);
 }
 
 test "read returns Missing for missing file" {

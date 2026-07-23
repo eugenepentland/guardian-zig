@@ -61,6 +61,14 @@ pub const RunCtx = struct {
     /// Explicit refresh set supplied by the `accept` command. Environment-based
     /// GUARDIAN_UPDATE_SNAPSHOT remains supported for backwards compatibility.
     refresh: []const []const u8 = &.{},
+    /// True only for runs allowed to PERSIST `.guardian/` metadata: `accept`,
+    /// `commit`, and `migrate`. An ordinary `all` / single-check / report run
+    /// leaves it false, so baseline pruning, first-record creation, v1→v3
+    /// re-keying, and snapshot creation are computed in memory but never written
+    /// — the read-only-on-metadata contract that keeps a plain build's
+    /// `git status` clean. The write-enabled paths flip it before invoking a
+    /// gate run (see cli/accept, cli/commit, cli/migrate).
+    metadata_writable: bool = false,
     /// Optional check-name filter used by `debt`.
     check_filter: ?[]const u8 = null,
     /// Identify obsolete baseline files; dry-run unless `confirm` is true.
