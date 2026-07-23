@@ -159,6 +159,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Hints a stale binary when re-keying failures follow a binary change
 - Warns before the run when the binary differs from the last green stamp
 - Runs a metadata transaction only when the run can write metadata
+- Names a check that runs past the heartbeat threshold
 
 ## Nightly
 
@@ -192,6 +193,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Excludes untracked agent session-state directories from staging
 - Excludes its own generated pre-commit hook from staging
 - Never stages the git-ignored guardian cache directory
+- Reports a gate and test timing split
 
 ## Install Hook
 
@@ -504,6 +506,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 ## Mutation Testing
 
+- Reports running elapsed and survivor count per mutant
 - Generates mutants by flipping comparison operators outside test blocks
 - Generates mutants by swapping binary plus and minus operators
 - Skips unary minus when generating arithmetic mutants

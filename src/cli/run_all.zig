@@ -523,7 +523,20 @@ const CheckResult = struct {
     err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
+    /// Wall-clock ms this check took (dora clock seam). A check over the
+    /// heartbeat threshold gets a named "slow check" line so a long run reads as
+    /// alive, not hung, and the bottleneck is identifiable.
+    elapsed_ms: u64 = 0,
 };
+
+/// A check at or beyond this wall time gets a heartbeat line naming it — the
+/// signal that turns a silent long run into "check X is still the slow one".
+const slow_check_ms: u64 = 5000;
+
+/// True when a check's wall time reached the heartbeat threshold.
+fn isSlowCheck(elapsed_ms: u64) bool {
+    return elapsed_ms >= slow_check_ms;
+}
 
 /// Shared handle passed to each worker thread.
 const WorkerJob = struct {
@@ -621,7 +634,10 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
     var res: CheckResult = .{ .ran = true };
     const mode = base.cfg.policy.modeFor(cmd.name);
     const baseline_on = base.cfg.policy.usesBaselineFor(cmd.name, base.cfg.baseline);
+    // Time each check via the dora clock seam so a slow one can be named.
+    var sw = dora.startStopwatch();
     const outcome = if (baseline_on) baseline.runWithBaseline(&wctx, cmd) else cmd.run(&wctx);
+    res.elapsed_ms = sw.elapsedMs();
     outcome catch |e| switch (e) {
         error.CheckFailed => if (mode == .report) {
             res.reported = true;
@@ -661,6 +677,13 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
         }
         if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
         if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{cmd.name});
+        // Heartbeat: a check over the threshold is named with its wall time, so a
+        // long run reads as alive and its slowest check is obvious. Routed through
+        // the always-visible detail channel so it shows even under --quiet.
+        if (isSlowCheck(r.elapsed_ms)) reporter.detail(
+            "guardian: heartbeat: {s} took {d}s (slow check)\n",
+            .{ cmd.name, r.elapsed_ms / std.time.ms_per_s },
+        );
         collectSink(ctx, acc, cmd.name, r);
     }
     if (first_err) |e| return e;
@@ -805,6 +828,17 @@ test "binary drift hint fires only on re-keying failures after a binary change" 
     try std.testing.expect(binaryDriftHintApplies(true, false));
     try std.testing.expect(!binaryDriftHintApplies(true, true));
     try std.testing.expect(!binaryDriftHintApplies(false, false));
+}
+
+// spec: Run All - Names a check that runs past the heartbeat threshold
+
+test "isSlowCheck fires at or beyond the heartbeat threshold" {
+    // A fast check (the common case) gets no heartbeat line.
+    try std.testing.expect(!isSlowCheck(0));
+    try std.testing.expect(!isSlowCheck(slow_check_ms - 1));
+    // At or past ~5s the check is named as slow so a long run reads as alive.
+    try std.testing.expect(isSlowCheck(slow_check_ms));
+    try std.testing.expect(isSlowCheck(slow_check_ms * 3));
 }
 
 // spec: Run All - Warns before the run when the binary differs from the last green stamp

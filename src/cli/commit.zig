@@ -26,6 +26,7 @@ const reporter = @import("../reporter.zig");
 const run_all = @import("run_all.zig");
 const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
+const dora = @import("../dora.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -59,6 +60,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // the old always-writing auto-path staged).
     ctx.metadata_writable = true;
 
+    // Phase markers + a per-phase timing split turn a long commit from a silent
+    // wait into a visibly-progressing gate → tests → stage → commit sequence.
+    // Both timers run through the dora clock seam (std.time lives in dora only).
+    reporter.ok("commit: phase 1/4 — gate (full suite)", .{});
+    var gate_sw = dora.startStopwatch();
     // Gate the exact working tree we're about to commit. On red the check output
     // was already printed by run_all; git state is left untouched.
     run_all.run(ctx) catch |e| switch (e) {
@@ -68,17 +74,36 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         },
         else => return e,
     };
+    const gate_ms = gate_sw.elapsedMs();
 
     // The static gate is green; the project's own tests must also pass before
     // anything enters history.
+    reporter.ok("commit: phase 2/4 — tests", .{});
+    var tests_sw = dora.startStopwatch();
     try runTests(ctx);
+    const tests_ms = tests_sw.elapsedMs();
+    reporter.ok("commit: timing — {s}", .{try formatTimingSplit(ctx.allocator, gate_ms, tests_ms)});
 
     // A raw `git commit` must not be able to bypass the gate now that a dev
     // build only reports, so ensure a blocking pre-commit hook exists (best
     // effort; a hook problem never blocks a commit whose gate + tests passed).
+    reporter.ok("commit: phase 3/4 — stage", .{});
     if (ctx.cfg.gate.install_hook) install_hook.ensure(ctx);
 
+    reporter.ok("commit: phase 4/4 — commit", .{});
     return stageAndCommit(ctx, intent);
+}
+
+/// Renders the gate/test wall-clock split as `gate <s>.<t>s · tests <s>.<t>s`
+/// (one decimal, floored) for the commit timing line. Pure over its ms inputs,
+/// so it is unit-tested without a clock.
+fn formatTimingSplit(a: Allocator, gate_ms: u64, tests_ms: u64) Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(a, "gate {d}.{d}s \u{00B7} tests {d}.{d}s", .{
+        gate_ms / std.time.ms_per_s,
+        (gate_ms % std.time.ms_per_s) / 100,
+        tests_ms / std.time.ms_per_s,
+        (tests_ms % std.time.ms_per_s) / 100,
+    });
 }
 
 /// Runs the configured test suite (`[gate] test_command`, default `zig build
@@ -353,6 +378,18 @@ fn untracked(path: []const u8) git.ChangedPath {
 /// Test shorthand for a tracked porcelain entry (anything but `??`).
 fn tracked(path: []const u8) git.ChangedPath {
     return .{ .path = path, .tracked = true };
+}
+
+// spec: Commit - Reports a gate and test timing split
+
+test "formatTimingSplit renders one-decimal seconds for each phase" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 1100 ms → 1.1s, 2300 ms → 2.3s (floored tenths).
+    try testing.expectEqualStrings("gate 1.1s \u{00B7} tests 2.3s", try formatTimingSplit(a, 1100, 2300));
+    // Sub-second and multi-second phases both render.
+    try testing.expectEqualStrings("gate 0.7s \u{00B7} tests 32.0s", try formatTimingSplit(a, 770, 32_000));
 }
 
 // spec: Commit - Splits the configured test command into an argv vector
