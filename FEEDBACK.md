@@ -638,3 +638,7 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 good: full 67-check gate on `zig build` was fast and the failure output was precisely actionable — it named exactly which item tripped each ratchet (`writeUserZone — 7 params`, `ZoneFillReq — 8 fields`, `+ pour.zig::higherPolys`), which let me tighten the code (dropped a param, removed an unused field, made a helper private) so 3 of 4 new violations vanished without an accept. Only 1 genuine new pub symbol needed `accept pub-api-surface`, and the `.guardian/` diff was a clean single-line insertion (no baseline erasure this run).
 friction: the pre-commit hook printed `this guardian-check binary differs from the one that last gated this tree — rebuild and re-run; any snapshot/ratchet drift below may be phantom`, then a 224 KB wall of report-only warnings, before the real verdict `run-all: 67 check(s) passed` at the very end. The binary-identity warning is alarming ("phantom drift") but was benign here — worth demoting it below the pass/fail verdict, or suppressing when the run is green.
+
+## 2026-07-24 · codex · eda — route excluded In2 pours as via terminals
+
+- **good:** The spec gate caught the initially unlinked router regression immediately; adding the exact `placement/router` bullet made the full ReleaseSafe suite, `test-fast` tier, and 67-check agent-profile gate pass without baseline changes.
