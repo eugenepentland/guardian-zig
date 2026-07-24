@@ -682,3 +682,9 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 
 - **good:** `function-size` identified the new `immediateFineGuided` helper by name and reported its exact eight-parameter count. Bundling the shared router state into `ImmediateFineGuidedRun` cleared the ratchet without accepting debt, and the final 67-check commit gate passed with no Guardian metadata changes.
 - **friction:** The successful pre-commit gate emitted roughly 57,000 tokens of whole-tree advisory warnings plus a stale-binary warning before the final `run-all: 67 check(s) passed` verdict. The findings were correctly report-only, but putting a concise verdict/delta summary first would make a green commit much easier to audit.
+
+## 2026-07-24 · codex · eda — placement-relative route-guide vocabulary
+
+- **good:** `type-size` caught an unnecessary 14th field added to the frozen `PlanWave` API. Folding absolute and relative points into the existing ordered waypoint slice preserved the type cap and produced the better model, where both forms retain authored ordering.
+- **good:** The named `pub-api-surface` acceptance cleanly recorded the two intentional vocabulary types and verified the refreshed baseline before the final 1,386-test build.
+- **friction:** Each ordinary build printed about 56,000 tokens of whole-tree report-only findings before the one-line gate verdict, and the persistent stale-Guardian-binary warning made it unclear whether the proposed API delta was trustworthy. This task required several ReleaseSafe routing experiments, so the repeated noise substantially obscured the actionable single-check state.
