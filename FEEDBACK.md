@@ -656,3 +656,8 @@ good: `guardian-check accept pub-api-surface .` for the one genuinely-new pub he
 ## 2026-07-24 · codex · eda — 3 mm same-net pour-via reuse cost
 
 - **good:** Updating the existing `placement/router` behavior bullet and its tagged regression let the 67-check gate plus `test-fast` pass on the first commit attempt in about two seconds; `guardian-check commit` staged exactly the intended SPEC and router files and created the commit without baseline churn.
+
+## 2026-07-24 · claude · eda — copper-pour priority, declared-pour follow-up
+
+good: main drifted twice mid-task (two concurrent pour-related merges landed). Both `git rebase <main>` runs were conflict-free, and the second rebase silently DROPPED my two already-merged commits (they were ancestors of the new main) leaving exactly the one new commit — no manual surgery, and `zig build` re-gated the combined tree green each time. The gate catching a stale tree cheaply is what made rebasing-before-merge painless.
+friction: changing a pub fn's SIGNATURE (added a param to `writePours`) shows in `pub-api.txt` as a -1/+1 line pair, and the summary line still calls the delta "N new symbol(s) ... pure additions, safe to accept" even though one entry was a signature CHANGE, not an addition. The check does track "changed" separately (it printed `0 changed` earlier) — worth classifying a modified signature as `changed` so the accept prompt doesn't understate what's being ratified.
