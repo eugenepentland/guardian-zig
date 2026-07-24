@@ -642,3 +642,8 @@ friction: the pre-commit hook printed `this guardian-check binary differs from t
 ## 2026-07-24 · codex · eda — route excluded In2 pours as via terminals
 
 - **good:** The spec gate caught the initially unlinked router regression immediately; adding the exact `placement/router` bullet made the full ReleaseSafe suite, `test-fast` tier, and 67-check agent-profile gate pass without baseline changes.
+
+## 2026-07-24 · claude · eda — copper-pour priority connectivity follow-up
+
+friction: added a SPEC bullet + a `// spec: fab_readiness - <behavior>` test tag, but placed the bullet under the wrong `## ` section (`placement/drc`, where the sibling net-open bullets live) — so the spec check reported BOTH `unlinked tag: fab_readiness - <behavior>` and `unverified: placement/drc - <behavior>` for what is really one behavior. The two messages don't obviously say "same text, wrong section" — a hint like `did you mean section 'fab_readiness'? a bullet with this exact behavior exists under 'placement/drc'` would have pointed straight at the fix instead of me diffing sections by hand.
+good: `guardian-check accept pub-api-surface .` for the one genuinely-new pub helper was instant and produced a clean 1-line `.guardian/pub-api.txt` diff; the "N new symbol(s), pure additions, safe to accept" delta line made it obvious the accept was safe.
