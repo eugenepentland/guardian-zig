@@ -677,3 +677,8 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 
 - **good:** `pub-api-surface` exposed that my first plumbing draft changed `routePlannedDiagnostic`'s public signature just to pass zones. The exact old/new signature diff prompted me to reuse the existing `routePlannedScoped` seam instead, preserving the API and eliminating snapshot churn while keeping the zone behavior covered by a tagged regression.
 - **friction:** The focused `spec` check could not verify my independently complete bullet/tag pair because another agent in the shared worktree had concurrently added an unrelated router behavior bullet before its tag. The unrelated `unverified` finding cost one failed check; per-diff or path-scoped spec verification would make concurrent-agent work easier without weakening the final whole-tree gate.
+
+## 2026-07-24 · codex · eda — Barracuda guided and quantized residual routing
+
+- **good:** `function-size` identified the new `immediateFineGuided` helper by name and reported its exact eight-parameter count. Bundling the shared router state into `ImmediateFineGuidedRun` cleared the ratchet without accepting debt, and the final 67-check commit gate passed with no Guardian metadata changes.
+- **friction:** The successful pre-commit gate emitted roughly 57,000 tokens of whole-tree advisory warnings plus a stale-binary warning before the final `run-all: 67 check(s) passed` verdict. The findings were correctly report-only, but putting a concise verdict/delta summary first would make a green commit much easier to audit.
