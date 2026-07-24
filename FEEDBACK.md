@@ -652,3 +652,7 @@ good: `guardian-check accept pub-api-surface .` for the one genuinely-new pub he
 
 - **good:** The commit gate caught both an initially unlinked behavioral regression and a missing SPEC contract for the MCP pour-aware DRC path; each diagnostic named the exact behavior, and the 67 checks plus `test-fast` completed in about two seconds.
 - **friction:** `guardian-check commit` and `zig build test-fast` both passed even though the post-merge production `zig build -Doptimize=ReleaseSafe` failed to compile `mcpRoutePcb`: a direct slice return was incorrectly used with `catch`, and that code path was not instantiated by the fast test build. This cost an extra fix commit, merge, and roughly four-minute production rebuild. A commit-tier compile of the ReleaseSafe install target, or a focused compile that instantiates server/MCP handlers, would catch this before deployment.
+
+## 2026-07-24 · codex · eda — 3 mm same-net pour-via reuse cost
+
+- **good:** Updating the existing `placement/router` behavior bullet and its tagged regression let the 67-check gate plus `test-fast` pass on the first commit attempt in about two seconds; `guardian-check commit` staged exactly the intended SPEC and router files and created the commit without baseline churn.
