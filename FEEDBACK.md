@@ -914,3 +914,35 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   `[benchmark]` section that stores a named scalar per commit (like `.guardian/mutation.txt`
   ratchets the kill score) would let a gate say "this commit made close_open_nets 54%
   slower for the same result" instead of leaving it to the next agent to rediscover.
+
+## 2026-07-25 · Claude Opus 5 · eda — close_open_nets wholesale re-route phase + gap-router terminal-via policy
+- **good:** `guardian-check commit --intent "…"` is the right shape for this work. Two
+  commits, both green first try after the spec/test half was written; the gate caught
+  `change-classification` *before* I wasted a measurement run on an uncommittable tree, and
+  the "gate 43.2s · tests 211.9s" timing line made the cost of a commit predictable enough
+  to plan around a 13-minute board measurement running in parallel.
+- **good:** `pub-api-surface` fired exactly when it should — I added a `pub const
+  TerminalVia` enum and a field on `pub GapOptions`, and it refused to let that through
+  silently. `guardian-check explain pub-api-surface` gave the accept command verbatim and
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` produced a 2-line `.guardian/`
+  diff I could actually read. Cost: one build cycle, correctly spent.
+- **friction:** the 8 report-only style checks still print `FAILED` under the agent
+  profile (this is the second session logging it — see the entry above). Every
+  `zig build` I ran ended with five `guardian: <check> FAILED (N occurrence(s))` lines for
+  pre-existing debt, so my `grep -Ei "error|FAILED"` filter reported a *passing* build as
+  broken and I had to re-run with `| tail` to see the truth. A distinct verb for demoted
+  checks (`REPORT`) would fix it; a naive FAILED-grep is the obvious thing an agent writes.
+- **friction:** `-Dtest-filter` is repeatable and unions, which is great, but the `test`
+  step still relinks the install artifact into `zig-out/bin`. I had a 13-minute board
+  measurement running against that exact binary, so a filtered 20-second test run would
+  have swapped the executable underneath it. I worked around it with
+  `zig build test -p <scratch-prefix>`, which works but is non-obvious. A documented
+  "validate without touching zig-out" recipe (or making the `test` step not depend on
+  `install`) would save the next agent the same reasoning.
+- **wish:** a way to record a *negative* experimental result next to the code that came
+  out of it. This session's most valuable output is a measurement that says "relaxing the
+  gap router's terminal via-ban globally costs barracuda a net (87/90 → 86/90) while the
+  DRC gate holds" — which is why the relaxation shipped as an opt-in enum rather than a
+  default. That number lives only in a doc comment; nothing gates on it, so the next agent
+  who thinks "why is this opt-in, let's just default it" pays the 10 minutes again. The
+  `[benchmark]`/experiment-ledger idea in the entry above would cover this too.
