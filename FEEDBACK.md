@@ -714,3 +714,8 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 ## 2026-07-25 · codex · eda — ReleaseSafe production compile timing
 
 - **friction:** A clean-mode `zig build -Doptimize=ReleaseSafe` completed successfully but took 3m46.20s wall and 2.32 GB peak RSS; the monolithic EDA executable compile accounted for the three-minute step, while Guardian's scan took 1s and its binary was cached. The successful gate nevertheless emitted roughly 57,000 tokens of whole-tree advisory output before the build summary. Since the unchanged rerun was cached in 1.28s, every relevant source edit repays the optimized compile and advisory-output cost together; a concise green-gate mode would at least keep the long compile legible.
+
+## 2026-07-25 · codex · eda — dual-toolchain Zig-master autorouter worker
+
+- **good:** The first 67-check run found six precise task-local deltas in the new worker/client boundary (`doc-comments`, `pub-api-surface`, `catch-discipline`, `anytype-budget`, `type-size`, and `ban-hardcoded-paths`). Five diagnostics led directly to code improvements, and `guardian-check accept pub-api-surface .` previewed, refreshed, and verified only the intentional 14-symbol protocol/executable addition.
+- **friction:** The successful full Debug build emitted about 57,000 tokens of whole-tree advisory findings before the blocking summary; checking the six actionable task-local deltas required rerunning those checks individually to get a reviewable signal.
