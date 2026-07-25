@@ -845,3 +845,40 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   A router benchmark cycle is "edit one function, rebuild, run a 10-minute board". I paid
   the whole 67-check gate on every one of ~12 rebuilds where the only thing that could
   have changed was one file's shape metrics.
+
+## 2026-07-25 · Claude · eda — gap-router: close the barracuda board's remaining open nets
+- **good:** `guardian-check commit --intent` was the right shape for this task. Four
+  behavioural changes to the gap router landed as four commits, each gated by the full
+  suite (~43 s gate + ~210 s tests warm), and every one was green first try. Knowing the
+  commit only lands on green meant I could commit aggressively between experiments rather
+  than batching up a risky pile — which mattered, because each measurement run was a
+  6–16 minute board route and I did not want to lose work to a timeout.
+- **good:** `pub-api-surface` fired exactly once, on a genuinely new public type
+  (`router.GapJudge`, a caller-supplied per-hop veto). The message said "1 new symbol(s),
+  0 changed, 0 removed — pure additions, safe to accept" and printed the accept command
+  verbatim. That is the ideal ergonomics for a deliberate API widening: it made me pause
+  and confirm the addition was intended, then took ten seconds to accept.
+- **friction:** the `-Dtest-filter` inner loop cuts the *run*, but the Guardian gate still
+  runs its full 67 checks on every `zig build test`, so a one-line test edit costs ~45 s of
+  checks before the 0.6 s test executes. Over ~10 such iterations that was most of my
+  build time. Same `--only`/`--skip`-on-local-builds wish as the two entries above; this
+  is now the third session in a row reporting it, which probably makes it the highest-value
+  ergonomics fix in the backlog.
+- **friction:** `zig build` failed with `non-conforming formatting` naming only the file,
+  not the line, and this happened twice — both times on code I had just hand-edited. The
+  fix is always `zig fmt <file>`, but the message does not say so, and a `zig build` that
+  has already spent time on the gate before failing on formatting feels like it should
+  have checked formatting first (it is the cheapest check by far). Suggest: run the
+  formatting check before the expensive checks, and print the `zig fmt` command in the
+  error.
+- **prototyping:** repeating the measurement-scaffolding point from the entry above,
+  because it bit again in exactly the same way. Diagnosing why a via site was refused
+  needed per-rejection-cause counters (`pub var dbg_via_reason: [8]usize`) plus a
+  `std.debug.print` in a hot loop. `ban-globals` and `stdout-flush` both object to that, as
+  designed — so the workflow was: patch in the counters, build WITHOUT the gate passing,
+  run, read, then `git checkout` the file. That worked (the instrumented build is only ever
+  run locally, never committed), but it means the gate and the diagnostic build are simply
+  two different worlds with no supported bridge. A `[measurement]` path allowlist that is
+  refused at `commit` time but permitted on a plain local `zig build` would move exactly
+  the right half of the boundary: nothing extra can ship, but exploratory instrumentation
+  stops fighting the gate.
