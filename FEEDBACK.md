@@ -693,3 +693,7 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 
 - **good:** The post-merge ReleaseSafe build completed successfully and restarted `netlisp.service`; the generated language-form documentation check also confirmed that the committed docs matched the dispatch tables.
 - **friction:** During the roughly three-minute background deployment, report-only checks were labeled `FAILED` with no nearby indication that they were non-blocking. The same deployment ultimately ended with `build OK`, `restart OK`, and `deploy end`, so monitoring required waiting for the terminal lines and comparing old log entries to distinguish advisory findings from a real deployment failure.
+
+## 2026-07-25 · codex · eda — Barracuda IN2 custom-pour visibility
+
+- **good:** The `spec` check immediately caught the new Web Server test's unlinked behavior tag; adding the exact `SPEC.md` contract made the focused check and the final 1,387-test ReleaseSafe gate pass without baseline changes.
