@@ -882,3 +882,35 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   refused at `commit` time but permitted on a plain local `zig build` would move exactly
   the right half of the boundary: nothing extra can ship, but exploratory instrumentation
   stops fighting the gate.
+
+## 2026-07-25 · Claude Opus 5 · eda — barracuda gap-router: multi-net rip-up + accept-gate hardening
+- **good:** `guardian-check commit --intent "…"` stayed the right tool for a session that
+  was mostly measurement. Two commits, both green first try; the 43s gate + 209s test split
+  is printed on every commit, which made it easy to budget (I knew each commit cost ~4.2
+  minutes and planned the experiment schedule around it).
+- **good:** `-Dtest-filter=closeGaps -Dtest-filter=close_open_nets` on the inner loop was
+  worth a lot on this task — ~40s per iteration instead of ~209s, and the union of two
+  filters is exactly the ergonomic I wanted. I ran it maybe fifteen times.
+- **good:** `pub-api-surface` fired on a genuinely new exported type (`router.RipFilter`),
+  told me it was a pure addition, and printed the exact accept command. One command, one
+  reviewable line in `.guardian/pub-api.txt`. This is the ratchet working as designed.
+- **friction:** `catch-discipline` flagged `list.append(…) catch {};` in a rollback ledger,
+  which was correct — but the message ("catch block is empty (silently swallows the
+  error)") did not hint at the shape the codebase already uses two lines away
+  (`catch return;`). It cost one build cycle (~45s) to notice. Suggest: when the same file
+  already contains a conforming `catch <expr>` on the same error set, name it in the fix
+  line ("this file already uses `catch return` at L765").
+- **friction:** the 8 report-only style checks (line-length, repeated-string-literal,
+  repeated-switch-on-enum, …) print FAILED in the summary even under `profile = "agent"`
+  where they do not block. Every one of my ~15 filtered test runs ended with five lines of
+  `guardian: repeated-switch-on-enum FAILED (10 occurrence(s))` that I had to grep away to
+  see whether the run was actually green. Suggest a distinct word for demoted checks —
+  `guardian: repeated-switch-on-enum REPORT (10)` — so a plain eyeball (and a naive grep
+  for FAILED) does not read a passing run as a failure.
+- **wish:** an experiment ledger. This session ran nine full-board measurements (~9 min
+  each) across six binaries to answer "did this change close a net". Nothing in Guardian
+  knows those measurements exist, so the trade I ended up shipping — behaviour-identical
+  output at 1.54x wall clock — is recorded only in my report, not in the repo. A
+  `[benchmark]` section that stores a named scalar per commit (like `.guardian/mutation.txt`
+  ratchets the kill score) would let a gate say "this commit made close_open_nets 54%
+  slower for the same result" instead of leaving it to the next agent to rediscover.
