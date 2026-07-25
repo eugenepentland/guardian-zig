@@ -697,3 +697,8 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 ## 2026-07-25 · codex · eda — Barracuda IN2 custom-pour visibility
 
 - **good:** The `spec` check immediately caught the new Web Server test's unlinked behavior tag; adding the exact `SPEC.md` contract made the focused check and the final 1,387-test ReleaseSafe gate pass without baseline changes.
+
+## 2026-07-25 · codex · eda — PCB editor and autorouter build-speed audit
+
+- **friction:** A fresh EDA worktree's first `zig build` took 53.07s wall, of which compiling the ReleaseSafe `guardian-check` path dependency took 49s; the EDA executable itself took 5s. EDA intentionally gives each worktree a private local Zig cache, so every short-lived worktree pays nearly the full cold-build cost for an unchanged quality tool. A published/prebuilt Guardian artifact, or another safe way to reuse this immutable tool compilation across isolated worktree caches, would make first-build iteration dramatically faster.
+- **friction:** Passing Zig 0.15.1's top-level `-fincremental` flag propagated it into Guardian and made `guardian-check` recompile for 49–50s on every invocation; a router edit consequently took 51.14s instead of 9.04s. If the build API permits it, Guardian's consumer integration should opt its tool artifact out of incremental compilation, or warn that one-shot incremental consumer builds destroy Guardian's normal cache behavior.
