@@ -688,3 +688,8 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 - **good:** `type-size` caught an unnecessary 14th field added to the frozen `PlanWave` API. Folding absolute and relative points into the existing ordered waypoint slice preserved the type cap and produced the better model, where both forms retain authored ordering.
 - **good:** The named `pub-api-surface` acceptance cleanly recorded the two intentional vocabulary types and verified the refreshed baseline before the final 1,386-test build.
 - **friction:** Each ordinary build printed about 56,000 tokens of whole-tree report-only findings before the one-line gate verdict, and the persistent stale-Guardian-binary warning made it unclear whether the proposed API delta was trustworthy. This task required several ReleaseSafe routing experiments, so the repeated noise substantially obscured the actionable single-check state.
+
+## 2026-07-25 · codex · eda — merge and production deployment of relative route guides
+
+- **good:** The post-merge ReleaseSafe build completed successfully and restarted `netlisp.service`; the generated language-form documentation check also confirmed that the committed docs matched the dispatch tables.
+- **friction:** During the roughly three-minute background deployment, report-only checks were labeled `FAILED` with no nearby indication that they were non-blocking. The same deployment ultimately ended with `build OK`, `restart OK`, and `deploy end`, so monitoring required waiting for the terminal lines and comparing old log entries to distinguish advisory findings from a real deployment failure.
