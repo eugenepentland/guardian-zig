@@ -39,6 +39,10 @@ pub const RunCtx = struct {
     /// Git ref for diff-scoped checks (--against flag or GUARDIAN_AGAINST
     /// env var). Null falls back to config, then HEAD.
     against: ?[]const u8 = null,
+    /// Non-null when this run is diff-scoped: the base ref, the number of
+    /// source files in scope, and the narrowed index every `per_file` check
+    /// receives instead of the whole-tree one. Null means a whole-tree run.
+    scoped: ?ScopedRun = null,
     /// True when `--full` was passed: `mutate` covers the whole tree
     /// (nightly tier) instead of only diff-touched lines.
     full: bool = false,
@@ -96,11 +100,36 @@ pub const RunCtx = struct {
 /// Whether a check needs the AST index built before invocation.
 pub const NeedsAst = enum { no, yes };
 
+/// Whether a check's verdict is a property of one file at a time — so a
+/// diff-scoped run may hand it only the changed files — or an inherently
+/// whole-tree one (cross-file graphs, tree-wide snapshots and budgets,
+/// coverage maps, spec/tag reconciliation) that must always read everything or
+/// it becomes unsound.
+pub const CheckScope = enum { per_file, whole_tree };
+
+/// The changed-file view handed to `per_file` checks on a diff-scoped run
+/// (see scope.zig). Absent on a whole-tree run, which is the only kind
+/// `commit` and CI ever perform.
+pub const ScopedRun = struct {
+    /// Git ref the file set was diffed against (a merge-base sha by default).
+    base: []const u8,
+    /// How many indexed source files are in scope — reported alongside every
+    /// verdict so a scoped green is never mistaken for a full-tree green.
+    file_count: usize,
+    /// The shared parsed-source index narrowed to those files.
+    index: *const ast_index.Index,
+};
+
 /// Entry in the subcommand registry.
 pub const Command = struct {
     name: []const u8,
     summary: []const u8,
     needs_ast: NeedsAst = .no,
+    /// Whether a diff-scoped run may narrow this check to the changed files.
+    /// Deliberately has NO default: a newly registered check must classify
+    /// itself, so scoping can never silently widen to a check it is unsound
+    /// for as the registry grows.
+    scope: CheckScope,
     run: *const fn (ctx: *RunCtx) RunError!void,
 };
 

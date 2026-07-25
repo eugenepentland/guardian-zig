@@ -489,6 +489,18 @@ blocking correctness checks and advisory maintainability guidance.
 - Distinguishes untracked entries from tracked ones in porcelain status
 - Classifies a not-a-git-repository failure as a skip, not a hard error
 - Hard-fails a diff-scoped git command that fails for any other reason
+- Resolves the merge base with a branch and reports null when it cannot
+
+## Diff Scoping
+
+- Falls back to the whole tree for full, gate, and metadata-writing runs
+- Falls back to the whole tree when guardian config or recorded debt changed
+- Resolves a whole-tree decision when the base or the diff cannot be read
+- Reports whether a changed-file plan covers a given path
+- Narrows the shared parsed-source index to the changed files
+- Classifies every cross-file and tree-wide check as whole-tree
+- Hands the narrowed index only to per-file checks
+- Treats a diff-scoped run as partial so it never stamps the green cache
 
 ## Change Classification
 

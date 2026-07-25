@@ -16,6 +16,7 @@ const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
+const scope = @import("../scope.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -101,17 +102,16 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
             fail("could not roll back Guardian metadata after an interrupted run: {s}", .{@errorName(err)});
     };
 
-    // Build the shared parsed-source index once if any check needs it, so
-    // the ~17 AST checks read and parse each file once instead of per check.
+    // Resolve the diff scope and build the shared parsed-source index. Both
+    // storages are stack-scoped here; the ctx pointers are cleared on return so
+    // a caller that reuses ctx afterward (nightly → mutate) can't dereference a
+    // dangling index. Workers copy ctx before this fires, so the current run is
+    // unaffected.
     var index_storage: ast_index.Index = undefined;
-    if (anyNeedsAst(ctx)) {
-        index_storage = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
-        ctx.source_index = &index_storage;
-    }
-    // index_storage is stack-scoped; clear the ctx pointer on return so a caller
-    // that reuses ctx afterward (nightly → mutate) can't dereference a dangling
-    // index. Workers copy ctx before this fires, so the current run is unaffected.
+    var scoped_storage: ast_index.Index = undefined;
     defer ctx.source_index = null;
+    defer ctx.scoped = null;
+    try prepareSources(ctx, &index_storage, &scoped_storage, writes);
 
     // Time the run for the DORA sink. Started here (after the cache-skip guard)
     // so a cache-skipped run — which returns above — records nothing.
@@ -120,32 +120,39 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var acc: Sink = .{};
     const failed = try runChecks(ctx, &ran, &acc);
 
+    // A diff-scoped run is partial in exactly the sense a --only/--skip run is:
+    // some checks saw only part of the tree. It therefore shares the filtered
+    // run's suppressions below (green stamp, delivery record) and is marked
+    // partial in the machine-readable log.
+    const partial = isPartial(filtered, ctx.scoped != null);
+
     // Write the machine-readable last-run log on every real run (green or red),
     // before the green/red branch. A skipped run (early return above) leaves the
     // last real run's log in place.
-    writeSink(ctx, acc.records.items, ran, failed, filtered);
+    writeSink(ctx, acc.records.items, ran, failed, partial);
     // Append the DORA delivery-metrics record for this run (non-gating,
     // best-effort; a nightly run records once via this nested `all` pass).
-    // Skipped for a filtered (--only/--skip) run: a partial dev iteration is
-    // not a delivery event, and its outcome would misrepresent the stream —
-    // the same reason a filtered run never stamps the green cache.
-    if (!filtered) recordDora(ctx, &stopwatch, failed, acc.failed_checks.items);
+    // Skipped for a partial (--only/--skip or diff-scoped) run: a partial dev
+    // iteration is not a delivery event, and its outcome would misrepresent the
+    // stream — the same reason a partial run never stamps the green cache.
+    if (!partial) recordDora(ctx, &stopwatch, failed, acc.failed_checks.items);
 
     if (failed == 0) {
-        reporter.ok("run-all: {d} check(s) passed", .{ran});
+        reporter.ok("run-all: {d} check(s) passed{s}", .{ ran, scopeSuffix(ctx) });
         metadata_active = false;
         // Stamp the POST-write tree so an unchanged next run can skip. Never for
-        // a filtered run — a partial suite must not claim the full suite green.
+        // a partial run — a partial suite must not claim the full suite green,
+        // and a later whole-tree run must never skip on a scoped run's stamp.
         // A fully-green report-mode run is identical work to a green blocking
         // run, so it stamps too.
-        if (!filtered) stampGreen(ctx);
+        if (!partial) stampGreen(ctx);
         return;
     }
 
     // Name the failing checks in the summary so an agent fixes the right one
     // (shown even under --quiet, via the always-visible failure channel).
     const names = joinNames(ctx.allocator, acc.failed_checks.items);
-    fail("run-all: {d}/{d} failed ({s})", .{ failed, ran, names });
+    fail("run-all: {d}/{d} failed ({s}){s}", .{ failed, ran, names, scopeSuffix(ctx) });
 
     // A run that found violations restores metadata when a transaction is active
     // (a writable/refresh run) — half-written snapshots/baselines from the
@@ -183,6 +190,85 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     reporter.detail("{s}", .{stale_artifact_caution});
     binaryDriftHint(ctx, acc.failed_checks.items);
     return error.CheckFailed;
+}
+
+/// Resolves the diff scope, builds the shared parsed-source index when this run
+/// needs one, and installs both on `ctx` — then announces the scope.
+///
+/// Scoping is decided BEFORE the index is built (see scope.zig): every unknown
+/// resolves to a whole-tree run, so this can only ever remove work that is
+/// provably irrelevant to the diff. The index is built when any check needs it
+/// — so the ~17 AST checks share one read+parse per file instead of repeating
+/// it — and also whenever the run is scoped, because the narrowed view is a
+/// filtered slice of those very entries.
+///
+/// `index` and `scoped` are caller-owned storage that must outlive every check.
+fn prepareSources(
+    ctx: *types.RunCtx,
+    index: *ast_index.Index,
+    scoped: *ast_index.Index,
+    writes_metadata: bool,
+) types.RunError!void {
+    const decision = try scope.resolve(ctx.allocator, ctx.project_dir, ctx.against, .{
+        .full = ctx.full,
+        .gate = ctx.gate,
+        .writes_metadata = writes_metadata,
+    });
+    const plan: ?scope.Plan = switch (decision) {
+        .scoped => |p| p,
+        .whole_tree => |reason| blk: {
+            reporter.ok("run-all: whole-tree run — {s}", .{reason});
+            break :blk null;
+        },
+    };
+    if (!anyNeedsAst(ctx) and plan == null) return;
+    index.* = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
+    ctx.source_index = index;
+    if (plan) |p| {
+        scoped.* = try p.indexSubset(ctx.allocator, index);
+        ctx.scoped = .{ .base = p.base, .file_count = scoped.files.len, .index = scoped };
+    }
+    announceScope(ctx);
+}
+
+/// The one-line banner a diff-scoped run prints before any check runs. Routed
+/// through the always-visible detail channel (the build wiring runs `all
+/// --quiet`, where `ok` is suppressed) because the whole point is that a reader
+/// can never mistake a scoped green for a whole-tree green: it names the base,
+/// how much of the tree the per-file checks saw, and how to get the full run.
+/// A whole-tree run prints nothing here.
+fn announceScope(ctx: *const types.RunCtx) void {
+    const s = ctx.scoped orelse return;
+    const total = if (ctx.source_index) |idx| idx.files.len else s.file_count;
+    reporter.detail(
+        reporter.prefix ++ "diff-scoped vs {s}: {d}/{d} source file(s) in scope for the " ++
+            "{d} per-file check(s); {d} whole-tree check(s) still read everything. " ++
+            "NOT a whole-tree verification — use --full, or `guardian-check commit`.\n",
+        .{ s.base, s.file_count, total, countScope(ctx, .per_file), countScope(ctx, .whole_tree) },
+    );
+}
+
+/// How many checks this run will actually execute with the given scope
+/// capability — used by the banner so the split between narrowed and
+/// whole-tree work is a measured number, not a claim.
+fn countScope(ctx: *const types.RunCtx, want: types.CheckScope) u32 {
+    var n: u32 = 0;
+    for (registry.all) |cmd| {
+        if (excluded(ctx, cmd.name)) continue;
+        if (cmd.scope == want) n += 1;
+    }
+    return n;
+}
+
+/// The `" (diff-scoped vs <base>, N file(s))"` tail appended to the run
+/// summary, or an empty string on a whole-tree run. Keeps the verdict line
+/// itself honest about how much of the tree it covers.
+fn scopeSuffix(ctx: *const types.RunCtx) []const u8 {
+    const s = ctx.scoped orelse return "";
+    return std.fmt.allocPrint(ctx.allocator, " — diff-scoped vs {s}, {d} file(s) in scope", .{
+        s.base,
+        s.file_count,
+    }) catch " — diff-scoped (partial tree)";
 }
 
 /// Pure gate decision: a run BLOCKS (fails the build on any violation) only when
@@ -620,6 +706,25 @@ fn worker(job: *WorkerJob) void {
     }
 }
 
+/// The parsed-source index one check runs against. On a diff-scoped run a
+/// `per_file` check gets the narrowed changed-files view; a `whole_tree` check
+/// keeps the full index, because its verdict depends on files the diff never
+/// touched (import cycles, cross-file duplicates, coverage maps, tree-wide
+/// snapshots) — narrowing it would make it unsound, not merely faster. On a
+/// whole-tree run every check gets the same full index, exactly as before.
+fn indexFor(ctx: *const types.RunCtx, check_scope: types.CheckScope) ?*const ast_index.Index {
+    const s = ctx.scoped orelse return ctx.source_index;
+    return if (check_scope == .per_file) s.index else ctx.source_index;
+}
+
+/// True when this run covered only part of the suite or only part of the tree
+/// — a `--only`/`--skip` filter, or a diff-scoped pass. A partial run must
+/// never stamp the green cache (a later whole-tree run would then skip on it)
+/// and is not a delivery event.
+fn isPartial(filtered: bool, diff_scoped: bool) bool {
+    return filtered or diff_scoped;
+}
+
 /// Runs one check into a fresh capture over the worker's allocator, returning
 /// its result. A copied RunCtx carries the per-worker allocator so no check
 /// allocates through the shared arena.
@@ -630,6 +735,8 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
 
     var wctx = base.*;
     wctx.allocator = a;
+    // Diff scoping is applied here and nowhere else (see `indexFor`).
+    wctx.source_index = indexFor(base, cmd.scope);
 
     var res: CheckResult = .{ .ran = true };
     const mode = base.cfg.policy.modeFor(cmd.name);
@@ -1005,6 +1112,7 @@ test "report policy preserves a finding without failing the captured check" {
     const result = runCaptured(&ctx, a, .{
         .name = "line-length",
         .summary = "test",
+        .scope = .per_file,
         .run = expectedPolicyFinding,
     });
     try std.testing.expect(result.reported);
@@ -1028,6 +1136,40 @@ test "skipDecision requires cache on, a digest match, and no pending refresh" {
     try std.testing.expect(!skipDecision(true, false, false));
     // A disabled cache never skips.
     try std.testing.expect(!skipDecision(false, false, true));
+}
+
+// spec: Diff Scoping - Hands the narrowed index only to per-file checks
+
+test "indexFor narrows per-file checks and leaves whole-tree checks intact" {
+    const cfg: config.Config = .{};
+    var full: ast_index.Index = .{ .files = &.{} };
+    var narrow: ast_index.Index = .{ .files = &.{} };
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .source_index = &full,
+    };
+    // Whole-tree run (no scope): every check sees the same full index.
+    try std.testing.expectEqual(@as(?*const ast_index.Index, &full), indexFor(&ctx, .per_file));
+    try std.testing.expectEqual(@as(?*const ast_index.Index, &full), indexFor(&ctx, .whole_tree));
+
+    // Diff-scoped run: only the per-file checks are narrowed. A whole-tree
+    // check keeps the full index, which is what keeps it sound.
+    ctx.scoped = .{ .base = "abc123", .file_count = 1, .index = &narrow };
+    try std.testing.expectEqual(@as(?*const ast_index.Index, &narrow), indexFor(&ctx, .per_file));
+    try std.testing.expectEqual(@as(?*const ast_index.Index, &full), indexFor(&ctx, .whole_tree));
+}
+
+// spec: Diff Scoping - Treats a diff-scoped run as partial so it never stamps the green cache
+
+test "isPartial covers both filtered and diff-scoped runs" {
+    // A whole-tree, unfiltered run is the only one that may stamp green.
+    try std.testing.expect(!isPartial(false, false));
+    try std.testing.expect(isPartial(true, false));
+    try std.testing.expect(isPartial(false, true));
+    try std.testing.expect(isPartial(true, true));
 }
 
 // spec: Run All - Rejects an unknown refresh target or deny_growth check name

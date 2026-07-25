@@ -84,120 +84,161 @@ pub const NeedsAst = types.NeedsAst;
 pub const Command = types.Command;
 
 pub const all: []const Command = &.{
-    .{ .name = "spec", .summary = "Verify SPEC.md ↔ // spec: tag coverage", .run = check_spec.run },
+    .{
+        .name = "spec",
+        .summary = "Verify SPEC.md ↔ // spec: tag coverage",
+        .scope = .whole_tree,
+        .run = check_spec.run,
+    },
     .{
         .name = "spec-init",
         .summary = "Generate starter SPEC.md from pub fn signatures",
+        .scope = .whole_tree,
         .run = check_spec_init.run,
     },
     .{
         .name = "mutate",
         .summary = "Mutation-test the suite (fast tier: changed lines; --full: whole tree)",
+        .scope = .whole_tree,
         .run = cmd_mutate.run,
     },
     .{
         .name = "debt",
         .summary = "Report baseline/snapshot debt totals with deltas (non-gating)",
+        .scope = .whole_tree,
         .run = cmd_debt.run,
     },
-    .{ .name = "file-size", .summary = "Warn on large files; block extreme ones", .run = check_file_size.run },
-    .{ .name = "boundaries", .summary = "Enforce @import boundary rules", .run = check_boundaries.run },
+    .{
+        .name = "file-size",
+        .summary = "Warn on large files; block extreme ones",
+        .scope = .per_file,
+        .run = check_file_size.run,
+    },
+    .{
+        .name = "boundaries",
+        .summary = "Enforce @import boundary rules",
+        .scope = .per_file,
+        .run = check_boundaries.run,
+    },
     .{
         .name = "usingnamespace-ban",
         .summary = "Reject usingnamespace declarations in src/",
+        .scope = .per_file,
         .run = check_usingnamespace_ban.run,
     },
     .{
         .name = "deprecated-alias",
         .summary = "Reject deprecated 0.15 std spellings " ++
             "(ArrayListUnmanaged, managed hashmaps, usingnamespace, getStdOut)",
+        .scope = .per_file,
         .run = check_deprecated_alias.run,
     },
     .{
         .name = "spec-quality",
         .summary = "Lint SPEC.md prose for vague phrases and stub behaviors",
+        .scope = .whole_tree,
         .run = check_spec_quality.run,
     },
     .{
         .name = "completeness",
         .summary = "Require each SPEC.md feature section to address or waive 8 scenario categories (opt-in)",
+        .scope = .whole_tree,
         .run = check_completeness.run,
     },
     .{
         .name = "naming",
         .summary = "Enforce Zig naming conventions (PascalCase types, camelCase fns)",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_naming.run,
     },
     .{
         .name = "function-size",
         .summary = "Cap function parameter count",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_function_size.run,
     },
     .{
         .name = "doc-comments",
         .summary = "Require a real /// doc comment on every public fn/type (presence + quality)",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_doc_comments.run,
     },
-    .{ .name = "imports", .summary = "Detect cycles in the @import graph", .run = check_imports.run },
+    .{
+        .name = "imports",
+        .summary = "Detect cycles in the @import graph",
+        .scope = .whole_tree,
+        .run = check_imports.run,
+    },
     .{
         .name = "pub-api-surface",
         .summary = "Snapshot every pub fn/type; diff fails build",
         .needs_ast = .yes,
+        .scope = .whole_tree,
         .run = check_pub_api_surface.run,
     },
     .{
         .name = "panic-budget",
         .summary = "Cap @panic / unreachable / TODO / FIXME counts via snapshot",
+        .scope = .whole_tree,
         .run = check_panic_budget.run,
     },
     .{
         .name = "catch-discipline",
         .summary = "Reject catch unreachable/undefined and empty catch blocks",
+        .scope = .per_file,
         .run = check_catch_discipline.run,
     },
     .{
         .name = "unwrap-discipline",
         .summary = "Reject orelse unreachable / orelse undefined (crash-on-null)",
+        .scope = .per_file,
         .run = check_unwrap_discipline.run,
     },
     .{
         .name = "error-discipline",
         .summary = "Require explicit error sets on pub fn",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_error_discipline.run,
     },
     .{
         .name = "cognitive-complexity",
         .summary = "Cap per-function cognitive complexity score",
+        .scope = .per_file,
         .run = check_cognitive_complexity.run,
     },
     .{
         .name = "anytype-budget",
         .summary = "Cap anytype parameter count per file",
+        .scope = .per_file,
         .run = check_anytype_budget.run,
     },
     .{
         .name = "dead-pub",
         .summary = "Flag unused public declarations",
         .needs_ast = .yes,
+        .scope = .whole_tree,
         .run = check_dead_pub.run,
     },
     .{
         .name = "allocator-hygiene",
         .summary = "Reject hardcoded global allocators outside main/test",
+        .scope = .per_file,
         .run = check_allocator_hygiene.run,
     },
     .{
         .name = "debug-print-ban",
         .summary = "Reject std.debug.print(...) calls outside main/test",
+        .scope = .per_file,
         .run = check_debug_print_ban.run,
     },
     .{
         .name = "orphan-files",
         .summary = "Flag .zig files under src/ unreachable from any configured root",
+        .scope = .whole_tree,
         .run = check_orphan_files.run,
     },
     .{
@@ -205,222 +246,283 @@ pub const all: []const Command = &.{
         .summary = "Reject obvious stub function bodies " ++
             "(return undefined, placeholder panics, unreachable in value fns)",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_stub_body_ban.run,
     },
     .{
         .name = "int-from-float-budget",
         .summary = "Track @intFromFloat call count via snapshot (new sites need a guard review)",
+        .scope = .whole_tree,
         .run = check_int_from_float_budget.run,
     },
     .{
         .name = "unsafe-ops-budget",
         .summary = "Track unsafe-cast builtin and undefined re-assignment counts via snapshot",
+        .scope = .whole_tree,
         .run = check_unsafe_ops_budget.run,
     },
     .{
         .name = "type-size",
         .summary = "Cap fields per pub struct/enum/union/opaque",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_type_size.run,
     },
     .{
         .name = "function-length",
         .summary = "Warn on long functions; block extreme ones",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_function_length.run,
     },
     .{
         .name = "nesting-depth",
         .summary = "Cap brace-nesting depth inside fn bodies",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_nesting_depth.run,
     },
     .{
         .name = "test-coverage",
         .summary = "Require every pub fn to be referenced from a test block (opt-in)",
         .needs_ast = .yes,
+        .scope = .whole_tree,
         .run = check_test_coverage.run,
     },
     .{
         .name = "ban-time",
         .summary = "Reject std.time wall-clock reads outside infra/clock",
+        .scope = .per_file,
         .run = check_ban_time.run,
     },
-    .{ .name = "ban-rng", .summary = "Reject RNG construction outside infra/random", .run = check_ban_rng.run },
-    .{ .name = "ban-fs", .summary = "Reject std.fs I/O calls outside infra/fs", .run = check_ban_fs.run },
+    .{
+        .name = "ban-rng",
+        .summary = "Reject RNG construction outside infra/random",
+        .scope = .per_file,
+        .run = check_ban_rng.run,
+    },
+    .{
+        .name = "ban-fs",
+        .summary = "Reject std.fs I/O calls outside infra/fs",
+        .scope = .per_file,
+        .run = check_ban_fs.run,
+    },
     .{
         .name = "ban-net",
         .summary = "Reject std.net / std.http use outside adapters/http or infra/net",
+        .scope = .per_file,
         .run = check_ban_net.run,
     },
-    .{ .name = "ban-env", .summary = "Reject env-var reads outside config or main", .run = check_ban_env.run },
+    .{
+        .name = "ban-env",
+        .summary = "Reject env-var reads outside config or main",
+        .scope = .per_file,
+        .run = check_ban_env.run,
+    },
     .{
         .name = "ban-sleep",
         .summary = "Reject sleep calls outside test infrastructure",
+        .scope = .per_file,
         .run = check_ban_sleep.run,
     },
     .{
         .name = "ban-globals",
         .summary = "Reject mutable pub var globals outside wiring/main",
+        .scope = .per_file,
         .run = check_ban_globals.run,
     },
     .{
         .name = "ban-hardcoded-paths",
         .summary = "Reject hardcoded absolute paths and URLs in string literals",
+        .scope = .per_file,
         .run = check_ban_hardcoded_paths.run,
     },
     .{
         .name = "ban-secrets",
         .summary = "Reject hardcoded credentials " ++
             "(known token formats + entropy-gated secret assignments)",
+        .scope = .per_file,
         .run = check_ban_secrets.run,
     },
     .{
         .name = "compile-error-explanation",
         .summary = "Reject @compileError without a non-empty string explanation",
+        .scope = .per_file,
         .run = check_compile_error_explanation.run,
     },
     .{
         .name = "init-hygiene",
         .summary = "Reject init bodies with loops, conditionals, or switch statements",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_init_hygiene.run,
     },
     .{
         .name = "static-factory-ban",
         .summary = "Reject static factory / singleton patterns in business logic",
+        .scope = .per_file,
         .run = check_static_factory_ban.run,
     },
     .{
         .name = "init-deinit-symmetry",
         .summary = "Require pub deinit on structs that own an allocator field",
+        .scope = .per_file,
         .run = check_init_deinit_symmetry.run,
     },
     .{
         .name = "errdefer-in-init",
         .summary = "Require errdefer between multiple try calls inside init",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_errdefer_in_init.run,
     },
     .{
         .name = "test-has-assertion",
         .summary = "Require every test block to contain at least one expect* call",
+        .scope = .per_file,
         .run = check_test_has_assertion.run,
     },
     .{
         .name = "test-no-conditional",
         .summary = "Reject if/while/switch and extra for loops at the top level of a test body",
+        .scope = .per_file,
         .run = check_test_no_conditional.run,
     },
     .{
         .name = "test-skip-ban",
         .summary = "Reject tests that are empty or unconditionally return error.SkipZigTest",
+        .scope = .per_file,
         .run = check_test_skip_ban.run,
     },
     .{
         .name = "prod-imports-no-test",
         .summary = "Reject production code @import-ing test files",
+        .scope = .per_file,
         .run = check_prod_imports_no_test.run,
     },
     .{
         .name = "bool-ops-per-condition",
         .summary = "Cap boolean operators per condition",
+        .scope = .per_file,
         .run = check_bool_ops_per_condition.run,
     },
-    .{ .name = "line-length", .summary = "Warn on long lines; block extreme ones", .run = check_line_length.run },
+    .{
+        .name = "line-length",
+        .summary = "Warn on long lines; block extreme ones",
+        .scope = .per_file,
+        .run = check_line_length.run,
+    },
     .{
         .name = "boolean-param-ban",
         .summary = "Reject bool parameters in public functions",
+        .scope = .per_file,
         .run = check_boolean_param_ban.run,
     },
     .{
         .name = "magic-number",
         .summary = "Reject bare integer literals outside a small allowlist",
+        .scope = .per_file,
         .run = check_magic_number.run,
     },
     .{
         .name = "repeated-string-literal",
         .summary = "Reject 3+ repeats of a literal in a file and duplicate consts across files",
+        .scope = .whole_tree,
         .run = check_repeated_string_literal.run,
     },
     .{
         .name = "struct-method-cap",
         .summary = "Cap pub fn methods per pub struct/enum/union",
+        .scope = .per_file,
         .run = check_struct_method_cap.run,
     },
     .{
         .name = "optional-density",
         .summary = "Cap percentage of optional fields in a public struct",
+        .scope = .per_file,
         .run = check_optional_density.run,
     },
     .{
         .name = "stringly-typed-switches",
         .summary = "Reject switch expressions whose case keys are string literals",
+        .scope = .per_file,
         .run = check_stringly_typed_switches.run,
     },
     .{
         .name = "repeated-switch-on-enum",
         .summary = "Flag the same enum dot-prong set switched in 2+ files",
+        .scope = .whole_tree,
         .run = check_repeated_switch_on_enum.run,
     },
     .{
         .name = "stack-escape",
         .summary = "Reject returning the address of a stack local (dangling pointer)",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_stack_escape.run,
     },
     .{
         .name = "assert-doc-consistency",
         .summary = "Require a body assert() in any fn whose doc claims an Asserts precondition",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_assert_doc_consistency.run,
     },
     .{
         .name = "fatal-exit",
         .summary = "Reject a hand-rolled std.process.exit(nonzero) outside the entry/fatal path",
+        .scope = .per_file,
         .run = check_fatal_exit.run,
     },
     .{
         .name = "stdout-flush",
         .summary = "A buffered stdout/stderr writer with no reachable flush; gates only if [stdout_flush] enabled",
+        .scope = .per_file,
         .run = check_stdout_flush.run,
     },
     .{
         .name = "change-classification",
         .summary = "Require a test or spec change alongside behavioral src changes (vs git ref)",
         .needs_ast = .yes,
+        .scope = .whole_tree,
         .run = check_change_classification.run,
     },
     .{
         .name = "escape-discipline",
         .summary = "Flag raw {s} interpolation into HTML/SVG markup (opt-in)",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_escape_discipline.run,
     },
     .{
         .name = "oom-discipline",
         .summary = "Flag allocation errors conflated with domain absence (opt-in)",
         .needs_ast = .yes,
+        .scope = .per_file,
         .run = check_oom_discipline.run,
     },
     .{
         .name = "fuzz-presence",
         .summary = "Require a std.testing.fuzz call in each configured module (opt-in)",
+        .scope = .whole_tree,
         .run = check_fuzz_presence.run,
     },
     .{
         .name = "module-doc-header",
         .summary = "Require a //! module doc header on src files over [module_doc_header] min_lines (default 200)",
+        .scope = .per_file,
         .run = check_module_doc_header.run,
     },
     .{
         .name = "external-gates",
         .summary = "Run project-defined non-Zig argv gates from [[external]] entries",
+        .scope = .whole_tree,
         .run = check_external_gates.run,
     },
     .{
         .name = "policy-drift",
         .summary = "Protect guardian.toml and accepted-debt files in trusted CI",
+        .scope = .whole_tree,
         .run = check_policy_drift.run,
     },
 };
@@ -469,4 +571,44 @@ pub fn printHelp() void {
     for (all) |cmd| print(row, .{ cmd.name, cmd.summary });
     print("\nMeta commands (composed / informational):\n", .{});
     for (meta_commands) |m| print(row, .{ m.name, m.summary });
+}
+
+/// Checks whose verdict is inherently whole-tree — cross-file graphs and
+/// duplicate scans, tree-wide snapshots and budgets, coverage and spec/tag
+/// maps, the diff-driven process gates, and the non-gate commands. Diff
+/// scoping must never narrow one of these to the changed files, so the list is
+/// asserted against the registry below and a future edit cannot quietly
+/// reclassify one as `per_file`. (Exhaustiveness in the other direction is a
+/// compile-time property: `Command.scope` has no default, so a newly
+/// registered check must classify itself.)
+const inherently_whole_tree = [_][]const u8{
+    "spec",                    "spec-init",             "mutate",
+    "debt",                    "spec-quality",          "completeness",
+    "imports",                 "pub-api-surface",       "panic-budget",
+    "dead-pub",                "orphan-files",          "int-from-float-budget",
+    "unsafe-ops-budget",       "test-coverage",         "repeated-string-literal",
+    "repeated-switch-on-enum", "change-classification", "fuzz-presence",
+    "external-gates",          "policy-drift",
+};
+
+/// True when every name in `inherently_whole_tree` resolves to a registered
+/// check classified `.whole_tree`. Factored out of the test so the loop isn't
+/// a conditional in a test body.
+fn wholeTreeClassificationHolds() bool {
+    for (inherently_whole_tree) |name| {
+        const cmd = find(name) orelse return false;
+        if (cmd.scope != .whole_tree) return false;
+    }
+    return true;
+}
+
+// spec: Diff Scoping - Classifies every cross-file and tree-wide check as whole-tree
+
+test "the inherently whole-tree checks stay classified whole_tree" {
+    try std.testing.expect(wholeTreeClassificationHolds());
+    // The counterpart: a per-file shape/style check is narrowable, which is
+    // where the whole speedup comes from.
+    try std.testing.expect(find("line-length").?.scope == .per_file);
+    try std.testing.expect(find("naming").?.scope == .per_file);
+    try std.testing.expect(find("cognitive-complexity").?.scope == .per_file);
 }

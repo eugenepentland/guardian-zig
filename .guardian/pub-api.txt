@@ -239,10 +239,12 @@ src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/types.zig::CheckScope enum_
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_
 src/cli/types.zig::RunError value
+src/cli/types.zig::ScopedRun struct_
 src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8) bool
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
@@ -361,6 +363,7 @@ src/git.zig::diffPathNamesAgainst | fn diffPathNamesAgainst( allocator: Allocato
 src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::hooksDir | fn hooksDir(allocator: Allocator, project_dir: []const u8) ?[]const u8
+src/git.zig::mergeBase | fn mergeBase(allocator: Allocator, project_dir: []const u8, ref: []const u8) ?[]const u8
 src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) GitError!?u32
 src/git.zig::parseHunkHeader | fn parseHunkHeader(line: []const u8) ?LineSpan
 src/git.zig::parseUnifiedDiff | fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff
@@ -462,6 +465,14 @@ src/reporter.zig::reset value
 src/reporter.zig::warn | fn warn(v: Violation) void
 src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
 src/required_inputs.zig::validate | fn validate(ctx: *types.RunCtx) types.RunError!void
+src/scope.zig::Decision union_
+src/scope.zig::Plan struct_
+src/scope.zig::Posture struct_
+src/scope.zig::covers | fn covers(self: Plan, rel_path: []const u8) bool
+src/scope.zig::indexSubset | fn indexSubset( self: Plan, arena: Allocator, full: *const ast_index.Index, ) Allocator.Error!ast_index.Index
+src/scope.zig::invalidatedBy | fn invalidatedBy(paths: []const []const u8) bool
+src/scope.zig::resolve | fn resolve( allocator: Allocator, project_dir: []const u8, against: ?[]const u8, posture: Posture, ) Allocator.Error!Decision
+src/scope.zig::wholeTreeReason | fn wholeTreeReason(posture: Posture) ?[]const u8
 src/sink.zig::Summary struct_
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/sink.zig::summaryJson | fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8

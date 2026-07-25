@@ -894,7 +894,12 @@ test "runWithBaseline replays warnings without ratcheting them" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &outer;
 
-    try runWithBaseline(&ctx, .{ .name = "file-size", .summary = "test", .run = warningOnly });
+    try runWithBaseline(&ctx, .{
+        .name = "file-size",
+        .summary = "test",
+        .scope = .per_file,
+        .run = warningOnly,
+    });
     try std.testing.expectEqual(@as(usize, 1), outer.warnings.items.len);
     try std.testing.expectEqual(@as(usize, 0), outer.records.items.len);
 
