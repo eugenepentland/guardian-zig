@@ -32,18 +32,33 @@ const reporter = @import("reporter.zig");
 /// Branch names tried, in order, when resolving the default diff base.
 const default_base_branches = [_][]const u8{ "main", "master" };
 
-/// Paths whose change invalidates diff scoping outright: the caps, policy, and
-/// recorded debt every per-file verdict is measured against. When one of these
-/// moves, an *unchanged* file can start violating, so the run must read the
-/// whole tree even though no source file outside the scope was touched.
+/// Paths whose *uncommitted* change invalidates diff scoping outright: the
+/// caps, policy, and recorded debt every per-file verdict is measured against.
+/// When one of these moves, an *unchanged* file can start violating, so the run
+/// must read the whole tree even though no source file outside the scope was
+/// touched. Only the uncommitted drift counts: a committed change to the same
+/// files rode a whole-tree gate (`commit`, or the blocking pre-commit hook), so
+/// every file in the tree was already judged against that state.
 const scope_invalidating_paths = [_][]const u8{ "guardian.toml", ".guardian/" };
+
+/// Carved out of `scope_invalidating_paths`: Guardian's own scratch directory,
+/// which every run rewrites (green stamp, last-run log, delivery sink). It is
+/// already excluded from the input digest for the same reason, and a project
+/// that does not gitignore it would otherwise never be scoped at all — the
+/// run's own output would invalidate the next run.
+const scope_ignored_paths = [_][]const u8{".guardian/cache/"};
 
 const reason_full = "--full was requested";
 const reason_gate = "blocking gate run (commit/CI enforces the whole-tree guarantee)";
 const reason_metadata_write = "run may rewrite .guardian metadata, which needs the whole tree";
 const reason_no_base = "no diff base could be resolved (no main/master, or no commits yet)";
 const reason_no_git = "git could not report the changed files";
-const reason_config_changed = "guardian.toml or .guardian/ changed, so every file must be re-judged";
+const reason_config_changed = "uncommitted guardian.toml / .guardian change — every file must be re-judged";
+
+/// Ref the *uncommitted* half of the diff is measured against, to decide
+/// whether guardian's own config or recorded debt has drifted since the last
+/// whole-tree gate.
+const head_ref = "HEAD";
 
 /// Run properties that force a whole-tree pass regardless of what the diff says.
 /// Grouped into one value so the decision below is a pure function of the run's
@@ -104,6 +119,12 @@ pub const Plan = struct {
     }
 };
 
+/// How much of the tree a check actually read on this run. A `partial` view
+/// can only ADD findings — it can never prove one was resolved — so nothing may
+/// be pruned, lowered, or rewritten from it: baselines and ratchets stay
+/// report-or-fail until a whole-tree run reconciles them.
+pub const View = enum { whole_tree, partial };
+
 /// The scoping decision for one run.
 pub const Decision = union(enum) {
     /// Per-file checks see only the plan's files; whole-tree checks see all.
@@ -117,9 +138,17 @@ pub const Decision = union(enum) {
 /// so files outside the diff may have changed verdict without changing content.
 pub fn invalidatedBy(paths: []const []const u8) bool {
     for (paths) |p| {
-        for (scope_invalidating_paths) |marker| {
-            if (std.mem.startsWith(u8, p, marker)) return true;
-        }
+        if (matchesAny(p, &scope_ignored_paths)) continue;
+        if (matchesAny(p, &scope_invalidating_paths)) return true;
+    }
+    return false;
+}
+
+/// True when `path` starts with any of `markers` (a plain prefix match: these
+/// are exact file names and directory prefixes, not globs).
+fn matchesAny(path: []const u8, markers: []const []const u8) bool {
+    for (markers) |marker| {
+        if (std.mem.startsWith(u8, path, marker)) return true;
     }
     return false;
 }
@@ -139,15 +168,29 @@ pub fn resolve(
     if (wholeTreeReason(posture)) |reason| return .{ .whole_tree = reason };
     const base = against orelse defaultBase(allocator, project_dir) orelse
         return .{ .whole_tree = reason_no_base };
-    const changed = changedPaths(allocator, project_dir, base) catch |e| switch (e) {
+    const untracked = (try tolerant([]const []const u8, git.untrackedFiles(allocator, project_dir))) orelse
+        return .{ .whole_tree = reason_no_git };
+    // Guardian's own config and recorded debt are checked against HEAD, not the
+    // base: an *uncommitted* change to them has never been through a whole-tree
+    // gate, while a committed one rode `commit`/the pre-commit hook and so has
+    // already judged every file in the tree.
+    const uncommitted = (try changedSince(allocator, project_dir, head_ref, untracked)) orelse
+        return .{ .whole_tree = reason_no_git };
+    if (invalidatedBy(uncommitted)) return .{ .whole_tree = reason_config_changed };
+    const files = (try changedSince(allocator, project_dir, base, untracked)) orelse
+        return .{ .whole_tree = reason_no_git };
+    return .{ .scoped = .{ .base = base, .files = files } };
+}
+
+/// Folds a git call's non-OOM failures into null, so an unresolvable ref or an
+/// unspawnable git falls back to a whole-tree run instead of failing a run that
+/// would otherwise pass. OOM still propagates: swallowing it would silently
+/// widen or narrow the scope.
+fn tolerant(comptime T: type, result: git.GitError!T) Allocator.Error!?T {
+    return result catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
-        // A bad ref or an unspawnable git is not worth failing a run that would
-        // otherwise pass: read everything instead.
-        else => return .{ .whole_tree = reason_no_git },
+        else => return null,
     };
-    const paths = changed orelse return .{ .whole_tree = reason_no_git };
-    if (invalidatedBy(paths)) return .{ .whole_tree = reason_config_changed };
-    return .{ .scoped = .{ .base = base, .files = paths } };
 }
 
 /// First resolvable merge base among the default main-line branch names, or
@@ -159,19 +202,24 @@ fn defaultBase(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Every project-relative path that differs from `base`, plus the untracked
-/// files (a brand-new file has no diff entry but is certainly in scope). Null
-/// when this is not a git repository.
-fn changedPaths(
+/// Every project-relative path that differs from `ref`, plus `untracked` (a
+/// brand-new file has no diff entry but is certainly in scope). Null when the
+/// diff cannot be read — no repository, an unresolvable ref, or no git —
+/// which the caller turns into a whole-tree run.
+fn changedSince(
     allocator: Allocator,
     project_dir: []const u8,
-    base: []const u8,
-) git.GitError!?[]const []const u8 {
-    const diffed = switch (try git.diffPathNamesAgainst(allocator, project_dir, base)) {
+    ref: []const u8,
+    untracked: []const []const u8,
+) Allocator.Error!?[]const []const u8 {
+    const result = (try tolerant(
+        git.PathDiffResult,
+        git.diffPathNamesAgainst(allocator, project_dir, ref),
+    )) orelse return null;
+    const diffed = switch (result) {
         .unavailable => return null,
         .ok => |p| p,
     };
-    const untracked = try git.untrackedFiles(allocator, project_dir);
     var out: std.ArrayList([]const u8) = .empty;
     try out.appendSlice(allocator, diffed);
     try out.appendSlice(allocator, untracked);
@@ -203,6 +251,9 @@ test "invalidatedBy fires on guardian.toml and .guardian changes only" {
     // Ordinary source and spec edits leave the caps intact, so scoping holds.
     try testing.expect(!invalidatedBy(&.{ "src/a.zig", "SPEC.md", "README.md" }));
     try testing.expect(!invalidatedBy(&.{}));
+    // Guardian's own scratch dir is carved out: a run rewrites it, so counting
+    // it would make the previous run's output cancel the next run's scoping.
+    try testing.expect(!invalidatedBy(&.{ ".guardian/cache/last-run.jsonl", "src/a.zig" }));
 }
 
 // spec: Diff Scoping - Reports whether a changed-file plan covers a given path

@@ -468,6 +468,7 @@ src/required_inputs.zig::validate | fn validate(ctx: *types.RunCtx) types.RunErr
 src/scope.zig::Decision union_
 src/scope.zig::Plan struct_
 src/scope.zig::Posture struct_
+src/scope.zig::View enum_
 src/scope.zig::covers | fn covers(self: Plan, rel_path: []const u8) bool
 src/scope.zig::indexSubset | fn indexSubset( self: Plan, arena: Allocator, full: *const ast_index.Index, ) Allocator.Error!ast_index.Index
 src/scope.zig::invalidatedBy | fn invalidatedBy(paths: []const []const u8) bool

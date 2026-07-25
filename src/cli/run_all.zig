@@ -717,6 +717,15 @@ fn indexFor(ctx: *const types.RunCtx, check_scope: types.CheckScope) ?*const ast
     return if (check_scope == .per_file) s.index else ctx.source_index;
 }
 
+/// The scope marker one check runs under. A `whole_tree` check read the entire
+/// tree even on a diff-scoped run, so from its own — and its baseline's — point
+/// of view the run was not scoped at all, and its metadata may be reconciled
+/// normally. A `per_file` check inherits the run's scope, which is what makes
+/// its baseline report-or-fail instead of prunable (see baseline.zig).
+fn scopedFor(ctx: *const types.RunCtx, check_scope: types.CheckScope) ?types.ScopedRun {
+    return if (check_scope == .per_file) ctx.scoped else null;
+}
+
 /// True when this run covered only part of the suite or only part of the tree
 /// — a `--only`/`--skip` filter, or a diff-scoped pass. A partial run must
 /// never stamp the green cache (a later whole-tree run would then skip on it)
@@ -735,8 +744,11 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
 
     var wctx = base.*;
     wctx.allocator = a;
-    // Diff scoping is applied here and nowhere else (see `indexFor`).
+    // Diff scoping is applied here and nowhere else (see `indexFor`). The
+    // scope marker is narrowed the same way, so a whole-tree check — which
+    // really did read everything — and its baseline never see a partial view.
     wctx.source_index = indexFor(base, cmd.scope);
+    wctx.scoped = scopedFor(base, cmd.scope);
 
     var res: CheckResult = .{ .ran = true };
     const mode = base.cfg.policy.modeFor(cmd.name);

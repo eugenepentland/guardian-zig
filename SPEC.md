@@ -501,6 +501,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Classifies every cross-file and tree-wide check as whole-tree
 - Hands the narrowed index only to per-file checks
 - Treats a diff-scoped run as partial so it never stamps the green cache
+- Reports a partial view's baseline shrink as a match instead of resolved work
+- Reports a partial view's ratchet improvement as a match instead of progress
+- Refuses every metadata write for a check that read only part of the tree
 
 ## Change Classification
 
