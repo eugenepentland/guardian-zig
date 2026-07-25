@@ -62,6 +62,10 @@ pub const RunCtx = struct {
     intent: ?[]const u8 = null,
     /// Machine-readable maintenance-command output.
     json: bool = false,
+    /// `--args`: the read-only `test-filter` report also writes its derived
+    /// argument string to stdout, so a caller can interpolate it into its own
+    /// command. The report's caveats still go to stderr; no gate reads it.
+    args_only: bool = false,
     /// Explicit refresh set supplied by the `accept` command. Environment-based
     /// GUARDIAN_UPDATE_SNAPSHOT remains supported for backwards compatibility.
     refresh: []const []const u8 = &.{},

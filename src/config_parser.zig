@@ -136,6 +136,7 @@ const Section = enum {
     policy,
     doctor,
     gate,
+    test_filter,
     unknown,
 };
 
@@ -531,6 +532,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .doctor => .unsigned,
         // on_build / test_command are strings; install_hook is a bool.
         .gate => if (key[0] == 'i') .boolean else .string,
+        .test_filter => .string,
         .unknown => .string_array,
     };
 }
@@ -676,6 +678,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
         .doctor => &.{ "zig_cache_warn_mib", "guardian_cache_warn_mib" },
         .gate => &.{ on_build_key, "test_command", "install_hook" },
+        .test_filter => &.{"flag"},
         .unknown => &.{},
     };
 }
@@ -721,8 +724,15 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
         .doctor => config_policy.applyDoctor(ctx.cfg, kv.key, kv.val),
         .gate => applyGateKey(ctx, kv),
+        .test_filter => applyTestFilterKey(ctx, kv),
         .unknown => {},
     }
+}
+
+/// Applies the one `[test_filter]` key, `flag`: the compiler flag prefix the
+/// read-only `test-filter` report emits before each derived test name.
+fn applyTestFilterKey(ctx: ApplyCtx, kv: KeyVal) void {
+    if (parseString(kv.val)) |v| ctx.cfg.test_filter.flag = v;
 }
 
 /// Applies one `[gate]` key: `on_build` (report/block — already value-checked),
@@ -770,6 +780,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "policy", Section.policy },
         .{ "doctor", Section.doctor },
         .{ "gate", Section.gate },
+        .{ "test_filter", Section.test_filter },
     };
     inline for (map) |entry| {
         if (std.mem.eql(u8, name, entry[0])) return entry[1];
@@ -1085,6 +1096,25 @@ test "parse gate section on_build test_command and install_hook" {
 
     // An unknown on_build value fails closed with a located diagnostic.
     try std.testing.expectError(error.InvalidValue, parse(arena.allocator(), "[gate]\non_build = \"warn\"\n"));
+}
+
+// spec: Configuration - Parses the test_filter flag spelling
+
+test "parse test_filter flag defaults to the zig spelling and is overridable" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqualStrings("-Dtest-filter=", defaults.test_filter.flag);
+
+    const cfg = try parse(arena.allocator(),
+        \\[test_filter]
+        \\flag = "--filter="
+    );
+    try std.testing.expectEqualStrings("--filter=", cfg.test_filter.flag);
+    // The flag lives in its own section and never touches the gate's suite.
+    try std.testing.expectEqualStrings("zig build test", cfg.gate.test_command);
+    // A typo in the section is a hard failure, not a silently ignored setting.
+    try std.testing.expectError(error.UnknownKey, parse(arena.allocator(), "[test_filter]\nflags = \"-x\"\n"));
 }
 
 test "parse rejects an unknown policy profile and empty external command" {

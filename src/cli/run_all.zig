@@ -214,13 +214,8 @@ fn prepareSources(
         .gate = ctx.gate,
         .writes_metadata = writes_metadata,
     });
-    const plan: ?scope.Plan = switch (decision) {
-        .scoped => |p| p,
-        .whole_tree => |reason| blk: {
-            reporter.ok("run-all: whole-tree run — {s}", .{reason});
-            break :blk null;
-        },
-    };
+    if (decision.wholeTree()) |reason| reporter.ok("run-all: whole-tree run — {s}", .{reason});
+    const plan: ?scope.Plan = decision.plan();
     if (!anyNeedsAst(ctx) and plan == null) return;
     index.* = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
     ctx.source_index = index;
