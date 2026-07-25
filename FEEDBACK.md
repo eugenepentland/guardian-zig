@@ -734,3 +734,39 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 - **bug:** `[gate] test_command = "zig build test-fast"` let a tree land on this branch whose FULL test suite did not compile. Commit adc33a3 added a `zones` parameter to `pcb_describe.restoredConnectivity` and updated the production call sites but not the one in its own tagged test; `zig build test` then failed with "expected 4 argument(s), found 3". The smoke tier never caught it because its 8 hardcoded filters exclude that test, so the broken call was never semantically analyzed. Two commits (adc33a3, a0e06da) were committed green on top of an uncompilable suite. Suggestion: the commit gate should include a compile-only check of the full test binary (`zig build test -Dtest-filter=<no-match>` costs the compile but ~0 run time) — that would have caught this at 0 extra test-runtime cost. This is a gate-design gap, not a Guardian defect, but Guardian is what reported green.
 - **good:** `guardian-check commit` was frictionless on this change: `run-all: 67 check(s) passed`, `gate 41.7s · tests 0.8s`, 3 paths staged. No ratchet fired for a build-script option, and correctly no SPEC bullet was demanded — `build.zig` is outside the spec check's scope, which is right, since a build-system option cannot have a `// spec:`-tagged test inside the test binary.
 - **friction:** Unchanged from the last three entries: the green run still prints its report-only findings labeled `FAILED` (line-length, repeated-string-literal, optional-density, repeated-switch-on-enum) before `run-all: 67 check(s) passed`. I again piped through `grep -E "run-all|would block"` to learn whether anything blocked, and that grep matched nothing on a *failing* build — the compile error surfaced only when I read the raw log. A grep-able blocking-verdict line that is present on failure too would make the recommended one-liner reliable.
+
+## 2026-07-25 · Claude · eda — finish + verify a gap-closing maze router (close_open_nets)
+- **friction:** `[gate] test_command = "zig build test-fast"` means `guardian-check commit`
+  goes green while the *real* suite would not even compile. I inherited two commits that
+  had shipped that way. `zig build test -Dtest-filter=<nonmatching>` is the cheap
+  "does the suite build" probe (pays the compile, ~0 runtime) — worth documenting in
+  `explain commit`, or better, having `commit` warn when `test_command` is a filtered tier.
+- **friction:** adding one small helper to `src/infra/log.zig` (an `info`/`progress` level
+  next to the existing `warn`) tripped three checks in a row, one build each: `naming`
+  ("info" is a vague name), `anytype-budget` (3 anytype params, limit 2 — `warn`,
+  `info`, and the shared `emit` helper), and then `debug-print-ban` on the interim
+  `std.debug.print`. The anytype one is the awkward one: factoring two `comptime fmt,
+  args: anytype` entry points onto a shared implementation is *good* style, but the
+  budget counts the helper too, so the fix was to push the `std.fmt.bufPrint` call into
+  each entry point and give the helper the *result* instead. That's a fine outcome, but
+  it took a build to discover. A hint in `explain anytype-budget` ("a formatting helper
+  can take the BufPrintError result rather than fmt+args") would have saved it.
+- **friction:** `catch-discipline` and `unsafe-ops-budget` both fired on *test-only* code
+  (`catch {}` in a test sink that cannot return an error, and `[8]T = undefined` as a
+  fixed-capacity test buffer). Both are legitimate signals, but the fix cost two builds
+  because they surfaced one at a time — the run reports all failures, but I only noticed
+  the second after fixing the first, since `.guardian/cache/last-run.jsonl` is the only
+  place with file:line and I had to go look for it. Making the terminal summary print
+  file:line for the small checks would remove that round trip.
+- **good:** `.guardian/cache/last-run.jsonl` is genuinely the best part of the loop —
+  `run-all: N/67 failed (names)` on stderr plus machine-readable file:line detail meant
+  every failure was a one-command lookup.
+- **good:** `guardian-check commit --intent` behaved exactly as advertised across three
+  commits: gated the working tree, staged only the touched paths, carried `.guardian/`
+  and SPEC.md along, and never swept unrelated files. The pub-api-surface diff
+  ("13 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept") is a
+  genuinely good ratchet message: it told me the delta was safe without me reading it.
+- **wish:** a `--only`/`--skip` on `guardian-check commit` (it exists on the Gleam
+  guardian). On a router change I re-ran the full 67-check gate ~10 times at ~43 s each;
+  being able to say "just re-check the ones that failed last time" during an edit loop,
+  with the full suite still enforced at commit, would have saved several minutes.
