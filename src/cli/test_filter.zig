@@ -69,8 +69,8 @@ fn reportUnscoped(ctx: *types.RunCtx, reason: []const u8) types.RunError!void {
     if (ctx.args_only) try writeArgs("");
 }
 
-/// Prints the human report: the derived names, the ready-to-paste arguments,
-/// and every reason the filtered run is not the suite. The caveats are printed
+/// Prints the human report: a preview of the derived names, the exact command
+/// that runs them, and every reason that run is not the suite. The caveats print
 /// unconditionally — including in `--args` mode, where they go to stderr while
 /// the arguments go to stdout — so a filtered green can't be read as a suite
 /// green.
