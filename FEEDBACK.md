@@ -30,10 +30,45 @@ changes; the entries themselves are the triage backlog.
 - **bug:** <behavior that looks wrong, with repro if cheap>
 - **good:** <what worked well / caught a real mistake>
 - **wish:** <feature or change that would have helped>
+- **prototyping:** <a change that would make exploratory work faster WITHOUT
+  weakening what ships — say which half of the boundary it moves>
 ```
 
 Use only the bullet kinds you have something to say about. Multiple bullets of
 the same kind are fine.
+
+### On the `prototyping:` bullet
+
+Guardian's guarantees currently attach to **code that exists in the tree**, not
+to **code that ships**. Every line therefore pays full authoring tax the moment
+it compiles — spec bullets, API snapshots, shape ratchets — whether it is headed
+for production or the bin. That cost is invisible in a normal review-a-diff
+session and brutal in an exploratory one, where most of what you write is meant
+to be thrown away.
+
+It is worth logging because it has a measurable failure mode: agents leave the
+repo. When exploring a new algorithm costs a 40 s whole-tree gate and a
+multi-minute test cycle per iteration, the rational move is to prototype in
+Python against the HTTP/MCP surface — and then the capability never lands in the
+product at all. That has happened here at least once.
+
+So when you log one of these, be specific about **which half of the boundary you
+are moving**:
+
+- *Cheaper iteration, same guarantee* — diff-scoped local runs, test filters,
+  incremental caches. These are pure wins; the merge/CI boundary is untouched.
+- *Deferred obligation* — WIP spec bullets, auto-accepted ratchets on a branch.
+  The tax still gets paid, just at merge instead of at every save. Say what
+  enforces it at the boundary, or it is not deferral, it is a hole.
+- *Scoped exemption* — an `experimental`/prototype area excluded from the
+  authoring checks. Only safe with a hard, enforced rule that production cannot
+  import it, plus visibility so prototypes cannot quietly become permanent.
+  Note that this only helps NEW leaf code; it does nothing for iterating on an
+  existing production file, which is where most work actually happens.
+
+A suggestion that speeds up prototyping by weakening what reaches `main` is not
+useful here — say plainly how robustness is preserved at the boundary, or log it
+as a `wish:` instead.
 
 ---
 
@@ -770,3 +805,12 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   guardian). On a router change I re-ran the full 67-check gate ~10 times at ~43 s each;
   being able to say "just re-check the ones that failed last time" during an edit loop,
   with the full suite still enforced at commit, would have saved several minutes.
+
+## 2026-07-25 · claude · eda + guardian-zig — prototyping cost drove work out of the repo
+
+- **friction (the motivating case):** I needed a new maze-routing algorithm for eda's autorouter. I wrote it in Python against the MCP/HTTP surface instead of in Zig, and it worked — but the capability then lived in a throwaway script rather than the product. Reconstructing it in Zig afterwards cost multiple agent sessions and still landed short. The deciding factor was per-iteration cost, not language: a whole-tree gate on every `zig build` plus a full test suite with no way to run one test. Measured on eda: **41.97 s gate + 208 s cold / 9.5 s warm test cycle**, against an inner loop of "change one function, check one test". ~50 s of dead time per iteration, over dozens of iterations.
+- **prototyping (cheaper iteration, same guarantee):** diff-scoped local runs. `--against` already existed but was not the default. Defaulting local `zig build` to `merge-base HEAD main` and keeping `--full`/`commit`/CI whole-tree measured **41.97 s → 16.69 s (2.5x)** on eda's real tree. The classification is the whole job: ~50 checks are per-file and scope safely, but ~17 are inherently whole-tree (spec coverage, import graph, cross-file duplicate consts, unused-pub scanning, reachability, API snapshot) and MUST keep reading everything or they become unsound. Make the scope a required field on the check descriptor with no default, so a newly added check cannot silently inherit "per-file". Also: never prune or rewrite a baseline/ratchet from a partial view — a partial view cannot distinguish a *resolved* violation from an *unread* one.
+- **prototyping (cheaper iteration, same guarantee):** a test-name filter. Zig's `.filters` is compile-time, so this has to live in the consuming project's `build.zig` — Guardian only shells out to `test_command` and cannot inject it. Worth documenting as a recommended integration, since Guardian's own `build.zig` already does it for itself. Measured on eda: **9.5 s → 0.2 s warm, 208 s → 10 s cold**, because the filter reaches the compiler so non-matching tests are never analyzed.
+- **prototyping (scoped exemption — proposal, NOT implemented):** an `[experimental] paths = [...]` area exempt from the authoring-tax checks (spec bullets, pub-api snapshot, shape/complexity ratchets) but NOT from the safety checks (panic budget, allocation discipline, ban-secrets, error discipline). Robustness at the boundary comes from a hard, enforced rule that **no production file may import it** — the import-boundary and root-reachability machinery already exists — plus listing its contents and age in `debt` so prototypes cannot quietly become permanent. Graduation is the moment the tax is paid: move the file out and every deferred check fires at once. Honest limitation: this only helps NEW leaf code. It does nothing for iterating on an existing production file, which is where most real work happens — so it is strictly the smaller half of the problem, and the diff-scoping and test-filter items above are the broadly useful ones.
+- **bug (found by the above, and the reason this matters):** eda's `[gate] test_command = "zig build test-fast"` compiles only its 8 hardcoded filters, so it never type-checks the rest of the test binary. **Two commits shipped green on a suite that would not compile** — a call site was updated in production code but not in its own test, and `guardian-check commit` passed twice. A gate that cannot see a build error inside a test is not a gate. The justification for the fast tier had also gone stale (the 1923 s figure measured a Debug binary; the suite has since defaulted to ReleaseSafe and is 9.5 s warm). Worth surfacing generally: if `test_command` is narrower than the project's real suite, Guardian should say so, or `doctor` should flag when it cannot observe a full compile.
+- **good:** `cognitive-complexity` fired on a one-line addition and the fix it forced — moving a predicate into the callee as an early return — was genuinely the better code. `pub-api-surface` twice caught a *changed signature* buried among additions, which is exactly the thing that is easy to miss in a large diff and trivial to verify in a five-line list.
