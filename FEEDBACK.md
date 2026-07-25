@@ -814,3 +814,34 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 - **prototyping (scoped exemption — proposal, NOT implemented):** an `[experimental] paths = [...]` area exempt from the authoring-tax checks (spec bullets, pub-api snapshot, shape/complexity ratchets) but NOT from the safety checks (panic budget, allocation discipline, ban-secrets, error discipline). Robustness at the boundary comes from a hard, enforced rule that **no production file may import it** — the import-boundary and root-reachability machinery already exists — plus listing its contents and age in `debt` so prototypes cannot quietly become permanent. Graduation is the moment the tax is paid: move the file out and every deferred check fires at once. Honest limitation: this only helps NEW leaf code. It does nothing for iterating on an existing production file, which is where most real work happens — so it is strictly the smaller half of the problem, and the diff-scoping and test-filter items above are the broadly useful ones.
 - **bug (found by the above, and the reason this matters):** eda's `[gate] test_command = "zig build test-fast"` compiles only its 8 hardcoded filters, so it never type-checks the rest of the test binary. **Two commits shipped green on a suite that would not compile** — a call site was updated in production code but not in its own test, and `guardian-check commit` passed twice. A gate that cannot see a build error inside a test is not a gate. The justification for the fast tier had also gone stale (the 1923 s figure measured a Debug binary; the suite has since defaulted to ReleaseSafe and is 9.5 s warm). Worth surfacing generally: if `test_command` is narrower than the project's real suite, Guardian should say so, or `doctor` should flag when it cannot observe a full compile.
 - **good:** `cognitive-complexity` fired on a one-line addition and the fix it forced — moving a predicate into the callee as an early return — was genuinely the better code. `pub-api-surface` twice caught a *changed signature* buried among additions, which is exactly the thing that is easy to miss in a large diff and trivial to verify in a five-line list.
+
+## 2026-07-25 · claude · eda — gap-router obstacle model + per-hop cost
+
+- **good:** the full-suite commit gate (`guardian-check commit --intent`) did exactly its
+  job on a router change: 67 checks in ~43 s plus `zig build test` in ~207 s, twice, both
+  green, staging only the touched paths with `.guardian/` and SPEC.md carried along. On a
+  change that alters obstacle geometry inside a maze router, "your new tests compile and
+  the other 1400 still pass" is the whole value proposition, and it delivered it.
+- **good:** `-Dtest-filter` (added in this repo's `build.zig`) was the difference between
+  a usable and an unusable inner loop — a new test went from a ~210 s cold suite to a few
+  seconds. I used it maybe fifteen times while iterating on a fixture's geometry.
+- **friction:** `function-size` fired on a 7-parameter helper I had just written
+  (`exactItemClears`) and the terminal summary named only the check, not the offender; I
+  had to open `.guardian/cache/last-run.jsonl` to learn which function and which metric.
+  The jsonl line was perfect once found ("7 params, a new offender at or above the cap"),
+  so this is purely about surfacing it in the summary line. Same round-trip cost as the
+  entry above me reported for `catch-discipline`.
+- **friction:** `ban-globals` / `ban-time` / `pub-api-surface` all fired together on
+  temporary measurement scaffolding (a handful of `pub var` counters and
+  `std.time.nanoTimestamp` accumulators used to profile a hot path). That is the gate
+  working as designed — I removed the scaffolding before committing — but it does mean
+  "instrument, measure, then strip" is the only supported profiling workflow, and there is
+  no way to keep the instrumentation on a branch while iterating. `perf` was unavailable on
+  this machine (kernel/tools version mismatch), so in-source counters were the only option.
+  A `[measurement] paths = [...]` or a `--skip ban-globals,ban-time` on non-commit local
+  builds would have let me keep the counters live across a dozen 10-minute benchmark runs
+  instead of rebuilding twice per measurement round.
+- **wish:** repeated here because it bit again — `--only`/`--skip` on local `zig build`.
+  A router benchmark cycle is "edit one function, rebuild, run a 10-minute board". I paid
+  the whole 67-check gate on every one of ~12 rebuilds where the only thing that could
+  have changed was one file's shape metrics.
