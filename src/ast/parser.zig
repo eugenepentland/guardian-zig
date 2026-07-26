@@ -37,6 +37,9 @@ pub const FnInfo = struct {
     /// that can usefully be bundled into an options struct.
     comptime_param_count: u32,
     return_kind: ReturnKind,
+    /// 1-indexed source line of the fn's name token, so a finding about this
+    /// function can be reported as `file:line` instead of file-only.
+    line: u32 = 0,
 };
 
 /// Coarse classification of a function's return type.
@@ -207,6 +210,7 @@ pub fn allFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const F
             .param_count = count,
             .comptime_param_count = comptime_count,
             .return_kind = classifyReturn(&tree, proto),
+            .line = @intCast(tree.tokenLocation(0, name_tok).line + 1),
         });
     }
     return result.toOwnedSlice(arena);

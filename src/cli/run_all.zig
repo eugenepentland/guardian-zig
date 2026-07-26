@@ -230,7 +230,12 @@ fn echoOffenders(ctx: *types.RunCtx, acc: *const Sink) void {
     for (acc.failed_checks.items) |name| {
         const v = firstRecordFor(acc.records.items, name) orelse continue;
         const line = reporter.flatLine(ctx.allocator, v) catch continue;
-        reporter.detail("  {s}: {s}\n", .{ name, line });
+        // A scraped baseline detail line already opens with the check name;
+        // printing the prefix again would just read as a stutter.
+        if (std.mem.startsWith(u8, line, name))
+            reporter.detail("  {s}\n", .{line})
+        else
+            reporter.detail("  {s}: {s}\n", .{ name, line });
     }
 }
 

@@ -122,6 +122,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Caps parameter count per function
 - Excludes comptime specialization parameters from the runtime parameter cap
+- Reports the offending function's source line with the file
 
 ## Doc Comments
 
