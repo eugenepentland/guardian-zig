@@ -523,6 +523,77 @@ Run duration is guardian's one legitimate wall-clock read — the sink module
 carries a `ban-time` `[[allow]]` for `std.time.Timer` that does **not** propagate
 to consumers.
 
+## Benchmark ledger (`bench`)
+
+Agents measure expensive things — a full-board route, a suite wall clock, a
+mutation kill score — and then the number survives only in a chat report. The
+next agent re-measures it, or re-runs an experiment already known to have
+failed. The ledger is where a measurement lands instead:
+
+```bash
+guardian-check bench set close_open_nets_wall_s 531 --unit s --dir min \
+  --note "fixture B, 87/90 nets, DRC 11/8" .
+guardian-check bench set terminal_via_default_smd_cost_nets -1 --dir info \
+  --note "defaulting smd_ok: 87->86 on fixture B, DRC held 11/8" .
+guardian-check bench list .
+guardian-check bench rm close_open_nets_wall_s .
+```
+
+Storage is one plain, sorted, diff-friendly line per metric in
+**`.guardian/benchmarks.txt`** — the same `# guardian-snapshot v<N>` format as
+the other ratchets:
+
+```
+# guardian-snapshot v1
+close_open_nets_wall_s 531 s min a3c81cd… 2026-07-25 fixture B, 87/90 nets, DRC 11/8
+terminal_via_default_smd_cost_nets -1 - info a3c81cd… 2026-07-25 defaulting smd_ok: 87->86 on fixture B
+```
+
+`<name> <value> <unit> <direction> <commit> <date> <note…>`; `-` is the
+placeholder for an omitted unit/commit/date, and re-recording a metric REPLACES
+its line (history is git's job). Values must be finite; names/units are single
+printable words; a note is one line.
+
+**Guardian never runs a benchmark.** It records what an agent measured and
+prints it back — one compact line per metric at the start of every `all` run,
+including the `--quiet` build-wired run and a cache-skipped one:
+
+```
+guardian: bench close_open_nets_wall_s = 531 s (min, @a3c81cd 2026-07-25: "fixture B, 87/90 nets, DRC 11/8")
+guardian: bench terminal_via_default_smd_cost_nets = -1 (info, @a3c81cd 2026-07-25: "defaulting smd_ok: 87->86 on fixture B")
+```
+
+- **`--dir min|max|info`** — lower is better / higher is better / no direction.
+  `info` is the *negative-result* case: "relaxing the gap router's terminal
+  via-ban cost a net" is a fact worth keeping next to the code, not a target.
+  Omitting `--dir` records an `info` metric.
+- **Report-only by default.** Nothing in the ledger can fail a gate; a corrupt
+  ledger is reported and stepped over, never rewritten.
+- **Opt-in per-metric ratchet.** Name a metric in `[benchmark] gate` and it may
+  only improve or hold when re-recorded — the mutation-score ratchet's
+  philosophy, applied to whatever an agent chose to measure:
+
+```toml
+[benchmark]
+gate = ["kill_score"]     # empty by default: nothing is gated
+```
+
+```
+$ guardian-check bench set kill_score 70 --unit % --dir max --note "after the rewrite" .
+guardian: bench set REFUSED: kill_score regresses the gated ratchet
+  recorded: bench kill_score = 81 % (max, @a531f4a6 2026-07-26: "full cohort, 100 mutants")
+  proposed: bench kill_score = 70 % (max, @a531f4a6 2026-07-26: "after the rewrite")
+  fix: improve the number, or accept it deliberately with --force --note "<why>".
+```
+
+`--force` accepts the regression, and it *requires* a non-empty `--note`
+explaining what was accepted — so the trade is recorded in the ledger rather
+than argued in a lost transcript.
+
+The recorded date is guardian's second legitimate wall-clock read (after the
+DORA sink): `src/cli/bench.zig` carries a repo-local `ban-time` `[[allow]]`
+that does **not** propagate to consumers.
+
 ## Adopting Guardian on an existing codebase
 
 Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — every check records its current violations on the first run and only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.
@@ -860,6 +931,7 @@ commas.
 | `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `fast_max_mutants`, `smoke_step`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_retry_multiplier`, `timeout_secs`, `retained_cache_suites` |
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
+| `[benchmark]` | `gate` (metric names opted into the ledger ratchet) |
 | `[fuzz_presence]` | `modules` |
 | `[int_from_float]` | `guard_fns`, `require_guard` |
 
@@ -912,6 +984,9 @@ guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry ru
 guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
 guardian-check doctor .              # Read-only metadata/integration health audit
 guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
+guardian-check bench set route_wall_s 531 --unit s --dir min --note "87/90 nets, fixture B" .
+guardian-check bench list .          # Print the benchmark ledger
+guardian-check bench rm route_wall_s .  # Drop one recorded metric
 zig build guardian-accept -Dguardian-checks=spec,file-size # Preferred named metadata acceptance
 guardian-check accept spec,file-size . # Raw-binary fallback for the same workflow
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
