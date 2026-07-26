@@ -988,3 +988,51 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 - **friction:** A filtered `zig build test` cannot be verified against the consuming project without editing that project's `build.zig`, because `-Dtest-filter` is a per-project convention, not a Zig built-in: eda wires `.filters` only for its hardcoded `test-fast` list, so it has no such option at all. I had to `git archive` eda into a scratch tree and patch its build script to measure anything. Guardian now defaults `[test_filter] flag = "-Dtest-filter="`, but the honest state of the world is that most projects must *add* the option before the report is usable — worth a line in the report itself, or a `doctor` note.
 - **bug (documentation-level, cost a wasted run):** the obvious pipeline `zig build test $(guardian-check test-filter . --args)` is **wrong** and fails loudly but confusingly: command substitution word-splits without processing quotes, so the test name `parseArgs reads --against ref and --full ...` reached the build as a bare `--against` and it died with `unrecognized argument: '--against'`. `eval "zig build test $(...)"` is correct, and is only safe because the emitted names are POSIX single-quoted. Any guardian output meant for interpolation should say `eval` at the point of use — I now print the exact `run:` line in the report.
 - **wish:** This closes the previous eda entry's `-Dtest-filter` wish, but only for the local loop, and deliberately: a filtered build does not type-check the tests it skipped, so a green filtered run does not prove the test binary compiles. I verified that hazard twice (eda: filtered `59/59 passed`, exit 0, while `zig build test` on the same tree died with `png.zig:222:20: error: expected type 'u32'`; guardian: filtered `3/3 passed` while `guardian-check commit` correctly refused with the same class of error from `text.zig`). What would make the filtered loop genuinely safe is a cheap *compile-only* whole-suite check — `zig build test -fno-emit-bin`-shaped, analyze everything, run nothing — as a middle tier between the filtered run and the gate. That, not a narrower gate, is the thing worth building next.
+
+## 2026-07-26 · Claude Opus 5 (orchestrator) · guardian-zig + eda — Tier-1/Tier-2 prototyping-speed wave: 6 branches merged
+
+- **bug:** **The installed `guardian-check` in `zig-out/bin` was a 55 MB Debug build, and that
+  single fact was the entire "slow gate".** Every `guardian-check commit` in eda reported
+  `gate 41.7s`; the same 67-check suite over the same 234-file tree with a ReleaseSafe build
+  is **1.1 s** (0.16 s cache-skipped). Three separate FEEDBACK entries (2026-07-23 → 07-25)
+  filed the 40 s gate as a *design* problem and asked for `--only`/`--skip` on local builds
+  to escape it; the real cause was a build-mode accident that any plain `zig build` in this
+  repo reproduced. Fixed at the root: `build.zig` now defaults the INSTALLED binary to
+  ReleaseSafe when no `-Doptimize` is passed (explicit `-Doptimize=Debug` still wins, tests
+  keep the fast Debug default), plus a CLAUDE.md note telling the next reader to check the
+  binary's size (ReleaseSafe ~10 MB vs Debug ~55 MB) if a consumer's gate ever reports tens
+  of seconds. Worth generalizing: a tool whose whole value proposition is "invisible, runs
+  on every build" should probably refuse to be *installed* unoptimized, or at least warn.
+- **good:** the diff-scoped gate landed, but the honest measurement is that it now saves
+  ~0.43 s of a 1.1 s ReleaseSafe run — not the 25 s its own SPEC/README claim, which was
+  measured with the Debug binary above. The feature is still right (it announces "NOT a
+  whole-tree verification" and `--gate`/`commit` force whole tree), but **its documented
+  numbers are ~40x optimistic and should be re-measured before anyone cites them.**
+- **good:** the `[measurement]` bridge's mandatory end-to-end demo caught a real hole in its
+  own first implementation: the exempted local run wrote the green skip-cache stamp, and the
+  commit gate then skipped the whole suite on the matching digest — smuggling the exemption
+  through the boundary it exists to protect. Requiring "show me the local pass AND the commit
+  refusal" as an acceptance criterion is what surfaced it; a unit test alone would not have.
+- **friction:** merging four independently-developed branches into one tree produced 12
+  conflict hunks, and **five of them were the same failure mode**: two branches each appended
+  a function at the same place, so the conflict region ended at a `}` that both sides shared —
+  taking "both" yields a body with no closing brace and a `expected statement, found 'a
+  document comment'` error pointing at the *next* function. Mechanical to fix once recognized,
+  but it cost four build cycles to learn the pattern. A merge-oriented note in the docs
+  ("append new helpers at distinct anchors; a shared trailing brace is the classic conflict")
+  would help, as would guardian's own `formatting` check now running first — it flags the
+  broken file in 0.05 s instead of after a full compile.
+- **friction:** `guardian-check commit` refused with `git add failed — nothing committed`
+  when a path was staged as a deletion (`D `) whose file was already gone from disk: the
+  commit path re-`git add`s its computed path list, and `git add <deleted-path>` is
+  `fatal: pathspec ... did not match any files`. Workaround was to unstage the deletion and
+  let the tool discover it as an unstaged `D`. Deletions are a normal part of a change set —
+  the staging step should use `git add -A -- <paths>` (or `git rm --cached`) for paths that
+  no longer exist.
+- **wish:** repeating the earlier ask now that the 40 s red herring is gone — with the gate
+  at ~1 s, **the entire remaining commit cost is compiling the 1406-test binary** (~207 s cold
+  / ~10 s warm). Test *selection* can only save the ~10 s execution slice, so the lever that
+  matters is compilation granularity: N per-subsystem test binaries that cache independently,
+  so a leaf-file edit recompiles one of them instead of all. That is a consumer-side build.zig
+  change, not a Guardian feature — but a documented recipe (and maybe a `doctor` note when a
+  project's test step is one monolithic binary) would push people toward it.
