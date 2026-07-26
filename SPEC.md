@@ -454,6 +454,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Refuses a deny_growth refresh that raises a value or adds a key
 - Summarizes a ratchet file's worst offender
 - Presents file and type growth as volume with accept-first guidance
+- Notes that a grown ratchet item was already sitting at its frozen cap
 - Names each threshold check's metric unit for regression messages
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings

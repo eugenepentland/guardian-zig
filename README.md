@@ -662,6 +662,35 @@ check off. The three advisory size checks expose separate recommended and hard
 limits; keep the recommendation useful for guidance and move the hard limit
 only when a project has a legitimate extreme case.
 
+### Extracting a module?
+
+Splitting a file — usually to get it back under the `file-size` ratchet — reliably
+trips three *other* checks at once, because moving code duplicates the small
+things that came with it. Each finding is individually right, but they turn a
+one-step move into a three-check cleanup. Do these three up front and extraction
+stays a single build:
+
+1. **`repeated-string-literal` — share the consts, don't copy them.** The arg
+   keys / table names / type tags the moved code used are now spelled in two
+   files. Put them in **one** module (the extracted file, or a small shared
+   `keys.zig`) and have the other side `@import` it. A `const` per literal in
+   each file is what the check exists to stop; a single owner is the fix.
+2. **`repeated-switch-on-enum` — move the switch onto the type, don't duplicate
+   it.** A `switch` over the same prong set in two files (the classic case: a
+   JSON-coercion `switch (value) { .float, .integer, else }` in both halves)
+   fails even when each copy is small. Give the enum — or the module that owns
+   it — one method (`fn asF32(self: Value) ?f32`) and call it from both sides.
+   That is nearly always the better API, not a workaround.
+3. **`deprecated-alias` — write the current idiom in the new file.** Fresh code
+   copied from an older file carries older spellings: use `.empty` rather than
+   `std.ArrayListUnmanaged{}`, `std.ArrayList` rather than the `Unmanaged`
+   alias. `guardian-check explain deprecated-alias` lists the pairs.
+
+Two things that are *not* your problem: the extracted file inherits nothing from
+the original's ratchets (its shape metrics are measured fresh), and neither half
+needs a baseline refresh if you land the extraction and these three fixes in one
+commit.
+
 ## Config (guardian.toml)
 
 Optional — sensible defaults work out of the box. Each check has its own section:
