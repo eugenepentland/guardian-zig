@@ -333,6 +333,16 @@ pub const DoraCfg = struct {
     sink_path: []const u8 = ".guardian/cache/dora.jsonl",
 };
 
+/// Config for the benchmark ledger (`.guardian/benchmarks.txt`; see
+/// benchmark.zig). The ledger itself is always report-only — every gate run
+/// prints what agents recorded. `gate` opts INDIVIDUAL metrics into a
+/// mutation-ratchet-style ceiling: a listed metric may only improve or hold
+/// when re-recorded, and `bench set` refuses a regression without an explained
+/// `--force`. Empty by default: nothing is gated until a project names a metric.
+pub const BenchmarkCfg = struct {
+    gate: []const []const u8 = &.{},
+};
+
 /// Config for the `mutate` command (an explicit step, never part of `all` —
 /// each mutant costs a full build + test cycle; see cli/mutate.zig).
 pub const MutationCfg = struct {
@@ -465,6 +475,7 @@ pub const Config = struct {
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},
+    benchmark: BenchmarkCfg = .{},
     completeness: CompletenessCfg = .{},
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},

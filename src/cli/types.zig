@@ -10,6 +10,7 @@ const walk = @import("../walk.zig");
 const snapshot = @import("../snapshot.zig");
 const git = @import("../git.zig");
 const mutation_runner = @import("../mutation/runner.zig");
+const benchmark = @import("../benchmark.zig");
 
 /// Errors any registered command's `run` function may propagate. Every command
 /// shares this one function-pointer type, so the set is the union of what they
@@ -85,6 +86,9 @@ pub const RunCtx = struct {
     /// stale check-owned files without importing registry.zig (which imports
     /// those commands).
     command_exists: ?*const fn ([]const u8) bool = null,
+    /// Parsed argv for the `bench` command (subcommand, metric name/value, and
+    /// its flags). Empty for every other command.
+    bench: benchmark.Args = .{},
 
     /// True when the explicit `accept` refresh set contains `check_name`.
     pub fn refreshes(self: RunCtx, check_name: []const u8) bool {

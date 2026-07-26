@@ -60,6 +60,33 @@ src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []c
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/baseline.zig::version value
+src/benchmark.zig::Args struct_
+src/benchmark.zig::Direction enum_
+src/benchmark.zig::Record struct_
+src/benchmark.zig::empty_field value
+src/benchmark.zig::find | fn find(records: []const Record, name: []const u8) ?Record
+src/benchmark.zig::format_version value
+src/benchmark.zig::gated | fn gated(gate_list: []const []const u8, name: []const u8) bool
+src/benchmark.zig::isoDate | fn isoDate(buf: *[iso_date_buf_len]u8, epoch_secs: u64) []const u8
+src/benchmark.zig::iso_date_buf_len value
+src/benchmark.zig::leaf value
+src/benchmark.zig::parseDirection | fn parseDirection(text: []const u8) ?Direction
+src/benchmark.zig::parseLine | fn parseLine(line: []const u8) ?Record
+src/benchmark.zig::parseValue | fn parseValue(text: []const u8) ?f64
+src/benchmark.zig::read | fn read(arena: Allocator, path: []const u8) snapshot.ReadError![]const Record
+src/benchmark.zig::regresses | fn regresses(direction: Direction, old_value: f64, new_value: f64) bool
+src/benchmark.zig::renderLine | fn renderLine(arena: Allocator, rec: Record) Allocator.Error![]const u8
+src/benchmark.zig::shortCommit | fn shortCommit(hash: []const u8) []const u8
+src/benchmark.zig::sub_list value
+src/benchmark.zig::sub_rm value
+src/benchmark.zig::sub_set value
+src/benchmark.zig::summaryLine | fn summaryLine(arena: Allocator, rec: Record) Allocator.Error![]const u8
+src/benchmark.zig::takePositional | fn takePositional(self: *Args, arg: []const u8) bool
+src/benchmark.zig::upsert | fn upsert(arena: Allocator, records: []const Record, rec: Record) Allocator.Error![]const Record
+src/benchmark.zig::validNote | fn validNote(text: []const u8) bool
+src/benchmark.zig::validToken | fn validToken(text: []const u8) bool
+src/benchmark.zig::without | fn without(arena: Allocator, records: []const Record, name: []const u8) Allocator.Error!?[]const Record
+src/benchmark.zig::write | fn write(arena: Allocator, path: []const u8, records: []const Record) snapshot.WriteError!void
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
 src/build_helper.zig::all_check_names value
@@ -206,6 +233,9 @@ src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) regi
 src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/cli/accept.zig::command_name value
 src/cli/accept.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/bench.zig::command_name value
+src/cli/bench.zig::report | fn report(ctx: *types.RunCtx) Allocator.Error!void
+src/cli/bench.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/commit.zig::child_skip_env value
 src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
@@ -247,6 +277,7 @@ src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
 src/config.zig::BaselineCfg struct_
+src/config.zig::BenchmarkCfg struct_
 src/config.zig::BoolOpsCfg struct_
 src/config.zig::BoundaryRule struct_
 src/config.zig::ChangeClassificationCfg struct_

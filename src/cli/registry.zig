@@ -446,6 +446,7 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "doctor", .summary = "Audit Guardian metadata/integration health (read-only)" },
     .{ .name = "spec-sync", .summary = "Suggest missing SPEC.md bullets without editing files" },
     .{ .name = "accept", .summary = "Preview, accept, and verify named baseline/snapshot drift" },
+    .{ .name = "bench", .summary = "Record, list, or remove measured metrics in the benchmark ledger" },
     .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
 };
 
