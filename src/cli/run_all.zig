@@ -141,11 +141,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
         metadata_active = false;
-        // Stamp the POST-write tree so an unchanged next run can skip. Never for
-        // a filtered run — a partial suite must not claim the full suite green.
-        // A fully-green report-mode run is identical work to a green blocking
-        // run, so it stamps too.
-        if (!filtered) stampGreen(ctx);
+        // Stamp the POST-write tree so an unchanged next run can skip.
+        if (stampsGreen(filtered, acc.measured.items.len)) stampGreen(ctx);
         return;
     }
 
@@ -190,6 +187,19 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     reporter.detail("{s}", .{stale_artifact_caution});
     binaryDriftHint(ctx, acc.failed_checks.items);
     return error.CheckFailed;
+}
+
+/// Whether a green run may record the skip-cache stamp. A filtered
+/// (`--only`/`--skip`) run may not: a partial suite must not claim the full
+/// suite green. Neither may a run that DEFERRED a `[measurement]` finding — its
+/// green is conditional on an exemption the next run may not have, and the
+/// commit-time gate skips on a matching digest, so stamping would smuggle the
+/// exemption straight through the boundary it exists to respect. Not stamping
+/// costs one full re-run at commit and keeps the block airtight. (The DORA sink
+/// still records the run: an exempted local run IS a real local outcome, and
+/// that telemetry gates nothing.)
+fn stampsGreen(filtered: bool, deferred_count: usize) bool {
+    return !filtered and deferred_count == 0;
 }
 
 /// Prints the run-level `[measurement]` standing reminder when any finding was
@@ -825,6 +835,21 @@ test "shouldEmit gates captured output by quiet failure and warnings" {
 
 test "threadCount is at least one" {
     try std.testing.expect(threadCount() >= 1);
+}
+
+// spec: Measurement Mode - Withholds the green skip-cache stamp from a run with deferred findings
+
+test "stampsGreen refuses the stamp for a filtered or measurement-exempted run" {
+    // The ordinary case: a full, unexempted green run stamps so the next
+    // unchanged build can skip the suite.
+    try std.testing.expect(stampsGreen(false, 0));
+    // A partial suite never claims the full suite green.
+    try std.testing.expect(!stampsGreen(true, 0));
+    // A run whose green depended on a [measurement] exemption must not stamp:
+    // the commit gate skips on a matching digest, so a stamp here would carry
+    // the exemption through the boundary. One re-run at commit is the price.
+    try std.testing.expect(!stampsGreen(false, 1));
+    try std.testing.expect(!stampsGreen(true, 3));
 }
 
 // spec: Run All - Blocks the build only when forced or configured to block

@@ -470,6 +470,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the measurement paths list and rejects a wildcard entry
 - Passes an exempt finding locally and blocks the same finding at commit
 - Defers public-surface drift inside a measurement path
+- Withholds the green skip-cache stamp from a run with deferred findings
 
 ## Reporter
 

@@ -940,6 +940,11 @@ CI), **`nightly`**, and **any run that may write `.guardian/` metadata**
 exemption is **void**. The same findings block exactly as they do today, and no
 baseline or snapshot can ever be recorded from an exempted view.
 
+A local run that deferred anything also **withholds the green skip-cache stamp**,
+so the next gating run always re-executes the suite instead of skipping on a
+digest that was only green because of the exemption. The cost is one full run at
+commit; the benefit is that the boundary cannot be smuggled through the cache.
+
 ### What it defers, and what it never touches
 
 Only five checks are instrumentation-class, chosen because the thing each one
