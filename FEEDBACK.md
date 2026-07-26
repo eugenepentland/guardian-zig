@@ -1036,3 +1036,7 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   so a leaf-file edit recompiles one of them instead of all. That is a consumer-side build.zig
   change, not a Guardian feature — but a documented recipe (and maybe a `doctor` note when a
   project's test step is one monolithic binary) would push people toward it.
+
+## 2026-07-26 · codex · eda — standalone-subcircuit quality scorer and regression loop
+- **good:** The first focused `zig build test -Dtest-filter=...` surfaced eight task-scoped checks. `function-size`, `cognitive-complexity`, `allocator-hygiene`, `debug-print-ban`, and `type-size` directly drove useful refactors: placement inputs and scoring context were bundled, the 155-line arbiter and 175-line CLI main were split, route scratch stopped hardcoding a global allocator, diagnostics went through `infra/log.zig`, and the 14-field public score became three cohesive groups. A repeat reduced the set to only the reviewed file-size and additive public-API snapshots before the full 1400+ test gate.
+- **good:** `zig build guardian-accept -Dguardian-checks=file-size,pub-api-surface` previewed a whole-tree run, changed only the two named metadata files, then re-ran those checks green. That made accepting the intentional 10,195-line optimizer ratchet and one diagnostic API precise and auditable.
