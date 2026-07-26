@@ -126,12 +126,32 @@ pub const Capture = struct {
     }
 };
 
+/// The status verb a blocking check prints, and the one a policy-demoted
+/// (report-only) check prints instead. A demoted check's finding never fails
+/// the run, so printing FAILED made a green build read as broken to both an
+/// eyeball and the `grep FAILED` an agent naturally writes.
+const blocking_verb = "FAILED";
+const report_verb = "REPORT";
+
+/// Comptime rewrite of a status format string from the blocking verb to the
+/// report-only one, so every check keeps its single hand-written message and
+/// the demotion is applied at the one printing choke point. Only the verb
+/// changes: counts, names, and wording are untouched.
+fn demotedFmt(comptime fmt: []const u8) []const u8 {
+    const idx = std.mem.indexOf(u8, fmt, blocking_verb) orelse return fmt;
+    return fmt[0..idx] ++ report_verb ++ demotedFmt(fmt[idx + blocking_verb.len ..]);
+}
+
 /// Output controller — owns color, quiet, and (optional) capture state.
 pub const Reporter = struct {
     use_color: bool = false,
     quiet: bool = false,
     /// When non-null, all output is appended here and not printed.
     capture: ?*Capture = null,
+    /// True while a policy-demoted (report-only) check is running: its status
+    /// lines print `REPORT` instead of `FAILED`. Set by the runner around each
+    /// check, so no check has to know its own policy mode.
+    report_only: bool = false,
 
     /// Reports a passing check (green when colored, suppressed in quiet mode).
     pub fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void {
@@ -147,7 +167,16 @@ pub const Reporter = struct {
     }
 
     /// Reports a failing check (red when colored); always shown, even in quiet.
+    /// Under a policy-demoted check the blocking verb is swapped for the
+    /// report-only one, so a green run's output contains no FAILED at all.
     pub fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void {
+        if (self.report_only) return self.status(comptime demotedFmt(fmt), args);
+        self.status(fmt, args);
+    }
+
+    /// Writes one `guardian: ` status line through the capture or straight to
+    /// the terminal. The single rendering path both `fail` spellings share.
+    fn status(self: Reporter, comptime fmt: []const u8, args: anytype) void {
         if (self.capture) |c| {
             c.write(prefix ++ fmt ++ "\n", args);
             return;
@@ -350,6 +379,28 @@ test "flatLine matches the text emit writes for every render branch" {
     const batch = try flatLines(a, &cases);
     try std.testing.expectEqualStrings(want[0], batch[0]);
     try std.testing.expectEqual(cases.len, batch.len);
+}
+
+// spec: Reporter - Prints a report-only verb instead of FAILED for a policy-demoted check
+
+test "a demoted check's status line says REPORT and never FAILED" {
+    var cap: Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    // A blocking check keeps the historical wording.
+    const blocking: Reporter = .{ .capture = &cap };
+    blocking.fail("line-length FAILED ({d} occurrence(s))", .{3});
+    try std.testing.expectEqualStrings("guardian: line-length FAILED (3 occurrence(s))\n", cap.buf.items);
+
+    // The same message under a policy demotion swaps only the verb, so a naive
+    // `grep FAILED` on a green run matches nothing.
+    cap.buf.clearRetainingCapacity();
+    const demoted: Reporter = .{ .capture = &cap, .report_only = true };
+    demoted.fail("line-length FAILED ({d} occurrence(s))", .{3});
+    try std.testing.expectEqualStrings("guardian: line-length REPORT (3 occurrence(s))\n", cap.buf.items);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, blocking_verb) == null);
+
+    // A message with no verb in it is passed through untouched.
+    try std.testing.expectEqualStrings("no verb here", comptime demotedFmt("no verb here"));
 }
 
 // spec: Reporter - Keeps advisory warnings separate from blocking violation records

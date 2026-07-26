@@ -22,6 +22,11 @@ const violation_key = @import("violation_key.zig");
 const scope = @import("scope.zig");
 const config_mod = @import("config.zig");
 const ast_index = @import("ast/index.zig");
+const missing_inputs = @import("missing_inputs.zig");
+
+/// Read cap for a stored baseline/ratchet file when scanning it for paths that
+/// no longer exist. Generous: the largest real baselines are a few hundred KiB.
+const max_baseline_bytes: usize = 8 * 1024 * 1024;
 
 /// Baseline file format version. Bump if the format changes meaningfully.
 /// v1 stored rendered violation text; v3 stores content-derived identities.
@@ -437,10 +442,18 @@ fn processOutcome(
     // prune entries that are merely out of scope. (The scoping resolver already
     // refuses to scope a metadata-writing run; this is the second lock.)
     const view = viewFor(ctx);
-    const write_allowed = ctx.metadata_writable and view == .whole_tree;
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+
+    // A worktree missing a check's gitignored generated inputs is a PARTIAL
+    // view of the tree its stored metadata describes. Nothing may be pruned or
+    // re-recorded from it — a missing file's frozen entries are unread, not
+    // resolved — so such a run is forced read-only on metadata.
+    // …and a diff-scoped run is a partial view by construction, so it is
+    // locked read-only on metadata for exactly the same reason.
+    const partial = try storedPhantoms(a, ctx, check_name);
+    const write_allowed = ctx.metadata_writable and partial == 0 and view == .whole_tree;
 
     // A threshold check with a stable key + metric uses the per-item ratchet
     // lifecycle (baseline v2): each offender gets an only-shrinks ceiling, so a
@@ -459,19 +472,27 @@ fn processOutcome(
     }
 
     const path = try pathFor(a, ctx.project_dir, check_name);
-    const violations = try keyedViolations(a, check_name, captured, records);
+    const all_violations = try keyedViolations(a, check_name, captured, records);
+
+    // Findings about a file that is missing AND gitignored describe generated
+    // output this worktree never built — they are reported as skipped, never
+    // counted, and (because a partial view must not rewrite frozen state) they
+    // also make this run read-only on metadata.
+    const scan = try scanPhantoms(a, ctx, check_name, all_violations);
+    const violations = scan.kept;
+    const may_write = write_allowed and scan.skipped == 0;
 
     // deny_growth: a refresh (global or selective) may only rewrite this
     // check's baseline if it doesn't grow. Guards the flagship 1:1 spec map —
     // today's fastest-growing frozen debt — from being ratified upward.
     try denyGrowthGuard(a, ctx, check_name, path, violations.len, force_refresh);
 
-    const outcome = lifecycle(a, path, violations, force_refresh, write_allowed) catch |e| {
+    const outcome = lifecycle(a, path, violations, force_refresh and may_write, may_write) catch |e| {
         reporter.fail("{s}: baseline I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
 
-    return reportOutcome(check_name, underPartialView(view, outcome), write_allowed);
+    return reportOutcome(check_name, underPartialView(view, outcome), may_write);
 }
 
 /// The view this check ran under: `partial` when a diff-scoped run handed it
@@ -505,6 +526,101 @@ fn ratchetUnderPartialView(view: scope.View, outcome: ratchet.Outcome) ratchet.O
         .improved => |i| .{ .matched = i.remaining + i.pruned },
         else => outcome,
     };
+}
+
+/// How many files this check's stored baseline/ratchet names that are missing
+/// from the working tree AND gitignored — i.e. generated inputs this worktree
+/// has never built. Non-zero means the run sees only part of the tree the
+/// metadata describes; it reports the skip and the caller stops writing.
+/// Best-effort: an unreadable/absent metadata file means nothing to compare.
+fn storedPhantoms(a: Allocator, ctx: *types.RunCtx, check_name: []const u8) Allocator.Error!usize {
+    const path = try pathFor(a, ctx.project_dir, check_name);
+    const raw = std.fs.cwd().readFileAlloc(a, path, max_baseline_bytes) catch return 0;
+    var candidates: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, raw, '\n');
+    while (it.next()) |line| {
+        if (missing_inputs.pathFromStoredKey(line)) |p| try candidates.append(a, p);
+    }
+    if (candidates.items.len == 0) return 0;
+    const phantoms = try missing_inputs.phantomPaths(a, ctx.project_dir, candidates.items);
+    if (phantoms.len == 0) return 0;
+    try noticeStoredPhantom(a, check_name, phantoms);
+    return phantoms.len;
+}
+
+/// Reports a partial-view worktree through the advisory channel: what is
+/// unreadable, why the run will not rewrite this check's metadata, and the
+/// one-line fix. Never a violation record, so it can neither block nor accept.
+fn noticeStoredPhantom(
+    a: Allocator,
+    check_name: []const u8,
+    phantoms: []const []const u8,
+) Allocator.Error!void {
+    const message = try std.fmt.allocPrint(
+        a,
+        "{d} file(s) in the stored {s} metadata are missing here (e.g. {s}) — {s}; " ++
+            "skipped, and this run will not prune or re-record {s}",
+        .{ phantoms.len, check_name, phantoms[0], missing_inputs.hint, check_name },
+    );
+    reporter.warn(.{ .check = check_name, .message = message });
+}
+
+/// One check's findings split by whether their file can be read at all.
+const PhantomScan = struct {
+    /// Findings that still describe a readable (or non-file) subject.
+    kept: []const Keyed,
+    /// How many findings were dropped as unreadable generated output.
+    skipped: usize,
+};
+
+/// Partitions `violations`, dropping the ones whose file is missing AND
+/// gitignored, and reports the drop as a SKIP (never as debt). A deleted
+/// tracked file is not gitignored, so its findings stay in `kept` and keep
+/// failing the gate — this must never become a hole for a real removal.
+fn scanPhantoms(
+    a: Allocator,
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    violations: []const Keyed,
+) Allocator.Error!PhantomScan {
+    var candidates: std.ArrayList([]const u8) = .empty;
+    for (violations) |v| {
+        if (missing_inputs.pathFromLine(v.line)) |p| try candidates.append(a, p);
+    }
+    if (candidates.items.len == 0) return .{ .kept = violations, .skipped = 0 };
+    const phantoms = try missing_inputs.phantomPaths(a, ctx.project_dir, candidates.items);
+    if (phantoms.len == 0) return .{ .kept = violations, .skipped = 0 };
+
+    var kept: std.ArrayList(Keyed) = .empty;
+    for (violations) |v| {
+        const p = missing_inputs.pathFromLine(v.line) orelse {
+            try kept.append(a, v);
+            continue;
+        };
+        if (!missing_inputs.contains(phantoms, p)) try kept.append(a, v);
+    }
+    const skipped = violations.len - kept.items.len;
+    try noticePhantom(a, check_name, skipped, phantoms);
+    return .{ .kept = try kept.toOwnedSlice(a), .skipped = skipped };
+}
+
+/// Reports skipped-because-unreadable findings through the advisory channel:
+/// always visible (even under --quiet, even inside baseline capture), never a
+/// violation record, so nothing here can be counted or accepted.
+fn noticePhantom(
+    a: Allocator,
+    check_name: []const u8,
+    skipped: usize,
+    phantoms: []const []const u8,
+) Allocator.Error!void {
+    if (skipped == 0) return;
+    const message = try std.fmt.allocPrint(
+        a,
+        "{d} finding(s) skipped in {d} missing file(s) (e.g. {s}) — {s}; " ++
+            "not counted, and this run will not rewrite {s} metadata",
+        .{ skipped, phantoms.len, phantoms[0], missing_inputs.hint, check_name },
+    );
+    reporter.warn(.{ .check = check_name, .message = message });
 }
 
 /// Ratchet (baseline v2) path for a threshold check: aggregate its records to
@@ -566,8 +682,12 @@ fn processRatchet(
         }
         return;
     }
-    const reported = ratchetUnderPartialView(viewFor(ctx), outcome);
-    return reportRatchet(check_name, reported, firstFixHint(input.captured), input.write_allowed);
+    return reportRatchet(check_name, ratchetUnderPartialView(viewFor(ctx), outcome), .{
+        .allocator = a,
+        .fix_hint = firstFixHint(input.captured),
+        .records = input.records,
+        .write_allowed = input.write_allowed,
+    });
 }
 
 /// Keeps a legacy ratchet entry while the same subject is still being reported
@@ -642,9 +762,21 @@ fn ratchetDenyGrowthGuard(
     return error.CheckFailed;
 }
 
+/// What `reportRatchet` needs beyond the outcome itself: the run allocator (for
+/// rendering an offender line), the check's own scraped fix hint, its structured
+/// violation records — the source of the file:line and cap text a regression
+/// line inlines — and whether this run may persist metadata.
+const RatchetReport = struct {
+    allocator: std.mem.Allocator,
+    fix_hint: ?[]const u8,
+    records: []const reporter.Violation,
+    write_allowed: bool,
+};
+
 /// Reports a ratchet outcome; `regressed` prints each grown / new-offender key
 /// (with the check's own fix hint, scraped from its captured output) and fails.
-fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]const u8, write_allowed: bool) types.RunError!void {
+fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetReport) types.RunError!void {
+    const write_allowed = rep.write_allowed;
     // On a read-only run the create/migrate/improve outcomes were classified but
     // not persisted — word them as pending, all green.
     if (!write_allowed) switch (outcome) {
@@ -671,23 +803,53 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, fix_hint: ?[]
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: ratchet refreshed ({d} key(s))", .{ check_name, n }),
-        .regressed => |reg| return reportRegressed(check_name, reg, fix_hint),
+        .regressed => |reg| return reportRegressed(check_name, reg, rep),
     }
+}
+
+/// The check's own violation record for ratchet key `key` — the record carries
+/// the file, line, and the message naming the metric and its cap, which the
+/// regression report inlines so the console says as much as last-run.jsonl.
+fn recordForKey(records: []const reporter.Violation, key: []const u8) ?reporter.Violation {
+    for (records) |v| {
+        const rk = v.ratchet_key orelse continue;
+        if (std.mem.eql(u8, rk, key)) return v;
+    }
+    return null;
+}
+
+/// `file:line: message` for the first regressed key (grown keys first, then new
+/// offenders), or the bare key when the check emitted no structured record for
+/// it. This is what turns "a shape check failed" into "which function, where,
+/// what value, what cap" without leaving the terminal.
+fn firstOffender(a: std.mem.Allocator, reg: ratchet.Regression, records: []const reporter.Violation) []const u8 {
+    const key = if (reg.grown.len > 0)
+        reg.grown[0].key
+    else if (reg.new_offenders.len > 0)
+        reg.new_offenders[0].key
+    else
+        return "";
+    const v = recordForKey(records, key) orelse return key;
+    return reporter.flatLine(a, v) catch key;
 }
 
 /// The failing half of `reportRatchet`, worded by growth class. A `volume`
 /// check (file/type size) usually grew because a feature landed, so the header
 /// says growth and the accept guidance leads; a `shape` check regressed
 /// structurally, so the fix guidance leads and accept stays the last resort.
-fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[]const u8) types.RunError!void {
+fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: RatchetReport) types.RunError!void {
     const n = reg.grown.len + reg.new_offenders.len;
     const class = ratchet.growthClass(check_name);
+    // The status line names the offender itself — file:line, the item, the
+    // measured value and its cap — not just the check. Without it the only
+    // place with that detail was .guardian/cache/last-run.jsonl.
+    const offender = firstOffender(rep.allocator, reg, rep.records);
     switch (class) {
         .volume => reporter.fail(
-            "{s}: {d} key(s) grew past ratchet — volume growth; review, then accept if intended",
-            .{ check_name, n },
+            "{s}: {d} key(s) grew past ratchet — volume growth; review, then accept if intended — {s}",
+            .{ check_name, n, offender },
         ),
-        .shape => reporter.fail("{s}: {d} key(s) regressed above ratchet", .{ check_name, n }),
+        .shape => reporter.fail("{s}: {d} key(s) regressed above ratchet — {s}", .{ check_name, n, offender }),
     }
     // Name the metric's unit (ratchet.unitLabel) so a bare number reads as
     // "8 params" / "8 fields" / "3 over-length lines" instead of leaving the
@@ -713,10 +875,10 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[
     switch (class) {
         .volume => {
             reportAcceptCommand(check_name);
-            if (fix_hint) |h| reporter.detail("  {s} (if the growth is accidental)\n", .{h});
+            if (rep.fix_hint) |h| reporter.detail("  {s} (if the growth is accidental)\n", .{h});
         },
         .shape => {
-            if (fix_hint) |h| reporter.detail("  {s}\n", .{h});
+            if (rep.fix_hint) |h| reporter.detail("  {s}\n", .{h});
             reportAcceptCommand(check_name);
         },
     }
@@ -994,6 +1156,56 @@ test "mergeAdvisoryEntries preserves old warning keys without creating advisory 
     try std.testing.expect(!entryPresent(merged, "src/new-warning.zig"));
 }
 
+/// Test shorthand for the reporting context `reportRatchet`/`reportRegressed`
+/// take: a read-only run with the given fix hint and violation records.
+fn testReport(a: std.mem.Allocator, fix_hint: ?[]const u8, records: []const reporter.Violation) RatchetReport {
+    return .{ .allocator = a, .fix_hint = fix_hint, .records = records, .write_allowed = false };
+}
+
+// spec: Per-Item Ratchets - Names the offending file line and metric in the regression status line
+
+test "a ratchet regression status line names the offender, not just the check" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // The check's own record carries file:line and the "N params (cap M)" text;
+    // the regression must inline it instead of naming only the ratchet key.
+    const records = [_]reporter.Violation{.{
+        .check = "function-size",
+        .file = "src/router.zig",
+        .line = 412,
+        .message = "fn exactItemClears has 7 params (cap 6)",
+        .ratchet_key = "src/router.zig|exactItemClears",
+        .metric = 7,
+    }};
+    const reg: ratchet.Regression = .{
+        .grown = &.{},
+        .new_offenders = &.{.{ .key = "src/router.zig|exactItemClears", .value = 7 }},
+        .remaining = 1,
+    };
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportRegressed("function-size", reg, testReport(a, null, &records)),
+    );
+    const out = cap.buf.items;
+    const status_line = out[0 .. std.mem.indexOfScalar(u8, out, '\n') orelse out.len];
+    try std.testing.expect(std.mem.indexOf(u8, status_line, "src/router.zig:412") != null);
+    try std.testing.expect(std.mem.indexOf(u8, status_line, "exactItemClears") != null);
+    try std.testing.expect(std.mem.indexOf(u8, status_line, "7 params (cap 6)") != null);
+
+    // With no matching record the key itself is still named — never a bare check.
+    try std.testing.expectEqualStrings("src/x.zig|f", firstOffender(a, .{
+        .grown = &.{.{ .key = "src/x.zig|f", .old = 3, .new = 4 }},
+        .new_offenders = &.{},
+        .remaining = 1,
+    }, &.{}));
+}
+
 // spec: Per-Item Ratchets - Presents file and type growth as volume with accept-first guidance
 
 test "reportRegressed words volume growth accept-first and shape regressions fix-first" {
@@ -1009,7 +1221,10 @@ test "reportRegressed words volume growth accept-first and shape regressions fix
         .remaining = 1,
     };
     // file-size is a volume check: growth header, accept guidance first.
-    try std.testing.expectError(error.CheckFailed, reportRegressed("file-size", reg, "fix: split the file"));
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportRegressed("file-size", reg, testReport(std.testing.allocator, "fix: split the file", &.{})),
+    );
     const volume_out = try cap.buf.toOwnedSlice(std.testing.allocator);
     defer std.testing.allocator.free(volume_out);
     try std.testing.expect(std.mem.indexOf(u8, volume_out, "volume growth") != null);
@@ -1018,7 +1233,10 @@ test "reportRegressed words volume growth accept-first and shape regressions fix
     try std.testing.expect(v_accept < v_fix);
 
     // function-length is a shape check: regression header, fix guidance first.
-    try std.testing.expectError(error.CheckFailed, reportRegressed("function-length", reg, "fix: extract helpers"));
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportRegressed("function-length", reg, testReport(std.testing.allocator, "fix: extract helpers", &.{})),
+    );
     const shape_out = cap.buf.items;
     try std.testing.expect(std.mem.indexOf(u8, shape_out, "regressed above ratchet") != null);
     try std.testing.expect(std.mem.indexOf(u8, shape_out, "volume growth") == null);
@@ -1046,7 +1264,7 @@ test "the at-cap note fires for a grown key on any ratchet, not just type-size" 
         .remaining = 1,
     };
     try std.testing.expect(atFrozenCap(grown));
-    try std.testing.expectError(error.CheckFailed, reportRegressed("function-size", grown, null));
+    try std.testing.expectError(error.CheckFailed, reportRegressed("function-size", grown, testReport(std.testing.allocator, null, &.{})));
     const grown_out = try cap.buf.toOwnedSlice(std.testing.allocator);
     defer std.testing.allocator.free(grown_out);
     try std.testing.expect(std.mem.indexOf(u8, grown_out, "at its frozen cap; reduce or split") != null);
@@ -1059,7 +1277,7 @@ test "the at-cap note fires for a grown key on any ratchet, not just type-size" 
         .remaining = 1,
     };
     try std.testing.expect(!atFrozenCap(fresh));
-    try std.testing.expectError(error.CheckFailed, reportRegressed("function-size", fresh, null));
+    try std.testing.expectError(error.CheckFailed, reportRegressed("function-size", fresh, testReport(std.testing.allocator, null, &.{})));
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "frozen cap") == null);
 }
 
@@ -1382,6 +1600,42 @@ test "rewording a violation's message leaves the baseline green" {
     try std.testing.expect((try lifecycle(a, path, grew, false, true)) == .grown);
 }
 
+// spec: Baseline Mode - Skips findings whose file is missing and gitignored instead of counting them
+
+test "scanPhantoms drops unbuilt generated files and keeps a real deletion" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const cfg: @import("config.zig").Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+
+    // Three findings against this repo: one in gitignored build output that was
+    // never generated here (phantom), one in a file that exists, and one prose
+    // finding naming no file at all.
+    const violations = try keyedLines(a, "pub-api-surface", &.{
+        "- zig-out/generated/absent.zig::Args value",
+        "src/check.zig:10: something real",
+        "unverified: Auth - Validates tokens",
+    });
+    const scan = try scanPhantoms(a, &ctx, "pub-api-surface", violations);
+    // Only the unbuildable one is skipped; it is reported, never counted.
+    try std.testing.expectEqual(@as(usize, 1), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 2), scan.kept.len);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "skipped") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, missing_inputs.hint) != null);
+
+    // A finding in a file that is merely absent but TRACKED (a real deletion)
+    // stays in the counted set — the skip must never hide an API removal.
+    const deleted = try keyedLines(a, "pub-api-surface", &.{"- src/deleted_module.zig::Args value"});
+    const deleted_scan = try scanPhantoms(a, &ctx, "pub-api-surface", deleted);
+    try std.testing.expectEqual(@as(usize, 0), deleted_scan.skipped);
+}
+
 // spec: Baseline Mode - Preserves the count of same-key violations across a stored baseline
 
 test "six identical-key violations round-trip through the file as six" {
@@ -1631,7 +1885,9 @@ test "matching ratchet and baseline reports carry an ok pass marker" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
 
-    try reportRatchet("file-size", .{ .matched = 3 }, null, true);
+    var matched = testReport(std.testing.allocator, null, &.{});
+    matched.write_allowed = true;
+    try reportRatchet("file-size", .{ .matched = 3 }, matched);
     try reportOutcome("naming", .{ .matched = 2 }, true);
     // The captured (uncolored) pass lines carry an explicit "ok:" marker so the
     // last line above a run summary can't be misread as the failing check.

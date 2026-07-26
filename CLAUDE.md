@@ -168,13 +168,16 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-64 checks gate the build (most hard-block; completeness/test-coverage/
+65 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
 off; a 65th check, stdout-flush, is report-only by default — it runs in `all`
 but never fails the build unless `[stdout_flush] enabled = true` promotes it to a
-gating hard-block, which Guardian leaves off) plus `zig fmt --check`. Three more registry entries are
+gating hard-block, which Guardian leaves off). Formatting is one of them:
+the `formatting` check runs FIRST in every `all` pass and prints immediately
+(cheapest gate, one-command fix), so a consumer no longer needs its own
+`zig fmt --check` build step. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command, and the `debt` report (68 registry entries total;
+command, and the `debt` report (69 registry entries total;
 `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -201,7 +204,10 @@ then auto-installs the blocking pre-commit hook unless `install_hook = false`.
 marker; resolves `$GUARDIAN_CHECK` → `./zig-out/bin/guardian-check` →
 `guardian-check` on PATH; never clobbers a foreign hook) so a raw `git commit`
 still hits the gate. The run summary and green skip-stamp both changed: the
-failure line names the failing checks (`run-all: 2/67 failed (type-size, …)`),
+failure line names the failing checks (`run-all: 2/68 failed (type-size, …)`) and
+echoes each failing check's first finding (file:line, item, metric, cap) beneath
+it; a policy-demoted check prints `REPORT` instead of `FAILED` and the green
+summary reads `run-all: 68 checks — 0 blocking, N report-only`,
 and the stamp records the guardian binary's identity so a blocking snapshot/
 ratchet failure whose binary differs from the last green run prints a
 "rebuild (zig build) and re-run" hint (the stale-binary false-positive trap).

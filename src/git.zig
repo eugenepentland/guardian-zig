@@ -192,6 +192,54 @@ pub fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]
     return paths.toOwnedSlice(allocator);
 }
 
+/// How many paths one `git check-ignore` invocation carries. Bounded so a
+/// check with thousands of findings can't build an argv past the OS limit.
+const check_ignore_chunk: usize = 128;
+
+/// The subset of `paths` git reports as ignored (`git check-ignore`), used to
+/// tell a missing *generated* input apart from a genuinely deleted tracked one.
+///
+/// `--no-index` is deliberately NOT passed: git then consults the index, so a
+/// path it still tracks is never reported ignored even when a `.gitignore`
+/// pattern matches it. That is the property the callers rely on — a deleted
+/// tracked file keeps counting as a real violation, and only build output
+/// nobody committed is treated as missing-and-skippable.
+///
+/// Best-effort: `git check-ignore` exits 1 when nothing matches, and any git
+/// failure (no repo, no git) yields the empty set — i.e. "nothing is ignored",
+/// the fail-closed direction in which every finding still counts.
+pub fn ignoredPaths(
+    allocator: Allocator,
+    project_dir: []const u8,
+    paths: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    var start: usize = 0;
+    while (start < paths.len) : (start += check_ignore_chunk) {
+        const end = @min(start + check_ignore_chunk, paths.len);
+        try appendIgnoredChunk(allocator, project_dir, paths[start..end], &out);
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+/// Runs one bounded `git check-ignore` batch, appending each reported path.
+fn appendIgnoredChunk(
+    allocator: Allocator,
+    project_dir: []const u8,
+    chunk: []const []const u8,
+    out: *std.ArrayList([]const u8),
+) Allocator.Error!void {
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.appendSlice(allocator, &.{ "git", "check-ignore", "--" });
+    try argv.appendSlice(allocator, chunk);
+    const stdout = runGit(allocator, project_dir, argv.items) orelse return;
+    var it = std.mem.splitScalar(u8, stdout, '\n');
+    while (it.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        if (trimmed.len > 0) try out.append(allocator, trimmed);
+    }
+}
+
 /// Number of parents of `rev` — 0 for the root commit, 1 for a normal commit,
 /// ≥2 for a merge — null outside a git repository (a skip), a hard `GitError`
 /// on any other failure. Drives the change-classification merge/root skip.
@@ -393,6 +441,22 @@ fn runGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+test "ignoredPaths reports gitignored build output but never a tracked file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Run against this repo: zig-out/ is gitignored, src/check.zig is tracked.
+    // The index-aware form is what keeps a deleted TRACKED file counting as a
+    // real violation instead of being skipped as unbuilt output.
+    const out = try ignoredPaths(a, ".", &.{ "zig-out/generated/absent.zig", "src/check.zig" });
+    var saw_ignored = false;
+    for (out) |p| {
+        try testing.expect(!std.mem.eql(u8, p, "src/check.zig"));
+        if (std.mem.eql(u8, p, "zig-out/generated/absent.zig")) saw_ignored = true;
+    }
+    try testing.expect(saw_ignored);
+}
 
 // spec: Git Diff - Parses unified diff hunk headers into added line spans
 

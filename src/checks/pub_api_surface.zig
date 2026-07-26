@@ -10,6 +10,16 @@
 //! MEASURE channel on a local run (a profiling counter another module reads has
 //! to be `pub`); the stored snapshot is never rewritten from that filtered view,
 //! because a refresh voids the bridge. See measurement.zig.
+//!
+//! Public-surface snapshot: every `pub fn` (with its full prototype) and every
+//! `pub const` container in `src/` is recorded in `.guardian/pub-api.txt`, and
+//! any addition, removal, or signature change fails until it is accepted. It is
+//! the check that makes a widened API a deliberate act rather than a side
+//! effect, and it also subsumes the retired spec-drift check.
+//!
+//! Removals are filtered first: a symbol whose file is missing from the working
+//! tree AND gitignored is unbuilt generated output, not a removal, so it is
+//! reported as skipped instead of counted (see `withoutPhantoms`).
 
 const std = @import("std");
 const walk = @import("../walk.zig");
@@ -19,6 +29,7 @@ const ast = @import("../ast/parser.zig");
 const ast_index = @import("../ast/index.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const measurement = @import("../measurement.zig");
+const missing_inputs = @import("../missing_inputs.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -75,7 +86,12 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const force = snapshot_helper.shouldUpdateForCtx(ctx_param, check_name);
     const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = snapshot_version };
     const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force, ctx_param.metadata_writable);
-    return reportOutcome(try bridgeMeasured(ctx_param, allocator, outcome, lines.len));
+    return reportOutcome(try bridgeMeasured(
+        ctx_param,
+        allocator,
+        try withoutPhantoms(ctx_param, outcome, lines.len),
+        lines.len,
+    ));
 }
 
 /// Defers surface drift attributed to a live `[measurement]` path — a `pub var`
@@ -127,6 +143,57 @@ fn partitionDrift(
 fn fileOf(line: []const u8) []const u8 {
     const sep = std.mem.indexOf(u8, line, "::") orelse return line;
     return line[0..sep];
+}
+
+/// Drops "removed" symbols whose file is missing from this worktree AND
+/// gitignored — generated output nobody built here, not a real API removal.
+/// A drift that consists only of those becomes `unchanged` (green, skipped with
+/// a notice); anything else keeps failing. The narrow predicate is what keeps a
+/// genuine removal — a tracked file, deleted — reporting exactly as before.
+fn withoutPhantoms(
+    ctx: *registry.RunCtx,
+    outcome: snapshot_helper.Outcome,
+    entries: usize,
+) std.mem.Allocator.Error!snapshot_helper.Outcome {
+    if (outcome != .drift) return outcome;
+    const a = ctx.allocator;
+    const d = outcome.drift;
+    var files: std.ArrayList([]const u8) = .empty;
+    for (d.removed) |line| {
+        if (missing_inputs.pathFromLine(line)) |p| try files.append(a, p);
+    }
+    if (files.items.len == 0) return outcome;
+    const phantoms = try missing_inputs.phantomPaths(a, ctx.project_dir, files.items);
+    if (phantoms.len == 0) return outcome;
+
+    var kept: std.ArrayList([]const u8) = .empty;
+    for (d.removed) |line| {
+        const p = missing_inputs.pathFromLine(line) orelse {
+            try kept.append(a, line);
+            continue;
+        };
+        if (!missing_inputs.contains(phantoms, p)) try kept.append(a, line);
+    }
+    try noticeSkipped(a, d.removed.len - kept.items.len, phantoms);
+    if (kept.items.len == 0 and d.added.len == 0) return .{ .unchanged = entries };
+    return .{ .drift = .{ .added = d.added, .removed = try kept.toOwnedSlice(a) } };
+}
+
+/// Reports skipped-because-unbuilt symbols on the advisory channel: visible
+/// even under --quiet and inside baseline capture, but never a violation — so
+/// nothing here is counted, and `accept` is never offered for it.
+fn noticeSkipped(
+    a: std.mem.Allocator,
+    skipped: usize,
+    phantoms: []const []const u8,
+) std.mem.Allocator.Error!void {
+    if (skipped == 0) return;
+    const message = try std.fmt.allocPrint(
+        a,
+        "{d} symbol(s) skipped in {d} file(s) absent from this worktree (e.g. {s}) — {s}",
+        .{ skipped, phantoms.len, phantoms[0], missing_inputs.hint },
+    );
+    reporter.warn(.{ .check = check_name, .message = message });
 }
 
 fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
@@ -235,6 +302,41 @@ test "bridgeMeasured defers a measurement path's drift and keeps real drift" {
 // spec: Pub Api Surface - Snapshots every public declaration
 // spec: Pub Api Surface - Diff fails on unexpected pub additions or removals
 // spec: Pub Api Surface - Diff fails when an existing pub fn signature changes
+// spec: Pub Api Surface - Skips removed symbols whose file is unbuilt generated output
+
+test "withoutPhantoms drops symbols from unbuilt files but keeps real removals" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const cfg: @import("../config.zig").Config = .{};
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+
+    // A worktree that never ran its codegen: the snapshot's symbols for the
+    // gitignored generated file are unreadable, not removed. That alone is not
+    // drift — the run reports it skipped and stays green.
+    const only_phantom: snapshot_helper.Outcome = .{ .drift = .{
+        .added = &.{},
+        .removed = &.{"zig-out/generated/page.zig::render | fn render() void"},
+    } };
+    const filtered = try withoutPhantoms(&ctx, only_phantom, 7);
+    try std.testing.expect(filtered == .unchanged);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "skipped") != null);
+
+    // A tracked file's symbol going missing is a real removal and still fails.
+    const real: snapshot_helper.Outcome = .{ .drift = .{
+        .added = &.{},
+        .removed = &.{"src/gone.zig::render | fn render() void"},
+    } };
+    const kept = try withoutPhantoms(&ctx, real, 7);
+    try std.testing.expect(kept == .drift);
+    try std.testing.expectEqual(@as(usize, 1), kept.drift.removed.len);
+}
+
 // spec: Pub Api Surface - Classifies surface drift as new, changed, and removed symbols
 
 test "classifyDelta separates additions, signature changes, and removals" {

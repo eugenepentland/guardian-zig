@@ -25,6 +25,9 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
         try ctx.violations.append(a, .{
             .check = "function-size",
             .file = entry.rel_path,
+            // The offender's line, so the console summary can point straight at
+            // the signature instead of naming only the file.
+            .line = f.line,
             .message = try std.fmt.allocPrint(
                 a,
                 "fn {s} has {d} runtime params (+{d} comptime; runtime limit: {d})",
@@ -109,4 +112,24 @@ test "visit excludes comptime parameters from the runtime cap" {
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
     try std.testing.expectEqual(@as(?u64, 5), violations.items[0].metric);
     try std.testing.expect(std.mem.indexOf(u8, violations.items[0].message, "+1 comptime") != null);
+}
+
+// spec: Function Size - Reports the offending function's source line with the file
+
+test "visit records the offender's line so the summary can point at it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .max_params = 2, .violations = &violations };
+    const content =
+        \\fn narrow(a: i32) void {}
+        \\
+        \\fn wide(a: i32, b: i32, c: i32) void {}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    // file:line, not file alone — the run summary echoes this verbatim.
+    try std.testing.expectEqual(@as(?u32, 3), violations.items[0].line);
+    try std.testing.expectEqualStrings("src/x.zig", violations.items[0].file.?);
 }
