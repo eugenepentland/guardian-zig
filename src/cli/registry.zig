@@ -7,6 +7,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 
+const check_formatting = @import("../checks/formatting.zig");
 const check_spec = @import("../checks/spec.zig");
 const check_spec_init = @import("../checks/spec_init.zig");
 const check_file_size = @import("../checks/file_size.zig");
@@ -84,6 +85,14 @@ pub const NeedsAst = types.NeedsAst;
 pub const Command = types.Command;
 
 pub const all: []const Command = &.{
+    // First on purpose: the cheapest gate in the suite, and the one whose fix
+    // is a single command. cli/run_all runs it before the rest and flushes its
+    // output immediately, so a formatting slip never costs a whole run.
+    .{
+        .name = check_formatting.check_name,
+        .summary = "Require every src file to match zig fmt output",
+        .run = check_formatting.run,
+    },
     .{ .name = "spec", .summary = "Verify SPEC.md ↔ // spec: tag coverage", .run = check_spec.run },
     .{
         .name = "spec-init",

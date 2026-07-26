@@ -50,7 +50,7 @@ always block regardless of `on_build`. Set `on_build = "block"` to make every
 
 ## What It Checks
 
-Guardian's self-build runs 67 registered checks. Most hard-block under the default
+Guardian's self-build runs 68 registered checks. Most hard-block under the default
 `strict` policy; `stdout-flush` remains report-only unless explicitly promoted,
 and several checks are opt-in or become active only when configured. The list
 below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger,
@@ -70,6 +70,11 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 | **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or an added/modified SPEC.md **behavior bullet** in the same diff — the "quick fix with no regression test" pattern. A spec edit waives the test only when it adds/modifies a `- ` bullet outside a code fence (a prose/typo/header edit no longer counts). When the base is HEAD and the working tree is clean, it gates the **last commit** (`HEAD~1..HEAD`) instead of passing an empty diff — skipping merge/root commits, toggled by `[change_classification] gate_last_commit`. Skips silently outside a git repo. |
 | **policy-drift** *(opt-in)* | Changes, deletions, or renames affecting protected Guardian policy/debt paths without trusted CI approval |
 | **external-gates** *(configured)* | A project-defined argv command exits nonzero or cannot be started; commands never run through a shell |
+
+### Formatting (runs first)
+| Check | Blocks on |
+|---|---|
+| **formatting** | Any `src/` file that differs from `zig fmt` output. Scheduled **before** every other check and flushed immediately, because it is the cheapest gate and its fix is one command: the finding names the file, the first line that differs, and the exact `zig fmt <file>` to run. A consumer wiring Guardian can drop its own `b.addFmt(.{ .check = true })` step. Exempt via the top-level `exclude` globs or `disabled` |
 
 ### Structural
 | Check | Blocks on |

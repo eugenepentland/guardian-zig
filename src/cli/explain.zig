@@ -24,6 +24,17 @@ const Entry = struct {
 // refresh, or top-level `disabled` list). Prose sits in `\\` multiline literals
 // so it is exempt from the line-length cap.
 const entries = [_]Entry{
+    .{ .name = "formatting", .text = 
+    \\Why: an agent hand-edits a file and leaves it in a shape `zig fmt` would
+    \\rewrite, so every later diff carries formatting noise. It is also the
+    \\cheapest gate in the suite, so it runs FIRST and prints immediately — a
+    \\formatting slip costs seconds instead of a whole run.
+    \\Fix: run the `zig fmt <file>` command printed under the finding; the line
+    \\reported is where the file first diverges from canonical output.
+    \\Exempt: list the path in the top-level `exclude` globs, or put
+    \\"formatting" in the top-level `disabled` list (a vendored tree kept
+    \\verbatim is the only good reason).
+    },
     .{ .name = "spec", .text = 
     \\Why: an agent adds a behavior but never writes — or mistags — its test, so
     \\SPEC.md and the suite silently drift apart.

@@ -43,6 +43,17 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses warning and hard limits for file size, function length, and line length
 - Parses a top-level required input glob list
 
+## Formatting
+
+- Reports the first line where a file diverges from zig fmt output
+- Names the file and the exact zig fmt command that fixes it
+
+## Missing Inputs
+
+- Extracts the zig file a rendered violation line refers to
+- Extracts the file recorded in a stored baseline or ratchet key
+- Treats a path as phantom only when it is absent and gitignored
+
 ## Spec Coverage
 
 - Parses SPEC.md for section headers and behavior bullets
@@ -160,6 +171,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns before the run when the binary differs from the last green stamp
 - Runs a metadata transaction only when the run can write metadata
 - Names a check that runs past the heartbeat threshold
+- Separates blocking failures from report-only findings in the summary
+- Runs the cheapest formatting gate before the rest of the suite
+- Names each failing check's first finding under the run summary
 
 ## Nightly
 
@@ -194,6 +208,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Excludes its own generated pre-commit hook from staging
 - Never stages the git-ignored guardian cache directory
 - Reports a gate and test timing split
+- Reports up front when the change set contains no gate inputs
 
 ## Install Hook
 
@@ -269,6 +284,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Diff fails on unexpected pub additions or removals
 - Diff fails when an existing pub fn signature changes
 - Classifies surface drift as new, changed, and removed symbols
+- Skips removed symbols whose file is unbuilt generated output
 
 ## Panic Budget
 
@@ -427,6 +443,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Refuses to migrate a stale baseline when a file gained violations
 - Stops scraping violations at every trailing prose label
 - Preserves the count of same-key violations across a stored baseline
+- Skips findings whose file is missing and gitignored instead of counting them
 
 ## Violation Identity
 
@@ -457,11 +474,13 @@ blocking correctness checks and advisory maintainability guidance.
 - Names each threshold check's metric unit for regression messages
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
+- Names the offending file line and metric in the regression status line
 
 ## Reporter
 
 - Renders a Violation to the same indented line the emitter prints
 - Keeps advisory warnings separate from blocking violation records
+- Prints a report-only verb instead of FAILED for a policy-demoted check
 
 ## Machine-Readable Sink
 

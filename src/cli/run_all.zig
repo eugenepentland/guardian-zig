@@ -16,6 +16,7 @@ const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
+const check_formatting = @import("../checks/formatting.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -118,7 +119,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var stopwatch = dora.startStopwatch();
     var ran: u32 = 0;
     var acc: Sink = .{};
-    const failed = try runChecks(ctx, &ran, &acc);
+    const tally = try runChecks(ctx, &ran, &acc);
+    const failed = tally.failed;
 
     // Write the machine-readable last-run log on every real run (green or red),
     // before the green/red branch. A skipped run (early return above) leaves the
@@ -132,7 +134,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     if (!filtered) recordDora(ctx, &stopwatch, failed, acc.failed_checks.items);
 
     if (failed == 0) {
-        reporter.ok("run-all: {d} check(s) passed", .{ran});
+        // Separate blocking failures from report-only findings: a demoted check
+        // still prints its finding, and a summary that only said "passed" left
+        // the reader unsure whether those lines mattered.
+        if (tally.reported == 0)
+            reporter.ok("run-all: {d} check(s) passed", .{ran})
+        else
+            reporter.ok("run-all: {d} checks — 0 blocking, {d} report-only", .{ ran, tally.reported });
         metadata_active = false;
         // Stamp the POST-write tree so an unchanged next run can skip. Never for
         // a filtered run — a partial suite must not claim the full suite green.
@@ -145,7 +153,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Name the failing checks in the summary so an agent fixes the right one
     // (shown even under --quiet, via the always-visible failure channel).
     const names = joinNames(ctx.allocator, acc.failed_checks.items);
-    fail("run-all: {d}/{d} failed ({s})", .{ failed, ran, names });
+    fail("run-all: {d}/{d} failed ({s}){s}", .{ failed, ran, names, reportedSuffix(ctx.allocator, tally.reported) });
+    // Repeat each failing check's first finding here, at the end of the log,
+    // where the summary is read: file:line + the offending item + its metric,
+    // so a shape/ratchet failure no longer needs a trip through last-run.jsonl.
+    echoOffenders(ctx, &acc);
 
     // A run that found violations restores metadata when a transaction is active
     // (a writable/refresh run) — half-written snapshots/baselines from the
@@ -199,6 +211,34 @@ fn blocks(forced: bool, on_build: config.GateMode) bool {
 fn joinNames(allocator: std.mem.Allocator, names: []const []const u8) []const u8 {
     if (names.len == 0) return "?";
     return std.mem.join(allocator, ", ", names) catch names[0];
+}
+
+/// Tail appended to the red summary naming how many checks only reported (the
+/// policy-demoted ones); empty when nothing was demoted, so the common
+/// strict-profile summary is unchanged.
+fn reportedSuffix(allocator: std.mem.Allocator, reported: u32) []const u8 {
+    if (reported == 0) return "";
+    return std.fmt.allocPrint(allocator, " \u{2014} {d} report-only", .{reported}) catch "";
+}
+
+/// Prints one line per failing check naming its first recorded finding —
+/// `<check>: <file>:<line>: <message>` — under the run summary. Uses the same
+/// records the JSONL sink stores, so the console and `last-run.jsonl` agree.
+/// Routed through the always-visible detail channel (a --quiet build gate must
+/// still show it) and silently skipped for a check with no structured record.
+fn echoOffenders(ctx: *types.RunCtx, acc: *const Sink) void {
+    for (acc.failed_checks.items) |name| {
+        const v = firstRecordFor(acc.records.items, name) orelse continue;
+        const line = reporter.flatLine(ctx.allocator, v) catch continue;
+        reporter.detail("  {s}: {s}\n", .{ name, line });
+    }
+}
+
+/// The first recorded finding belonging to `check`, or null when the check
+/// reported no line-level detail (a snapshot summary, an I/O failure).
+fn firstRecordFor(records: []const reporter.Violation, check: []const u8) ?reporter.Violation {
+    for (records) |v| if (std.mem.eql(u8, v.check, check)) return v;
+    return null;
 }
 
 /// Checks whose baselines/snapshots re-key when the guardian binary itself
@@ -291,6 +331,14 @@ const stale_artifact_caution =
 const Sink = struct {
     records: std.ArrayList(reporter.Violation) = .empty,
     failed_checks: std.ArrayList([]const u8) = .empty,
+};
+
+/// A run's outcome counts, split by what they mean for the build: `failed` is
+/// blocking, `reported` is a policy-demoted finding that never blocks. Keeping
+/// them apart is what lets the summary say "0 blocking, 8 report-only".
+const Tally = struct {
+    failed: u32 = 0,
+    reported: u32 = 0,
 };
 
 /// Writes the machine-readable last-run log for a real (non-skipped) run.
@@ -519,6 +567,9 @@ const CheckResult = struct {
     ran: bool = false,
     failed: bool = false,
     reported: bool = false,
+    /// True when this check's output was already printed (the preflight prints
+    /// immediately, before the suite runs), so the end-of-run replay skips it.
+    emitted: bool = false,
     warnings: usize = 0,
     err: ?types.RunError = null,
     output: []const u8 = "",
@@ -549,12 +600,13 @@ const WorkerJob = struct {
 /// Runs every non-skipped check into `results` (parallel across worker threads
 /// when enabled and multi-core, else sequentially in this thread), then replays
 /// captured output in registry order and tallies. Each check's findings are
-/// gathered into `acc` for the JSONL sink. Returns how many failed; propagates
-/// the first non-CheckFailed error. Output is deterministic (registry order)
-/// regardless of the path taken.
-fn runChecks(ctx: *types.RunCtx, ran: *u32, acc: *Sink) types.RunError!u32 {
+/// gathered into `acc` for the JSONL sink. Returns the blocking/report-only
+/// tally; propagates the first non-CheckFailed error. Output is deterministic
+/// (registry order) regardless of the path taken.
+fn runChecks(ctx: *types.RunCtx, ran: *u32, acc: *Sink) types.RunError!Tally {
     const results = try ctx.allocator.alloc(CheckResult, registry.all.len);
     for (results) |*r| r.* = .{};
+    runPreflight(ctx, results);
 
     const workers = if (ctx.cfg.parallel) threadCount() else 1;
     if (workers > 1) {
@@ -572,6 +624,35 @@ fn runChecks(ctx: *types.RunCtx, ran: *u32, acc: *Sink) types.RunError!u32 {
     return emitAndTally(ctx, results, ran, acc);
 }
 
+/// The one gate run ahead of the suite: formatting is the cheapest check by a
+/// wide margin (a parse + render per file, no cross-file analysis) and its fix
+/// is a single command, so paying the whole run before reporting it was pure
+/// waste. Its result is filled in before the fan-out and its output flushed
+/// immediately, which is what makes the failure land in the first seconds.
+const preflight_name = check_formatting.check_name;
+
+/// Runs the preflight gate in this thread and prints its captured output right
+/// away (the rest of the suite replays only at the end). Leaves `results`
+/// untouched — so the check simply runs in the pool — when it is filtered out,
+/// disabled, or missing from the registry.
+fn runPreflight(ctx: *types.RunCtx, results: []CheckResult) void {
+    const i = preflightIndex(ctx) orelse return;
+    var r = runCaptured(ctx, ctx.allocator, registry.all[i]);
+    r.emitted = true;
+    if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+    results[i] = r;
+}
+
+/// Registry index of the preflight check when it runs this pass; null when it
+/// is excluded (--only/--skip, `disabled`) or not registered.
+fn preflightIndex(ctx: *const types.RunCtx) ?usize {
+    for (registry.all, 0..) |cmd, i| {
+        if (!std.mem.eql(u8, cmd.name, preflight_name)) continue;
+        return if (excluded(ctx, cmd.name)) null else i;
+    }
+    return null;
+}
+
 /// Usable worker count: one per core, capped at the number of checks.
 fn threadCount() usize {
     const cpus = std.Thread.getCpuCount() catch return 1;
@@ -584,6 +665,7 @@ fn threadCount() usize {
 fn fillSequential(ctx: *types.RunCtx, results: []CheckResult) void {
     for (registry.all, 0..) |cmd, i| {
         if (excluded(ctx, cmd.name)) continue;
+        if (results[i].ran) continue; // already done by the preflight
         results[i] = runCaptured(ctx, ctx.allocator, cmd);
     }
 }
@@ -616,6 +698,7 @@ fn worker(job: *WorkerJob) void {
         if (i >= registry.all.len) break;
         const cmd = registry.all[i];
         if (excluded(job.base, cmd.name)) continue;
+        if (job.results[i].ran) continue; // already done by the preflight
         job.results[i] = runCaptured(job.base, a, cmd);
     }
 }
@@ -634,6 +717,10 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
     var res: CheckResult = .{ .ran = true };
     const mode = base.cfg.policy.modeFor(cmd.name);
     const baseline_on = base.cfg.policy.usesBaselineFor(cmd.name, base.cfg.baseline);
+    // A demoted check's own status lines print REPORT, not FAILED — decided
+    // here (the runner knows the policy) so no check consults policy itself.
+    reporter.default.report_only = mode == .report;
+    defer reporter.default.report_only = false;
     // Time each check via the dora clock seam so a slow one can be named.
     var sw = dora.startStopwatch();
     const outcome = if (baseline_on) baseline.runWithBaseline(&wctx, cmd) else cmd.run(&wctx);
@@ -660,14 +747,15 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
 /// prints only failures. The first non-CheckFailed error (if any) is propagated
 /// after all output is shown. Single-threaded (main), so the sink append is
 /// race-free even though checks ran in parallel.
-fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sink) types.RunError!u32 {
-    var failed: u32 = 0;
+fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sink) types.RunError!Tally {
+    var tally: Tally = .{};
     var first_err: ?types.RunError = null;
     for (results, registry.all) |r, cmd| {
         if (!r.ran) continue;
         ran.* += 1;
+        if (r.reported) tally.reported += 1;
         if (r.failed) {
-            failed += 1;
+            tally.failed += 1;
             // Best-effort: a dropped name only omits one entry from telemetry.
             acc.failed_checks.append(ctx.allocator, cmd.name) catch |e|
                 std.log.warn("guardian: dropped a failed-check telemetry note: {s}", .{@errorName(e)});
@@ -675,7 +763,7 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
         if (r.err) |e| {
             if (first_err == null) first_err = e;
         }
-        if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+        if (!r.emitted and shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
         if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{cmd.name});
         // Heartbeat: a check over the threshold is named with its wall time, so a
         // long run reads as alive and its slowest check is obvious. Routed through
@@ -687,7 +775,7 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
         collectSink(ctx, acc, cmd.name, r);
     }
     if (first_err) |e| return e;
-    return failed;
+    return tally;
 }
 
 /// Adds a check's findings to the JSONL sink accumulator: its structured
@@ -791,6 +879,27 @@ test "threadCount is at least one" {
     try std.testing.expect(threadCount() >= 1);
 }
 
+// spec: Run All - Runs the cheapest formatting gate before the rest of the suite
+
+test "preflightIndex picks the first registry entry and honors a skip filter" {
+    const cfg: config.Config = .{};
+    const base: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    // The preflight is the formatting gate, and it sits first in the registry —
+    // so nothing expensive can be scheduled ahead of it.
+    const i = preflightIndex(&base).?;
+    try std.testing.expectEqual(@as(usize, 0), i);
+    try std.testing.expectEqualStrings(preflight_name, registry.all[i].name);
+    // Filtered or disabled, it simply runs in the pool like any other check.
+    var skipped = base;
+    skipped.skip = &[_][]const u8{preflight_name};
+    try std.testing.expect(preflightIndex(&skipped) == null);
+}
+
 // spec: Run All - Blocks the build only when forced or configured to block
 
 test "blocks only when forced or when on_build is block" {
@@ -815,6 +924,36 @@ test "joinNames comma-joins the failed check names" {
     );
     // Defensive floor: a dropped telemetry list still yields a printable token.
     try std.testing.expectEqualStrings("?", joinNames(a, &.{}));
+}
+
+// spec: Run All - Separates blocking failures from report-only findings in the summary
+
+test "reportedSuffix names demoted findings only when there are some" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A strict-profile run has nothing demoted, so the summary is unchanged.
+    try std.testing.expectEqualStrings("", reportedSuffix(a, 0));
+    // Under a profile that demotes style checks the count is named, so a red
+    // summary can't be read as "8 more failures".
+    try std.testing.expectEqualStrings(" \u{2014} 8 report-only", reportedSuffix(a, 8));
+}
+
+// spec: Run All - Names each failing check's first finding under the run summary
+
+test "firstRecordFor picks the failing check's own first finding" {
+    const records = [_]reporter.Violation{
+        .{ .check = "line-length", .file = "src/a.zig", .line = 3, .message = "130 chars" },
+        .{ .check = "function-size", .file = "src/b.zig", .line = 412, .message = "fn wide has 7 params (cap 6)" },
+        .{ .check = "function-size", .file = "src/c.zig", .line = 9, .message = "fn other has 8 params (cap 6)" },
+    };
+    // The offender echoed under the summary is the failing check's first record —
+    // file:line, the item, the metric and the cap, all already in the message.
+    const v = firstRecordFor(&records, "function-size").?;
+    try std.testing.expectEqualStrings("src/b.zig", v.file.?);
+    try std.testing.expectEqual(@as(u32, 412), v.line.?);
+    // A check that recorded no line-level detail echoes nothing.
+    try std.testing.expect(firstRecordFor(&records, "pub-api-surface") == null);
 }
 
 // spec: Run All - Hints a stale binary when re-keying failures follow a binary change

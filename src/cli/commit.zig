@@ -27,6 +27,7 @@ const run_all = @import("run_all.zig");
 const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
 const dora = @import("../dora.zig");
+const config = @import("../config.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -60,6 +61,12 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // the old always-writing auto-path staged).
     ctx.metadata_writable = true;
 
+    // Say up front when nothing in the change set is an input any check reads:
+    // every finding below then describes pre-existing state, not this change —
+    // the difference between "my commit broke 49 things" and "this worktree
+    // never built its generated files". The gate still runs; nothing is skipped.
+    noticeNoGateInputs(ctx);
+
     // Phase markers + a per-phase timing split turn a long commit from a silent
     // wait into a visibly-progressing gate → tests → stage → commit sequence.
     // Both timers run through the dora clock seam (std.time lives in dora only).
@@ -92,6 +99,47 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     reporter.ok("commit: phase 4/4 — commit", .{});
     return stageAndCommit(ctx, intent);
+}
+
+/// Prints the up-front notice when no path in the change set is something a
+/// check reads. Best-effort: no git, no notice (the gate is unaffected either
+/// way — this only tells the reader where the findings came from).
+fn noticeNoGateInputs(ctx: *types.RunCtx) void {
+    const changed = (git.changedPaths(ctx.allocator, ctx.project_dir) catch return) orelse return;
+    if (changed.len == 0) return;
+    if (anyGateInput(changed, ctx.cfg.spec_file, ctx.cfg.external_gates)) return;
+    reporter.ok(
+        "commit: staged diff contains no gate inputs ({d} path(s), none of them .zig/SPEC/guardian config) " ++
+            "— any findings below are pre-existing state, not this change",
+        .{changed.len},
+    );
+}
+
+/// True when at least one changed path is an input some check consumes.
+fn anyGateInput(
+    changed: []const git.ChangedPath,
+    spec_file: []const u8,
+    externals: []const config.ExternalGate,
+) bool {
+    for (changed) |c| if (isGateInput(c.path, spec_file, externals)) return true;
+    return false;
+}
+
+/// True when `path` is a file the suite actually reads: a `.zig` source, the
+/// spec file, guardian.toml, the build files, guardian metadata (excluding its
+/// operational cache), or a declared `[[external]]` gate input. Mirrors the
+/// input set the green-run digest hashes (see cache.inputDigest) — conservative
+/// on purpose: anything under src/ counts, so the notice can never claim
+/// "nothing to check" for a change a check might read.
+fn isGateInput(path: []const u8, spec_file: []const u8, externals: []const config.ExternalGate) bool {
+    if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".zon")) return true;
+    if (std.mem.eql(u8, path, spec_file) or std.mem.eql(u8, path, "guardian.toml")) return true;
+    if (std.mem.startsWith(u8, path, "src/") or std.mem.startsWith(u8, path, "test/")) return true;
+    if (underDir(path, ".guardian") and !isGuardianCache(path)) return true;
+    for (externals) |gate| {
+        for (gate.inputs) |input| if (std.mem.eql(u8, path, input)) return true;
+    }
+    return false;
 }
 
 /// Renders the gate/test wall-clock split as `gate <s>.<t>s · tests <s>.<t>s`
@@ -360,6 +408,33 @@ fn containsAny(s: []const u8, needles: []const []const u8) bool {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+
+// spec: Commit - Reports up front when the change set contains no gate inputs
+
+test "anyGateInput separates checkable inputs from a docs-and-scripts change" {
+    // The reported case: a change of shell scripts and markdown only. Nothing
+    // there is read by any check, so the findings a gate prints come from the
+    // working tree — worth saying before a 40s run, not after it.
+    const docs_only = [_]git.ChangedPath{
+        untracked(".githooks/pre-commit"),
+        tracked("README.md"),
+        tracked("docs/deploy.md"),
+    };
+    try std.testing.expect(!anyGateInput(&docs_only, "SPEC.md", &.{}));
+
+    // Anything a check actually reads flips it: Zig source, the spec file,
+    // guardian config/metadata, build files, or a declared external input.
+    try std.testing.expect(isGateInput("src/router.zig", "SPEC.md", &.{}));
+    try std.testing.expect(isGateInput("SPEC.md", "SPEC.md", &.{}));
+    try std.testing.expect(isGateInput("guardian.toml", "SPEC.md", &.{}));
+    try std.testing.expect(isGateInput("build.zig.zon", "SPEC.md", &.{}));
+    try std.testing.expect(isGateInput(".guardian/baselines/spec.txt", "SPEC.md", &.{}));
+    // Guardian's own operational cache is not an input to anything.
+    try std.testing.expect(!isGateInput(".guardian/cache/last-run.jsonl", "SPEC.md", &.{}));
+    // A declared [[external]] gate input counts as a gate input.
+    const externals = [_]config.ExternalGate{.{ .name = "js", .command = &.{}, .inputs = &.{"assets/app.js"} }};
+    try std.testing.expect(isGateInput("assets/app.js", "SPEC.md", &externals));
+}
 
 // spec: Commit - Requires a non-empty intent message
 
