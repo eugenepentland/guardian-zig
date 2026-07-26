@@ -53,6 +53,19 @@ build always produces a binary — verify guardian-clean with `guardian-check al
 . --gate` (or set `on_build = "block"`). `commit`/`nightly`/`accept` and the
 pre-commit hook always block.
 
+**Diff-scoped during dev, whole-tree at commit.** A local `zig build` scopes
+the *per-file* checks to the files changed since the merge base with
+`main`/`master`; the inherently whole-tree checks (import cycles, cross-file
+duplicates, dead-pub / test-coverage maps, orphan reachability, SPEC↔tag
+coverage, every tree-wide snapshot/budget) still read everything. Each check's
+capability is the `scope` field on its `cli/registry.zig` entry — it has **no
+default**, so a new check must classify itself; `src/scope.zig` owns the
+decision. A scoped run announces itself, never stamps the green cache, and
+never prunes or rewrites a baseline/ratchet. `--full`, `--gate`, `commit`,
+`nightly`, `accept`, `migrate`, any metadata-writing run, and uncommitted
+guardian.toml / `.guardian/` drift all fall back to the whole tree;
+`--against <ref>` picks an explicit base.
+
 The `mutate` / `mutate-full` steps are auto-registered by `addAllChecks`
 (`opts.mutate_steps` defaults true), so consumers get them for free; the
 registration is idempotent.
@@ -66,6 +79,8 @@ guardian-check commit --intent "..." .  # block-gate, run tests, auto-commit + i
 guardian-check install-hook .        # write .git/hooks/pre-commit that runs the blocking gate
 guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
 guardian-check all . --skip line-length     # run every check except these
+guardian-check all . --full          # whole tree: opt out of the default diff scoping
+guardian-check all . --against origin/main  # diff-scope against an explicit base ref
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
 guardian-check version               # print the version (also --version)

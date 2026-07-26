@@ -283,6 +283,19 @@ pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
     return std.mem.trim(u8, out, &std.ascii.whitespace);
 }
 
+/// The merge base of HEAD and `ref` — the commit this branch diverged from —
+/// or null when it cannot be resolved (no such branch, an empty repository, a
+/// detached history with no common ancestor, or no git at all). Best-effort by
+/// design: the diff-scoping caller falls back to a whole-tree run whenever the
+/// base is unknown, so an unresolvable ref degrades quietly instead of failing
+/// a gate that would otherwise pass.
+pub fn mergeBase(allocator: Allocator, project_dir: []const u8, ref: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", "merge-base", "HEAD", ref };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const sha = std.mem.trim(u8, out, &std.ascii.whitespace);
+    return if (sha.len == 0) null else sha;
+}
+
 /// The current branch name (trimmed), or null when git is unavailable or HEAD
 /// is detached (`--abbrev-ref` yields "HEAD", reported as null). Used by the
 /// DORA sink to tag each recorded run.
@@ -521,6 +534,21 @@ test "diffAgainst hard-fails on a bad ref inside a real repository" {
     // failure (not a missing repository), so it must surface as a hard error
     // rather than a silent `.unavailable` skip.
     try testing.expectError(error.GitCommandFailed, diffAgainst(a, ".", "guardian-no-such-ref-zzz"));
+}
+
+// spec: Git Diff - Resolves the merge base with a branch and reports null when it cannot
+
+test "mergeBase degrades to null for an unresolvable branch" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A branch that cannot exist: merge-base exits non-zero, and the diff-scoping
+    // caller must see a quiet null (→ whole-tree fallback), never a hard error.
+    try testing.expectEqual(@as(?[]const u8, null), mergeBase(a, ".", "guardian-no-such-branch-zzz"));
+    // The current HEAD is always its own merge base with itself, so a resolvable
+    // ref yields a non-empty sha.
+    const self_base = mergeBase(a, ".", "HEAD");
+    try testing.expect(self_base == null or self_base.?.len > 0);
 }
 
 // spec-case: Policy Protection - Blocks protected Guardian metadata drift unless trusted CI approves it

@@ -355,6 +355,7 @@ test {
     _ = @import("walk.zig");
     _ = @import("text.zig");
     _ = @import("git.zig");
+    _ = @import("scope.zig");
     _ = @import("accept_session.zig");
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");

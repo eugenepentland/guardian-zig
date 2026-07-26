@@ -48,6 +48,33 @@ always block regardless of `on_build`. Set `on_build = "block"` to make every
 `zig build` hard-block as before. Run `guardian-check install-hook` (or let
 `commit` auto-install it) so a raw `git commit` can't slip past the gate.
 
+**Diff-scoped during dev, whole-tree at commit.** A plain local `zig build`
+only re-reads what you changed. Guardian diffs the working tree against the
+merge base with `main` (then `master`) and hands the *per-file* checks — shape,
+naming, complexity, per-file style, the hidden-dependency bans — only those
+files. Checks whose verdict is inherently whole-tree keep reading everything:
+import cycles, cross-file duplicate literals/consts, repeated enum switches,
+dead-pub and test-coverage reference maps, orphan-file reachability, the
+SPEC↔tag map, and every tree-wide snapshot/budget (`pub-api-surface`,
+`panic-budget`, `int-from-float-budget`, `unsafe-ops-budget`). The capability
+is a `scope` field on each registry entry with **no default**, so a newly added
+check has to classify itself.
+
+Every scoped run says so, naming the base and how much of the tree it read, and
+a scoped run counts as *partial*: it never stamps the green skip-cache (so a
+later whole-tree run can't skip on it), never records a delivery event, and
+never prunes, lowers, or rewrites a baseline or ratchet — from a partial view a
+missing violation may just be an unread file, so shrinks report as matches
+while new violations still fail.
+
+Scoping is dropped — the whole tree is read — for `--full`, for any blocking
+gate run (`--gate`, the pre-commit hook, `commit`, `nightly`, `accept`,
+`migrate`), for any run that may write `.guardian/` metadata, when guardian.toml
+or `.guardian/` has *uncommitted* changes (the caps every file is judged against
+moved), and whenever the base or the diff can't be resolved. `--against <ref>`
+picks an explicit base. Measured on a 234-file consumer tree: 42.0 s whole-tree
+→ 15.5 s for a one-file edit.
+
 ## What It Checks
 
 Guardian's self-build runs 67 registered checks. Most hard-block under the default

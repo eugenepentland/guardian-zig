@@ -19,6 +19,9 @@ const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
 const accept_session = @import("accept_session.zig");
 const violation_key = @import("violation_key.zig");
+const scope = @import("scope.zig");
+const config_mod = @import("config.zig");
+const ast_index = @import("ast/index.zig");
 
 /// Baseline file format version. Bump if the format changes meaningfully.
 /// v1 stored rendered violation text; v3 stores content-derived identities.
@@ -429,7 +432,12 @@ fn processOutcome(
 ) types.RunError!void {
     // write_allowed rides on the context — accept/commit/migrate flip it; an
     // ordinary run leaves it false and every lifecycle write below is deferred.
-    const write_allowed = ctx.metadata_writable;
+    // A check that only read the changed files never writes, whatever the
+    // command asked for: reconciling recorded debt from a partial view would
+    // prune entries that are merely out of scope. (The scoping resolver already
+    // refuses to scope a metadata-writing run; this is the second lock.)
+    const view = viewFor(ctx);
+    const write_allowed = ctx.metadata_writable and view == .whole_tree;
     var arena = std.heap.ArenaAllocator.init(ctx.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -463,7 +471,40 @@ fn processOutcome(
         return error.CheckFailed;
     };
 
-    return reportOutcome(check_name, outcome, write_allowed);
+    return reportOutcome(check_name, underPartialView(view, outcome), write_allowed);
+}
+
+/// The view this check ran under: `partial` when a diff-scoped run handed it
+/// only the changed files (run_all narrows the marker per check), `whole_tree`
+/// otherwise.
+fn viewFor(ctx: *const types.RunCtx) scope.View {
+    return if (ctx.scoped == null) .whole_tree else .partial;
+}
+
+/// Reinterprets a v3 identity-baseline outcome for a partial view. A check that
+/// read only the changed files cannot tell a *resolved* violation from one that
+/// is merely out of scope, so a pure shrink is reported as a match against the
+/// recorded size — never as resolved work, and (with write_allowed already
+/// forced false) never pruned. `grown` is untouched: a new violation in a file
+/// the run DID read fails exactly as it would whole-tree.
+fn underPartialView(view: scope.View, outcome: Outcome) Outcome {
+    if (view == .whole_tree) return outcome;
+    return switch (outcome) {
+        .shrunk => |s| .{ .matched = s.remaining + s.removed },
+        else => outcome,
+    };
+}
+
+/// The ratchet twin of `underPartialView`: an `improved` verdict from a partial
+/// view may be nothing but out-of-scope keys vanishing, so it is reported as a
+/// match. `regressed` still fails — a raised value or a new offender in a file
+/// the run read is real.
+fn ratchetUnderPartialView(view: scope.View, outcome: ratchet.Outcome) ratchet.Outcome {
+    if (view == .whole_tree) return outcome;
+    return switch (outcome) {
+        .improved => |i| .{ .matched = i.remaining + i.pruned },
+        else => outcome,
+    };
 }
 
 /// Ratchet (baseline v2) path for a threshold check: aggregate its records to
@@ -525,7 +566,8 @@ fn processRatchet(
         }
         return;
     }
-    return reportRatchet(check_name, outcome, firstFixHint(input.captured), input.write_allowed);
+    const reported = ratchetUnderPartialView(viewFor(ctx), outcome);
+    return reportRatchet(check_name, reported, firstFixHint(input.captured), input.write_allowed);
 }
 
 /// Keeps a legacy ratchet entry while the same subject is still being reported
@@ -894,7 +936,12 @@ test "runWithBaseline replays warnings without ratcheting them" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &outer;
 
-    try runWithBaseline(&ctx, .{ .name = "file-size", .summary = "test", .run = warningOnly });
+    try runWithBaseline(&ctx, .{
+        .name = "file-size",
+        .summary = "test",
+        .scope = .per_file,
+        .run = warningOnly,
+    });
     try std.testing.expectEqual(@as(usize, 1), outer.warnings.items.len);
     try std.testing.expectEqual(@as(usize, 0), outer.records.items.len);
 
@@ -1542,4 +1589,61 @@ test "matching ratchet and baseline reports carry an ok pass marker" {
     // last line above a run summary can't be misread as the failing check.
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: file-size: ratchet matches") != null);
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: naming: baseline matches") != null);
+}
+
+// spec: Diff Scoping - Reports a partial view's baseline shrink as a match instead of resolved work
+
+test "underPartialView keeps a scoped shrink from reading as resolved debt" {
+    const shrunk: Outcome = .{ .shrunk = .{ .remaining = 2, .removed = 5 } };
+    // Whole-tree: the shrink is real — those violations were fixed.
+    const whole = underPartialView(.whole_tree, shrunk);
+    try std.testing.expect(whole == .shrunk);
+    // Partial: the five "removed" entries are simply files this run never read,
+    // so the outcome reports the recorded size as matched, claiming nothing.
+    const partial = underPartialView(.partial, shrunk);
+    try std.testing.expect(partial == .matched);
+    try std.testing.expectEqual(@as(usize, 7), partial.matched);
+    // A genuinely new violation still fails, scoped or not.
+    const grown: Outcome = .{ .grown = .{ .new_lines = &.{"src/a.zig: bad"}, .baseline_size = 1 } };
+    try std.testing.expect(underPartialView(.partial, grown) == .grown);
+}
+
+// spec: Diff Scoping - Reports a partial view's ratchet improvement as a match instead of progress
+
+test "ratchetUnderPartialView keeps a scoped improvement from lowering debt" {
+    const improved: ratchet.Outcome = .{ .improved = .{ .lowered = 1, .pruned = 4, .remaining = 3 } };
+    try std.testing.expect(ratchetUnderPartialView(.whole_tree, improved) == .improved);
+    const partial = ratchetUnderPartialView(.partial, improved);
+    try std.testing.expect(partial == .matched);
+    try std.testing.expectEqual(@as(usize, 7), partial.matched);
+    // A regression is a raised value in a file the run actually read — it fails
+    // under either view.
+    const regressed: ratchet.Outcome = .{ .regressed = .{
+        .grown = &.{},
+        .new_offenders = &.{.{ .key = "src/a.zig", .value = 9 }},
+        .remaining = 1,
+    } };
+    try std.testing.expect(ratchetUnderPartialView(.partial, regressed) == .regressed);
+}
+
+// spec: Diff Scoping - Refuses every metadata write for a check that read only part of the tree
+
+test "viewFor marks a scoped run partial so its metadata stays read-only" {
+    const cfg: config_mod.Config = .{};
+    var narrow: ast_index.Index = .{ .files = &.{} };
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .metadata_writable = true,
+    };
+    // A whole-tree check on a writable command may reconcile its metadata.
+    try std.testing.expect(viewFor(&ctx) == .whole_tree);
+    try std.testing.expect(ctx.metadata_writable and viewFor(&ctx) == .whole_tree);
+    // The same command's per-file check under a diff scope may not: the write
+    // gate in processOutcome ANDs these two, so a partial view never persists.
+    ctx.scoped = .{ .base = "abc123", .file_count = 1, .index = &narrow };
+    try std.testing.expect(viewFor(&ctx) == .partial);
+    try std.testing.expect(!(ctx.metadata_writable and viewFor(&ctx) == .whole_tree));
 }
