@@ -40,6 +40,17 @@ pub const Violation = struct {
     metric: ?u64 = null,
 };
 
+/// One finding routed to the non-blocking measurement channel: the check that
+/// found it, the `[measurement]` path it was attributed to, and its rendered
+/// violation line. A deferred finding is neither a blocking violation nor an
+/// advisory warning — it is the same violation the commit-time gate will raise,
+/// held open only for a local run (see measurement.zig).
+pub const Measured = struct {
+    check: []const u8 = "",
+    path: []const u8 = "",
+    message: []const u8,
+};
+
 /// Renders a Violation to its single-line human form without the leading
 /// two-space indent or trailing newline: `"<file>:<line>: <message>"`,
 /// `"<file>: <message>"`, or `"<message>"`. This is exactly the body `emit`
@@ -75,12 +86,18 @@ pub const Capture = struct {
     /// Advisory findings are separate from blocking violation records so
     /// baselines and ratchets never turn a warning into acceptance work.
     warnings: std.ArrayList(Violation) = .empty,
+    /// Findings deferred by a live `[measurement]` exemption. Kept out of
+    /// `records` so no baseline, ratchet, or snapshot can be written from an
+    /// exempted view; the `all` runner reads them only to print the run-level
+    /// standing reminder.
+    measured: std.ArrayList(Measured) = .empty,
 
     /// Frees the captured buffer and structured records.
     pub fn deinit(self: *Capture) void {
         self.buf.deinit(self.allocator);
         self.records.deinit(self.allocator);
         self.warnings.deinit(self.allocator);
+        self.measured.deinit(self.allocator);
     }
 
     /// Appends `fmt`/`args` to the capture buffer; logs a warning on OOM.
@@ -101,6 +118,11 @@ pub const Capture = struct {
     fn recordWarning(self: *Capture, v: Violation) void {
         self.warnings.append(self.allocator, v) catch |e|
             std.log.warn("guardian capture warning failed: {s}", .{@errorName(e)});
+    }
+
+    fn recordMeasured(self: *Capture, m: Measured) void {
+        self.measured.append(self.allocator, m) catch |e|
+            std.log.warn("guardian capture measured failed: {s}", .{@errorName(e)});
     }
 };
 
@@ -167,6 +189,18 @@ pub const Reporter = struct {
             return;
         }
         emitDirect(v);
+    }
+
+    /// Emits a finding deferred by a live `[measurement]` exemption. It is
+    /// listed under the check's MEASURE header and recorded separately from
+    /// blocking violations, so nothing downstream can mistake it for one.
+    fn measure(self: Reporter, m: Measured) void {
+        if (self.capture) |c| {
+            c.recordMeasured(m);
+            c.write("  {s}\n", .{m.message});
+            return;
+        }
+        print("  {s}\n", .{m.message});
     }
 };
 
@@ -257,6 +291,11 @@ pub fn emit(v: Violation) void {
 /// Format and print a non-blocking warning record.
 pub fn warn(v: Violation) void {
     default.warn(v);
+}
+
+/// Format and print a finding deferred by a live `[measurement]` exemption.
+pub fn measure(m: Measured) void {
+    default.measure(m);
 }
 
 /// Prints a red guardian-prefixed failure line, then terminates the process

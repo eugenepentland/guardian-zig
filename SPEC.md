@@ -455,9 +455,23 @@ blocking correctness checks and advisory maintainability guidance.
 - Refuses a deny_growth refresh that raises a value or adds a key
 - Summarizes a ratchet file's worst offender
 - Presents file and type growth as volume with accept-first guidance
+- Notes that a grown ratchet item was already sitting at its frozen cap
 - Names each threshold check's metric unit for regression messages
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
+
+## Measurement Mode
+
+- Defers only the instrumentation-class checks
+- Voids the exemption for gating and metadata-writing runs
+- Matches a measurement path by exact file or directory prefix
+- Hands each check an inert exemption unless the bridge applies
+- Reports deferred findings under a non-blocking MEASURE verb
+- Prints a standing reminder naming every exempted path and count
+- Parses the measurement paths list and rejects a wildcard entry
+- Passes an exempt finding locally and blocks the same finding at commit
+- Defers public-surface drift inside a measurement path
+- Withholds the green skip-cache stamp from a run with deferred findings
 
 ## Reporter
 

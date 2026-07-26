@@ -701,10 +701,13 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[
         "  {s}: {s} — {d} {s}, a new offender at or above the cap (accept to ratchet, or reduce)\n",
         .{ check_name, o.key, o.value, unit },
     );
-    // A type-size subject that grew was sitting exactly at its frozen cap; make
-    // the "you can't just add a field" insight explicit rather than implied.
-    if (std.mem.eql(u8, check_name, "type-size") and reg.grown.len > 0) reporter.detail(
-        "  this container is at its frozen cap; reduce a field or split it before adding another.\n",
+    // A ratchet freezes each item at the value it recorded, so a key that grew
+    // had ZERO headroom — it was sitting exactly at its own cap and the change
+    // tipped it over, with no baseline escape. That is invisible from the
+    // numbers alone (a reader sees "17 -> 18 fields", not "17 was the ceiling"),
+    // so say it: the fix is to reduce or split, never to raise the cap.
+    if (atFrozenCap(reg)) reporter.detail(
+        "  this item is at its frozen cap; reduce or split before adding.\n",
         .{},
     );
     switch (class) {
@@ -718,6 +721,15 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, fix_hint: ?[
         },
     }
     return error.CheckFailed;
+}
+
+/// True when a regression includes a key that GREW — i.e. an item that was
+/// frozen at exactly its own current value, leaving no room to add. A
+/// regression made only of new offenders is different: those tripped the
+/// check's default cap and were never ratcheted, so the at-cap note would
+/// misdescribe them.
+fn atFrozenCap(reg: ratchet.Regression) bool {
+    return reg.grown.len > 0;
 }
 
 /// The first `fix:` hint line in a check's captured output (dedented), or null.
@@ -1013,6 +1025,42 @@ test "reportRegressed words volume growth accept-first and shape regressions fix
     const s_fix = std.mem.indexOf(u8, shape_out, "fix:").?;
     const s_accept = std.mem.indexOf(u8, shape_out, "accept:").?;
     try std.testing.expect(s_fix < s_accept);
+}
+
+// spec: Per-Item Ratchets - Notes that a grown ratchet item was already sitting at its frozen cap
+
+test "the at-cap note fires for a grown key on any ratchet, not just type-size" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // A grown key had ZERO headroom by construction — the ratchet froze it at
+    // its own value — so "reduce or split" is the only move; there is no
+    // baseline escape. The note used to be type-size-only, which left every
+    // other ratchet's reader to infer it from the numbers.
+    const grown: ratchet.Regression = .{
+        .grown = &.{.{ .key = "src/x.zig|Params", .old = 17, .new = 18 }},
+        .new_offenders = &.{},
+        .remaining = 1,
+    };
+    try std.testing.expect(atFrozenCap(grown));
+    try std.testing.expectError(error.CheckFailed, reportRegressed("function-size", grown, null));
+    const grown_out = try cap.buf.toOwnedSlice(std.testing.allocator);
+    defer std.testing.allocator.free(grown_out);
+    try std.testing.expect(std.mem.indexOf(u8, grown_out, "at its frozen cap; reduce or split") != null);
+
+    // A regression made only of NEW offenders is a different situation: those
+    // tripped the check's default cap and were never frozen at anything.
+    const fresh: ratchet.Regression = .{
+        .grown = &.{},
+        .new_offenders = &.{.{ .key = "src/y.zig|g", .value = 9 }},
+        .remaining = 1,
+    };
+    try std.testing.expect(!atFrozenCap(fresh));
+    try std.testing.expectError(error.CheckFailed, reportRegressed("function-size", fresh, null));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "frozen cap") == null);
 }
 
 // spec: Per-Item Ratchets - Scrapes the check's own fix hint for the regression message

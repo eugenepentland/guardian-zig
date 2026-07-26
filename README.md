@@ -794,6 +794,35 @@ check off. The three advisory size checks expose separate recommended and hard
 limits; keep the recommendation useful for guidance and move the hard limit
 only when a project has a legitimate extreme case.
 
+### Extracting a module?
+
+Splitting a file — usually to get it back under the `file-size` ratchet — reliably
+trips three *other* checks at once, because moving code duplicates the small
+things that came with it. Each finding is individually right, but they turn a
+one-step move into a three-check cleanup. Do these three up front and extraction
+stays a single build:
+
+1. **`repeated-string-literal` — share the consts, don't copy them.** The arg
+   keys / table names / type tags the moved code used are now spelled in two
+   files. Put them in **one** module (the extracted file, or a small shared
+   `keys.zig`) and have the other side `@import` it. A `const` per literal in
+   each file is what the check exists to stop; a single owner is the fix.
+2. **`repeated-switch-on-enum` — move the switch onto the type, don't duplicate
+   it.** A `switch` over the same prong set in two files (the classic case: a
+   JSON-coercion `switch (value) { .float, .integer, else }` in both halves)
+   fails even when each copy is small. Give the enum — or the module that owns
+   it — one method (`fn asF32(self: Value) ?f32`) and call it from both sides.
+   That is nearly always the better API, not a workaround.
+3. **`deprecated-alias` — write the current idiom in the new file.** Fresh code
+   copied from an older file carries older spellings: use `.empty` rather than
+   `std.ArrayListUnmanaged{}`, `std.ArrayList` rather than the `Unmanaged`
+   alias. `guardian-check explain deprecated-alias` lists the pairs.
+
+Two things that are *not* your problem: the extracted file inherits nothing from
+the original's ratchets (its shape metrics are measured fresh), and neither half
+needs a baseline refresh if you land the extraction and these three fixes in one
+commit.
+
 ## Config (guardian.toml)
 
 Optional — sensible defaults work out of the box. Each check has its own section:
@@ -830,6 +859,12 @@ report = ["line-length"]
 lock_enabled = true
 lock_against = "origin/main"
 protected_paths = ["guardian.toml", ".guardian/", ".github/workflows/"]
+
+# Instrumentation bridge: while profiling these paths, the checks that fire on
+# the ACT of instrumenting report under a non-blocking MEASURE verb on a LOCAL
+# run — and block exactly as usual at commit. See "Measurement mode" below.
+[measurement]
+paths = ["src/placement/router.zig", "src/bench"]
 
 # Cache-size warnings from `doctor`; zero disables that warning class.
 [doctor]
@@ -996,6 +1031,74 @@ commas.
 | `[benchmark]` | `gate` (metric names opted into the ledger ratchet) |
 | `[fuzz_presence]` | `modules` |
 | `[int_from_float]` | `guard_fns`, `require_guard` |
+| `[measurement]` | `paths` |
+
+## Measurement mode (`[measurement]`)
+
+Profiling a hot path means patching in scaffolding the gate exists to forbid — a
+`pub var dbg_via_reason: [8]usize` counter, a `std.time.nanoTimestamp`
+accumulator, a `std.debug.print` in the loop under study. It is read once and
+deleted, but the gate cannot tell it apart from production code, so the only
+supported workflow was *patch it in, build with the gate failing, run, read,
+`git checkout` the file*: the gate and the diagnostic build were two different
+worlds with no bridge between them.
+
+`[measurement]` is that bridge, placed on exactly the half of the boundary that
+costs nothing: **exploratory instrumentation stops fighting a local build, and
+nothing extra can ship.**
+
+```toml
+[measurement]
+paths = ["src/placement/router.zig", "src/bench"]
+```
+
+Each entry is a project-relative **file** or **directory prefix**. It is not a
+glob: a wildcard, an absolute path, or a `..` escape is a hard config error,
+because an allowlist that silently matches nothing is worse than a typo.
+
+**Local run** (build-wired `all`, `guardian-check all <dir>`) — findings inside
+those paths are reported under a distinct, non-blocking verb, and the run prints
+one standing reminder so scaffolding cannot linger unnoticed:
+
+```
+guardian: MEASURE ban-globals (2 in src/placement/router.zig — exempt locally, blocks commit)
+  src/placement/router.zig:41: mutable global var outside wiring/main
+  src/placement/router.zig:42: mutable global var outside wiring/main
+guardian: MEASURE: 3 finding(s) exempt by [measurement] — src/placement/router.zig
+  (ban-globals 2, ban-time 1) — void at commit; strip before you ship
+```
+
+**Commit time** (`guardian-check commit`), **`--gate`** (the pre-commit hook and
+CI), **`nightly`**, and **any run that may write `.guardian/` metadata**
+(`accept`, `migrate`, a pending `GUARDIAN_UPDATE_SNAPSHOT` refresh) — the
+exemption is **void**. The same findings block exactly as they do today, and no
+baseline or snapshot can ever be recorded from an exempted view.
+
+A local run that deferred anything also **withholds the green skip-cache stamp**,
+so the next gating run always re-executes the suite instead of skipping on a
+digest that was only green because of the exemption. The cost is one full run at
+commit; the benefit is that the boundary cannot be smuggled through the cache.
+
+### What it defers, and what it never touches
+
+Only five checks are instrumentation-class, chosen because the thing each one
+flags *is* the act of instrumenting:
+
+| Check | Why it is bridged |
+|---|---|
+| `ban-globals` | a per-cause counter is a file-scope `pub var`; the check's own fix (scope it to a struct field) is the production plumbing you are trying not to grow |
+| `ban-time` | a phase timer is `std.time.nanoTimestamp` / `Timer.start`; its fix is to inject a Clock port |
+| `debug-print-ban` | `std.debug.print` in the loop is the read-out |
+| `stdout-flush` | the hand-rolled buffered dump of those counters |
+| `pub-api-surface` | a counter a second module reads must be `pub`, so the surface snapshot drifts for the life of the experiment (drift is filtered per file; the snapshot itself is never rewritten from the filtered view) |
+
+Everything else keeps working normally inside a measurement path — in
+particular the correctness and safety checks (`catch-discipline`,
+`error-discipline`, `panic-budget`, `unsafe-ops-budget`, `ban-secrets`,
+`allocator-hygiene`, `oom-discipline`), the spec workflow (`spec`,
+`completeness`, `change-classification`), and every shape ratchet
+(`function-length`, `file-size`, `cognitive-complexity`, …). An empty or absent
+`[measurement]` section is exactly today's behavior everywhere.
 
 ## Tools
 

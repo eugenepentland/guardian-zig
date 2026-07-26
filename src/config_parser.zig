@@ -74,6 +74,7 @@ const max_len_key = "max_len";
 const hard_max_len_key = "hard_max_len";
 const required_inputs_key = "required_inputs";
 const on_build_key = "on_build";
+const measurement_paths_key = "paths";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
 
@@ -134,6 +135,7 @@ const Section = enum {
     dora,
     fuzz_presence,
     int_from_float,
+    measurement,
     policy,
     doctor,
     gate,
@@ -524,7 +526,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .mutation => if (key[0] == 's') .string else .unsigned,
         .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
-        .fuzz_presence, .int_from_float => .string_array,
+        .fuzz_presence, .int_from_float, .measurement => .string_array,
         .policy => if (std.mem.eql(u8, key, "profile") or std.mem.eql(u8, key, lock_against_key))
             .string
         else if (std.mem.eql(u8, key, lock_enabled_key))
@@ -572,6 +574,10 @@ fn validateValue(
         }
     }
 
+    if (st.array_kind == .none and st.section == .measurement) {
+        try validateMeasurementPaths(allocator, kv, line_no, diag);
+    }
+
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
     if (kind == .string) {
@@ -585,6 +591,40 @@ fn validateValue(
         try setDiag(allocator, diag, line_no, "'{s}' must not contain empty strings", .{kv.key});
         return error.InvalidValue;
     }
+}
+
+/// Rejects a `[measurement] paths` entry that is not a plain project-relative
+/// file or directory: a wildcard (the bridge matches by exact path or directory
+/// prefix, never by glob or substring — see measurement.pathCovers), an
+/// absolute path, or a `..` escape. Failing closed here matters more than
+/// usual: a silently-inert entry would leave the operator believing
+/// instrumentation is bridged when every finding still blocks.
+fn validateMeasurementPaths(
+    allocator: Allocator,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (!std.mem.eql(u8, kv.key, measurement_paths_key)) return;
+    for (try toStrings(allocator, kv.val)) |path| {
+        if (isPlainRelativePath(path)) continue;
+        try setDiag(
+            allocator,
+            diag,
+            line_no,
+            "invalid measurement path '{s}' (want a project-relative file or directory; no wildcards)",
+            .{path},
+        );
+        return error.InvalidValue;
+    }
+}
+
+/// True when `path` is a plain project-relative file or directory reference —
+/// no wildcard, not absolute, no parent-directory escape.
+fn isPlainRelativePath(path: []const u8) bool {
+    if (std.mem.indexOfScalar(u8, path, '*') != null) return false;
+    if (std.mem.startsWith(u8, path, "/")) return false;
+    return std.mem.indexOf(u8, path, "..") == null;
 }
 
 fn noteMutationLine(lines: *MutationLines, key: []const u8, line_no: u32) void {
@@ -678,6 +718,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
         .int_from_float => &.{ "guard_fns", "require_guard" },
+        .measurement => &.{"paths"},
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
         .doctor => &.{ "zig_cache_warn_mib", "guardian_cache_warn_mib" },
         .gate => &.{ on_build_key, "test_command", "install_hook" },
@@ -725,6 +766,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .dora => applyDoraKey(ctx, kv),
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
         .int_from_float => try applyIntFromFloatKey(ctx, kv),
+        .measurement => try applyMeasurementKey(ctx, kv),
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
         .doctor => config_policy.applyDoctor(ctx.cfg, kv.key, kv.val),
         .gate => applyGateKey(ctx, kv),
@@ -782,6 +824,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
         .{ "int_from_float", Section.int_from_float },
+        .{ "measurement", Section.measurement },
         .{ "policy", Section.policy },
         .{ "doctor", Section.doctor },
         .{ "gate", Section.gate },
@@ -975,6 +1018,14 @@ fn applyIntFromFloatKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.guard_fns = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, "require_guard")) {
         g.require_guard = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the `[measurement] paths` allowlist — the instrumentation bridge's
+/// file/directory list (see measurement.zig).
+fn applyMeasurementKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, measurement_paths_key)) {
+        ctx.cfg.measurement.paths = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -1474,6 +1525,34 @@ test "parse [int_from_float] defaults empty and reads guard_fns + require_guard"
     try std.testing.expectEqualStrings("checkedInt", cfg.int_from_float.guard_fns[0]);
     try std.testing.expectEqual(@as(usize, 1), cfg.int_from_float.require_guard.len);
     try std.testing.expectEqualStrings("src/render/*", cfg.int_from_float.require_guard[0]);
+}
+
+// spec: Measurement Mode - Parses the measurement paths list and rejects a wildcard entry
+
+test "parse [measurement] reads paths and refuses a glob" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: absent section = empty list = exactly today's behavior.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.measurement.paths.len);
+    const cfg = try parse(arena.allocator(),
+        \\[measurement]
+        \\paths = ["src/placement/router.zig", "src/bench"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.measurement.paths.len);
+    try std.testing.expectEqualStrings("src/placement/router.zig", cfg.measurement.paths[0]);
+    try std.testing.expectEqualStrings("src/bench", cfg.measurement.paths[1]);
+    // A wildcard would silently match nothing, so it is a hard config error
+    // rather than an inert entry the operator believes is bridging something.
+    try std.testing.expectError(error.InvalidValue, parse(arena.allocator(),
+        \\[measurement]
+        \\paths = ["src/*"]
+    ));
+    // Absolute paths and parent escapes are refused for the same reason.
+    try std.testing.expectError(error.InvalidValue, parse(arena.allocator(),
+        \\[measurement]
+        \\paths = ["../other/src"]
+    ));
 }
 
 // spec: Configuration - Parses the change classification last-commit gate toggle

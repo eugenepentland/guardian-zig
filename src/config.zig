@@ -435,6 +435,19 @@ pub const IntFromFloatCfg = struct {
     require_guard: []const []const u8 = &.{},
 };
 
+/// `[measurement]` — the instrumentation bridge (see measurement.zig). Each
+/// entry is a walker-relative file path ("src/placement/router.zig") or a
+/// directory prefix ("src/bench"); wildcards are rejected by the parser, since
+/// an instrumentation allowlist is a boundary rather than a convenience glob.
+/// Inside these paths the instrumentation-class checks (ban-globals, ban-time,
+/// debug-print-ban, stdout-flush, pub-api-surface) report their findings under a
+/// non-blocking MEASURE verb on a LOCAL run, and block exactly as they do today
+/// at commit / `--gate` / on any metadata-writing run. Empty (the default) is
+/// exactly today's behavior everywhere.
+pub const MeasurementCfg = struct {
+    paths: []const []const u8 = &.{},
+};
+
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
     spec_file: []const u8 = "SPEC.md",
@@ -494,6 +507,7 @@ pub const Config = struct {
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
+    measurement: MeasurementCfg = .{},
     policy: PolicyCfg = .{},
     doctor: DoctorCfg = .{},
     external_gates: []const ExternalGate = &.{},
