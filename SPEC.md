@@ -37,6 +37,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the intent flag for the commit command
 - Parses the gate command-line flag
 - Parses the gate mode, test command, and hook install settings
+- Parses the test_filter flag spelling
 - Splits a comma-separated filter value into check names
 - Rejects combining the only and skip filters
 - Parses policy profiles, policy locks, doctor thresholds, and external argv gates
@@ -504,6 +505,17 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports a partial view's baseline shrink as a match instead of resolved work
 - Reports a partial view's ratchet improvement as a match instead of progress
 - Refuses every metadata write for a check that read only part of the tree
+
+## Test Filter
+
+- Derives the test names declared by each changed file
+- Counts unnamed test blocks as tests no name filter can select
+- Derives names only from changed files and deduplicates them
+- Reports changed files that declare no test and changed paths that are not indexed source
+- Reports the tests of every unchanged file that transitively imports a changed one
+- Emits no filter arguments when no test name was derived
+- Reports no filter when the run cannot be diff-scoped
+- Leaves the commit gate running the whole configured test command
 
 ## Change Classification
 

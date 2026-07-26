@@ -615,6 +615,24 @@ const entries = [_]Entry{
         "Fix: review and manually apply appropriate suggestions. Add `--json` for\n" ++
         "machine-readable output. The command never modifies files.\n" ++
         "Exempt: n/a — never part of `all`; it is always a dry run." },
+    .{ .name = "test-filter", .text = 
+    \\Why: on a large tree an edit costs a whole test-binary rebuild plus the whole
+    \\suite (measured on one consumer: ~207s per edit/verify iteration, of which
+    \\~180s disappears when only the changed file's tests are compiled). This
+    \\derives the test names your diff's files declare so a LOCAL loop can run
+    \\those instead — and reports, in the same breath, everything the filter does
+    \\not cover: unnamed `test { }` blocks, changed paths with no derivable test,
+    \\and the tests of every file that depends on a changed one.
+    \\Fix: n/a — read-only, non-gating, runs no tests. Use it as
+    \\`eval "$(guardian-check test-filter . --args)"`-style interpolation:
+    \\`eval "zig build test $(guardian-check test-filter . --args)"` (eval, not a
+    \\bare $(...): command substitution word-splits without processing quotes).
+    \\`--json` for tooling. `[test_filter] flag` sets your project's flag spelling.
+    \\Exempt: n/a — never part of `all` and never reachable from a gate. Zig hands
+    \\--test-filter to the COMPILER, so unmatched tests are never analyzed: a green
+    \\filtered run does not even prove the test binary builds. `commit`, the
+    \\pre-commit hook, and CI always run the whole `[gate] test_command`.
+    },
     .{ .name = "accept", .text = "Why: intentional baseline/snapshot drift should be accepted by name, not through\n" ++
         "a broad environment-variable refresh that can ratify unrelated changes.\n" ++
         "Fix: run `zig build guardian-accept -Dguardian-checks=file-size,line-length`; Guardian previews,\n" ++
@@ -644,7 +662,7 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync, accept, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync, test-filter, accept, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).
@@ -678,6 +696,8 @@ test "resolves accepts known names and the bare listing, rejects unknown" {
     try std.testing.expect(resolves("catch-discipline"));
     try std.testing.expect(resolves(null));
     try std.testing.expect(!resolves("bogus-name"));
+    // Specially-dispatched commands resolve too, via summaryFor + an entry.
+    try std.testing.expect(resolves("test-filter"));
 }
 
 test "every registered command has an explain entry" {

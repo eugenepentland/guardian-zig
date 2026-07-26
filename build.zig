@@ -42,12 +42,28 @@ pub fn build(b: *std.Build) void {
         "fuzz-filter",
         "Select one fuzz test by name for `zig build test --fuzz`",
     );
-    const test_filters: []const []const u8 = if (fuzz_filter) |filter| filters: {
-        const one = b.allocator.alloc([]const u8, 1) catch @panic("out of memory");
-        one[0] = filter;
-        break :filters one;
-    } else &.{};
-    const unit_tests = b.addTest(.{ .root_module = test_mod, .filters = test_filters });
+    // Local iteration aid, NOT a gate. `guardian-check test-filter . --args`
+    // derives this list from the current diff, so an edit/verify loop can run
+    // its own file's tests instead of the suite:
+    //
+    //   eval "zig build test $(guardian-check test-filter . --args)"
+    //
+    // (`eval` because command substitution word-splits without processing
+    // quotes — a bare $(...) would tear a test name containing spaces apart.)
+    //
+    // Zig hands --test-filter to the *compiler*, so unmatched tests are never
+    // analyzed — a filtered run cannot prove the test binary compiles. The
+    // gate (`guardian-check commit`, the pre-commit hook, CI) therefore always
+    // runs the unfiltered `zig build test`.
+    const name_filters = b.option(
+        []const []const u8,
+        "test-filter",
+        "Run only tests whose name contains one of these (repeatable). Local aid only — never a gate.",
+    ) orelse &.{};
+    var test_filters: std.ArrayList([]const u8) = .empty;
+    test_filters.appendSlice(b.allocator, name_filters) catch @panic("out of memory");
+    if (fuzz_filter) |filter| test_filters.append(b.allocator, filter) catch @panic("out of memory");
+    const unit_tests = b.addTest(.{ .root_module = test_mod, .filters = test_filters.items });
     const run_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);

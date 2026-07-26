@@ -75,6 +75,40 @@ moved), and whenever the base or the diff can't be resolved. `--against <ref>`
 picks an explicit base. Measured on a 234-file consumer tree: 42.0 s whole-tree
 → 15.5 s for a one-file edit.
 
+**`test-filter` — the same idea for the *test* suite, but report-only.**
+`guardian-check test-filter .` derives the `test "…"` names declared by the
+files your diff changed and prints them, so a local edit/verify loop can run
+those instead of the whole suite:
+
+```bash
+eval "zig build test $(guardian-check test-filter . --args)"
+```
+
+(`eval`, not a bare `$(...)`: command substitution word-splits without
+processing quotes, so a test name containing spaces would be torn into separate
+arguments. The emitted names are POSIX single-quoted, which is what makes
+handing them to `eval` safe.) `[test_filter] flag` sets how your project spells
+the flag; `--json` is the machine-readable form.
+
+Measured on a 1387-test consumer tree (Zig 0.15.1, 12 cores, ReleaseSafe test
+binary): editing one file and running the suite costs **207 s** (a 3-minute
+test-binary rebuild plus 9 s of test execution); the same edit with the derived
+filter costs **26 s**. Re-running with nothing changed is 9.5 s unfiltered vs
+0.2 s filtered. The saving is in the *compile*: `--test-filter` is a compiler
+flag, so unmatched tests are never analyzed.
+
+That is also exactly why this **never gates**. A filtered build does not
+type-check the tests it skipped, so it cannot prove the test binary even
+compiles — a production call site can change, its own test can go stale, and a
+filtered run stays green. `commit`, the pre-commit hook, and CI always run the
+whole `[gate] test_command`; nothing appends a filter to it. Every report
+therefore prints its own blind spots alongside the names: unnamed `test { }`
+blocks (unfilterable — they always run), changed files that declare no test,
+changed paths that aren't indexed source, and the test count of every file that
+transitively imports a changed one. An empty derivation prints *no* arguments,
+so an interpolating pipeline degrades to the full suite rather than to zero
+tests.
+
 ## What It Checks
 
 Guardian's self-build runs 67 registered checks. Most hard-block under the default
@@ -864,6 +898,7 @@ commas.
 | `[[allow]]` | `check`, `paths` |
 | `[[external]]` | `name`, `command`, `inputs` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
+| `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
 | `[policy]` | `profile`, `block`, `ratchet`, `report`, `lock_enabled`, `lock_against`, `protected_paths` |
 | `[doctor]` | `zig_cache_warn_mib`, `guardian_cache_warn_mib` |
 | `[spec_quality]` | `enabled`, `forbidden_phrases` |
@@ -939,6 +974,9 @@ guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry ru
 guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
 guardian-check doctor .              # Read-only metadata/integration health audit
 guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
+guardian-check test-filter .         # Report the diff-derived test-name filter (never gates)
+guardian-check test-filter . --args  # Just the argument string, on stdout, for `eval`
+guardian-check test-filter . --json  # Machine-readable derivation + its blind spots
 zig build guardian-accept -Dguardian-checks=spec,file-size # Preferred named metadata acceptance
 guardian-check accept spec,file-size . # Raw-binary fallback for the same workflow
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt

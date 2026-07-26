@@ -17,6 +17,7 @@ const install_hook = @import("cli/install_hook.zig");
 const explain = @import("cli/explain.zig");
 const doctor = @import("cli/doctor.zig");
 const spec_sync = @import("cli/spec_sync.zig");
+const test_filter_cmd = @import("cli/test_filter.zig");
 const accept = @import("cli/accept.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
@@ -108,6 +109,7 @@ pub fn main() !void {
         .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
         .json = parsed.json,
+        .args_only = parsed.args_only,
         .check_filter = parsed.check_filter,
         .prune_stale = parsed.prune_stale,
         .confirm = parsed.confirm,
@@ -141,6 +143,8 @@ const ParsedArgs = struct {
     /// `--intent "<message>"` value for the `commit` command; null when absent.
     intent: ?[]const u8 = null,
     json: bool = false,
+    /// `--args`: `test-filter` writes its derived argument string to stdout.
+    args_only: bool = false,
     check_filter: ?[]const u8 = null,
     prune_stale: bool = false,
     confirm: bool = false,
@@ -171,6 +175,8 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
             parsed.show_version = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
             parsed.json = true;
+        } else if (std.mem.eql(u8, arg, "--args")) {
+            parsed.args_only = true;
         } else if (std.mem.eql(u8, arg, "--prune-stale")) {
             parsed.prune_stale = true;
         } else if (std.mem.eql(u8, arg, "--yes")) {
@@ -285,6 +291,11 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     if (std.mem.eql(u8, command, install_hook.command_name)) return install_hook.run(ctx);
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
+    // test-filter reports the diff-derived test-name filter for a LOCAL edit
+    // loop. Dispatched here rather than registered, so it can never join the
+    // `all` suite or be reached by a gate: a filtered build does not analyze
+    // the tests it skipped, so it can never stand in for the full suite.
+    if (std.mem.eql(u8, command, test_filter_cmd.command_name)) return test_filter_cmd.run(ctx);
     if (std.mem.eql(u8, command, accept.command_name)) return accept.run(ctx);
     // migrate persists a deferred metadata format re-key across the whole suite;
     // special-dispatched like accept (it composes run_all.run → registry cycle).
@@ -356,6 +367,8 @@ test {
     _ = @import("text.zig");
     _ = @import("git.zig");
     _ = @import("scope.zig");
+    _ = @import("test_filter.zig");
+    _ = @import("cli/test_filter.zig");
     _ = @import("accept_session.zig");
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");

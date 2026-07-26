@@ -131,6 +131,24 @@ pub const Decision = union(enum) {
     scoped: Plan,
     /// Every check reads the whole tree; the payload is the human-facing reason.
     whole_tree: []const u8,
+
+    /// The changed-file plan when this run may be diff-scoped, else null.
+    /// Callers read the decision through this and `wholeTree` instead of
+    /// re-dispatching on the prongs at each site.
+    pub fn plan(self: Decision) ?Plan {
+        return switch (self) {
+            .scoped => |p| p,
+            .whole_tree => null,
+        };
+    }
+
+    /// Why this run must read the whole tree, or null when it is scoped.
+    pub fn wholeTree(self: Decision) ?[]const u8 {
+        return switch (self) {
+            .scoped => null,
+            .whole_tree => |reason| reason,
+        };
+    }
 };
 
 /// True when a changed path invalidates diff scoping (see
@@ -298,11 +316,14 @@ test "resolve reports whole tree for a forced posture and an unusable base" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
 
-    // A forced posture short-circuits before any git work.
+    // A forced posture short-circuits before any git work. Read through the
+    // accessors: a whole-tree decision has a reason and no plan.
     const forced = try resolve(a, ".", null, .{ .gate = true });
-    try testing.expect(forced == .whole_tree);
+    try testing.expect(forced.plan() == null);
+    try testing.expect(forced.wholeTree() != null);
     // An explicit base git cannot resolve degrades to the whole tree instead of
     // failing a run that would otherwise pass.
     const bad_ref = try resolve(a, ".", "guardian-no-such-ref-zzz", .{});
-    try testing.expect(bad_ref == .whole_tree);
+    try testing.expect(bad_ref.plan() == null);
+    try testing.expect(bad_ref.wholeTree() != null);
 }

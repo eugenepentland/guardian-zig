@@ -239,6 +239,8 @@ src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/test_filter.zig::command_name value
+src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::CheckScope enum_
 src/cli/types.zig::Command struct_
 src/cli/types.zig::NeedsAst enum_
@@ -280,6 +282,7 @@ src/config.zig::PolicyProfile enum_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
+src/config.zig::TestFilterCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
@@ -472,7 +475,9 @@ src/scope.zig::View enum_
 src/scope.zig::covers | fn covers(self: Plan, rel_path: []const u8) bool
 src/scope.zig::indexSubset | fn indexSubset( self: Plan, arena: Allocator, full: *const ast_index.Index, ) Allocator.Error!ast_index.Index
 src/scope.zig::invalidatedBy | fn invalidatedBy(paths: []const []const u8) bool
+src/scope.zig::plan | fn plan(self: Decision) ?Plan
 src/scope.zig::resolve | fn resolve( allocator: Allocator, project_dir: []const u8, against: ?[]const u8, posture: Posture, ) Allocator.Error!Decision
+src/scope.zig::wholeTree | fn wholeTree(self: Decision) ?[]const u8
 src/scope.zig::wholeTreeReason | fn wholeTreeReason(posture: Posture) ?[]const u8
 src/sink.zig::Summary struct_
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
@@ -529,6 +534,13 @@ src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, conten
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/spec/parser.zig::resolveProjectDir | fn resolveProjectDir(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::tagKey | fn tagKey(allocator: Allocator, tag: []const u8) Allocator.Error![]const u8
+src/test_filter.zig::Derivation struct_
+src/test_filter.zig::FileTests struct_
+src/test_filter.zig::Inputs struct_
+src/test_filter.zig::declaredTests | fn declaredTests(arena: Allocator, tree: *const Ast) Allocator.Error!FileTests
+src/test_filter.zig::derive | fn derive(arena: Allocator, in: Inputs) Allocator.Error!Derivation
+src/test_filter.zig::isEmpty | fn isEmpty(self: Derivation) bool
+src/test_filter.zig::renderArgs | fn renderArgs(arena: Allocator, names: []const []const u8, flag: []const u8) Allocator.Error![]const u8
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void

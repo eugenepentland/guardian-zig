@@ -27,6 +27,7 @@ const run_all = @import("run_all.zig");
 const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
 const dora = @import("../dora.zig");
+const config = @import("../config.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -113,7 +114,7 @@ fn formatTimingSplit(a: Allocator, gate_ms: u64, tests_ms: u64) Allocator.Error!
 /// captured output and hard-fails with nothing committed.
 fn runTests(ctx: *types.RunCtx) types.RunError!void {
     const a = ctx.allocator;
-    const argv = try splitCommand(a, ctx.cfg.gate.test_command);
+    const argv = try gateTestArgv(a, ctx.cfg);
     if (argv.len == 0) {
         reporter.fail("commit: [gate] test_command is empty — nothing to run", .{});
         return error.CheckFailed;
@@ -129,6 +130,16 @@ fn runTests(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     }
     reporter.ok("commit: tests passed", .{});
+}
+
+/// The argv the commit gate runs: exactly the configured `[gate] test_command`.
+/// This is the whole-suite guarantee's single seam, and nothing narrows it — in
+/// particular the diff-derived filter behind `[test_filter] flag` is never
+/// appended. Zig's test filter is a *compiler* flag, so a filtered build never
+/// analyzes the tests it skipped and cannot prove the test binary compiles;
+/// the gate has to.
+fn gateTestArgv(a: Allocator, cfg: *const config.Config) Allocator.Error![]const []const u8 {
+    return splitCommand(a, cfg.gate.test_command);
 }
 
 /// Splits a `test_command` string into an argv vector on ASCII whitespace
@@ -407,6 +418,32 @@ test "splitCommand tokenizes the configured test command" {
     const spaced = try splitCommand(a, "  zig   build\ttest  ");
     try testing.expectEqual(@as(usize, 3), spaced.len);
     try testing.expectEqual(@as(usize, 0), (try splitCommand(a, "   ")).len);
+}
+
+// spec: Test Filter - Leaves the commit gate running the whole configured test command
+
+test "gateTestArgv runs the configured suite even when a test filter is configured" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A project that has configured the local `test-filter` report's flag.
+    var cfg: config.Config = .{};
+    cfg.test_filter.flag = "-Dtest-filter=";
+    const argv = try gateTestArgv(a, &cfg);
+    // The commit gate still spawns the whole suite: three tokens, none of them
+    // a filter. There is no code path that appends one.
+    try testing.expectEqual(@as(usize, 3), argv.len);
+    try testing.expectEqualStrings("zig", argv[0]);
+    try testing.expectEqualStrings("build", argv[1]);
+    try testing.expectEqualStrings("test", argv[2]);
+
+    // A project that narrows its own test_command gets exactly what it asked
+    // for — guardian neither widens nor narrows the configured command.
+    cfg.gate.test_command = "make check";
+    const custom = try gateTestArgv(a, &cfg);
+    try testing.expectEqual(@as(usize, 2), custom.len);
+    try testing.expectEqualStrings("make", custom[0]);
+    try testing.expectEqualStrings("check", custom[1]);
 }
 
 // spec: Commit - Excludes suffixed zig build cache directories from staging

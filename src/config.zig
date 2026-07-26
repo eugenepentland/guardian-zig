@@ -233,6 +233,19 @@ pub const GateCfg = struct {
     install_hook: bool = true,
 };
 
+/// `[test_filter]` — how this project spells the flag that selects tests by
+/// name on the *compiler* command line (Zig's `-Dtest-filter=` when the build
+/// script wires `addTest(.filters = …)`; not every project spells it the same,
+/// so it is configuration rather than an assumption).
+///
+/// Exactly one thing reads it: the read-only `test-filter` report, which prints
+/// a suggested filter for a local edit loop. It is never appended to `[gate]
+/// test_command` — a filtered build does not analyze the tests it skipped, so
+/// it cannot prove the test binary compiles, and the gate must.
+pub const TestFilterCfg = struct {
+    flag: []const u8 = "-Dtest-filter=",
+};
+
 /// Per-check config for the line-length cap.
 pub const LineLengthCfg = struct {
     enabled: bool = true,
@@ -457,6 +470,7 @@ pub const Config = struct {
     line_length: LineLengthCfg = .{},
     baseline: BaselineCfg = .{},
     gate: GateCfg = .{},
+    test_filter: TestFilterCfg = .{},
     escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
     magic_number: MagicNumberCfg = .{},

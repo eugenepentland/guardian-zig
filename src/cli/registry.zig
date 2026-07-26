@@ -547,6 +547,7 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
     .{ .name = "doctor", .summary = "Audit Guardian metadata/integration health (read-only)" },
     .{ .name = "spec-sync", .summary = "Suggest missing SPEC.md bullets without editing files" },
+    .{ .name = "test-filter", .summary = "Report the diff-derived test-name filter for local runs (never gates)" },
     .{ .name = "accept", .summary = "Preview, accept, and verify named baseline/snapshot drift" },
     .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
 };
