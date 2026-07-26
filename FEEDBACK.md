@@ -946,3 +946,26 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   default. That number lives only in a doc comment; nothing gates on it, so the next agent
   who thinks "why is this opt-in, let's just default it" pays the 10 minutes again. The
   `[benchmark]`/experiment-ledger idea in the entry above would cover this too.
+
+## 2026-07-26 · Claude · eda — track the prod deploy in .githooks (health-check + rollback)
+- **friction:** a **brand-new worktree cannot pass the gate until you run `zig build` in
+  it once**, and the failure points at innocent code. `src/serve/templates/*.zig` are
+  generated from the `.zt` templates and gitignored, so a fresh `git worktree add`
+  lacks them; `guardian-check all . --gate` then reported **49 new `pub-api-surface`
+  violations, all in `src/serve/templates/library.zig`** — a file that does not exist in
+  the tree being checked. Main was 67/67 green with the identical binary at the same
+  moment. My change was five shell scripts and two markdown files, so the report was
+  100% noise, and the obvious "fixes" are both wrong (`accept` would ratify 49 phantom
+  items into the baseline; `--no-verify` is banned). Cost ~15 min of investigation plus a
+  full worktree build to diagnose. Two things would have saved it: (a) `pub-api-surface`
+  reporting a file it could not read as *skipped* rather than as violations, and (b) the
+  gate noticing that no file in the staged diff is Zig and saying so up front.
+- **wish:** a one-line hint in the failure text when the offending paths are gitignored
+  and absent from the working tree — e.g. "3 files are gitignored build outputs and were
+  not found; run your build once in this worktree". The diagnosis is mechanical, but only
+  once you know to check `git check-ignore` on the reported paths.
+- **good:** the gate itself was fast (a few seconds) and ran on a plain `git commit` via
+  the managed `.githooks/pre-commit` hook, which is exactly the right tier for a
+  shell/markdown-only change — no reason to pay the ~20-min Debug test suite. Once the
+  worktree was built, three consecutive commits/amends came back 67/67 with no fuss, and
+  the deploy's own ReleaseSafe build re-ran the gate green on the merge.
