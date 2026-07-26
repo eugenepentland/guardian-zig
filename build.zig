@@ -11,11 +11,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // The INSTALLED guardian-check defaults to ReleaseSafe even when no
+    // -Doptimize is given. This binary runs a 67-check gate over whole
+    // consumer trees on every agent commit, and a Debug build of it turns
+    // that gate from ~1.1 s into ~42 s (measured on eda's 234-file tree,
+    // 2026-07-26) — a 40x tax silently paid per commit whenever someone
+    // refreshes zig-out with a plain `zig build`. An explicit -Doptimize
+    // still wins (dependents like eda pass ReleaseSafe already; a debugger
+    // session can ask for -Doptimize=Debug). Tests keep the plain default
+    // below so the local dev loop keeps its fast compile.
+    const exe_optimize: std.builtin.OptimizeMode =
+        if (b.user_input_options.contains("optimize")) optimize else .ReleaseSafe;
+
     // Guardian check executable — used by this project and dependents
     const check_mod = b.createModule(.{
         .root_source_file = b.path("src/check.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = exe_optimize,
     });
     const check_exe = b.addExecutable(.{
         .name = "guardian-check",

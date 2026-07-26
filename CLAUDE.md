@@ -47,6 +47,16 @@ zig build mutate-full  # mutation-test the whole tree + score ratchet
 zig build debt       # non-gating baseline/snapshot debt report
 ```
 
+**The installed `guardian-check` is ReleaseSafe by default** — a plain
+`zig build` (no `-Doptimize`) builds `zig-out/bin/guardian-check` optimized,
+because consumer projects (eda) run it as their commit gate and a Debug build
+turns that ~1.1 s whole-tree gate into ~42 s, silently, for every agent commit
+until someone notices (measured 2026-07-26). An explicit `-Doptimize=Debug`
+still produces a Debug binary for debugger work; the test suite keeps the
+plain Debug default so its compile stays fast. If commits in a consumer repo
+start reporting a gate of tens of seconds, check this binary's size first
+(ReleaseSafe ≈ 10 MB, Debug ≈ 55 MB).
+
 **Report during dev, block at commit** (`[gate] on_build`, default `"report"`).
 A plain `zig build` runs every check and prints findings but exits 0, so a dev
 build always produces a binary — verify guardian-clean with `guardian-check all
