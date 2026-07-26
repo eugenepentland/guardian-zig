@@ -305,8 +305,10 @@ test "refuseRegression blocks a worsening gated metric and yields to an explaine
     try testing.expect(!try refuseRegression(&ctx, &recorded, worse));
     // An improvement, and an ungated metric's regression, are never refused.
     ctx.bench.force = false;
-    try testing.expect(!try refuseRegression(&ctx, &recorded, .{ .name = "kill_score", .value = 90, .direction = .max }));
-    try testing.expect(!try refuseRegression(&ctx, &recorded, .{ .name = "wall_s", .value = 900, .direction = .min }));
+    const better: benchmark.Record = .{ .name = "kill_score", .value = 90, .direction = .max };
+    const ungated: benchmark.Record = .{ .name = "wall_s", .value = 900, .direction = .min };
+    try testing.expect(!try refuseRegression(&ctx, &recorded, better));
+    try testing.expect(!try refuseRegression(&ctx, &recorded, ungated));
 }
 
 // spec: Benchmark Ledger - Surfaces every recorded metric on each gate run without blocking it
