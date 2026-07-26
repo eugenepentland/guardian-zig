@@ -17,6 +17,7 @@ const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
 const scope = @import("../scope.zig");
+const bench = @import("bench.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -60,6 +61,12 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // converge on the single mechanism (the env var stays a thin alias).
     if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |names|
         reporter.ok("note: GUARDIAN_UPDATE_SNAPSHOT={s} is an alias for `guardian-check accept {s} .`", .{ names, names });
+
+    // The benchmark ledger is report-only and prints BEFORE the skip-cache
+    // early return, so the measurements an agent already paid for are on screen
+    // for every gate run — including a cache-skipped one. It can never fail the
+    // run (see cli/bench.zig); only OOM propagates.
+    try bench.report(ctx);
 
     // A filtered run (--only/--skip) is a subset, not the full suite, so it
     // must neither trust nor write the green skip-cache — recording green from

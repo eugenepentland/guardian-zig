@@ -568,6 +568,36 @@ blocking correctness checks and advisory maintainability guidance.
 - Persists the exact sampled mutation cohort
 - Uses and cleans a campaign-local Zig cache
 
+## Benchmark Ledger
+
+A plain-text record of measurements agents already paid for
+(`.guardian/benchmarks.txt`): one sorted line per named metric with its value,
+unit, direction, commit, date, and a one-line note. Guardian never runs a
+benchmark — it stores what was measured, prints it back on every gate run, and
+(only for metrics named in `[benchmark] gate`) refuses to record a regression
+without an explained `--force`.
+
+- Round-trips a recorded metric through its stored line
+- Rejects a malformed stored line rather than guessing
+- Refuses a value that is not a finite number
+- Validates metric names, units, and notes as storable text
+- Prints one compact summary line per recorded metric
+- Replaces an existing metric's line instead of appending a duplicate
+- Removes a named metric and reports an unknown one
+- Persists the ledger sorted by metric name
+- Fails closed on a corrupt ledger instead of rewriting it
+- Formats a measurement date as an ISO calendar day
+- Treats only a worsening move as a regression for a directional metric
+- Gates only the metrics named in the benchmark gate list
+- Parses the opt-in list of gated benchmark metrics
+- Parses a bench recording's positionals and flags into one argument bag
+- Assigns bench positionals per subcommand before the project directory
+- Rejects an unstorable set invocation naming the offending input
+- Defaults an omitted direction to the undirected info metric
+- Requires an explanatory note when forcing a recording
+- Refuses a gated metric's regression unless the recording is forced
+- Surfaces every recorded metric on each gate run without blocking it
+
 ## Complexity Bounds
 
 - Caps boolean operators per condition

@@ -82,6 +82,8 @@ guardian-check all . --skip line-length     # run every check except these
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
+guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
+guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
 guardian-check version               # print the version (also --version)
 ```

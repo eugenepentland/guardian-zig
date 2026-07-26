@@ -638,6 +638,17 @@ const entries = [_]Entry{
         "Fix: run `zig build guardian-accept -Dguardian-checks=file-size,line-length`; Guardian previews,\n" ++
         "refreshes only those checks, then verifies them without refresh.\n" ++
         "Exempt: n/a — never part of `all`; always review the resulting .guardian/ diff." },
+    .{ .name = "bench", .text = "Why: an agent spends minutes (sometimes hours) measuring something — a\n" ++
+        "full-board route, a suite wall clock, a kill score — and the number then\n" ++
+        "survives only in a chat report, so the next agent re-measures it or, worse,\n" ++
+        "re-runs an experiment already known to have failed.\n" ++
+        "Fix: record it — `guardian-check bench set <name> <value> --unit s --dir\n" ++
+        "min --note \"87/90 nets, fixture B\" .` writes one sorted line to\n" ++
+        "`.guardian/benchmarks.txt`, and every gate run prints it back. A negative\n" ++
+        "result is `--dir info` plus the note explaining what it cost.\n" ++
+        "Exempt: n/a — never part of `all` and never blocking. Naming a metric in\n" ++
+        "`[benchmark] gate = [...]` opts it into a ratchet: `set` then refuses a\n" ++
+        "regression unless `--force` arrives with an explanatory `--note`." },
 };
 
 /// Returns the explanation text for `name`, or null when no entry exists.

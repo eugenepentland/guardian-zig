@@ -129,6 +129,7 @@ const Section = enum {
     dead_pub,
     change_classification,
     mutation,
+    benchmark,
     completeness,
     dora,
     fuzz_presence,
@@ -521,6 +522,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .module_doc_header => .unsigned,
         .change_classification => if (key[0] == 'a') .string else .boolean,
         .mutation => if (key[0] == 's') .string else .unsigned,
+        .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
         .fuzz_presence, .int_from_float => .string_array,
         .policy => if (std.mem.eql(u8, key, "profile") or std.mem.eql(u8, key, lock_against_key))
@@ -671,6 +673,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
             timeout_secs_key,
             "retained_cache_suites",
         },
+        .benchmark => &.{"gate"},
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
@@ -717,6 +720,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
         .mutation => applyMutationKey(ctx, kv),
+        .benchmark => try applyBenchmarkKey(ctx, kv),
         .completeness => try applyCompletenessKey(ctx, kv),
         .dora => applyDoraKey(ctx, kv),
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
@@ -773,6 +777,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
+        .{ "benchmark", Section.benchmark },
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
@@ -932,6 +937,14 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
     }
 }
 
+/// Applies the `[benchmark] gate` list — the metric names opted into the
+/// ledger's per-metric ratchet (see config.BenchmarkCfg).
+fn applyBenchmarkKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, "gate")) {
+        ctx.cfg.benchmark.gate = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
 fn applyCompletenessKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     const g = &ctx.cfg.completeness;
     if (std.mem.eql(u8, kv.key, "enabled")) {
@@ -1071,6 +1084,27 @@ test "parse policy doctor and external gate settings" {
     try std.testing.expectEqual(@as(usize, 1), cfg.external_gates.len);
     try std.testing.expectEqualStrings("node", cfg.external_gates[0].command[0]);
     try std.testing.expectEqualStrings("src/app.js", cfg.external_gates[0].inputs[0]);
+}
+
+// spec: Benchmark Ledger - Parses the opt-in list of gated benchmark metrics
+
+test "parse benchmark gate list defaults to empty and reads named metrics" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Nothing is gated without a [benchmark] section: the ledger only records.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.benchmark.gate.len);
+
+    const cfg = try parse(arena.allocator(),
+        \\[benchmark]
+        \\gate = ["kill_score", "close_open_nets_wall_s"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.benchmark.gate.len);
+    try std.testing.expectEqualStrings("kill_score", cfg.benchmark.gate[0]);
+    try std.testing.expectEqualStrings("close_open_nets_wall_s", cfg.benchmark.gate[1]);
+
+    // A typo'd key inside the known section fails closed like every other one.
+    try std.testing.expectError(error.UnknownKey, parse(arena.allocator(), "[benchmark]\ngates = [\"x\"]\n"));
 }
 
 // spec: Configuration - Parses the gate mode, test command, and hook install settings

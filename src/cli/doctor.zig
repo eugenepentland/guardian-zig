@@ -5,6 +5,7 @@ const types = @import("types.zig");
 const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
 const cache = @import("../cache.zig");
+const benchmark = @import("../benchmark.zig");
 
 const max_metadata_bytes = 16 * 1024 * 1024;
 const retired = [_][]const u8{
@@ -13,7 +14,7 @@ const retired = [_][]const u8{
 };
 const snapshots = [_][]const u8{
     "pub-api.txt",           "panic-budget.txt", "int-from-float-budget.txt",
-    "unsafe-ops-budget.txt", "mutation.txt",
+    "unsafe-ops-budget.txt", "mutation.txt",     benchmark.leaf,
 };
 
 const Findings = struct {

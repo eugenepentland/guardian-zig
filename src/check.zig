@@ -19,6 +19,8 @@ const doctor = @import("cli/doctor.zig");
 const spec_sync = @import("cli/spec_sync.zig");
 const test_filter_cmd = @import("cli/test_filter.zig");
 const accept = @import("cli/accept.zig");
+const bench_cmd = @import("cli/bench.zig");
+const benchmark = @import("benchmark.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
 const mutation_runner = @import("mutation/runner.zig");
@@ -117,6 +119,7 @@ pub fn main() !void {
         .refresh = try splitCsv(allocator, parsed.accept_checks),
         .policy_approved = envFlagActive(readEnv(allocator, policy_approval_env)),
         .command_exists = registeredCommand,
+        .bench = parsed.bench,
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
@@ -153,37 +156,24 @@ const ParsedArgs = struct {
     accept_checks: ?[]const u8 = null,
     /// True when `--version` was passed anywhere on the command line.
     show_version: bool = false,
+    /// `bench` subcommand, metric name/value, and its `--unit`/`--dir`/
+    /// `--note`/`--force` flags. Untouched by every other command.
+    bench: benchmark.Args = .{},
 };
 
 // Scans argv (sans program name): first non-flag token is the command, the next
 // is the project dir; `--quiet`/`-q` toggles quiet mode, `--full` selects
 // mutate's whole-tree tier, `--against <ref>` sets the diff base, `--only`/
 // `--skip <a,b>` filter the `all` suite, `--intent "<msg>"` is the commit
-// subject, `--version` requests the version.
+// subject, `--unit`/`--dir`/`--note` carry a `bench set` recording, `--version`
+// requests the version.
 fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
-            parsed.quiet = true;
-        } else if (std.mem.eql(u8, arg, "--full")) {
-            parsed.full = true;
-        } else if (std.mem.eql(u8, arg, "--gate")) {
-            parsed.gate = true;
-        } else if (std.mem.eql(u8, arg, "--version")) {
-            parsed.show_version = true;
-        } else if (std.mem.eql(u8, arg, "--json")) {
-            parsed.json = true;
-        } else if (std.mem.eql(u8, arg, "--args")) {
-            parsed.args_only = true;
-        } else if (std.mem.eql(u8, arg, "--prune-stale")) {
-            parsed.prune_stale = true;
-        } else if (std.mem.eql(u8, arg, "--yes")) {
-            parsed.confirm = true;
-        } else if (std.mem.eql(u8, arg, "--assert-density")) {
-            parsed.assert_density = true;
-        } else if (std.mem.eql(u8, arg, "--against")) {
+        if (takeToggle(&parsed, arg)) continue;
+        if (std.mem.eql(u8, arg, "--against")) {
             i += 1;
             if (i < args.len) parsed.against = args[i];
         } else if (std.mem.eql(u8, arg, "--only")) {
@@ -198,15 +188,65 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--check")) {
             i += 1;
             if (i < args.len) parsed.check_filter = args[i];
-        } else if (parsed.command == null) {
-            parsed.command = arg;
-        } else if (std.mem.eql(u8, parsed.command.?, accept.command_name) and parsed.accept_checks == null) {
-            parsed.accept_checks = arg;
+        } else if (std.mem.eql(u8, arg, "--unit")) {
+            i += 1;
+            if (i < args.len) parsed.bench.unit = args[i];
+        } else if (std.mem.eql(u8, arg, "--dir")) {
+            i += 1;
+            if (i < args.len) parsed.bench.direction = args[i];
+        } else if (std.mem.eql(u8, arg, "--note")) {
+            i += 1;
+            if (i < args.len) parsed.bench.note = args[i];
         } else {
-            parsed.project_dir = arg;
+            takePositional(&parsed, arg);
         }
     }
     return parsed;
+}
+
+/// Applies a no-argument flag to `parsed`; true when `arg` was one of them, so
+/// the caller moves on to the next token.
+fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
+    if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
+        parsed.quiet = true;
+    } else if (std.mem.eql(u8, arg, "--full")) {
+        parsed.full = true;
+    } else if (std.mem.eql(u8, arg, "--gate")) {
+        parsed.gate = true;
+    } else if (std.mem.eql(u8, arg, "--version")) {
+        parsed.show_version = true;
+    } else if (std.mem.eql(u8, arg, "--json")) {
+        parsed.json = true;
+    } else if (std.mem.eql(u8, arg, "--prune-stale")) {
+        parsed.prune_stale = true;
+    } else if (std.mem.eql(u8, arg, "--yes")) {
+        parsed.confirm = true;
+    } else if (std.mem.eql(u8, arg, "--assert-density")) {
+        parsed.assert_density = true;
+    } else if (std.mem.eql(u8, arg, "--args")) {
+        parsed.args_only = true;
+    } else if (std.mem.eql(u8, arg, "--force")) {
+        parsed.bench.force = true;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/// Routes a non-flag token: the command name first, then the positionals the
+/// command itself consumes (`accept`'s check list, `bench`'s subcommand /
+/// metric name / value), and finally the project directory.
+fn takePositional(parsed: *ParsedArgs, arg: []const u8) void {
+    const command = parsed.command orelse {
+        parsed.command = arg;
+        return;
+    };
+    if (std.mem.eql(u8, command, accept.command_name) and parsed.accept_checks == null) {
+        parsed.accept_checks = arg;
+        return;
+    }
+    if (std.mem.eql(u8, command, bench_cmd.command_name) and parsed.bench.takePositional(arg)) return;
+    parsed.project_dir = arg;
 }
 
 /// True when `command` is the `version` command (prints the version like the
@@ -296,6 +336,9 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // `all` suite or be reached by a gate: a filtered build does not analyze
     // the tests it skipped, so it can never stand in for the full suite.
     if (std.mem.eql(u8, command, test_filter_cmd.command_name)) return test_filter_cmd.run(ctx);
+    // bench records/reads the benchmark ledger; never a gate, so it is
+    // special-dispatched like doctor/spec-sync rather than registered.
+    if (std.mem.eql(u8, command, bench_cmd.command_name)) return bench_cmd.run(ctx);
     if (std.mem.eql(u8, command, accept.command_name)) return accept.run(ctx);
     // migrate persists a deferred metadata format re-key across the whole suite;
     // special-dispatched like accept (it composes run_all.run → registry cycle).
@@ -342,6 +385,7 @@ test "project-analysis commands require input preflight" {
     try std.testing.expect(needsRequiredInputs("pub-api-surface"));
     try std.testing.expect(!needsRequiredInputs("doctor"));
     try std.testing.expect(!needsRequiredInputs("debt"));
+    try std.testing.expect(!needsRequiredInputs(bench_cmd.command_name));
     try std.testing.expect(!needsRequiredInputs("spec-init"));
 }
 
@@ -376,6 +420,8 @@ test {
     _ = @import("mutation/cache.zig");
     _ = @import("mutation/report.zig");
     _ = @import("cli/mutate.zig");
+    _ = @import("cli/bench.zig");
+    _ = @import("benchmark.zig");
     _ = @import("cli/debt.zig");
     _ = @import("cli/doctor.zig");
     _ = @import("cli/spec_sync.zig");
@@ -600,6 +646,46 @@ test "parseArgs reads accept check list and project directory positionals" {
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("file-size,line-length", parsed.accept_checks.?);
     try std.testing.expectEqualStrings("../project", parsed.project_dir);
+}
+
+// spec: Benchmark Ledger - Parses a bench recording's positionals and flags into one argument bag
+
+test "parseArgs reads the bench subcommand, metric, value, flags, and project dir" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 11);
+    args[0] = try a.dupeZ(u8, "bench");
+    args[1] = try a.dupeZ(u8, "set");
+    args[2] = try a.dupeZ(u8, "close_open_nets_wall_s");
+    args[3] = try a.dupeZ(u8, "531");
+    args[4] = try a.dupeZ(u8, "--unit");
+    args[5] = try a.dupeZ(u8, "s");
+    args[6] = try a.dupeZ(u8, "--dir");
+    args[7] = try a.dupeZ(u8, "min");
+    args[8] = try a.dupeZ(u8, "--note");
+    args[9] = try a.dupeZ(u8, "fixture B, 87/90 nets");
+    args[10] = try a.dupeZ(u8, "../project");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("bench", parsed.command.?);
+    try std.testing.expectEqualStrings("set", parsed.bench.sub);
+    try std.testing.expectEqualStrings("close_open_nets_wall_s", parsed.bench.name);
+    try std.testing.expectEqualStrings("531", parsed.bench.value);
+    try std.testing.expectEqualStrings("s", parsed.bench.unit);
+    try std.testing.expectEqualStrings("min", parsed.bench.direction);
+    try std.testing.expectEqualStrings("fixture B, 87/90 nets", parsed.bench.note);
+    try std.testing.expectEqualStrings("../project", parsed.project_dir);
+    try std.testing.expect(!parsed.bench.force);
+    // `--force` is a toggle, and a listing takes only the project directory.
+    const listing = try a.alloc([:0]u8, 4);
+    listing[0] = try a.dupeZ(u8, "bench");
+    listing[1] = try a.dupeZ(u8, "list");
+    listing[2] = try a.dupeZ(u8, "../project");
+    listing[3] = try a.dupeZ(u8, "--force");
+    const listed = parseArgs(listing);
+    try std.testing.expectEqualStrings("list", listed.bench.sub);
+    try std.testing.expectEqualStrings("../project", listed.project_dir);
+    try std.testing.expect(listed.bench.force);
 }
 
 // spec: Configuration - Splits a comma-separated filter value into check names

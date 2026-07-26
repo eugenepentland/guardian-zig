@@ -76,11 +76,14 @@ check = "ban-fs"
 paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/required_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
 
 # Delivery telemetry is guardian's one legitimate wall-clock consumer: the DORA
-# sink times each gate run with std.time.Timer to record duration_ms. This
-# repo-local allow does not propagate to consumers.
+# sink times each gate run with std.time.Timer to record duration_ms. The bench
+# ledger is the second: `bench set` stamps each recorded measurement with the
+# calendar day it was taken (std.time.timestamp; the epoch->ISO conversion
+# itself is pure in src/benchmark.zig). This repo-local allow does not propagate
+# to consumers.
 [[allow]]
 check = "ban-time"
-paths = ["src/dora*"]
+paths = ["src/dora*", "src/cli/bench*"]
 
 # check.zig reads GUARDIAN_MUTATION_RUN / GUARDIAN_AGAINST /
 # GUARDIAN_POLICY_APPROVED in main; the
