@@ -10,6 +10,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
+const measurement = @import("../measurement.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -104,10 +105,17 @@ fn report(ctx: *ScanCtx, z: []const u8, byte: usize) Allocator.Error!void {
 
 const lineOf = @import("../text.zig").lineOf;
 
+/// Registry name, shared by the [[allow]] lookup and the measurement bridge.
+const check_name = "ban-globals";
+
 const FileScanCtx = struct {
     allocator: Allocator,
     violations: *std.ArrayList([]const u8),
     extra_allowed: []const []const u8 = &.{},
+    /// Live only when a `[measurement]` path bridges this check on a local run
+    /// (see measurement.zig): a counter global inside one is deferred to the
+    /// non-blocking MEASURE channel instead of failing the check.
+    exempt: *measurement.Exemption,
 };
 
 /// True if `rel_path` matches a compiled architectural default or a configured
@@ -121,33 +129,89 @@ fn isAllowed(rel_path: []const u8, extra: []const []const u8) bool {
 fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isAllowed(entry.rel_path, ctx.extra_allowed)) return;
+    // Scan into a per-file list first so a measurement path's findings can be
+    // routed whole to the MEASURE channel rather than the blocking one.
+    var found: std.ArrayList([]const u8) = .empty;
     var local: ScanCtx = .{
         .allocator = ctx.allocator,
         .rel_path = entry.rel_path,
-        .violations = ctx.violations,
+        .violations = &found,
     };
     try scan(&local, entry.content);
+    if (ctx.exempt.covers(entry.rel_path)) {
+        for (found.items) |line| try ctx.exempt.record(entry.rel_path, line);
+        return;
+    }
+    try ctx.violations.appendSlice(ctx.allocator, found.items);
 }
 
 /// Entry point for the ban-globals check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     var violations: std.ArrayList([]const u8) = .empty;
+    var exempt = measurement.forCheck(allocator, ctx, check_name);
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .violations = &violations,
-        .extra_allowed = ctx.cfg.extraAllowed("ban-globals"),
+        .extra_allowed = ctx.cfg.extraAllowed(check_name),
+        .exempt = &exempt,
     };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
+    try exempt.report();
 
     if (violations.items.len == 0) {
         reporter.ok("ban-globals: no mutable global var declarations outside wiring/main", .{});
         return;
     }
-    reporter.fail("ban-globals FAILED ({d} occurrence(s))", .{violations.items.len});
+    reporter.fail("{s} FAILED ({d} occurrence(s))", .{ check_name, violations.items.len });
     for (violations.items) |v| detail("  {s}\n", .{v});
     detail("  fix: scope mutable state to a struct field, or move to wiring/main.\n", .{});
     return error.CheckFailed;
+}
+
+// spec: Measurement Mode - Passes an exempt finding locally and blocks the same finding at commit
+
+test "a counter global in a measurement path passes the local run and fails the gate" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // A throwaway project holding one instrumented file: exactly the shape of a
+    // profiling session (`pub var` per-cause counters in a hot module).
+    const project = "zig-cache/measurement-ban-globals";
+    var root = try std.fs.cwd().makeOpenPath(project ++ "/src", .{});
+    defer root.close();
+    defer std.fs.cwd().deleteTree(project) catch |e|
+        std.log.warn("test cleanup {s}: {s}", .{ project, @errorName(e) });
+    try root.writeFile(.{ .sub_path = "hot.zig", .data = "pub var dbg_hits: usize = 0;\n" });
+
+    const config = @import("../config.zig");
+    const cfg: config.Config = .{ .measurement = .{ .paths = &.{"src/hot.zig"} } };
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = project, .cfg = &cfg, .quiet = true };
+
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // Local run (no --gate, no metadata writes): the finding is deferred to the
+    // MEASURE channel and the check PASSES, so the build still produces a binary.
+    try run(&ctx);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "MEASURE ban-globals (1 in src/hot.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "FAILED") == null);
+    try std.testing.expectEqual(@as(usize, 1), cap.measured.items.len);
+
+    // Commit / --gate / nightly: the exemption is void and the identical finding
+    // blocks. This is the boundary — nothing extra can ship.
+    ctx.gate = true;
+    try std.testing.expectError(error.CheckFailed, run(&ctx));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ban-globals FAILED (1 occurrence(s))") != null);
+
+    // Same for a metadata-writable run, which must record baselines and
+    // snapshots from the real (unexempted) violation set.
+    ctx.gate = false;
+    ctx.metadata_writable = true;
+    try std.testing.expectError(error.CheckFailed, run(&ctx));
 }
 
 // spec: Hidden Dependency Bans - Rejects mutable pub var globals outside wiring/main

@@ -458,6 +458,18 @@ blocking correctness checks and advisory maintainability guidance.
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
 
+## Measurement Mode
+
+- Defers only the instrumentation-class checks
+- Voids the exemption for gating and metadata-writing runs
+- Matches a measurement path by exact file or directory prefix
+- Hands each check an inert exemption unless the bridge applies
+- Reports deferred findings under a non-blocking MEASURE verb
+- Prints a standing reminder naming every exempted path and count
+- Parses the measurement paths list and rejects a wildcard entry
+- Passes an exempt finding locally and blocks the same finding at commit
+- Defers public-surface drift inside a measurement path
+
 ## Reporter
 
 - Renders a Violation to the same indented line the emitter prints

@@ -16,6 +16,7 @@ const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
+const measurement = @import("../measurement.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -131,6 +132,12 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // the same reason a filtered run never stamps the green cache.
     if (!filtered) recordDora(ctx, &stopwatch, failed, acc.failed_checks.items);
 
+    // Standing reminder: every local run with live [measurement] exemptions
+    // says so on one line, green or red, so instrumentation cannot linger in
+    // the tree unnoticed between benchmark rounds. Routed through the
+    // always-visible detail channel — the build wiring runs `all --quiet`.
+    remindMeasurement(ctx, acc.measured.items);
+
     if (failed == 0) {
         reporter.ok("run-all: {d} check(s) passed", .{ran});
         metadata_active = false;
@@ -183,6 +190,14 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     reporter.detail("{s}", .{stale_artifact_caution});
     binaryDriftHint(ctx, acc.failed_checks.items);
     return error.CheckFailed;
+}
+
+/// Prints the run-level `[measurement]` standing reminder when any finding was
+/// deferred. Best-effort: an OOM while rendering drops the line rather than
+/// failing a run whose checks already reported their own MEASURE headers.
+fn remindMeasurement(ctx: *types.RunCtx, records: []const reporter.Measured) void {
+    const line = measurement.standingReminder(ctx.allocator, records) catch return orelse return;
+    reporter.detail("{s}{s}\n", .{ reporter.prefix, line });
 }
 
 /// Pure gate decision: a run BLOCKS (fails the build on any violation) only when
@@ -291,6 +306,10 @@ const stale_artifact_caution =
 const Sink = struct {
     records: std.ArrayList(reporter.Violation) = .empty,
     failed_checks: std.ArrayList([]const u8) = .empty,
+    /// Findings deferred by a live `[measurement]` exemption, gathered across
+    /// checks so the run prints ONE standing reminder naming every exempted
+    /// path and its live counts.
+    measured: std.ArrayList(reporter.Measured) = .empty,
 };
 
 /// Writes the machine-readable last-run log for a real (non-skipped) run.
@@ -523,6 +542,9 @@ const CheckResult = struct {
     err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
+    /// Findings a live `[measurement]` exemption deferred (see measurement.zig).
+    /// Never blocking — they only feed the run's standing reminder.
+    measured: []const reporter.Measured = &.{},
     /// Wall-clock ms this check took (dora clock seam). A check over the
     /// heartbeat threshold gets a named "slow check" line so a long run reads as
     /// alive, not hung, and the bottleneck is identifiable.
@@ -652,6 +674,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
     res.output = cap.buf.items;
     res.records = cap.records.items;
     res.warnings = cap.warnings.items.len;
+    res.measured = cap.measured.items;
     return res;
 }
 
@@ -685,6 +708,7 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
             .{ cmd.name, r.elapsed_ms / std.time.ms_per_s },
         );
         collectSink(ctx, acc, cmd.name, r);
+        collectMeasured(ctx, acc, r);
     }
     if (first_err) |e| return e;
     return failed;
@@ -710,6 +734,18 @@ fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckR
         std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
 }
 
+/// Gathers a check's measurement-deferred findings into the run accumulator,
+/// copying each borrowed string so it outlives the worker arena. Best-effort:
+/// a dropped record only shortens the standing reminder, never fails the run.
+fn collectMeasured(ctx: *types.RunCtx, acc: *Sink, r: CheckResult) void {
+    const a = ctx.allocator;
+    for (r.measured) |m| acc.measured.append(a, .{
+        .check = a.dupe(u8, m.check) catch m.check,
+        .path = a.dupe(u8, m.path) catch m.path,
+        .message = a.dupe(u8, m.message) catch m.message,
+    }) catch |e| std.log.warn("guardian: dropped a measurement note: {s}", .{@errorName(e)});
+}
+
 /// Copies a Violation's borrowed string fields into `a` so a record produced in
 /// a per-worker arena survives that arena's deinit and can be serialized later.
 fn dupViolation(a: std.mem.Allocator, v: reporter.Violation) reporter.Violation {
@@ -732,7 +768,7 @@ fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) ?[]const u8 {
 /// A captured check's output is replayed when it has content and either we're
 /// not quiet or the check failed (mirrors the live reporter's quiet behavior).
 fn shouldEmit(quiet: bool, r: CheckResult) bool {
-    return r.output.len > 0 and (!quiet or r.failed or r.reported or r.warnings > 0);
+    return r.output.len > 0 and (!quiet or r.failed or r.reported or r.warnings > 0 or r.measured.len > 0);
 }
 
 fn expectedPolicyFinding(_: *types.RunCtx) types.RunError!void {

@@ -9,6 +9,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
+const measurement = @import("../measurement.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -325,14 +326,20 @@ pub fn scan(
     var merged = opts;
     merged.allowed_paths = try mergeAllowed(allocator, opts.allowed_paths, ctx_param.cfg.extraAllowed(check_name));
 
-    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var found: std.ArrayList(reporter.Violation) = .empty;
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
-        .violations = &violations,
+        .violations = &found,
         .opts = merged,
         .check_name = check_name,
     };
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
+
+    // Split off anything a live `[measurement]` path bridges for this check
+    // (ban-time's phase timers, debug-print-ban's read-out prints): those are
+    // reported under the non-blocking MEASURE verb and never counted here. The
+    // partition is a no-op unless the bridge is live (see measurement.zig).
+    const violations = try partitionMeasured(ctx_param, allocator, check_name, found.items);
 
     if (violations.items.len == 0) {
         reporter.ok("{s}: no forbidden references", .{check_name});
@@ -342,6 +349,29 @@ pub fn scan(
     for (violations.items) |v| reporter.emit(v);
     detail("  fix: {s}\n", .{opts.fix_hint});
     return error.CheckFailed;
+}
+
+/// Routes every finding inside a live measurement path to the MEASURE channel,
+/// returning the blocking remainder. With no live bridge the exemption is inert
+/// and every finding passes straight through.
+fn partitionMeasured(
+    ctx_param: *registry.RunCtx,
+    allocator: Allocator,
+    check_name: []const u8,
+    found: []const reporter.Violation,
+) registry.RunError!std.ArrayList(reporter.Violation) {
+    var exempt = measurement.forCheck(allocator, ctx_param, check_name);
+    var blocking: std.ArrayList(reporter.Violation) = .empty;
+    for (found) |v| {
+        const file = v.file orelse "";
+        if (exempt.covers(file)) {
+            try exempt.record(file, try reporter.flatLine(allocator, v));
+            continue;
+        }
+        try blocking.append(allocator, v);
+    }
+    try exempt.report();
+    return blocking;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

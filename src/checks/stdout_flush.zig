@@ -30,10 +30,14 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
+const measurement = @import("../measurement.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
 const lineOf = @import("../text.zig").lineOf;
+
+/// Registry name, shared by the [[allow]] lookup and the measurement bridge.
+const check_name = "stdout-flush";
 
 /// Accumulated signals for one function region (between two `fn` boundaries).
 const Region = struct {
@@ -143,6 +147,10 @@ const FileScanCtx = struct {
     allocator: Allocator,
     findings: *std.ArrayList([]const u8),
     extra_allowed: []const []const u8 = &.{},
+    /// Live only when a `[measurement]` path bridges this check on a local run
+    /// (see measurement.zig): a hand-rolled counter dump inside one is deferred
+    /// to the non-blocking MEASURE channel instead of counted here.
+    exempt: *measurement.Exemption,
 };
 
 /// True if `rel_path` matches a configured [[allow]] path for this check.
@@ -155,6 +163,10 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *FileScanCtx = @ptrCast(@alignCast(raw_ctx));
     if (isAllowed(entry.rel_path, ctx.extra_allowed)) return;
     const found = try analyzeContent(ctx.allocator, entry.rel_path, entry.content);
+    if (ctx.exempt.covers(entry.rel_path)) {
+        for (found) |msg| try ctx.exempt.record(entry.rel_path, msg);
+        return;
+    }
     for (found) |msg| try ctx.findings.append(ctx.allocator, msg);
 }
 
@@ -171,12 +183,15 @@ fn shouldGate(finding_count: usize, enabled: bool) bool {
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
     var findings: std.ArrayList([]const u8) = .empty;
+    var exempt = measurement.forCheck(allocator, ctx, check_name);
     var fs_ctx: FileScanCtx = .{
         .allocator = allocator,
         .findings = &findings,
-        .extra_allowed = ctx.cfg.extraAllowed("stdout-flush"),
+        .extra_allowed = ctx.cfg.extraAllowed(check_name),
+        .exempt = &exempt,
     };
     try ast_index.runSrc(ctx.source_index, allocator, ctx.project_dir, .{ .ctx = &fs_ctx, .visit = fileVisit });
+    try exempt.report();
 
     if (findings.items.len == 0) {
         reporter.ok("stdout-flush: no buffered stdout/stderr writer missing a flush", .{});

@@ -267,6 +267,7 @@ src/config.zig::GateMode enum_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
+src/config.zig::MeasurementCfg struct_
 src/config.zig::ModuleDocHeaderCfg struct_
 src/config.zig::MutationCfg struct_
 src/config.zig::NestingDepthCfg struct_
@@ -365,6 +366,18 @@ src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []c
 src/git.zig::parseHunkHeader | fn parseHunkHeader(line: []const u8) ?LineSpan
 src/git.zig::parseUnifiedDiff | fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff
 src/git.zig::untrackedFiles | fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]const []const u8
+src/measurement.zig::Exemption struct_
+src/measurement.zig::RunFacts struct_
+src/measurement.zig::active | fn active(ctx: *const types.RunCtx) bool
+src/measurement.zig::covers | fn covers(self: *const Exemption, rel_path: []const u8) bool
+src/measurement.zig::deinit | fn deinit(self: *Exemption) void
+src/measurement.zig::forCheck | fn forCheck(allocator: Allocator, ctx: *const types.RunCtx, check_name: []const u8) Exemption
+src/measurement.zig::isInstrumentationClass | fn isInstrumentationClass(check_name: []const u8) bool
+src/measurement.zig::liveFor | fn liveFor(facts: RunFacts) bool
+src/measurement.zig::pathCovers | fn pathCovers(pattern: []const u8, rel_path: []const u8) bool
+src/measurement.zig::record | fn record(self: *Exemption, rel_path: []const u8, line: []const u8) Allocator.Error!void
+src/measurement.zig::report | fn report(self: *Exemption) Allocator.Error!void
+src/measurement.zig::standingReminder | fn standingReminder(allocator: Allocator, records: []const reporter.Measured) Allocator.Error!?[]const u8
 src/metadata_transaction.zig::RollbackError value
 src/metadata_transaction.zig::Transaction struct_
 src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction
@@ -439,6 +452,7 @@ src/ratchet.zig::unitLabel | fn unitLabel(check_name: []const u8) []const u8
 src/ratchet.zig::version value
 src/ratchet.zig::wouldGrow | fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool
 src/reporter.zig::Capture struct_
+src/reporter.zig::Measured struct_
 src/reporter.zig::Reporter struct_
 src/reporter.zig::Violation struct_
 src/reporter.zig::default value
@@ -454,6 +468,7 @@ src/reporter.zig::flatLine | fn flatLine(arena: Allocator, v: Violation) Allocat
 src/reporter.zig::flatLines | fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![]const []const u8
 src/reporter.zig::green value
 src/reporter.zig::init | fn init(quiet: bool) void
+src/reporter.zig::measure | fn measure(m: Measured) void
 src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::prefix value

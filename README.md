@@ -699,6 +699,12 @@ lock_enabled = true
 lock_against = "origin/main"
 protected_paths = ["guardian.toml", ".guardian/", ".github/workflows/"]
 
+# Instrumentation bridge: while profiling these paths, the checks that fire on
+# the ACT of instrumenting report under a non-blocking MEASURE verb on a LOCAL
+# run — and block exactly as usual at commit. See "Measurement mode" below.
+[measurement]
+paths = ["src/placement/router.zig", "src/bench"]
+
 # Cache-size warnings from `doctor`; zero disables that warning class.
 [doctor]
 zig_cache_warn_mib = 4096
@@ -862,6 +868,69 @@ commas.
 | `[dora]` | `enabled`, `sink_path` |
 | `[fuzz_presence]` | `modules` |
 | `[int_from_float]` | `guard_fns`, `require_guard` |
+| `[measurement]` | `paths` |
+
+## Measurement mode (`[measurement]`)
+
+Profiling a hot path means patching in scaffolding the gate exists to forbid — a
+`pub var dbg_via_reason: [8]usize` counter, a `std.time.nanoTimestamp`
+accumulator, a `std.debug.print` in the loop under study. It is read once and
+deleted, but the gate cannot tell it apart from production code, so the only
+supported workflow was *patch it in, build with the gate failing, run, read,
+`git checkout` the file*: the gate and the diagnostic build were two different
+worlds with no bridge between them.
+
+`[measurement]` is that bridge, placed on exactly the half of the boundary that
+costs nothing: **exploratory instrumentation stops fighting a local build, and
+nothing extra can ship.**
+
+```toml
+[measurement]
+paths = ["src/placement/router.zig", "src/bench"]
+```
+
+Each entry is a project-relative **file** or **directory prefix**. It is not a
+glob: a wildcard, an absolute path, or a `..` escape is a hard config error,
+because an allowlist that silently matches nothing is worse than a typo.
+
+**Local run** (build-wired `all`, `guardian-check all <dir>`) — findings inside
+those paths are reported under a distinct, non-blocking verb, and the run prints
+one standing reminder so scaffolding cannot linger unnoticed:
+
+```
+guardian: MEASURE ban-globals (2 in src/placement/router.zig — exempt locally, blocks commit)
+  src/placement/router.zig:41: mutable global var outside wiring/main
+  src/placement/router.zig:42: mutable global var outside wiring/main
+guardian: MEASURE: 3 finding(s) exempt by [measurement] — src/placement/router.zig
+  (ban-globals 2, ban-time 1) — void at commit; strip before you ship
+```
+
+**Commit time** (`guardian-check commit`), **`--gate`** (the pre-commit hook and
+CI), **`nightly`**, and **any run that may write `.guardian/` metadata**
+(`accept`, `migrate`, a pending `GUARDIAN_UPDATE_SNAPSHOT` refresh) — the
+exemption is **void**. The same findings block exactly as they do today, and no
+baseline or snapshot can ever be recorded from an exempted view.
+
+### What it defers, and what it never touches
+
+Only five checks are instrumentation-class, chosen because the thing each one
+flags *is* the act of instrumenting:
+
+| Check | Why it is bridged |
+|---|---|
+| `ban-globals` | a per-cause counter is a file-scope `pub var`; the check's own fix (scope it to a struct field) is the production plumbing you are trying not to grow |
+| `ban-time` | a phase timer is `std.time.nanoTimestamp` / `Timer.start`; its fix is to inject a Clock port |
+| `debug-print-ban` | `std.debug.print` in the loop is the read-out |
+| `stdout-flush` | the hand-rolled buffered dump of those counters |
+| `pub-api-surface` | a counter a second module reads must be `pub`, so the surface snapshot drifts for the life of the experiment (drift is filtered per file; the snapshot itself is never rewritten from the filtered view) |
+
+Everything else keeps working normally inside a measurement path — in
+particular the correctness and safety checks (`catch-discipline`,
+`error-discipline`, `panic-budget`, `unsafe-ops-budget`, `ban-secrets`,
+`allocator-hygiene`, `oom-discipline`), the spec workflow (`spec`,
+`completeness`, `change-classification`), and every shape ratchet
+(`function-length`, `file-size`, `cognitive-complexity`, …). An empty or absent
+`[measurement]` section is exactly today's behavior everywhere.
 
 ## Tools
 
