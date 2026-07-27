@@ -1220,3 +1220,39 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   run in this session, all of it pre-existing debt in files I never touched. I
   piped every single invocation through `grep -viE` to find my own two lines.
   Diff-scoping the report-only checks to files in scope would fix it.
+
+## 2026-07-27 · claude · eda — post-route oracle gate + corpus benchmark (6-item wave)
+
+New module `src/placement/route_close.zig`, new CLI `src/bench_route.zig`, edits
+to router.zig / gap_policy.zig / mcp_close_gaps.zig / route_plan.zig /
+pcb_describe.zig / pcb_layout_page.zig. 32 new SPEC bullets, ~14 tagged tests.
+
+- good: the shape checks pushed me toward genuinely better code every time,
+  never toward a workaround. `type-size` (GapOptions hit 8 fields) made me group
+  `grid_divisor`+`window` into a `Raster` sub-struct, which reads better at the
+  call sites than the flat list did. `function-size` (7 runtime params on
+  `closeEach`) produced a `Board` struct that removed three redundant locals.
+  `cognitive-complexity` on `main.zig` (30 -> 31, at its frozen cap) made me
+  extract `dispatchQueryCommand` and delete nine near-identical else-if arms.
+  Three for three: "improve the code, don't raise the cap" was the right call
+  each time, and each fix took under five minutes.
+- good: `dead-pub` caught a `pub const GapRaster` alias I added out of habit and
+  never used. Small, but exactly the kind of thing that otherwise accretes.
+- good: `bench set` was the right home for the numbers this task produced
+  (routed nets, wall clock, DRC errors, corpus geomean). Recording "the gate
+  costs ~1s and buys 6 nets" next to the code beats it living in a transcript.
+- friction: the `spec` check reports an unlinked tag by NAME but not by SECTION.
+  I put a new bullet under `## placement/router` while its test was tagged
+  `// spec: Web Server - ...`; the error said "unlinked tag: Web Server - A
+  refused close_open_nets hop ..." with no hint that a bullet with that exact
+  text existed 1300 lines away under the wrong heading. Naming the section the
+  tag expects (or "found a matching bullet under `## X`, expected `## Y`") would
+  have turned a five-minute grep into a one-line fix.
+- friction: `bench set --unit ""` is rejected with the full usage banner rather
+  than a message about the empty unit. Passing `-` (the documented placeholder
+  for an omitted unit) is what works; the banner does not say that.
+- wish: a `guardian-check bench list` that survives `git stash push -u`. The
+  ledger is untracked until committed, so a stash cycle silently dropped two
+  recorded metrics and I only noticed by eyeballing the file. Either warn on an
+  untracked `.guardian/benchmarks.txt`, or have `bench set` hint that the file
+  needs committing to be durable.
