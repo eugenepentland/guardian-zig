@@ -1140,3 +1140,35 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   they are pure scroll — I filtered them out of every invocation. Gating them
   behind `--verbose`, or only printing for files the diff actually touched, would
   make the gate's real output visible without a grep.
+
+## 2026-07-27 · Claude · eda — barracuda track↔pad DRC errors + connectivity oracle
+- good: `function-size` and `bool-ops-per-condition` both fired on brand-new code
+  I had just written (`boxesReach` at 9 runtime params, a 4-op condition in
+  `unitePadOverlaps`) and both were right — the fixes (two `[4]f64` boxes; a
+  named `shares_face` bool) are strictly better code than what I wrote first.
+  Neither took more than a minute because the message named the exact symbol and
+  the exact number over cap.
+- good: `pub-api-surface` caught that I had changed `simplifyChain`'s signature
+  (added a probe param) and printed the before/after spellings adjacently. That
+  is a real API change worth a reviewer's eye, and the selective
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` accept was exactly the right
+  granularity — the CLAUDE.md warning against a bare `=1` is well placed.
+- friction: `zig build test` passes while `guardian-check commit` still blocks,
+  because `doc-comments` and `pub-api-surface` are diff-scoped commit gates that
+  the test step does not enforce. I ran a full green `zig build test`, then a
+  full green filtered suite, and only discovered two blocking findings when I
+  went to build the binary. Cost: one extra ~2 min build cycle. A one-line
+  "N check(s) would block commit" summary at the END of `zig build test` (the
+  same line the build already prints) would have surfaced it at the first run.
+- friction: I made a test-only probe struct `pub` out of habit; `doc-comments`
+  then demanded a `///` on its `segClear`, and `pub-api-surface` demanded a
+  baseline accept for a struct that never leaves the file. Both were fixed by
+  dropping `pub`, which is the right answer — but the messages describe the
+  symptom ("has no doc comment", "+ new pub symbol") rather than the likely
+  cause. For a symbol whose only references are inside its own file, a
+  "referenced only in this file — did you mean to drop `pub`?" hint would point
+  straight at the fix instead of at the doc comment.
+- good: `guardian-check commit --intent ...` ran the 68-check gate in 1.3s and the
+  full test suite in 219s, then staged exactly the 7 touched paths (including
+  `.guardian/pub-api.txt` and `SPEC.md`) and committed only on green. No
+  `git add .`, no stray files, nothing to clean up afterwards.
