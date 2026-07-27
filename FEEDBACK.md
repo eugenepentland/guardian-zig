@@ -1109,3 +1109,6 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   that tests figure is the *cached* re-run. The real suite is ~13 min. A cached
   9.9s reads as "tests are cheap, run them constantly", which is misleading
   right after a several-minute cold run.
+
+## 2026-07-27 · claude · eda — barracuda layout audit (measurement-only session)
+- good: single `zig build -Doptimize=ReleaseSafe` in a fresh audit worktree ran the full 67-check gate clean in the normal time class; no friction — the gate stayed invisible for a build-only, no-src-change session.
