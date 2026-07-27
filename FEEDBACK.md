@@ -1192,3 +1192,31 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 - wish: the whole-tree file-size warnings still print on every gated run (22
   lines here). Filed this earlier today; repeating because it cost me a `grep -v`
   on literally every invocation across two features.
+
+## 2026-07-27 · claude · eda — route-vision (draw the free space the autorouter saw mid-run)
+- good: `type-size` caught `PassContext` at 12 flat fields and pushed me into
+  nesting the router's own `Grid` and `RouteParams` instead of copying five
+  coordinates and four geometry scalars by hand. The check was right for a
+  reason it could not know: the flattened version had to be re-copied field by
+  field in two places, so it was one forgotten line away from silently recording
+  a stale via diameter. The gate's "reduce or accept" framing found a real
+  design improvement, not just a smaller struct.
+- good: `test-no-conditional` fired on two new tests (a two-loop cell tally and
+  an `if` inside a fixture builder). Both rewrites hoisted named helpers
+  (`countFree`, `samplePattern`, `decodeLayer`) that made the assertions read as
+  single statements. Same experience as the 2026-07-27 backfill-layouts entry —
+  this check reliably converts into better tests rather than ceremony.
+- friction: `dead-pub` blocks a `pub fn` that exists specifically as the seam a
+  not-yet-written caller will use. I added `router.visionMask` first (it needed
+  private access to `Ctx`/`blocked`), and the gate failed for three build cycles
+  until the HTTP handler landed. The check is correct at commit time and I did
+  not want it relaxed — but during construction it means the only green order is
+  "write the consumer first", which is backwards when the seam is what you are
+  designing. A note in `explain dead-pub` saying "expected mid-change; gate on
+  commit, not on build" would have saved me wondering whether I had mis-scoped
+  the API.
+- wish: repeating the whole-tree file-size / repeated-string-literal warning
+  spam once more — ~35 lines of unrelated `src/serve/**` noise on every gated
+  run in this session, all of it pre-existing debt in files I never touched. I
+  piped every single invocation through `grep -viE` to find my own two lines.
+  Diff-scoping the report-only checks to files in scope would fix it.
