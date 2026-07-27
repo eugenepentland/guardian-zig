@@ -1172,3 +1172,23 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
   full test suite in 219s, then staged exactly the 7 touched paths (including
   `.guardian/pub-api.txt` and `SPEC.md`) and committed only on green. No
   `git add .`, no stray files, nothing to clean up afterwards.
+
+## 2026-07-27 · claude · eda — backfill-layouts (recover layouts from history/ + git)
+- good: `[completeness] deny_growth` did real work on a brand-new SPEC section. It
+  named the four categories I had not covered (empty inputs, i/o failure, large
+  inputs, malformed encoding) as a plain checklist, and two of them turned into
+  genuine tests I would otherwise have skipped — a malformed snapshot being
+  stepped over, and an empty archive writing nothing. The other two were honest
+  waivers. That is a checklist doing its job rather than generating ceremony.
+- good: `test-no-conditional` fired twice on new tests that looped to assert set
+  membership. Both rewrites (indexing a deterministic order, and hoisting a
+  fixture builder into a named helper) left the tests stricter than the loops.
+- friction: `pub-api-surface` reports "N new violation(s) above baseline of 0"
+  for a file that is BRAND NEW. Every pub decl in a new module is "new", so the
+  count is noise proportional to file size, and the real question — did any
+  EXISTING signature change — is buried. The accept output does distinguish
+  +/- pairs; the gate summary line does not. A split ("3 changed, 8 added by new
+  files") would let me tell a benign add from a breaking edit at a glance.
+- wish: the whole-tree file-size warnings still print on every gated run (22
+  lines here). Filed this earlier today; repeating because it cost me a `grep -v`
+  on literally every invocation across two features.
