@@ -1112,3 +1112,31 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 
 ## 2026-07-27 · claude · eda — barracuda layout audit (measurement-only session)
 - good: single `zig build -Doptimize=ReleaseSafe` in a fresh audit worktree ran the full 67-check gate clean in the normal time class; no friction — the gate stayed invisible for a build-only, no-src-change session.
+
+## 2026-07-27 · claude · eda — multiple named PCB layouts with per-layout URLs
+- good: the `function-size` ratchet (7-param ceiling on `chooseLayout`) caught my
+  first instinct — bolt an 8th `view_name` param onto the selection chain — and
+  pushed me into a `LayoutSelect{view, refine}` struct instead. That is strictly
+  better: the two query params are one concept ("which named snapshot was asked
+  for"), and bundling them let `classifyLayoutSource`/`placeForChoice` keep their
+  signatures. The ratchet found the design smell before review would have.
+- good: `pub-api-surface` flagged all three `mcp*Working` signature changes as
+  "3 changed, 0 new, 0 removed" with the before/after spellings side by side.
+  That is exactly the diff a reviewer wants for a param removal, and `accept
+  pub-api-surface .` then re-verified whole-tree before writing the baseline.
+- good: `test-no-conditional` fired on a new test that walked the result list with
+  two loops to assert set membership. Rewriting it to index a deterministic order
+  made the test both shorter and stricter (it now pins the ordering contract too).
+- friction: `deny_growth = ["spec"]` means a new SPEC bullet must land with its
+  tagged test in the same change — correct — but the failure text only lists
+  `unverified: <bullet>` / `unlinked tag: <old bullet> in <file>`. When I *edited*
+  an existing bullet's wording, that surfaced as one unverified + one unlinked
+  line 40 lines apart in the output, with nothing saying they were the same
+  bullet renamed. A "renamed?" hint pairing a near-identical unlinked/unverified
+  pair would have saved a re-read of both lists.
+- wish: the whole-tree file-size warnings (22 lines, one per >1000-line file)
+  print on every single gated run, including `-Dtest-filter` runs that touch one
+  file. They are baseline-frozen and never actionable in a feature session, so
+  they are pure scroll — I filtered them out of every invocation. Gating them
+  behind `--verbose`, or only printing for files the diff actually touched, would
+  make the gate's real output visible without a grep.
