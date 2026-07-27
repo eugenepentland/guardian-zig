@@ -1079,3 +1079,33 @@ good: `guardian-check explain test-no-conditional` was exactly what I needed the
 - **bug (env-var name vs. snapshot-file name):** the selective-refresh spelling documented in this repo's consumers is `GUARDIAN_UPDATE_SNAPSHOT=<snapshot>`, and the snapshot on disk is `.guardian/pub-api.txt` — so `GUARDIAN_UPDATE_SNAPSHOT=pub-api zig build` is the natural thing to type. It fails with `unknown check name in GUARDIAN_UPDATE_SNAPSHOT: pub-api`, because the var actually wants the CHECK name (`pub-api-surface`). The error is correct but terminal: it names no valid alternatives and does not suggest the near-match. Accepting the file stem as an alias, or appending `did you mean: pub-api-surface?`, turns a wasted build into a no-op. (`guardian-check accept pub-api-surface .` worked first try and took ~1s, so the fallback path is fine — it's the discoverability that cost.)
 - **good:** `guardian-check commit` on the finished change: `gate 1.3s · tests 230.0s`, 68 checks / 0 blocking, 12 paths staged, auto-committed. The 230 s is the eda test suite (solver-heavy, ReleaseSafe), not Guardian. Zero friction in the commit path itself.
 - **friction (confirms the 2026-07-27 `zig build` false-green entry above — still live):** my first verification instinct was again `zig build test -Dtest-filter=<one new test name>`, which compiles only matching tests. I dodged the trap solely because a note from the earlier session told me to run a bare `zig build test`; nothing in Guardian's output would have warned me, and this change edited a pub struct that 3 other files' test fixtures construct. The earlier entry proposed a `doctor` warning for this; I'd narrow it to something cheaper — when `test_command` is `zig build test` and the invocation Guardian observes carries `-Dtest-filter`, print one line: "filtered run: non-matching tests are not compiled — this cannot see test-code breakage".
+
+## 2026-07-27 · claude · eda — octilinear corner chamfer + redundant via-hop removal
+
+- good: the full `zig build test` suite caught a real design flaw the board
+  measurement could not. My new `dropRedundantViaPairs` pass deleted the two
+  vias in `placement.router.test."route connects a simple two-pad net"`, whose
+  net carries a `preferred_layers` policy — the hop is the *point* of that
+  route. The pass fires zero times on the real board (barracuda), so no amount
+  of layout measurement would have surfaced it; only the unit test did. Exactly
+  the case for gating on the whole suite rather than a filtered subset.
+- good: per-item ratchets pushed me to fix rather than paper over. Three checks
+  fired on the first draft (`function-size` 7 params, `bool-ops-per-condition`
+  5 ops, `cognitive-complexity` 27/25) and each pointed at a genuine structural
+  improvement: bundling `exits`+`via_pts` into one `Anchors` struct, extracting
+  a `cuttable` predicate, and splitting the corner-cut stage into its own
+  `CornerCutter` type so all three simplifier stages read alike.
+- friction: `cognitive-complexity` is scored per generic *type*, summing every
+  method, but the message names it like a function ("fn Straightener cognitive
+  complexity 27"). I extracted a helper method inside the type first (27 -> 26,
+  no real gain) before realising the fix had to MOVE a method out of the type
+  entirely. Saying "type Straightener (sum over 6 methods)" would have pointed
+  me the right way immediately.
+- friction: `unsafe-ops-budget: undefined_reassign: 8 found, 7 budgeted` gave
+  no file or line. My offender was a `[N]Leg = undefined` array default; I found
+  it by inspection since I had just written it, but on a larger diff that would
+  be a hunt. Every other check names the site.
+- wish: `guardian-check commit` reported "timing — gate 1.3s · tests 9.9s", but
+  that tests figure is the *cached* re-run. The real suite is ~13 min. A cached
+  9.9s reads as "tests are cheap, run them constantly", which is misleading
+  right after a several-minute cold run.
