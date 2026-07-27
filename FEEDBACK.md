@@ -1256,3 +1256,38 @@ pcb_describe.zig / pcb_layout_page.zig. 32 new SPEC bullets, ~14 tagged tests.
   recorded metrics and I only noticed by eyeballing the file. Either warn on an
   untracked `.guardian/benchmarks.txt`, or have `bench set` hint that the file
   needs committing to be durable.
+
+## 2026-07-27 · claude · eda — DRC performance: net_open pad sweeps + pour raster
+
+- good: `test-no-conditional` fired on two new tests where I had written nested
+  `while` sweeps over a coordinate grid (`polyInsetLanes matches
+  polySignedInset`, `distPointPolyEdges equals a per-edge minimum`). The
+  restructure it forced — a literal table of probe points and one `for` — is
+  strictly better: the sweep silently covered thousands of near-duplicate
+  interior points while missing the cases that actually matter, and writing the
+  table made me name them (outside each face, off convex AND reflex corners,
+  inside the notch where two edges compete, on an edge itself, a row where the
+  ray cast flips inside a lane group). The check's stated rationale is "the test
+  only checks one branch"; the real payoff here was different and bigger —
+  it converts an undifferentiated sweep into an enumerated argument. Worth
+  saying so in `explain`.
+- good: `guardian-check commit` gating the exact working-tree diff and running
+  `zig build test` before staging is the right shape for this kind of change.
+  Gate 1.3s, tests 9.9s, 68 checks / 0 blocking — fast enough that I never
+  considered working around it.
+- friction: nothing in the gate helped with the actual task, which was finding
+  where 150 ms of a DRC pass went. I ended up hand-patching `std.time.Timer`
+  counters into four files, rebuilding (4 min each), reading the numbers off
+  stderr, and stripping them again — three full cycles before I had a per-loop
+  breakdown. `perf` was unavailable (`kernel.yama.ptrace_scope=1` plus no
+  matching `linux-tools` package), so there was no fallback. A
+  `guardian-check profile <cmd>` — or even a documented recipe for temporary
+  scoped timers that the gate tolerates — would have collapsed ~15 minutes of
+  build-measure-strip into one pass. The `[measurement]`/`[benchmark]` verbs
+  record a number once you have it; the gap is getting it.
+- wish: `bench set` for a *breakdown* rather than a scalar. The useful artifact
+  from this task was not "DRC = 34 ms", it was the per-phase table (pad↔track
+  65→0.6, pad↔via 27→0.07, edge field 24→2.5, contour trace 8→0). A scalar
+  ledger entry loses exactly the part that tells the next person which loop
+  regressed. Something like `bench set drc.net_open.pad_track 0.6 --unit ms`
+  with a shared prefix grouping in `debt`/`bench list` would keep it.
