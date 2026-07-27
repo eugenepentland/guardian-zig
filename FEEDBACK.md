@@ -1291,3 +1291,30 @@ pcb_describe.zig / pcb_layout_page.zig. 32 new SPEC bullets, ~14 tagged tests.
   ledger entry loses exactly the part that tells the next person which loop
   regressed. Something like `bench set drc.net_open.pad_track 0.6 --unit ms`
   with a shared prefix grouping in `debt`/`bench list` would keep it.
+
+## 2026-07-27 · claude · eda — merging the oracle-gate wave to main
+
+Follow-on to the entry above: two `guardian-check commit` runs plus a merge that
+auto-deploys prod.
+
+- good: `guardian-check commit` is the right shape for an agent. It gated, ran
+  the suite, staged an explicit path list (14 paths, including two new source
+  files and `.guardian/`), and committed only on green — no `git add .`, nothing
+  to get wrong. The `phase N/4` progress lines meant I could tell a slow run from
+  a hung one, which matters when the suite is ~220 s.
+- good: the green-run cache did its job on the second commit — `gate 1.3s ·
+  tests 10.3s` for a docs-only change, versus `gate 0.1s · tests 218.4s` for the
+  code commit. Nothing to configure.
+- friction: the first `guardian-check commit` exceeded my 2-minute foreground
+  cap and was killed mid-run, leaving `.guardian/baselines/cognitive-complexity.txt`
+  modified with no commit. Recoverable, but a killed commit leaving baseline
+  churn behind is a sharp edge; a note in the output that the run takes as long
+  as the test suite would have had me background it first.
+- good: the merged-tree gate caught nothing because there was nothing to catch,
+  which is the boring outcome you want — but the *measurement* discipline it
+  encourages is what actually mattered here. I nearly reported a DRC regression
+  (28/14 -> 32/17) that was an artifact of comparing against my own pre-merge
+  branch instead of against main; against main the same change is 76/61 -> 32/17.
+  Nothing in the tooling pushed me toward the wrong baseline, but nothing warned
+  me either. A `bench` note field recording WHICH baseline a metric was measured
+  against would have made the mistake visible in the ledger.
