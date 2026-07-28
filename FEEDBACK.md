@@ -1318,3 +1318,52 @@ auto-deploys prod.
   Nothing in the tooling pushed me toward the wrong baseline, but nothing warned
   me either. A `bench` note field recording WHICH baseline a metric was measured
   against would have made the mistake visible in the ledger.
+
+## 2026-07-28 · claude-opus · eda — escape-stub pad clearance fix
+
+Task: harden a router copper emitter in `src/placement/router.zig` so it cannot
+draw a track through a neighbouring pad's clearance. One `zig build test` full
+run, one `guardian-check commit`, several `zig build -Doptimize=ReleaseSafe`
+builds to measure the change on a real board.
+
+- **good:** `debug-print-ban` earned its keep. I had temporarily instrumented
+  `src/bench_route.zig` and `src/placement/router.zig` with `std.debug.print` to
+  find which pass emitted the offending copper. A filtered `zig build test
+  -Dtest-filter=...` reported `run-all: 1/68 failed (debug-print-ban) —
+  src/bench_route.zig:177: std.debug.print reference outside allowed paths` and
+  named the exact file:line. That is precisely the class of scaffolding an agent
+  forgets to strip before committing, and the check found it while the change was
+  still cheap to undo.
+- **good:** the bench ratchet line printed on every build —
+  `bench barracuda_drc_errors = 17 (min, @fdefa931 2026-07-27: "2 track-pad + 15
+  net-open markers; main alone is 61 …")` — was the single most useful line in
+  the whole session, and I got it for free without asking for it. The stored note
+  told me the board's *composition* of DRC errors, which let me sanity-check my
+  own measurement (a fresh route reports 54 errors, the ratchet's 17 is the
+  starred layout's persisted copper) instead of chasing a phantom regression.
+  Ratchet notes that describe the number, not just record it, are worth the
+  keystrokes.
+- **friction:** `zig build test` on this repo runs ~15 min, well past the 10-min
+  foreground Bash cap, so every full verification is a background job plus a
+  poll loop. That is a repo-scale problem, not a Guardian one, but Guardian is
+  the thing wired onto the `test` step, so it is where the cost lands. The
+  documented `-Dtest-filter` escape hatch is what made iteration bearable — it
+  cuts the compile as well as the run — but it explicitly cannot narrow the
+  Guardian suite, so the full 15 min is still owed once per change. A "gate only,
+  skip the test binary" mode (`guardian-check` already has `--only`) surfaced as
+  a `zig build` step would let an agent get the 67-check verdict in seconds
+  before paying for the suite.
+- **wish:** `guardian-check explain <check>` is documented as the thing to run
+  when a check fires, and the failure line names the check — but the failure line
+  does not *say* to run explain. One appended sentence ("run `guardian-check
+  explain debug-print-ban` for why and how to exempt") on every blocking line
+  would close the loop without the agent having to remember the CLAUDE.md rule.
+- **prototyping:** the thing that would have saved the most time here is
+  sanctioned, temporary instrumentation. My whole diagnosis was "add
+  `std.debug.print` to six call sites, build ReleaseSafe, route one board, read
+  which pass emitted the bad segment, revert" — three builds at ~4 min each. A
+  `[scratch]` allow-list in `guardian.toml` (paths or a `// guardian: scratch`
+  file marker) that permits debug prints while the tree is dirty but hard-fails
+  the moment they are staged for commit would move the boundary in exactly the
+  right place: exploratory work gets faster, nothing ships weaker, and the
+  ban stays absolute where it matters.
