@@ -1379,3 +1379,37 @@ builds to measure the change on a real board.
   self-hosted backend is 9 s; `-Dtest-filter=zzznothing` is 13 s; -fincremental
   prime/rebuild 231/237 s = no help). Any further win is a module-graph split in
   the eda repo, not a Guardian change.
+
+## 2026-07-28 · claude-opus · eda — maze source-end track↔pad DRC fix (router)
+- **good:** `guardian-check commit --intent "…"` was the whole commit story and
+  took 11.6 s end to end (gate 1.4 s + `zig build test` 10.2 s) on an already-warm
+  cache. 68 checks, 0 blocking, 5 report-only, and it staged exactly SPEC.md +
+  src/placement/router.zig — no `git add .` sweeping in the two scratch worktrees
+  I had open for A/B measurement. Compare with the 2026-07-26 entries reporting a
+  42 s gate: the ReleaseSafe guardian-check rebuild has held.
+- **good:** the spec/`deny_growth` pairing did its job without friction. Adding
+  one SPEC.md bullet forced me to write the tagged regression test in the same
+  change, and writing it forced me to check it actually fails without the fix
+  (it did). That is the check earning its keep, not taxing the change.
+- **friction:** the same debug-print instrumentation wall the 2026-07-28
+  `escape-stub-pads` entry above describes, hit independently on an adjacent bug.
+  My diagnosis was identical in shape: add `std.debug.print` at the emit sites +
+  one env-var read in the bench harness, build ReleaseSafe (~4 min), route one
+  board (~2.5 min), read which pass emitted the violating segment, revert. Two
+  such cycles. `debug-print-ban` and `ban-env` both fired on the throwaway code
+  every build, and `ban-globals` fired on the `var dbg_probe: ?bool` memo the
+  probe needed — three separate report lines per build for code that was never
+  going to be staged. Nothing blocked (the build still produced a binary), but it
+  meant every diagnostic build printed a wall of violations I had to visually
+  filter past to find the actual `zig fmt` failure that DID block me.
+- **friction:** on a diagnostic build, `zig fmt --check` failing is reported at the
+  very bottom after ~40 lines of guardian check output, and the guardian block
+  above it reads "4 check(s) would block commit". I initially read the whole run
+  as blocked-by-guardian and went looking for an exemption, when the one-line fix
+  was `zig fmt`. Distinguishing "this failed the BUILD" from "this would fail a
+  COMMIT" in the summary line would have saved a wrong turn.
+- **wish:** seconding the `[scratch]` allow-list proposal in the entry above,
+  with one addition from this session: it should cover `ban-globals` too, not
+  just `debug-print-ban`/`ban-env`. Probe state is almost always a file-scope
+  `var` memo (parse the env var once, not per call), so a scratch mode that
+  permits prints but still rejects the global only moves the wall by one check.
