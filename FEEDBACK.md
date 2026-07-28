@@ -1367,3 +1367,15 @@ builds to measure the change on a real board.
   the moment they are staged for commit would move the boundary in exactly the
   right place: exploratory work gets faster, nothing ships weaker, and the
   ban stays absolute where it matters.
+
+## 2026-07-28 · claude-fable · eda — test-suite timing investigation (sharding no-go)
+- good: the gated `zig build test` wall has collapsed since the 2026-07-22/23
+  15–20 min measurements: fresh worktree @ main 58d5305 on an idle i5-10400 runs
+  the full gate in 231 s cold and 230 s after a 1-line edit; the 1509-test run
+  itself is 10 s standalone and a warm no-op gate is 10 s. Guardian's own checks
+  are noise in that budget.
+- wish: nothing Guardian-side — the remaining 220 s is LLVM ReleaseSafe codegen
+  of the single netlisp module for the test binary (Debug `zig build` with the
+  self-hosted backend is 9 s; `-Dtest-filter=zzznothing` is 13 s; -fincremental
+  prime/rebuild 231/237 s = no help). Any further win is a module-graph split in
+  the eda repo, not a Guardian change.
