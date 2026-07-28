@@ -1413,3 +1413,59 @@ builds to measure the change on a real board.
   just `debug-print-ban`/`ban-env`. Probe state is almost always a file-scope
   `var` memo (parse the env var once, not per call), so a scratch mode that
   permits prints but still rejects the global only moves the wall by one check.
+
+## 2026-07-28 · claude-opus · eda — placement sensitivity probe
+
+New MCP tool (`placement_sensitivity`) in a fresh worktree: one new file
+(`src/serve/mcp_placement_sensitivity.zig`, ~1030 lines incl. tests), 10 SPEC
+bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
+`main.zig` / the embedded tools-list JSON. Two gated commits.
+
+- **good:** the 1:1 SPEC-bullet↔test rule visibly changed the DESIGN, not just the
+  test count. The tool's real work is a routing probe over a 90-net board — nothing
+  I could put in a unit test. Writing the bullets first forced me to carve out the
+  parts that *are* testable with fixtures (perturbation-set generation, flip
+  classification, scope selection, retained-copper partitioning, part-name
+  resolution, result serialization) and leave only the router call untested. That
+  is the split I'd want anyway, and I would not have found it as cleanly without
+  the bullet-per-behavior pressure. `zig build test -Dtest-filter=<substr>` kept
+  the inner loop at ~13 s.
+- **good:** `ban-time` caught a real slip. I reached for `std.time.Timer.start()`
+  to report per-probe wall time; the check named `infra/clock`, and
+  `guardian-check explain ban-time` gave the remedy with no guessing. The fix
+  (`clock.milliTimestamp()` deltas) also turned the elapsed computation into a
+  pure function of two timestamps — testable, where the Timer version wasn't.
+- **good:** `change-classification` earned its keep on a change I would have
+  argued was documentation-only. My second commit was a ONE-STRING edit: the
+  payload's `limits` note told callers to read `scope_nets`, but the JSON key it
+  actually emits is `scope.nets`. The check refused it as "3 behavioral line(s)
+  added, no test", which felt pedantic for 30 seconds — and then writing the test
+  it demanded produced the best test in the file: serialize a fixture result, parse
+  it back, and assert the field path the note NAMES is a path the payload really
+  carries. That test now also covers `writeResult`/`writePart`/`writeRun`, which
+  had zero coverage before, and it would have caught the original typo. A check
+  that turns a doc typo into permanent structural coverage is doing exactly what
+  it says on the tin.
+- **friction:** `pub-api-surface` blocks on the ONE `pub fn` a new MCP tool file is
+  *required* to export — the dispatcher entry point. Every sibling `mcp_*.zig` has
+  exactly one, named after the tool, with the identical
+  `(alloc, project_dir, args_val, out) HandlerError!bool` signature. It cost a full
+  extra `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` cycle plus the time to
+  notice the failure and look up the incantation. The check is right in general;
+  the "new file whose only new pub symbol matches an existing signature shape
+  already in the snapshot" case is where it's pure tax.
+- **wish:** the run-all failure line names the blocking checks but not how to
+  clear each one. For snapshot-class checks (`pub-api-surface` and friends) the
+  fix is mechanical and known — printing
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` (or the
+  `guardian-accept` spelling) inline on that failure line would save the
+  round-trip through `explain`. `change-classification` already does this well:
+  its output listed the accept command directly under the finding.
+- **friction (minor, reporting):** the `guardian-check commit` timing line reads
+  `gate 1.5s · tests 238.8s`, which is genuinely useful — but the two gated commits
+  in this session each spent ~4 min in `zig build test` while three sibling agents
+  were building the same repo family concurrently. The `[gate]` comment in the
+  project's `guardian.toml` quotes "9.55s warm (1406 tests)"; that number is for an
+  idle machine and reads as wildly optimistic from inside a busy one. Not a
+  Guardian bug — but if the timing line could also note "tests: N cached / M ran"
+  it would make the difference between "slow machine" and "cold cache" legible.
