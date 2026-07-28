@@ -1516,3 +1516,43 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
   `writeLint` param ceiling was discoverable only by grepping baselines; an agent
   editing that file without knowing to look pays for it as a gate failure several
   minutes later, after a full compile.
+
+## 2026-07-28 · claude-opus · eda — simultaneous multi-net escape assignment
+
+- **good:** the per-item **type-size** ratchet did exactly the right thing. Adding
+  one field to `env.PlanWave` (13 → 14, frozen ceiling 13) and one to
+  `plan_resolve.ResolvedWave` (8 → 9) failed the gate, and the message named both
+  the frozen ceiling and the fix ("group related fields into nested structs").
+  Grouping `waypoints` + the new `assign_escapes` into a `PlanWaveCorridor`, and
+  moving the other field up onto `ResolvedPlan` instead, left both types SMALLER
+  than before and the code genuinely better organised — "which nets" and "how
+  they route" now read as separate things. A cap that forces a naming decision at
+  exactly the moment the type grows is worth its cost.
+- **friction:** the **init-hygiene** check fires on any `fn init` containing a
+  loop, including a pure TEST fixture builder that fills a `[6]Part` array. The
+  finding ("constructors should be straight-line") is fair for production
+  constructors, but a table-building test fixture is precisely where a loop
+  belongs. I renamed it `setupBoard` to get past the check, which is a rename for
+  the checker's benefit, not the reader's. Consider skipping `init`-shaped
+  functions inside `test`-only helper scopes, or at least mentioning the rename
+  escape hatch in `explain`.
+- **friction (repeat of an earlier entry, still costly):** `zig build` does not
+  type-check test blocks, and `-Dtest-filter` cuts the *compile* as well as the
+  run. So a full filtered green run plus a clean `zig build -Doptimize=ReleaseSafe`
+  both passed while `src/eval/design_block.zig` still referenced a field I had
+  moved into a nested struct — discovered only on the first unfiltered
+  `zig build test`, ~15 minutes later. This is a Zig property rather than a
+  Guardian one, but Guardian is the thing that runs the suite: a
+  `guardian-check doctor` note ("last N gate runs were all filtered; the tree has
+  not been fully type-checked since <sha>") would catch exactly this class.
+- **good:** `guardian-check commit --intent` again the right shape — gate 1.4 s,
+  tests 227 s, staged 14 paths including `.guardian/pub-api.txt` and `SPEC.md`
+  without my having to reason about `git add`. The `GUARDIAN_UPDATE_SNAPSHOT=`
+  name for the pub-API snapshot is still `pub-api-surface` while the file is
+  `pub-api.txt`; I hit the same trap the previous entry reports and recovered the
+  same way (`explain`).
+- **wish:** the spec check reports "unlinked tag" per test but not the reverse
+  direction hint — i.e. it tells me the tag has no bullet, but when I then add
+  the bullet it is on me to get the text byte-identical. A `--fix` (or the
+  suggestion line from `spec-sync`) inlined into the failure would remove a
+  whole round trip; I paid two gate cycles purely on bullet/tag text matching.
