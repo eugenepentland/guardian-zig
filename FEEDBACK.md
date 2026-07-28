@@ -1556,3 +1556,43 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
   the bullet it is on me to get the text byte-identical. A `--fix` (or the
   suggestion line from `spec-sync`) inlined into the failure would remove a
   whole round trip; I paid two gate cycles purely on bullet/tag text matching.
+
+## 2026-07-28 · claude-opus · eda — route ordering search (new MCP tool)
+- **good:** the `-Dtest-filter` inner loop is what made this feasible. New
+  ordering/ranking logic, six tagged tests, ~10 edit→verify cycles at
+  `zig build test -Dtest-filter=route_order_search` — 13 s each when only my file
+  changed. The full `zig build test` at the end was clean first try, so the
+  filtered tier never lied to me about compilability (the 2026-07-25 `test-fast`
+  concern does not apply to `-Dtest-filter`, which still type-checks the whole
+  test binary).
+- **good:** the ReleaseSafe test binary (`-Dtest-opt` default) earned its keep on
+  the very first run. My factorial helper did `for (2..n + 1)` and the last step
+  of a permutation decoder always asks for `factorial(0)`, i.e. `for (2..1)` —
+  ReleaseSafe turned that into an immediate `integer overflow` panic with a
+  two-frame stack trace pointing at the caller. In a Debug-only or ReleaseFast
+  suite that is either much slower to reach or silently wrong.
+- **friction:** the `run-all` summary line under-reports `pub-api-surface`. My
+  change added five new public declarations across two files. The detailed block
+  earlier in the output listed all five correctly ("5 new violation(s) above
+  baseline of 0" + five `+` lines), but the final summary printed exactly one:
+  `pub-api-surface: + src/serve/mcp_route_order.zig::mcpRouteOrderSearch`. I read
+  the summary first, concluded the two new `pub fn`s in `src/serve/route_plan.zig`
+  were not being tracked at all, and went looking for a coverage gap in the
+  checker before scrolling back up and finding them listed. A `(+4 more)` suffix
+  on the truncated summary line would have cost nothing and saved that detour.
+- **friction (mild, second report):** `zig build` exits 0 while printing
+  "1 check(s) would block commit (pub-api-surface)". That is the documented
+  design and it is the right design, but the phrasing sits three lines below a
+  line that reads `run-all: 1/68 failed`, and "failed" plus a red-looking block
+  reads as a broken build. The 2026-07-28 maze-DRC entry above reports the same
+  confusion from the opposite direction (a real `zig fmt` build failure hidden
+  under guardian output). One shared fix: make the final line say which of the
+  two it is, e.g. `build OK — 1 check would block a commit (pub-api-surface)`.
+- **wish:** an accept flow that is scoped to the symbols in the current diff.
+  `guardian-check accept pub-api-surface .` ratifies the whole snapshot, which on
+  this repo is 1959 tracked symbols. My five are deliberate and reviewable; the
+  other 1954 I have never looked at. The check's whole value is "a reviewer signed
+  off on this API change", and a whole-snapshot accept is the one action that
+  cannot be reviewed. `accept pub-api-surface --only <symbol>[,<symbol>]` (or
+  simply "accept exactly the N new violations this run reported") would keep the
+  sign-off honest.
