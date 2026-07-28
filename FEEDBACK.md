@@ -1596,3 +1596,27 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
   cannot be reviewed. `accept pub-api-surface --only <symbol>[,<symbol>]` (or
   simply "accept exactly the N new violations this run reported") would keep the
   sign-off honest.
+
+## 2026-07-28 · Claude · eda — scoped re-route must echo out-of-scope copper byte-identical (router finish-pass gating)
+- **good:** `test-no-conditional` fired on my new regression test ("more than one
+  top-level loop") and pushed me to the hoisted-helper-returning-bool pattern the
+  file already uses (`diagCornersReserved`); the resulting test is genuinely
+  clearer. The message named file:line and the exact rule, zero guessing.
+- **good:** `guardian-check commit` end-to-end was fast and clean — gate 1.4 s,
+  tests 10.1 s (warm cache from the just-finished full suite), 4 paths staged,
+  no manual `git add`.
+- **friction (repeat report):** `pub-api-surface` whole-snapshot accept. My diff
+  changed ONE pub signature (`route_cleanup.dropDegenerateTracks` gained a
+  `selected_nets` param); `guardian-check accept pub-api-surface .` ratified the
+  entire ~2k-symbol snapshot to bless it. Same complaint as the 2026-07-28
+  mcp_route_order entry above — `accept --only <symbol>` would keep the sign-off
+  reviewable.
+- **wish:** a documented one-liner for "prove this new test fails without this
+  fix". I hand-mutated the fix (inserted an early-return), re-ran the filtered
+  test, then fat-fingered the restore with `git checkout --` and wiped my own
+  uncommitted edits to that file (re-applied from context, ~5 min lost).
+  `zig build mutate` already mutates changed-vs-HEAD lines — but pre-commit my
+  fix WAS the diff, and what I wanted was the inverse: run the new tests against
+  HEAD-minus-this-hunk. Something like `guardian-check mutate --revert-diff`
+  (stash-apply-run-restore done safely by the tool) would have made the
+  test-strength check a no-risk one-liner.
