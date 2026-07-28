@@ -1469,3 +1469,50 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
   idle machine and reads as wildly optimistic from inside a busy one. Not a
   Guardian bug — but if the timing line could also note "tests: N cached / M ran"
   it would make the difference between "slow machine" and "cold cache" legible.
+
+## 2026-07-28 · claude-opus · eda — routability preflight lint
+
+- **friction:** `function-size` is a **parameter-count** ratchet, not a
+  line-count one, and `writeLint` in `src/serve/pcb_describe.zig` was frozen at 8
+  params. Threading the new pass's findings in the way its sibling
+  (`layout_lint`) does — computed by the caller, passed down — would have added a
+  ninth param and failed the gate on a function I was otherwise only appending
+  two lines to. So the new gate is computed *inside* a helper `writeLint` calls,
+  and the two sibling lint passes now enter the same array by different routes.
+  That asymmetry is a permanent code smell forced by a ceiling. Two costs: the
+  design compromise itself, and that I only found the ceiling by reading
+  `.guardian/baselines/function-size.txt` by hand — the check NAME reads like
+  "function length", so `explain function-size` was not what I reached for.
+  Renaming it `function-param-count` (or having `explain` lead with "this is
+  parameters, see `function-length` for lines") would have made it obvious.
+- **friction:** `test-no-conditional` counts a second top-level `for` in a test
+  body as a violation. It fired on a table-style test that built a 45-cell
+  fixture in one loop and asserted over the results in another — the assertion
+  loop is exactly the shape the check's own `explain` text recommends ("drive
+  inputs table-style with asserts"). The fix (hoist fixture construction into a
+  file-local helper) was right, but the finding says only "more than one
+  top-level loop"; it does not hint that the FIXTURE loop is the one to extract.
+  I guessed correctly, but a wrong guess costs a full gate cycle.
+- **friction:** `GUARDIAN_UPDATE_SNAPSHOT=pub-api` is rejected as an unknown
+  check name — the snapshot file is `.guardian/pub-api.txt` but the check is
+  `pub-api-surface`. Since the file is what you have just been looking at when
+  you need the incantation, the file/check name mismatch is a reliable trap. The
+  error does point at `guardian-check explain`, which recovered it in one step,
+  but accepting the file's basename as an alias would cost nothing.
+- **good:** the per-item shape ratchets were invisible on a new ~800-line module
+  with 8 tests — no cap fights, nothing to argue with. The only ratchet that bit
+  was on a *pre-existing* function (above), which is the right bias.
+- **good:** `deny_growth = ["spec", "completeness"]` forced the 8 completeness
+  waivers for the new SPEC section to be written before the code could land, and
+  writing them surfaced a real design decision I would otherwise have left
+  implicit — that the pass does no I/O and holds no shared mutable state, so the
+  serve layer can call it per-request without a lock. That is the check paying
+  for itself rather than being paperwork.
+- **good:** `guardian-check commit --intent` gating the exact working-tree diff
+  and staging the path list itself (`.guardian/` + `SPEC.md` riding along) is the
+  right shape for agent work — I never had to reason about what to `git add`.
+- **wish:** `guardian-check explain --for-file <path>`, listing the per-item
+  ceilings currently in force for the functions/types in one file. The
+  `writeLint` param ceiling was discoverable only by grepping baselines; an agent
+  editing that file without knowing to look pays for it as a gate failure several
+  minutes later, after a full compile.
