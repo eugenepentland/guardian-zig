@@ -1631,3 +1631,8 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
 - good: smooth end-to-end — new spec bullet + tagged test + code landed in one `guardian-check commit` (gate 1.4 s, tests 10.1 s); the deny_growth spec flow accepted the paired bullet/test without any snapshot churn.
 - good: the imports cycle check's "always a defect" stance made me verify plan_resolve → pour → router closes no loop BEFORE writing the edge (route_policy only mentions plan_resolve in a comment, so it doesn't); five minutes of grep up front instead of a failed gate.
 - good: knowing type-size `max_fields = 7` ahead of time shaped the change — Context grew 6→7 (at the cap, legal) instead of me discovering the ratchet post-hoc.
+
+## 2026-07-29 · claude · eda — fab-readiness ?layout= selection (silent starred-board answers)
+- good: smooth run — spec bullet + spec-tagged handler-level test + refactor (mcpFabView → typed-error fabViewFor shared by HTTP and MCP) landed in one `guardian-check commit` (gate 1.3 s, tests 10.2 s); 3 paths staged, no snapshot churn.
+- good: the formatting check caught zig-fmt drift in my new multiline-string test fixture on the FILTERED `zig build test` run (diff-scoped, 1 file in scope), so the fix was one `zig fmt` before the full suite — never reached the commit gate.
+- good: `-Dtest-filter` + guardian's diff-scoped gate made the inner loop fast: 7/7 filtered tests + full 67-check gate feedback in ~15 s per iteration on an 11.7k-line file.
