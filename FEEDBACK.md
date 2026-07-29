@@ -1661,3 +1661,10 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
 
 good: the gate handled a 13k-line vendored third-party tree (vendor/httpz) cleanly end-to-end — the src/-scoped file walk kept foreign code out of shape checks and baselines entirely, `commit` staged all 38 paths (the untracked vendor tree was pre-`git add`ed so the untracked-path secret/artifact skip couldn't drop it), and the green-run digest priced the commit-time gate at 1.4s + 10.4s tests after the full suite had just run.
 wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedResult)` with no assertion location; finding which `expect` fired took a re-run with std.debug.print. Capturing/echoing the failing test's stderr (or suggesting `zig build test -Dtest-filter=<name>` + direct binary run) in the gate output would save a cycle.
+
+## 2026-07-29 · claude · eda — saved-layout pose-identity corruption fix
+
+- good: the diff-scoped run-all during `zig build test` surfaced all four regressions (function-size param ratchet on writeRightDock, pub-api-surface on layoutCoverage, one cognitive-complexity point on writePcbData, bool-ops-per-condition in dedupLayouts) with exact old→new numbers before commit time, and each pointed at a real cleanup (a PanelData bundle, pub→private, an extracted wrapper) rather than a suppression.
+- good: `guardian-check commit` ran gate 1.4s + tests 10.2s on the warm cache and path-scoped staging kept everything unrelated out of the commit.
+- friction: pub-api-surface blocks API *shrink* (pub→private of a fn with zero external callers) exactly like growth; the GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface dance is documented and quick, but "symbol removed and nothing imports it" could plausibly auto-accept.
+- friction: new tests constructing optimizer.Part / export_kicad.FlatInstance literals must supply every no-default field (.fallback, .properties, .uuid) and the compiler names one missing field per iteration — a tiny in-tree test-builder would absorb this.
