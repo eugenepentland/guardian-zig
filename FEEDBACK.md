@@ -1620,3 +1620,9 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
   HEAD-minus-this-hunk. Something like `guardian-check mutate --revert-diff`
   (stash-apply-run-restore done safely by the tool) would have made the
   test-strength check a no-risk one-liner.
+
+## 2026-07-29 · claude · eda — close_open_nets stitch defects (barracuda 90/90)
+- good: function-size caught `uniteUserZones` growing to 8 params mid-change; the forced `ZoneNodes` bundling was a real improvement, not busywork.
+- good: test-has-assertion / test-no-conditional flagged the throwaway repro test (print-only, two loops) as report-only — exactly right severity: visible, not blocking, gone when the temp test was deleted.
+- good: `guardian-check commit` end-to-end was fast (gate 1.4 s, tests 10.1 s cached after a green `zig build test`) — no friction on a 5-file, 6-spec-bullet change.
+- wish: the spec 1:1 rule pushed one behavior ("no-path stitch takes the fine rungs") into a thin predicate test (`rescuesNoPath`) because the real behavior only shows on a full board; a sanctioned pattern for "proven by measurement, pinned by predicate" tests would make that less awkward.
