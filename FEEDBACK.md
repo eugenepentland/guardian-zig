@@ -1722,3 +1722,9 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 - good: 12-commit feature branch (two new files, 758 + 2378 lines, +18 SPEC bullets) rode `guardian-check commit` across 12 evidence-led rounds by two Opus agents with zero gate friction — the 1:1 spec-bullet/tagged-test rule matched the "capability lands with its test" cadence naturally, and the ~1s ReleaseSafe gate never slowed the census→fix loop.
 - good: the comptime-gated diagnostic census (`census_on=false`, compiles away when off) let permanent instrumentation ship in-tree without tripping any dead-code/style check — a pattern worth encouraging over strip-and-go-blind.
 - friction: one agent declined to bank a SPEC bullet for a deferred capability ("no bullet without a test behind it") — correct under deny_growth, but there's no sanctioned place to record a *specified-but-unbuilt* behavior; it lives only in commit messages and session memory.
+
+## 2026-07-29 · claude · eda — scoped-route fine-grid overflow fix (router.zig + SPEC bullet)
+
+- good: `guardian-check commit` end-to-end was 12s (gate 1.5s + tests 10.1s on a warm cache) and staged exactly the intended SPEC.md + router.zig — the spec bullet/tagged-test 1:1 mapping was checked and passed first try.
+- friction: the stage phase swept `.claude/scheduled_tasks.lock` (a tracked harness session-state file that churns whenever an agent session runs) into the commit because it was newly dirty; had to `git restore --staged --source=HEAD~1` + amend it out. history/ and *.bak-* are already excluded — a repo-configurable exclude list for the stage path set (or a doc nudge to untrack such state files) would prevent this class.
+- good: baseline mode stayed quiet through a 120-line addition to the repo's largest hot file (placement/router.zig) — no ratchet false-fire, report-only noise clearly labelled.
