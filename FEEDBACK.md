@@ -1626,3 +1626,8 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
 - good: test-has-assertion / test-no-conditional flagged the throwaway repro test (print-only, two loops) as report-only — exactly right severity: visible, not blocking, gone when the temp test was deleted.
 - good: `guardian-check commit` end-to-end was fast (gate 1.4 s, tests 10.1 s cached after a green `zig build test`) — no friction on a 5-file, 6-spec-bullet change.
 - wish: the spec 1:1 rule pushed one behavior ("no-path stitch takes the fine rungs") into a thin predicate test (`rescuesNoPath`) because the real behavior only shows on a full board; a sanctioned pattern for "proven by measurement, pinned by predicate" tests would make that less awkward.
+
+## 2026-07-29 · claude · eda — plan-layer-reserved warning (inert In2 layer selector)
+- good: smooth end-to-end — new spec bullet + tagged test + code landed in one `guardian-check commit` (gate 1.4 s, tests 10.1 s); the deny_growth spec flow accepted the paired bullet/test without any snapshot churn.
+- good: the imports cycle check's "always a defect" stance made me verify plan_resolve → pour → router closes no loop BEFORE writing the edge (route_policy only mentions plan_resolve in a comment, so it doesn't); five minutes of grep up front instead of a failed gate.
+- good: knowing type-size `max_fields = 7` ahead of time shaped the change — Context grew 6→7 (at the cap, legal) instead of me discovering the ratchet post-hoc.
