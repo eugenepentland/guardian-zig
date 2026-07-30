@@ -1883,3 +1883,6 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 
 ## 2026-07-30 · codex · eda — UUID-bound assembly rework targets
 - **good:** The exact SPEC retarget and matching `// spec:` test passed the 68-check whole-tree commit gate with 0 blocking findings, while `pub-api-surface` correctly stayed unchanged for the private assembly-index JSON extension.
+
+## 2026-07-30 · codex · eda — contextual assembly guide focus
+- **good:** The full 68-check commit gate passed with 0 blocking findings after the assembly guide SPEC bullet and its exact tagged test were retargeted together; the preceding `zig build test` also passed without gate-specific remediation.
