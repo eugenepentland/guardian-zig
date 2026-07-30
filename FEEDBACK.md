@@ -1876,3 +1876,7 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 
 ## 2026-07-30 · codex · eda — schematic design workflow SVG
 - **good:** `guardian-check commit` accepted the documentation-only SVG addition with 68 checks and 0 blocking findings; the whole-tree gate stayed green without retries or gate-specific remediation.
+
+## 2026-07-30 · codex · eda — interactive assembly rework guides
+- **good:** `pub-api-surface` isolated the guide loader as the only intentional API addition, and selective `guardian-accept` previewed and verified the one-line snapshot change before the 68-check commit gate passed with 0 blocking findings.
+- **friction:** The commit gate warned that the Guardian binary differed from the one that last gated the tree but did not say which binary was newer; confirming the accepted snapshot was not phantom drift required an extra rebuild and full-suite run.
