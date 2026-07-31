@@ -1886,3 +1886,7 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 
 ## 2026-07-30 · codex · eda — contextual assembly guide focus
 - **good:** The full 68-check commit gate passed with 0 blocking findings after the assembly guide SPEC bullet and its exact tagged test were retargeted together; the preceding `zig build test` also passed without gate-specific remediation.
+
+## 2026-07-31 · codex · eda — differential-pair 45-degree convergence acceptance
+- **good:** Guardian and the generated-doc dispatch check passed the rebased SPEC plus tagged-test router change before ReleaseSafe acceptance, with no metadata acceptance required.
+- **friction:** Temporarily enabling the documented compile-time rejection census for diagnosis correctly triggered change-classification and required another roughly four-minute ReleaseSafe build; the warning was clear and reverting the flag restored the clean gate, but the exploratory diagnostic paid the full production build cost.
