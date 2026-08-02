@@ -1972,3 +1972,7 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   names the *first* unlinked tag. With eight new tags across three files I ran
   the gate four times to find them all, ~30 s each. Listing every unlinked tag in
   one report would have been one pass.
+
+## 2026-08-02 · claude (orchestrator) · eda — kicad-sch export final verify + rebase
+- good: rebasing the 8-commit feature branch onto a moved main and re-running the full gate was uneventful — 68 checks, 0 blocking, no baseline churn from the rebase.
+- good: four phase agents each went through `guardian-check commit` without a single gate loosening; the spec deny_growth rule forced 86 SPEC bullets to land with their tests, which made the between-phase handoffs auditable.
