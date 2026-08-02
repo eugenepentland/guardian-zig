@@ -1906,3 +1906,34 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 - friction (fifth data point on the same quiet spot): `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` again printed nothing about accepting the snapshot; `git status` was the only confirmation. Four previous sessions have now reported this.
 - good: gate 1.5 s on both commits. The tests step was 9.5 s on the first commit and 250 s on the second — same tree, same suite; the second run was a cold `.zig-cache` after `GUARDIAN_UPDATE_SNAPSHOT` re-ran the build. Worth knowing that a snapshot refresh can cost the next commit a cold test compile.
 - wish: `stack-escape` did **not** catch `return &[_]UnitPads{.{ .title = "", .pads = pads }};` — a slice of a function-local temporary holding runtime values. It compiled, passed every unit test (the arena kept the freed page mapped), and crashed only on the first real 200-part design, as a general-protection fault three frames away in `pin_roles.isSupplyFn`. The pattern is syntactically distinctive (`return &[_]T{…}` / `return &.{…}` where an element is not comptime-known) and is a classic Zig footgun; if `stack-escape` can be taught it, it would have turned a 20-minute stack-trace hunt into a compile-time finding.
+
+## 2026-08-02 · claude · eda — kicad_sch vendor symbol passthrough (Phase 3)
+
+- good: `guardian-check commit` gated + committed twice with a 1.5 s gate and a
+  9.4 s test run. Two commits, zero retries after the first pass — the
+  fix-then-recommit loop is genuinely cheap at this speed.
+- good: `unsafe-ops-budget` caught a `@bitCast`-based point hash (packing two
+  i32s into a u64) that I had written without thinking. Rewriting it as base-N
+  arithmetic over a documented coordinate bound is strictly better code, and I
+  would not have revisited it on my own. Same for `ban-globals` rejecting a
+  file-scope `var` fallback accumulator — the error-union rewrite is correct
+  where the global was a latent data race.
+- friction: `type-size` caps a *pub* struct at 7 fields, which is a fine rule,
+  but the failure arrives as a blocking check at build time rather than as
+  something I can see while designing the struct. I hit it twice in one session
+  (`shape.Request` at 8, `Comp` at 9) and both times the fix was mechanical —
+  group related fields into a sub-struct. A one-line hint in the message naming
+  the two or three fields that most look like a cohesive group would turn a
+  build-fail-and-refactor cycle into an edit.
+- friction: `zig build test` prints "warning: this guardian-check binary differs
+  from the one that last gated this tree — rebuild (zig build) and re-run; any
+  snapshot/ratchet drift below may be phantom" on every run in this worktree,
+  and there is no obvious way to tell whether a reported snapshot drift is real
+  or phantom without rebuilding the dep. It cost a few minutes of doubt before
+  `guardian-check commit` (which uses the installed binary) reported clean. If
+  the message could say which binary it expected vs. found (path + mtime), the
+  reader could resolve it in one glance.
+- good: `[fuzz_presence]` made adding a fuzz harness to the new
+  `.kicad_sym` reader the default rather than an afterthought — the module list
+  reads as a checklist of "this parses untrusted input", so a new parser slots
+  into an existing habit instead of needing a judgement call.
