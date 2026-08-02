@@ -1937,3 +1937,38 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   `.kicad_sym` reader the default rather than an afterthought — the module list
   reads as a checklist of "this parses untrusted input", so a new parser slots
   into an existing habit instead of needing a judgement call.
+
+## 2026-08-02 · Claude · eda — KiCad schematic export: project sidecars, export-kicad bundle, HTTP endpoint, MCP tool
+- good: `error-discipline` caught a `pub fn` I had left on an inferred `!T`
+  (`kicad_sch_export.zipFor`) the first time I built. Writing the explicit set
+  forced me to notice that the block-resolution errors (`FileNotFound` /
+  `NotADesign` / `InvalidName`) and the exporter's self-check errors are two
+  different failure classes that the HTTP handler must map onto 404 and 500
+  respectively — I had been about to catch them all the same way.
+- good: `debug-print-ban` fired on two new `std.debug.print` lines I copied from
+  the surrounding (baselined) code in `export_kicad.zig`. The exemption list
+  (`main`, tests, `commands*`) is exactly right: the neighbours are old debt, and
+  the check stopped me extending it. `infra/log.progress` was the correct home.
+- friction: `test-no-conditional` allows one top-level `for` in a test body. My
+  zip-member assertion naturally wanted two loops (one "every name is bare", one
+  "these four names are present"), and the fix — extracting `allBareNames` and
+  `hasName` helpers — is genuinely better. But the message ("more than one
+  top-level loop") does not say *why* one loop is the limit, so the first
+  instinct is to merge the loops into one with flags inside, which is worse than
+  what the rule wants. A one-line rationale ("a test should assert one property;
+  extract a named predicate per property") would aim the fix.
+- friction: inserting a new `pub fn` with its doc comment immediately above an
+  existing `pub fn`'s doc comment silently orphans the second function — the two
+  `///` blocks merge and `doc-comments` reports the *lower* function as
+  undocumented. Correct behaviour, and it caught a real mistake, but the report
+  points at the function that lost its comment rather than at the one whose
+  comment absorbed it, so the first read is confusing. Naming both ("X has no
+  doc comment; the block above it documents Y") would make it obvious.
+- good: `pub-api-surface` made every new public name a deliberate act. Four
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` entries were things I genuinely
+  wanted public; two more were accidental (helpers that should have stayed
+  private), and seeing them in the diff was how I noticed.
+- wish: the spec workflow's 1:1 bullet/tag rule is good, but the failure only
+  names the *first* unlinked tag. With eight new tags across three files I ran
+  the gate four times to find them all, ~30 s each. Listing every unlinked tag in
+  one report would have been one pass.
