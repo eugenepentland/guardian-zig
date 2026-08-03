@@ -2004,3 +2004,34 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   fixes it, but the first time it appeared I mistook it for a compile failure and
   re-read the build output twice. Printing the offending line range, or a hint
   ("run `zig fmt src/foo.zig`"), would remove that.
+
+## 2026-08-03 · claude · eda — kicad-sch phase 5a.1 (stock passive glyphs + bypass-stub label collapse)
+- good: the spec workflow reported all 6 unlinked `// spec:` tags in ONE pass
+  this session. The 2026-08-02/03 friction entries about it reporting only the
+  first tag look fixed (or the earlier reports were about a different code
+  path) — either way, one gate cycle instead of six. Worth keeping.
+- good: `type-size`'s 7-field cap on a pub struct was a genuine design nudge,
+  twice. `shape.Request` was already at 7, so I could not bolt a `glyph` field
+  next to the existing `compact: bool` — replacing the bool with the enum is
+  strictly better (the bool was a lossy encoding of the same fact). Same story
+  for `emit.Doc`: with no room for a label-map field I put the collapse in the
+  composer instead, which is where it belonged. A cap that makes the second-best
+  design impossible is doing its job.
+- good: `bool-ops-per-condition` fired on a 6-prefix `or` chain in a brand-new
+  file and was right — the table-driven rewrite is shorter and the prefix list
+  is now a named, documented const. Report-only under the agent profile, but I
+  fixed it anyway because the message named the function and the count.
+- friction: the per-item ratchet story for *file length* is invisible until you
+  go looking. I spent ~10 min checking `.guardian/baselines/file-size.txt`
+  before adding ~130 lines of tests to a 1734-line file, because CLAUDE.md says
+  "per-item ceilings can only shrink" and I could not tell whether that applied
+  to file length (it does not here — only one file is over the hard cap, and the
+  1000-line line is a warning). A one-line "this check is advisory / this check
+  ratchets" tag in the warning text would have answered it instantly.
+- wish: `guardian-check commit`'s gate is diff-scoped ("9/288 source files in
+  scope"), which is fast and correct, but the run-all summary line reports
+  "2/68 failed (pub-api-surface, bool-ops-per-condition) — 2 report-only"
+  without saying WHICH file each came from. `explain <check>` gives the rule,
+  not the occurrence; I had to grep `.guardian/cache/last-run.jsonl` to find
+  that both were in the two files I had just added. Naming the first offending
+  file in the summary line would close that loop.
