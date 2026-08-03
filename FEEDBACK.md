@@ -2265,3 +2265,42 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 - friction: nothing new beyond the `-Dtest-filter` match-count ask logged in the
   previous entry — which this session hit again, twice, while iterating on a
   single reproducing test.
+
+## 2026-08-03 · claude · eda — RF keepout halo vs. the coupled diff-pair construction
+
+- good: the `file-size` per-item ratchet on `src/placement/router.zig` (frozen
+  at 10516 code lines, hard limit 10000) did exactly the design work it exists
+  for. My first cut put the fix AND its two unit tests in `router.zig` and came
+  out at 10620. Rather than accept the growth I moved the decision itself into
+  `placement/keepout.zig` — which is already documented as "the predicates the
+  DRC and the router share" — and the fix landed as two pure, unit-testable
+  functions there plus one-line call sites in the router. That is a strictly
+  better shape than what I would have committed with headroom. The ratchet then
+  auto-lowered to 10513 on the way out, which is the loop closing properly.
+- good: the report told me the exact numbers to aim at ("grew 10516 -> 10620
+  code lines (frozen ratchet ceiling was 10516)") on every run, so I could
+  iterate against a target instead of guessing. Comments and doc comments are
+  clearly excluded from the count, which meant the long WHY comments this fix
+  needed cost nothing — the right incentive.
+- friction: the same file-size report offers `guardian-check accept file-size .`
+  as the fix line ("review, then accept if intended"), which reads as a normal
+  option, while the project's CLAUDE.md forbids raising a ratchet. The two
+  messages disagree in tone. A ratchet-ceiling GROWTH accept could say something
+  like "this raises a frozen ceiling — prefer moving code to a cohesive module"
+  and reserve the plain "accept" wording for tightenings, which are always fine.
+- friction: getting to the ceiling cost roughly six 4.5-minute build+gate cycles
+  of line arithmetic, because there is no way to ask "how many code lines does
+  this file have by your count" without running the whole gate. A
+  `guardian-check debt . --json` field per ratcheted key (current vs ceiling)
+  would have turned six cycles into one.
+- good: `pub-api-surface` listed all four new pub decls with full signatures and
+  blocked until I accepted them deliberately; `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface
+  zig build` produced a `.guardian/pub-api.txt` diff small enough to read line by
+  line before committing. Exactly the review moment I wanted.
+- good: `spec` named the ONE bullet still unverified by tag text
+  ("unverified: placement/router - a coupled diff pair's per-leg probe handle
+  …"), so after I reworded the bullets to match where the tests actually landed
+  it was a single-line fix rather than a hunt.
+- good: `guardian-check commit --intent "…"` staged 8 paths (source, SPEC.md and
+  both `.guardian/` files) in one green commit with no `git add` of my own, on a
+  worktree with a scratch designs tree beside it. Nothing stray was swept in.
