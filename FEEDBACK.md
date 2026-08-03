@@ -2187,3 +2187,36 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   made `zig build test` fail with `ld.lld: cannot open
   .zig-cache/o/<hash>/test_zcu.o: No such file or directory`. Not reproducible;
   noting it because it looks like a compile error and is not one.
+
+## 2026-08-03 · claude · eda — rf_shadow synthesis crossing gate (calibration + contiguity)
+
+- good: `guardian-check commit --intent` green first try. Gate 1.6 s, tests
+  9.9 s cached. The `[baseline] deny_growth` spec rule did exactly its job —
+  it made me write the two SPEC bullets and the two `// spec:` tagged tests in
+  the same change as the code, and because the bullets have to be *sentences*
+  about behaviour, writing them is what forced me to state the rule crisply
+  ("admitted by the angle it meets it at", "judged on its own contiguous
+  span") instead of shipping a tweaked magic number.
+- good: the commit refused to sweep in an untracked `.claude/dp-handoff/`
+  directory and said so by name, with the three ways to include it. That is
+  the right default and the message made it a non-event.
+- friction: `zig build test -Dtest-filter=<x>` gives no signal that the filter
+  MATCHED anything — a zero-match filter exits 0, identically to a green run.
+  I only learned my new tests were really running because an earlier *compile
+  error* happened to name one of them in its reference trace. A one-line
+  `guardian/zig: N test(s) selected by filter` (or a nonzero exit on zero
+  matches) would turn a 4-minute trust problem into a glance. This is the
+  single highest-value thing on my list.
+- friction: running any `zig build test -Dtest-filter=…` while a
+  `zig build -Doptimize=ReleaseSafe` is in flight in the same worktree makes
+  the ReleaseSafe build much slower (they contend for `.zig-cache` and CPU),
+  and there is no indication that is what is happening — the build just sits.
+  Cost me ~15 min of wall clock and two spurious "is it hung?" checks.
+- wish: benches are reported (`barracuda_routed_nets = 83 nets (max …)`) but
+  only for the board the bench harness routes, at ONE configuration. My change
+  was worth +5 nets on barracuda in a configuration the bench does not cover
+  (`(fence)` declared, `(keepout)` masked) and exactly 0 nets in the one it
+  does — so the bench line was identical before and after a real improvement.
+  A way to declare a second bench configuration per board (a named variant with
+  a source-level toggle) would have caught the regression this fixed when it
+  was introduced, instead of it living in a design-file caveat comment.
