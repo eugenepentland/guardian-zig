@@ -2035,3 +2035,40 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   not the occurrence; I had to grep `.guardian/cache/last-run.jsonl` to find
   that both were in the two files I had just added. Naming the first offending
   file in the summary line would close that loop.
+
+## 2026-08-03 · Claude · eda — guarded schematic push into a live KiCad project dir (`sync-kicad-sch`)
+
+- **good:** the gate is genuinely fast now — `guardian-check commit` reported
+  `gate 1.5s · tests 9.8s` on a change that added two new modules (~1100 lines
+  with tests), a new CLI subcommand, a new HTTP route and a new MCP tool. Two
+  commits, both green first try after the checks below were addressed. The
+  ReleaseSafe `guardian-check` note in the project CLAUDE.md is doing its job.
+- **good:** `catch-discipline` fired on two `catch {}` I had written as
+  "best-effort, don't care" (an fsync and a temp-file cleanup). Both deserved a
+  `log.warn` with the error name, and the check made me write it. This is the
+  check catching exactly the agent shortcut its `explain` text describes.
+- **friction:** `completeness` + `deny_growth` makes adding a NEW `## ` section
+  to SPEC.md feel risky in a way that is hard to check before committing. A new
+  section starts with 8 uncovered scenario categories, and the only way I could
+  see to learn whether my 8 `completeness-waiver:` bullets satisfied it was to
+  run the whole build. It worked, but I seriously considered squatting in an
+  existing, unrelated section purely to dodge the uncertainty — which would
+  have been the wrong file organisation for a gate-avoidance reason. A
+  `guardian-check explain completeness --section <name>` or a dry-run
+  ("this section would need: X, Y, Z") would remove that pressure.
+- **friction:** the `spec` check reports `unlinked tag: <Section> - <Behavior>`
+  when a test's tag has no SPEC bullet, which is clear. What is NOT clear is
+  the reverse-lookup problem I hit first: some existing tags in `src/commands.zig`
+  are `commands - …` with no `## commands` section at all — they are frozen in
+  `.guardian/baselines/spec.txt` as permanent unlinked debt. I only found that
+  by grepping the baseline file after `grep '^## commands' SPEC.md` came back
+  empty, and it changed where I put a new test's tag. Surfacing "N tags in this
+  file are baselined-unlinked" in the check output (or in `debt`) would have
+  saved a confusing five minutes.
+- **wish:** `pub-api-surface` needed the usual
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` round-trip. Its own
+  output already says `delta: 28 new symbol(s), 0 changed, 0 removed — pure
+  additions, safe to accept`. When the delta is *only* additions and the check
+  is the sole blocker, offering `guardian-check accept pub-api-surface .` in
+  the same line as the delta summary (it does print the accept command
+  elsewhere) would make the loop one step instead of two.
