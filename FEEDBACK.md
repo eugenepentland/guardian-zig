@@ -2132,3 +2132,34 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   the verdict line plus any blocking check's detail. Agents re-run the gate many
   times per task and only ever act on that one line; the full report is a triage
   artifact, better suited to `guardian-check debt`.
+
+## 2026-08-03 · Claude · eda — same-class exemption for the RF `(net-class … (keepout MM))` halo
+- **good:** the `file-size` per-item ratchet did exactly the job it exists for.
+  My change added ~23 lines to `src/placement/router.zig`, which sits at its
+  frozen 10520-line ceiling, and the gate refused with
+  `grew 10520 -> 10543 code lines … this item is at its frozen cap; reduce or
+  split before adding.` Instead of accepting the ratchet I looked for what the
+  file shouldn't own, and found three pure helpers that belonged in the sibling
+  module whose doc already defines their semantics (`keepout.zig`): a max-over-
+  the-halo-table loop duplicated in two functions, and an escape-zone point
+  query that only read `Zones`. Moving them paid for the new code with room to
+  spare (net -4 lines) and left the router thinner *and* the rule's arithmetic
+  in one place. That is a check changing the design for the better, not a tax.
+- **good:** `guardian-check commit --intent` again: `gate 1.6s · tests 9.8s`,
+  staged exactly the 10 paths I touched (incl. `.guardian/` + SPEC.md), and
+  once more correctly skipped the untracked `.claude/dp-handoff/` directory
+  that predates my session.
+- **friction:** `pub-api-surface` reports a CHANGED signature as one `+` line
+  and one `-` line at opposite ends of an alphabetically sorted list — I changed
+  `claimed(lane, node, net)` to `claimed(lane, classes, node, net)` and had to
+  eyeball 9 lines to work out that 8 of them were additions and one pair was a
+  single rename-in-place. The summary line does say `6 new, 1 changed, 0
+  removed`, so the information is computed; it just isn't used to group the
+  listing. Suggestion: print changed symbols as one `~ name | old -> new` line
+  so the review that the check asks for ("review changed/removed before
+  accepting") is a two-second read rather than a diff-by-eye.
+- **wish:** when a check fails on a per-item ratchet, the fix hint is generic
+  ("consider splitting the file at a cohesive module boundary"). The far more
+  actionable version is already in Guardian's own data: it knows which
+  *functions* in that file are longest / most duplicated. Naming the top three
+  candidates would have pointed me at the helpers I eventually found by reading.
