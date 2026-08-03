@@ -2101,3 +2101,34 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   module could stop duplicating it). Same wish as the entry above: when the
   delta is one pure addition, offering the accept command inline with the delta
   would make it one step.
+
+## 2026-08-03 · Claude · eda — close_open_nets scoped-planning + phase-split failure ledger
+- **good:** the spec/change-classification pair did exactly the job it exists for,
+  in the right order and with no guessing. First gated build after the code edit:
+  `change-classification: src/serve/mcp_close_gaps.zig: 42 behavioral line(s)
+  added` — a clear "this needs spec + tests before it commits". I added two SPEC
+  bullets, and the next run named the one still missing its test *by its full
+  bullet text* (`spec: unverified: Web Server - The close_open_nets result
+  reports the round loop's failures apart from …`). Zero ambiguity about which
+  of the two was short. Whole loop was three gated runs and no wasted work.
+- **good:** `guardian-check commit` timing on this change — `gate 1.6s · tests
+  10.0s` — and it correctly refused to sweep in an untracked `.claude/dp-handoff/`
+  directory that had been sitting in the tree since before my session, printing
+  `1 untracked secret-like/build path(s) skipped, NOT committed`. That is the
+  behaviour that makes the tool safe to hand an agent: it staged 4 paths, exactly
+  the 4 I edited, and told me what it left alone and why.
+- **friction:** every gated run prints the full `repeated-string-literal` (44
+  occurrences) and `repeated-switch-on-enum` (13 occurrences) REPORT blocks —
+  ~57 lines of whole-tree findings in files my diff never touched — and the one
+  line that says whether I'm blocked (`run-all: N checks — 0 blocking`) lands at
+  the very bottom, after all of it. I ended up grepping for `run-all|would block`
+  on every single invocation rather than reading the output, which means I was
+  one bad regex away from missing a real failure. These two checks are diff-scoped
+  for *blocking* purposes but not for *printing*. Suggestion: when a report-only
+  check has no occurrence inside the diff scope, collapse it to one line
+  (`repeated-string-literal: 44 occurrence(s), none in scope — report-only`) and
+  keep the detail behind `--verbose` or `debt`.
+- **wish:** a `--quiet` / `--summary` mode for `zig build`'s gate that prints only
+  the verdict line plus any blocking check's detail. Agents re-run the gate many
+  times per task and only ever act on that one line; the full report is a triage
+  artifact, better suited to `guardian-check debt`.
