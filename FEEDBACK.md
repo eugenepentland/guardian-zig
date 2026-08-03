@@ -2163,3 +2163,27 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   actionable version is already in Guardian's own data: it knows which
   *functions* in that file are longest / most duplicated. Naming the top three
   candidates would have pointed me at the helpers I eventually found by reading.
+
+## 2026-08-03 · claude · eda — kicad-sch readability (same-net pin gangs, text-overlap metric)
+
+- good: three `guardian-check commit --intent` runs, all green first try after
+  the two metadata refreshes below. Gate 1.6 s, tests ~10 s cached — the loop
+  was never the bottleneck.
+- good: `test-no-conditional` fired on a new test with two top-level `for`
+  loops and the message named the line. Extracting the second into an
+  `allNamed(unit) bool` helper was a genuine readability win, not a workaround.
+- good: `pub-api-surface` caught every one of the four API changes I made
+  (a new module's pub types, `verify.check` changing its return type,
+  `compose.isRailNet` becoming an alias). `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface
+  zig build` + committing `.guardian/pub-api.txt` in the same change is a clean
+  ritual once you know it; the failure message says exactly that.
+- friction: `zig build test` prints the `guardian: run-all: N/68 failed …`
+  summary only on a NON-cached run. On a cached run the whole guardian block is
+  absent, so `grep -E "run-all|would block"` returns nothing and it is
+  indistinguishable from "the grep pattern was wrong". Cost me three re-runs
+  before I trusted `EXIT=0`. A one-line `guardian: run-all: cached (0 blocking)`
+  on the cached path would remove the ambiguity.
+- bug (environment, not guardian): a concurrent build in the shared `.zig-cache`
+  made `zig build test` fail with `ld.lld: cannot open
+  .zig-cache/o/<hash>/test_zcu.o: No such file or directory`. Not reproducible;
+  noting it because it looks like a compile error and is not one.
