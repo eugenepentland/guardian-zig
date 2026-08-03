@@ -2249,3 +2249,19 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   non-blocking so this cost nothing, but a per-file "this file's existing style
   already exceeds the recommendation" suppression would make the remaining
   warnings mean something.
+
+## 2026-08-03 · claude · eda — diff-pair keepout-pocket diagnosis (no code change shipped)
+
+- good: `debug-print-ban` fired at BUILD time on temporary `std.debug.print`
+  diagnostics I added inside the router, naming the check in the one-line
+  summary (`2 check(s) would block commit (debug-print-ban, test-no-conditional)`).
+  That is the right moment to hear it — I was instrumenting deliberately and
+  wanted the prints, and the warning meant I never risked committing them. The
+  build still succeeded, so it warned without blocking the diagnostic loop.
+  This is the single best interaction I have had with the gate.
+- good: `test-no-conditional` also fired on a throwaway diagnostic test with a
+  `for` loop printing geometry. Correct, and it made clear the test was scratch
+  rather than something to keep.
+- friction: nothing new beyond the `-Dtest-filter` match-count ask logged in the
+  previous entry — which this session hit again, twice, while iterating on a
+  single reproducing test.
