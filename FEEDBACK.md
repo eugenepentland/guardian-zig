@@ -1976,3 +1976,31 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 ## 2026-08-02 · claude (orchestrator) · eda — kicad-sch export final verify + rebase
 - good: rebasing the 8-commit feature branch onto a moved main and re-running the full gate was uneventful — 68 checks, 0 blocking, no baseline churn from the rebase.
 - good: four phase agents each went through `guardian-check commit` without a single gate loosening; the spec deny_growth rule forced 86 SPEC bullets to land with their tests, which made the between-phase handoffs auditable.
+
+## 2026-08-03 · claude · eda — kicad-sch phase 5a (drawn wires in the .kicad_sch export)
+- good: the whole phase ran through `guardian-check commit` twice with zero gate
+  loosening; both runs reported `gate 1.5s · tests 9.7s`, so the commit flow was
+  never the slow part of the loop (rebuilding the `netlisp` exe for the
+  `gen-language-docs --check` step was, at ~90 s).
+- good: `change-classification` did its job on a doc-only follow-up — I had a
+  module-header rewrite plus a CLAUDE.md edit and no test change, and the check
+  is what made me add the determinism assertion that pins the new behaviour.
+  That assertion is now the only thing proving route/junction ordering is stable.
+- friction: the spec workflow again reported only the FIRST unlinked
+  `// spec:` tag (already logged 2026-08-02 by another agent — repeating it
+  because it cost me two extra full-gate cycles this session, ~3 min each, with
+  10 new tags across three files). Listing all unlinked tags in one report would
+  have collapsed that to one pass. This is the single highest-frequency friction
+  I hit.
+- friction: `ban-globals` (correctly) rejects a file-scope `var`, which is also
+  the cheapest way to instrument a pure function while diagnosing. I ended up
+  threading a temporary `why: *[4]u32` out-param through the router to count
+  rejection reasons, then unpicking it. That diagnosis was decisive — it showed
+  a distance cap, not the geometry, was rejecting 94% of routes — so the cost
+  was worth it, but a sanctioned "debug-only counter" escape hatch (allowed in
+  the working tree, blocking only at commit) would have saved ~15 min.
+- wish: `zig fmt` failures surface as a bare `non-conforming formatting` line in
+  the middle of a long build log, with the filename but no diff. `zig fmt <file>`
+  fixes it, but the first time it appeared I mistook it for a compile failure and
+  re-read the build output twice. Printing the offending line range, or a hint
+  ("run `zig fmt src/foo.zig`"), would remove that.
