@@ -2220,3 +2220,32 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   A way to declare a second bench configuration per board (a named variant with
   a source-level toggle) would have caught the regression this fixed when it
   was introduced, instead of it living in a design-file caveat comment.
+
+## 2026-08-03 · Claude · eda — kicad-sch polish: visible MPN field + fine-pitch label spreading
+- good: the gate stayed out of the way for a 445-line change across 8 files plus
+  a new module. `guardian-check commit` reported `gate 1.6s · tests 9.9s` on the
+  code commit — the ReleaseSafe `guardian-check` really is the difference
+  between a usable and an unusable loop, exactly as the eda CLAUDE.md warns.
+- good: `pub-api-surface` was the only blocking check, and its report is the
+  right shape: it listed the 9 new pub decls AND flagged the ONE changed
+  signature separately (`labelPoint(x, y, side)` → `labelPoint(x, y, side,
+  reach)`) with "review changed/removed below before accepting". That single
+  line is what made me re-check every caller instead of accepting blind.
+- good: the 7-field `type-size` cap did real design work rather than being an
+  obstacle. It stopped me hanging a per-pin stub offset on `shape.Pin` (already
+  at 7) and pushed the data onto `Unit` as a parallel slice with an accessor,
+  which is where it belonged anyway — the whole edge decides it, not the pin.
+- friction: `spec` fires as "7 new violation(s) above baseline" with the tag
+  text quoted, which is clear, but it fires on a FILTERED test run
+  (`zig build test -Dtest-filter=…`) exactly as loudly as on a full one. While
+  iterating on a handful of new tests I got the same 7-line spec wall on every
+  one of ~8 filtered runs before I was ready to write the SPEC bullets. A hint
+  that the run was filtered (so spec/completeness are advisory here) would cut
+  that noise; I eventually just grepped it out, which is the wrong habit to
+  build.
+- wish: `line-length` printed 8 warnings for lines I had written to match the
+  file's existing fixture rows verbatim (a table of one-line `env_mod.Instance`
+  literals, all ~150 chars, the neighbouring rows identical). Warnings are
+  non-blocking so this cost nothing, but a per-file "this file's existing style
+  already exceeds the recommendation" suppression would make the remaining
+  warnings mean something.
