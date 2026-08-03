@@ -2072,3 +2072,32 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   is the sole blocker, offering `guardian-check accept pub-api-surface .` in
   the same line as the delta summary (it does print the accept command
   elsewhere) would make the loop one step instead of two.
+
+## 2026-08-03 · Claude · eda — KiCad schematic exporter: grouped decoupling banks
+- **good:** The whole gate ran in **1.6 s** with tests at 10.1 s on
+  `guardian-check commit`, and the ratchet did its job invisibly on a change
+  that added ~640 lines across 9 files plus a new module — 68 checks, 0
+  blocking, 5 report-only. No cap was raised and nothing needed exempting.
+- **good:** `type-size`'s 7-field cap on pub structs shaped three real design
+  decisions *before* I wrote the code, not after it failed: `compose.Placeable`
+  was already at 7, so bank membership had to be derived in the composer from
+  data already on the sheet request instead of carried as an eighth field;
+  `emit.Doc` was at 7, so a bank's standalone global label went into the
+  existing `Wiring` struct where it semantically belonged; and `emit.Part` took
+  one `banked: ?u32` carrying both the rotation and the "its bank draws this
+  part" fact rather than a separate bool. All three came out better than the
+  extra-field version. Checking the cap by grepping
+  `.guardian/baselines/type-size.txt` (absent = under the cap) was the cheap way
+  to plan around it.
+- **friction:** `spec` reported only **one** unlinked tag while three more new
+  `// spec:` tags sat in the same new file, because the other tests had not been
+  compiled into the filtered run I was using (`-Dtest-filter`). That is correct
+  behaviour, but it meant two extra edit/run cycles adding SPEC bullets in
+  batches. A note in the `spec` failure line — "tags are collected from the
+  compiled test set; a `-Dtest-filter` run sees fewer" — would have saved them.
+- **wish:** `pub-api-surface` again needed the
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` round-trip for a single
+  intentional `pub fn` (making an existing private predicate public so a second
+  module could stop duplicating it). Same wish as the entry above: when the
+  delta is one pure addition, offering the accept command inline with the delta
+  would make it one step.
