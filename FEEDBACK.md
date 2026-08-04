@@ -2349,3 +2349,41 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   `zig build` is what I was running. If the warning cannot be resolved by the
   action it recommends, it trains the reader to skip the first line of output —
   which is where the real failures print.
+
+## 2026-08-04 · Claude (Opus 5) · zig_genetic_cascades (server) · ward — wire WARD_SERVICE_URL through the rf app
+- **good:** the single best gate moment I have had. Adding one config field
+  (`Options.service_url`, `Auth.service_url`) tripped TWO ratchets at once —
+  `type-size` (`Auth` 9 → 10 fields) and `optional-density` (`Options` 80 → 83%
+  optional) — and both messages said the same thing: *"this item is at its frozen
+  cap; reduce or split before adding."* That was correct. `service_name` and
+  `service_url` are one concept (how this app describes itself to wardd), not two
+  settings, and grouping them into a `Service { name, url }` value dropped `Auth`
+  back to 9 fields and `Options` to 60% optional — under both ratchets with no
+  accept, no cap raise, and a better type than the one I set out to write. The
+  gate did not just block a regression; it named the design flaw.
+- **good:** the two checks agreeing pointed straight at the fix. One ratchet
+  alone reads as "you are at a limit"; two ratchets firing on the same two
+  fields reads as "these fields belong together." Worth keeping in mind if
+  multi-check correlation ever gets surfaced explicitly.
+- **friction:** switching `Service`'s fields from `?[]const u8` to
+  `[]const u8 = ""` was driven purely by `optional-density` — a nested
+  `{name: ?[]const u8, url: ?[]const u8}` is 100% optional and would have been a
+  brand-new violation with no baseline to grandfather it. The empty-string
+  sentinel happened to fit this module (it already had a `nonEmpty` helper
+  folding `""` → null), so the result is honest. But note the incentive: the
+  cheapest way past `optional-density` on a *small* struct is often to encode
+  absence as a sentinel rather than to model it, which is the opposite of what
+  the check wants. Maybe exempt structs below ~3 fields, where "2 of 2 optional"
+  carries no real signal about god-objects.
+- **good:** `guardian.toml`'s `[[allow]]` entries for `ban-net` / `ban-time` /
+  `ban-hardcoded-paths` on `src/auth.zig` meant extracting a `verifyTransport()`
+  helper (which names `ward.http.HttpVerifier` and a URL fixture) needed no gate
+  edits at all. The carve-outs were already scoped to the right file.
+- **friction:** the `.guardian/` baselines here are in the legacy format, so
+  every run prints ~50 lines of `ok: <check>: legacy baseline format (N
+  violation(s); run 'guardian-check migrate .' to re-key)`. The real output is
+  buried. Separately, `pub-api-surface` failed with *"cannot re-key the legacy
+  baseline — a file now holds more violations than its 0 recorded entries
+  grandfathered"* for what the very next line called *"pure additions, safe to
+  accept"* — the headline says corrupt-baseline, the body says harmless. Leading
+  with the delta would have saved a re-read.
