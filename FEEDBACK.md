@@ -2962,3 +2962,40 @@ in the same commit); nothing to fight.
   a green run from a red one without checking `$?` separately (the "Build
   Summary: N/M tests passed" line only appears on some paths). Echoing
   `guardian/test: N passed` at the end of the run would close that.
+
+## 2026-08-04 · claude · eda — autorouter audit P1/P2 (maze preamble + static-obstacle memo)
+
+- **good:** the `file-size` per-item ratchet again pushed a change into a better
+  shape. My perf edit added +121 code lines to the 13.7k-line `router.zig` and
+  was refused. Rather than trimming comments I extracted the maze search's
+  scratch (`dist`/`prev` + dirty list, the static-obstacle memo, both priority
+  queues) into a new `src/placement/maze_scratch.zig`, which is exactly the
+  "share one preamble implementation" the audit had asked for — and `router.zig`
+  came out *below* its old ceiling. The ratchet found the module seam I would
+  otherwise have talked myself out of.
+- **friction:** `file-size`'s "code lines" number still does not match anything
+  computable locally (13787 raw / 10549 reported), so I had to iterate
+  compile → check → trim → check to find how many lines I needed to shed. The
+  *delta* tracks raw lines exactly, so only the absolute number is opaque. This
+  is the same friction reported on 2026-08-04 by another session; adding "N of M
+  lines counted" to the message would fix it for both.
+- **good:** `change-classification` fired on a pure-performance change with no
+  behavioural intent and it was RIGHT to: the change replaces two whole-array
+  resets with incremental bookkeeping whose whole correctness argument is an
+  invariant ("a key no live leg has written still reads (+inf, -1)"). Being
+  forced to write a test for that invariant is exactly what the check exists
+  for, and `explain change-classification` was clear that no snapshot accept
+  would clear it — which stopped me looking for one.
+- **good:** `guardian-check commit` timing stayed honest — gate 0.1 s (cached,
+  inputs unchanged since the last green run) + tests 274.6 s. Paying the full
+  suite once after a session of `-Dtest-filter` runs is the right trade.
+- **friction:** `guardian-check run file-size .` is not a valid invocation
+  (`run` is not a command) but the usage dump it prints is 40 lines long and
+  buries the answer; `guardian-check file-size .` is the spelling. A one-line
+  "unknown command 'run' — did you mean `guardian-check file-size .`?" would
+  save a round trip.
+- **wish:** `file-size` reports only the files that grew past their ceiling, not
+  by how much headroom the others have. When an edit has to shed N lines, a
+  `--budget` mode ("router.zig: 10450 / 10428, over by 22") would turn the
+  trim-and-recheck loop into one measurement. The blocking line does carry both
+  numbers — it just took me three compiles to notice.
