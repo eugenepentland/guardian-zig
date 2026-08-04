@@ -2673,3 +2673,8 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   that changed (including the new untracked module and the snapshot) with no
   `git add .`, on a tree that also held an unrelated untracked scratch dir. That
   is the property that makes it safe to use on a busy checkout.
+
+## 2026-08-04 · claude · eda — merge vacate-and-re-close tier + deploy
+good: merge-triggered deploy gate (run-all, 70 checks) green in seconds on a
+5-file merge (new vacate_policy.zig + 9 SPEC bullets landed with tagged tests
+in the same commit); nothing to fight.
