@@ -2678,3 +2678,6 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 good: merge-triggered deploy gate (run-all, 70 checks) green in seconds on a
 5-file merge (new vacate_policy.zig + 9 SPEC bullets landed with tagged tests
 in the same commit); nothing to fight.
+
+## 2026-08-04 · claude · eda — autorouter audit report commit
+- good: docs-only commit through `guardian-check commit` was frictionless — gate 1.8s, suite 303.8s, path-scoped staging correctly skipped a pre-existing untracked `.claude/dp-handoff/` with a clear NOT-committed warning naming the fix options.
