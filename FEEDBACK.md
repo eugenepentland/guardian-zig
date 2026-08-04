@@ -2475,3 +2475,31 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   merge-resolution case above — same behavior as the env-var refresh, but
   discoverable at the moment of a snapshot conflict (the error message could
   name it when a snapshot file contains conflict markers).
+
+## 2026-08-04 · claude · eda — router staircase-collapse / chamfer fix
+
+- **friction:** `file-size` is baseline-frozen at `10513 src/placement/router.zig`
+  with **zero headroom**, so a +33-line fix to that file failed the gate. Fine —
+  but the metric is opaque: it counts comments and excludes `test` blocks, and
+  nothing says so. I burned two `guardian-check file-size` probe cycles
+  discovering that moving a 50-line test out of the file bought exactly 2 lines
+  (the `// spec:` tag + a blank), while the doc comment on a new function cost
+  10. `explain file-size` says "consider splitting the file at a cohesive module
+  boundary" but never defines "code lines"; naming the rule there (or printing
+  `N code lines of M total (tests excluded)`) would have saved both probes.
+- **good:** once the real fix landed — moving the ~100-line pass out of
+  `router.zig` into the module that owns it — the ratchet reported
+  `1 lowered, 0 prunable` and `accept file-size .` recorded 10513 → 10428 in one
+  step. The ratchet did its job: it refused a bolt-on and rewarded the split.
+- **good:** `test-no-conditional` caught a new test whose second top-level
+  `for` loop asserted nothing (a counting loop), with the exact fix in the
+  message ("extract that one into a fixture helper"). Real defect class, fixed
+  in one edit, and the check ran in ~1 s standalone.
+- **good:** `guardian-check commit --intent "…"` staged exactly the 5 touched
+  paths (`.guardian/` + SPEC.md rode along) and reported `gate 1.6s · tests 9.9s`.
+  Nothing loose in the worktree got swept in.
+- **wish:** `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` works, but the
+  blocking message says `run guardian-check commit to gate` without naming the
+  snapshot-refresh env var for the check that is actually blocking. The
+  `file-size` failure DOES print its `accept:` line; `pub-api-surface` printing
+  the equivalent would make the two consistent.
