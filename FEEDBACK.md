@@ -2800,3 +2800,33 @@ in the same commit); nothing to fight.
   both halves (`// spec: Section - Behavior`), so the fix is mechanical
   transcription; doing it by hand is where a typo silently becomes a second
   orphan tag on the next run.
+
+## 2026-08-04 · claude · eda — multi-guide rework review fixes (follow-up to the entry above)
+- **bug (high value, and the reason this entry exists):** a whole FILE's tests
+  can be invisible to the gate with no check firing.
+  `src/serve/assembly_debug.zig` (15 tests, 5 of them `// spec:`-tagged) and
+  `src/serve/rework_guide.zig` were never in the test binary: `serve.zig`
+  reaches them only through `const x = @import(...)` used inside a
+  route-registration function body, which the test binary never analyzes, so
+  Zig collected none of their tests. The eda convention is an explicit
+  `_ = @import(...)` list in `src/main.zig`'s root `test {}`, and these two were
+  missing from it. Consequences: (1) the `spec` check passed on tagged tests
+  that never ran — it matches tags STATICALLY, so a bullet can be "covered" by a
+  test the binary does not contain; (2) one of those dead tests
+  (`assembly selected components mark pad one`) had silently rotted against
+  `pcb_board.js` and failed the instant I bridged the file in; (3) a leak in
+  `rework_guide`'s pre-existing test was likewise never seen. I only found it
+  because `-Dtest-filter` now fails loudly on a zero-name-match — that change is
+  what surfaced this, and it earned its keep immediately.
+- **wish:** a check that cross-references `// spec:`-tagged tests (and ideally
+  every `test` block) against the tests the compiled binary actually reports.
+  Guardian already has `test-reachability` in its OWN repo; whatever that check
+  does, eda's 70-check run does not catch this case. Even a coarse version —
+  "file has test blocks but is not reachable from any root in the test module" —
+  would have flagged both files. As it stands, `spec coverage N/N covered` can
+  be reporting on tests that do not exist at runtime, which is the one number a
+  spec gate must not be able to overstate.
+- **good:** the `-Dtest-filter` zero-match failure is a genuinely great change.
+  A filter that silently selects 0 tests and exits green is indistinguishable
+  from a passing run; failing loudly turned "my new test seems fine" into
+  "my new test was never compiled" in one command.
