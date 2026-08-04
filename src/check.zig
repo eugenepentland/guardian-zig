@@ -530,6 +530,7 @@ test {
     _ = @import("checks/allocator_hygiene.zig");
     _ = @import("checks/anytype_budget.zig");
     _ = @import("checks/assert_doc_consistency.zig");
+    _ = @import("checks/ban.zig");
     _ = @import("checks/ban_env.zig");
     _ = @import("checks/ban_fs.zig");
     _ = @import("checks/ban_globals.zig");

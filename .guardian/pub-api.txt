@@ -113,6 +113,8 @@ src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registr
 src/checks/assert_doc_consistency.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/assert_doc_consistency.zig::check_name value
 src/checks/assert_doc_consistency.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/ban.zig::analyzeFile | fn analyzeFile( allocator: Allocator, entry: walk.FileEntry, rules: []const config.BanRule, ) Allocator.Error![]const reporter.Violation
+src/checks/ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/ban_env.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/ban_env.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/ban_fs.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
@@ -135,6 +137,7 @@ src/checks/banned_symbol_helper.zig::Rule struct_
 src/checks/banned_symbol_helper.zig::ScanOpts struct_
 src/checks/banned_symbol_helper.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, opts: ScanOpts, ) Allocator.Error![]const []const u8
 src/checks/banned_symbol_helper.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, opts: ScanOpts, ) Allocator.Error![]const reporter.Violation
+src/checks/banned_symbol_helper.zig::analyzeTree | fn analyzeTree( allocator: Allocator, rel_path: []const u8, tree: *const std.zig.Ast, opts: ScanOpts, ) Allocator.Error![]const reporter.Violation
 src/checks/banned_symbol_helper.zig::scan | fn scan( ctx_param: *registry.RunCtx, check_name: []const u8, opts: ScanOpts, ) registry.RunError!void
 src/checks/bool_ops_per_condition.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/bool_ops_per_condition.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, max_ops: u32, ) Allocator.Error![]const []const u8
@@ -320,6 +323,7 @@ src/cli/types.zig::ScopedRun struct_
 src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8) bool
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
+src/config.zig::BanRule struct_
 src/config.zig::BaselineCfg struct_
 src/config.zig::BenchmarkCfg struct_
 src/config.zig::BoolOpsCfg struct_

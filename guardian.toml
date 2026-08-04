@@ -68,6 +68,18 @@ enabled = true
 [fuzz_presence]
 modules = ["src/config_parser.zig", "src/walk.zig", "src/text.zig"]
 
+# Guardian's own [[ban]] rule — the config-side ban the `ban` check enforces.
+# A gate check must report and return error.CheckFailed: reporter.fatal exits the
+# process on the spot, so every later check is skipped and `all` never prints the
+# run-all verdict line the whole output contract is built on. spec_init is a
+# generator command rather than a gate (nothing runs after it), so it keeps its
+# aborts. Green today — this rule freezes that.
+[[ban]]
+chain = ["reporter", "fatal"]
+paths = ["src/checks/"]
+allow = ["src/checks/spec_init.zig"]
+reason = "reporter.fail(...) then `return error.CheckFailed`, so the run finishes and reports"
+
 # Guardian's own self-hosting exemptions. These used to be compiled into each
 # check's source, which silently punched the same holes into any downstream repo
 # sharing those paths. Moving them here keeps the checks honest for consumers and

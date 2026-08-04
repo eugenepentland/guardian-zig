@@ -42,6 +42,14 @@ sibling checkout.
 - Exempt `// spec:` / `// spec-case:` tag lines from the line-length cap — their
   text mirrors SPEC.md bullets, not code style.
 - Add continuous integration, scheduled mutation/fuzzing, and release checks.
+- Add the `ban` check and `[[ban]]` config entries: a project declares its own
+  banned symbol chains (`chain`, optional `paths` / `allow` / `reason`) and they
+  are enforced on the same engine as the compiled ban-* checks. Previously every
+  ban rule was a comptime table inside a check, so a project could not ban a
+  third-party or cross-layer symbol at all. No entries = a trivial pass.
+- Fix multiline string arrays being read through a reused buffer: a config with
+  two multiline arrays parsed the second one's bytes through the first one's
+  slices.
 - Make the filtered test loop honest: `guardian.testRunner(dep)` wires a test
   runner that prints `guardian/test: N test(s) selected` before the first test
   and fails a run that selected none (`GUARDIAN_TEST_ALLOW_EMPTY=1` opts out),

@@ -3,6 +3,11 @@
 //! dotted symbol chains plus an allowed-path set, and this walks the token
 //! stream flagging any use outside the exempt paths. Reuses the shared AST tree
 //! when present, else parses the file once.
+//!
+//! The `ban` check (src/checks/ban.zig) drives the same engine from the
+//! project's own `[[ban]]` guardian.toml entries instead of a compiled table, so
+//! matching semantics — identifier-chain matching, the test/main permissive
+//! scopes, no alias resolution — are shared rather than reinvented.
 
 const std = @import("std");
 const walk = @import("../walk.zig");
@@ -29,6 +34,12 @@ pub const Rule = struct {
     /// `<display> → use <replacement>`. Null for the hidden-dependency bans,
     /// whose fix is "inject a port", not a one-to-one rename.
     replacement: ?[]const u8 = null,
+    /// Free-form rationale appended as `<display> is banned here — <note>`, used
+    /// when the alternative is a sentence rather than a symbol name. This is how
+    /// the config-driven `ban` check carries a `[[ban]]` rule's `reason`; the
+    /// compiled bans leave it null and keep their own wording. Ignored when
+    /// `replacement` is set.
+    note: ?[]const u8 = null,
 };
 
 /// Scanner options. Each ban check builds these once and hands them to
@@ -131,6 +142,20 @@ pub fn analyzeRecords(
     content: [:0]const u8,
     opts: ScanOpts,
 ) Allocator.Error![]const reporter.Violation {
+    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    return analyzeTree(allocator, rel_path, &tree, opts);
+}
+
+/// The pre-parsed form of `analyzeRecords`: scans a tree the caller already
+/// holds (the shared AST index's), so a check driving this engine across the
+/// whole tree doesn't pay a second parse per file. `analyzeRecords` is this plus
+/// the parse.
+pub fn analyzeTree(
+    allocator: Allocator,
+    rel_path: []const u8,
+    tree: *const std.zig.Ast,
+    opts: ScanOpts,
+) Allocator.Error![]const reporter.Violation {
     var violations: std.ArrayList(reporter.Violation) = .empty;
     for (opts.allowed_paths) |pat| {
         if (walk.matchGlob(rel_path, pat)) return violations.toOwnedSlice(allocator);
@@ -141,8 +166,7 @@ pub fn analyzeRecords(
         .violations = &violations,
         .opts = opts,
     };
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
-    try scanTree(&ctx, &tree);
+    try scanTree(&ctx, tree);
     return violations.toOwnedSlice(allocator);
 }
 
@@ -245,10 +269,7 @@ fn recordViolation(ctx: *Ctx, z: []const u8, start_byte: usize, rule: Rule) Allo
     // so the reader sees what to reach for without opening the fix hint. The
     // file/line move into the record's own fields; `flatLine` re-renders the
     // identical `<file>:<line>: <message>` text this used to format by hand.
-    const msg = if (rule.replacement) |repl|
-        try std.fmt.allocPrint(a, "{s} → use {s}", .{ rule.display, repl })
-    else
-        try std.fmt.allocPrint(a, "{s} reference outside allowed paths", .{rule.display});
+    const msg = try renderMessage(a, rule);
     // The walker's rel_path is only valid for this visit, so copy it: the record
     // outlives the walk.
     const file = try a.dupe(u8, ctx.rel_path);
@@ -262,6 +283,16 @@ fn recordViolation(ctx: *Ctx, z: []const u8, start_byte: usize, rule: Rule) Allo
         // count, so removing one of three still registers as an improvement.
         .identity = try std.fmt.allocPrint(a, "{s}|{s}", .{ file, rule.display }),
     });
+}
+
+/// Renders a hit's message: the replacement rename when the rule names one, the
+/// project's rationale when a `[[ban]]` rule supplied one, else the plain
+/// hidden-dependency wording. The identity is derived from file + display, not
+/// from this text, so all three shapes key identically.
+fn renderMessage(a: Allocator, rule: Rule) Allocator.Error![]const u8 {
+    if (rule.replacement) |repl| return std.fmt.allocPrint(a, "{s} → use {s}", .{ rule.display, repl });
+    if (rule.note) |n| return std.fmt.allocPrint(a, "{s} is banned here — {s}", .{ rule.display, n });
+    return std.fmt.allocPrint(a, "{s} reference outside allowed paths", .{rule.display});
 }
 
 const lineOf = @import("../text.zig").lineOf;
@@ -411,6 +442,24 @@ test "analyzeRecords keys a hit by file and symbol while rendering the same text
         "src/x.zig:2: std.ArrayListUnmanaged → use std.ArrayList",
         lines[0],
     );
+}
+
+test "analyzeTree scans a pre-parsed tree identically to analyzeRecords" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rules = [_]Rule{.{ .chain = &.{ "std", "time", "timestamp" }, .display = "std.time.timestamp" }};
+    const content =
+        \\fn now() i64 { return std.time.timestamp(); }
+    ;
+    // The whole point of the entry point: the caller already parsed this file
+    // (the shared AST index did), so the scan must not need a second parse.
+    var tree = try std.zig.Ast.parse(a, content, .zig);
+    const from_tree = try analyzeTree(a, "src/x.zig", &tree, .{ .rules = &rules });
+    const from_source = try analyzeRecords(a, "src/x.zig", content, .{ .rules = &rules });
+    try std.testing.expectEqual(from_source.len, from_tree.len);
+    try std.testing.expectEqualStrings(from_source[0].message, from_tree[0].message);
+    try std.testing.expectEqualStrings(from_source[0].identity.?, from_tree[0].identity.?);
 }
 
 test "analyzeContent flags simple chain reference" {

@@ -730,6 +730,19 @@ without an explained `--force`.
 - Rejects non-pub file-scope var globals outside wiring/main
 - Rejects hardcoded absolute paths and URLs in string literals
 
+## Ban
+
+- Flags a configured symbol chain used inside the rule's path scope
+- Ignores a use outside the rule's path scope
+- Ignores a use in a file the rule's allow list exempts
+- Ends the violation message with the rule's reason
+- Passes trivially when no ban rules are configured
+- Applies a rule with no paths to the whole source tree
+- Parses ban entries with chain, paths, allow, and reason keys
+- Parses a multiline ban chain array with comments and trailing commas
+- Hard-fails a ban entry whose chain is missing or empty
+- Hard-fails a ban chain segment that is not a bare identifier
+
 ## Fakes
 
 - FakeClock reads back its start time

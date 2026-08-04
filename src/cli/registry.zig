@@ -42,6 +42,7 @@ const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
+const check_ban = @import("../checks/ban.zig");
 const check_ban_time = @import("../checks/ban_time.zig");
 const check_ban_rng = @import("../checks/ban_rng.zig");
 const check_ban_fs = @import("../checks/ban_fs.zig");
@@ -307,6 +308,14 @@ pub const all: []const Command = &.{
         .needs_ast = .yes,
         .scope = .whole_tree,
         .run = check_test_coverage.run,
+    },
+    .{
+        .name = "ban",
+        .summary = "Enforce project-declared banned symbol chains from [[ban]] entries",
+        // Per-file like every other ban: each rule's verdict is a property of
+        // the file it matched in, so a diff-scoped run may narrow it.
+        .scope = .per_file,
+        .run = check_ban.run,
     },
     .{
         .name = "ban-time",

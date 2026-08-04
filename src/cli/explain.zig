@@ -342,6 +342,34 @@ const entries = [_]Entry{
     \\Exempt: list entry points in `[test_coverage] exempt_names`; the check is
     \\off unless `[test_coverage] enabled = true`.
     },
+    .{ .name = "ban", .text = 
+    \\Why: the compiled ban-* checks are Guardian's opinions (clock, RNG, fs);
+    \\this one is YOURS. It enforces the `[[ban]]` entries in guardian.toml, for
+    \\the case those checks can't reach: a call that must route through a
+    \\wrapper, a third-party symbol one layer may not touch. Making a struct
+    \\field non-defaulted gets the same effect only when you own the callee's
+    \\signature — a cross-layer or third-party symbol has no such trick.
+    \\Declare one:
+    \\  [[ban]]
+    \\  chain = ["optimizer", "placeFromPoses"]  # bans optimizer.placeFromPoses
+    \\  paths = ["src/serve/*"]                  # where (omit = the whole tree)
+    \\  allow = ["src/serve/route_seed.zig"]     # the sanctioned wrapper itself
+    \\  reason = "call through RouteSeed instead"
+    \\Fix: call the alternative the rule's `reason` names — it is the half of the
+    \\message worth reading, so a rule without one says so in every violation.
+    \\Exempt: add the path to that rule's `allow`, narrow its `paths`, exempt a
+    \\file from every rule with `[[allow]] check = "ban"`, or delete the rule.
+    \\Uses inside a `test {…}` block and inside `pub fn main` are already allowed,
+    \\as in every ban-* check.
+    \\Limits: matching is TEXTUAL over identifier tokens, exactly like ban-time
+    \\and friends — `chain = ["a", "b"]` matches the token sequence `a.b`, and
+    \\one identifier per segment ("a.b" in a single segment is a config error).
+    \\There is no alias resolution: `const p = optimizer.placeFromPoses;` is
+    \\caught where it is written (any reference counts, not just calls), but a
+    \\later `p(board)` in another file is not. A symbol reached through a renamed
+    \\import (`const opt = @import("optimizer.zig"); opt.placeFromPoses()`) needs
+    \\its own rule for that spelling. Chains inside strings/comments never match.
+    },
     .{ .name = "ban-time", .text = 
     \\Why: reading the wall clock inline makes behavior time-dependent and
     \\untestable — an agent grabbing `std.time.timestamp()` where it's handy.
