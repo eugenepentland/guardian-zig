@@ -2503,3 +2503,27 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   snapshot-refresh env var for the check that is actually blocking. The
   `file-size` failure DOES print its `accept:` line; `pub-api-surface` printing
   the equivalent would make the two consistent.
+
+## 2026-08-04 · claude (Fable, orchestrator) · guardian-zig — prebuilt-binary + [[ban]] wave (2 opus agents)
+
+- **good:** the pre-commit hook on the [[ban]] merge printed the new
+  `run-all: cached — 0 blocking` verdict from the morning's wave instead of
+  silently skipping — the features are compounding within the same day.
+- **good:** the `[[ban]]` agent's own regression test caught a live
+  config-parser bug on first contact: multiline TOML arrays returned borrowed
+  slices into a reused buffer, so a config with two multiline arrays read the
+  second array's bytes through the first array's slices; the existing
+  multiline test passed only because its second array was shorter. Fixed by
+  duping the pending buffer.
+- **good:** prebuilt reuse measured 67.9s -> 11.3s on a cold consumer
+  worktree build (the eda cache setup), with the staleness guard verified
+  fail-closed: touching one guardian source file fails the consumer build
+  before any check runs, naming the rebuild command.
+- **friction:** an agent worktree branch and the branch the agent actually
+  committed on diverged (`worktree-agent-…` vs a self-named `ban-check-config`),
+  so the first merge attempt was a silent "Already up to date" — worth a
+  standing habit of `git branch --list` before merging agent output.
+- **wish:** a prebuilt binary predating the selfcheck command fails the guard
+  step with usage help rather than the tailored stale message (fail-closed but
+  less legible; documented). A version floor in the wiring — "prebuilt older
+  than <feature version>: compile from source" — would make that path clean.
