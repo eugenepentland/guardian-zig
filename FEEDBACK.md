@@ -2387,3 +2387,37 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   grandfathered"* for what the very next line called *"pure additions, safe to
   accept"* — the headline says corrupt-baseline, the body says harmless. Leading
   with the delta would have saved a re-read.
+
+## 2026-08-04 · claude · eda — KiCad sync: layout tier ordering + push saved copper
+
+- **good:** the `type-size` ratchet caught a design smell before I shipped it.
+  I was about to append two request booleans (`no_seed_blocks`,
+  `no_layout_tracks`) to `pub const ParsedSyncPlan`, which sat at its frozen
+  ceiling of 10 fields. Rather than raise the cap I grouped the five seeding
+  knobs (`emit_layout_vias`, `seed_groups`, `seed_all` + the two new ones) into
+  a `SeedOptions` struct — the type went to 8 fields, the ratchet auto-lowered
+  10 → 8, and the flags now travel as one value from the HTTP handler through
+  `runSyncPlan` into `DiffContext` instead of five parallel scalars. Same story
+  as the ward `Service` entry above: the check named the design flaw, not just
+  a limit.
+- **good:** `function-size` (param-count) baseline froze `populatePadNetMaps` at
+  7 params, which pushed me to *replace* its `dot_nets: bool` with the new
+  `net_display` map rather than add an 8th. That removed the duplicated
+  net-spelling logic instead of adding a second copy of it — strictly better
+  than what I'd have written unconstrained.
+- **friction:** `zig build test` exited **0** while the run printed
+  `guardian: run-all: 1/68 failed (pub-api-surface)`. I only noticed because I
+  was reading the log; a scripted `&& echo GREEN` said GREEN. Whatever the
+  intent (report-only on the `test` step vs. the install step), a line that says
+  "failed" alongside a zero exit is a trap — either don't print "failed" for a
+  non-blocking check, or make the exit code agree.
+- **friction:** the spec check reports `unlinked tag: <section> - <behavior>`
+  for a `// spec:` tag with no SPEC.md bullet, but doesn't say *which file/line*
+  the SPEC bullet should go in, or offer the exact bullet text to paste. For a
+  2791-line SPEC.md with ~100 sections, `guardian-check spec-sync .` exists but
+  I had to know to reach for it. Printing "add to SPEC.md § serve/sync: `- <the
+  tag text>`" in the violation itself would close the loop in one step.
+- **good:** `guardian-check commit --intent "..."` did exactly what it says —
+  gate 1.6s, tests 293.2s, staged 7 paths, and *skipped* an untracked
+  `.claude/dp-handoff/` directory with a named warning instead of sweeping it
+  in. That skip is the behaviour I want by default.
