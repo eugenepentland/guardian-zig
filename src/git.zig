@@ -269,6 +269,12 @@ fn countParents(rev_list_output: []const u8) ?u32 {
 pub const ChangedPath = struct {
     path: []const u8,
     tracked: bool,
+    /// True when git's INDEX side already records this path as deleted (`D` in
+    /// the first porcelain column) — the file is gone from both the worktree and
+    /// the index. Such a path matches no pathspec, so `git add` on it is a fatal
+    /// `pathspec … did not match any files` that aborts the whole staging batch;
+    /// the deletion is already staged, so there is nothing left to add.
+    staged_deletion: bool = false,
 };
 
 /// Working-tree changed + untracked paths (`git status --porcelain -z`) — the
@@ -296,6 +302,7 @@ fn parsePorcelainZ(allocator: Allocator, out: []const u8) Allocator.Error![]cons
         try paths.append(allocator, .{
             .path = path,
             .tracked = !std.mem.eql(u8, xy, "??"),
+            .staged_deletion = isStagedDeletion(xy),
         });
     }
     return paths.toOwnedSlice(allocator);
@@ -305,6 +312,14 @@ fn parsePorcelainZ(allocator: Allocator, out: []const u8) Allocator.Error![]cons
 /// carries a second, origin-path token that must be consumed.
 fn isRenameStatus(xy: []const u8) bool {
     return xy[0] == 'R' or xy[0] == 'C' or xy[1] == 'R' or xy[1] == 'C';
+}
+
+/// True when the INDEX column already records a deletion (`D `, `DD`): the path
+/// is in neither the worktree nor the index, so no `git add` can name it. A
+/// worktree-only deletion (` D`, `AD`, `MD`) is NOT one of these — its index
+/// entry still exists, and a plain `git add -- <path>` stages the removal.
+fn isStagedDeletion(xy: []const u8) bool {
+    return xy[0] == 'D';
 }
 
 /// Stages exactly `paths` via `git add -- <paths…>` (never `-A` / `.`); true on
@@ -571,6 +586,26 @@ test "parsePorcelainZ marks only ?? entries as untracked" {
     try testing.expect(paths[0].tracked);
     try testing.expect(!paths[1].tracked);
     try testing.expect(paths[2].tracked);
+}
+
+// spec: Git Diff - Marks an index-side deletion so no pathspec is built for it
+
+test "parsePorcelainZ flags index deletions and leaves worktree deletions addable" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `D ` (git rm'd) and `DD` (both-deleted conflict) name nothing git can add:
+    // the file is gone from the worktree AND the index. ` D`/`AD`/`MD` still have
+    // an index entry, so `git add -- <path>` stages the removal normally.
+    const out = "D  src/gone.zig\x00DD src/conflict.zig\x00 D src/removed.zig\x00" ++
+        "AD src/staged_then_removed.zig\x00 M src/live.zig\x00";
+    const paths = try parsePorcelainZ(a, out);
+    try testing.expectEqual(@as(usize, 5), paths.len);
+    try testing.expect(paths[0].staged_deletion);
+    try testing.expect(paths[1].staged_deletion);
+    try testing.expect(!paths[2].staged_deletion);
+    try testing.expect(!paths[3].staged_deletion);
+    try testing.expect(!paths[4].staged_deletion);
 }
 
 // spec: Git Diff - Classifies a not-a-git-repository failure as a skip, not a hard error

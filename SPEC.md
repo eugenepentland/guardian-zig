@@ -153,6 +153,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
 - Records the guardian binary identity in the green stamp for a drift hint
+- Identifies the guardian binary by content so two copies of one build share an identity
+- Reads the stamp and binary timestamps behind the stale-binary direction hint
 
 ## Run All
 
@@ -173,9 +175,24 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns before the run when the binary differs from the last green stamp
 - Runs a metadata transaction only when the run can write metadata
 - Names a check that runs past the heartbeat threshold
-- Separates blocking failures from report-only findings in the summary
 - Runs the cheapest formatting gate before the rest of the suite
 - Names each failing check's first finding under the run summary
+
+## Run Summary
+
+- Renders one verdict line for the green failing and cached exit paths
+- Separates blocking failures from report-only findings in the summary
+- Replays blocking check output before advisory output
+- Collapses an out-of-scope report-only check to one counted line
+- Names the finding count and scope in a collapsed check line
+- Counts a finding as in scope when its file changed or it has no file
+- Counts a check's findings and their diff-scope overlap
+- Prints only the verdict and blocking detail in summary mode
+- Keeps every check's full output under the verbose flag
+- Parses the summary and verbose output flags
+- Resolves the verbose flag ahead of the summary flag
+- Appends a plus-N-more count when a failing check has several findings
+- Names which binary is newer when the gating binary differs from the last green stamp
 
 ## Nightly
 
@@ -193,6 +210,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Provides an explanation entry for every registered command
 - Resolves a summary for checks and documented meta commands
 - Documents the commit meta command
+- Aims each entry at the fix the reader came for
 
 ## Commit
 
@@ -211,6 +229,12 @@ blocking correctness checks and advisory maintainability guidance.
 - Never stages the git-ignored guardian cache directory
 - Reports a gate and test timing split
 - Reports up front when the change set contains no gate inputs
+
+## Commit Hygiene
+
+- Leaves an already-staged deletion out of the git add path list
+- Commits an already-staged deletion when no path needs staging
+- Advises when the configured test command is not the whole default suite
 
 ## Install Hook
 
@@ -286,6 +310,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Diff fails on unexpected pub additions or removals
 - Diff fails when an existing pub fn signature changes
 - Classifies surface drift as new, changed, and removed symbols
+- Pairs a changed signature into one line instead of a separate addition and removal
+- Reports a symbol whose file changed with an identical signature as moved
+- Offers the accept commands inline when the delta is additions only
+- Accepts the pub-api snapshot leaf name as an alias for the check name
 - Skips removed symbols whose file is unbuilt generated output
 
 ## Panic Budget
@@ -299,6 +327,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects catch unreachable in production code
 - Rejects catch with empty block (silent error swallow)
 - Rejects catch undefined assigning undefined on error
+- Names a conforming catch the same file already uses
 
 ## Unwrap Discipline
 
@@ -398,6 +427,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Rejects @compileError without a non-empty string explanation
 - Rejects init bodies with loops, conditionals, or switch statements
+- Exempts a non-pub init used only from test blocks
 - Rejects static factory / singleton patterns in business logic
 - Requires structs that own an allocator field to declare a pub fn deinit
 - Requires init bodies with multiple try calls to use errdefer
@@ -522,6 +552,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Counts a commit's parents from a rev-list line
 - Extracts changed and untracked paths from porcelain status resolving renames
 - Distinguishes untracked entries from tracked ones in porcelain status
+- Marks an index-side deletion so no pathspec is built for it
 - Classifies a not-a-git-repository failure as a skip, not a hard error
 - Hard-fails a diff-scoped git command that fails for any other reason
 - Resolves the merge base with a branch and reports null when it cannot
@@ -551,6 +582,21 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports no filter when the run cannot be diff-scoped
 - Leaves the commit gate running the whole configured test command
 
+## Test Runner
+
+- Prints the number of selected tests before any test runs
+- Names the filters that selected the tests and summarizes any beyond the first few
+- Fails a run in which no selected test matches the filter
+- Counts only the selected tests a filter names, since unnamed blocks always run
+- Permits an empty run only when the empty-suite opt-out is set
+- Treats an empty or zero-valued opt-out variable as unset
+- Counts a logged error so a test that only logs one still fails
+
+## Build Helper
+
+- Points a consumer test binary at the runner file that ships with Guardian
+- Registers the compile-only whole-suite probe under a stable step name
+
 ## Change Classification
 
 - Counts added lines inside test blocks as test changes
@@ -559,6 +605,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Counts remaining added source lines as behavioral changes
 - Passes when behavioral changes are accompanied by test changes
 - Fails when behavioral changes have no test or spec change
+- Names the actions that actually clear an uncovered change
 - Treats an added SPEC.md behavior bullet as a spec change
 - Ignores SPEC.md edits confined to prose, headers, or fenced code
 - Gates the last commit when the working tree is clean against HEAD
@@ -640,6 +687,7 @@ without an explained `--force`.
 
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
+- Names the assertion-free loop as the one to extract
 - Identifies a flagged construct by its test and keyword
 - Rejects production code @import-ing test files
 
@@ -756,3 +804,51 @@ without an explained `--force`.
 - Exempts a module at or below the line threshold
 - Skips a file matching a configured allow path
 - Flags a module over a lowered min_lines threshold
+
+## Test Reachability
+
+- Counts each graphed file's test blocks while building the import graph
+- Passes a test-bearing file that a test root transitively imports
+- Reports a file with test blocks that no test root transitively imports
+- Ignores an unreachable file that declares no test blocks
+- Defaults the roots to src/main.zig, src/root.zig, and each .zig directly under test/
+- Uses the configured roots and drops any that name no graphed file
+- Skips the scan when no test root resolves
+
+## size introspection
+
+- Measures a file's ratcheted metrics with the checks' own measurement code
+- Skips a disabled or excluded check when measuring a file
+- Classifies a measured value against its frozen ceiling
+- Looks up a frozen ceiling by the gate's own ratchet key
+- Reads a check's frozen ceilings and tolerates a missing ratchet
+- Names the ratchets it cannot measure without re-implementing them
+- Resolves a requested path to the walker path the checks use
+- Prints every ratcheted item and the largest unratcheted one
+- Reports a measured value against its ceiling with the headroom left
+- Renders one cap for a single-limit check and both tiers otherwise
+- Reports no ceiling section for a project that has accepted no debt
+- Summarizes each ratchet as keys with headroom, at ceiling, and over
+- Prints each ratchet's headroom split and its stuck keys
+- Renders a ratcheted key's current value against its ceiling
+- Warns that accepting a grown ratchet key raises a frozen ceiling
+- Parses the size target path and the debt current flag
+
+## Spec Reporting
+
+- Names the section a byte-identical bullet already lives under
+- Suggests the closest existing bullet when a tag nearly matches one
+- Splits a tag against the longest matching section name
+- Reports a tag whose named section has no SPEC.md heading
+- Counts the unlinked tags a file already has frozen in the spec baseline
+- Guides every unlinked tag the run found rather than only the first
+- Names the tag scan as a file walk that a test filter cannot narrow
+- Omits guidance for an unlinked tag already frozen in the spec baseline
+- Names how many other tags in the edited file are baselined-unlinked
+
+## Completeness Reporting
+
+- Reports which categories a section satisfies and the evidence for each
+- Reports a section absent from the spec as needing every category
+- Treats an unreadable spec file as an absent section report
+- Refuses a section query aimed at a check with no section report

@@ -20,9 +20,11 @@ const spec_sync = @import("cli/spec_sync.zig");
 const test_filter_cmd = @import("cli/test_filter.zig");
 const accept = @import("cli/accept.zig");
 const bench_cmd = @import("cli/bench.zig");
+const size_cmd = @import("cli/size.zig");
 const benchmark = @import("benchmark.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
+const snapshot_helper = @import("snapshot_helper.zig");
 const mutation_runner = @import("mutation/runner.zig");
 const required_inputs = @import("required_inputs.zig");
 
@@ -81,10 +83,11 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    // `explain <check>`: static, needs no project dir or config. An unknown
-    // name exits non-zero after listing the valid checks.
+    // `explain <check>`: static, needs no project dir or config (only the
+    // `--section` dry run reads guardian.toml, and it tolerates a broken one).
+    // An unknown name exits non-zero after listing the valid checks.
     if (std.mem.eql(u8, command, "explain")) {
-        if (!explain.run(explainQuery(parsed))) std.process.exit(1);
+        if (!explain.run(allocator, explainQuery(allocator, parsed))) std.process.exit(1);
         return;
     }
 
@@ -110,9 +113,13 @@ pub fn main() !void {
         .only = try splitCsv(allocator, parsed.only),
         .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
+        .summary = parsed.summary,
+        .verbose = parsed.verbose,
         .json = parsed.json,
         .args_only = parsed.args_only,
         .check_filter = parsed.check_filter,
+        .target_path = parsed.target_path,
+        .current = parsed.current,
         .prune_stale = parsed.prune_stale,
         .confirm = parsed.confirm,
         .assert_density = parsed.assert_density,
@@ -145,10 +152,24 @@ const ParsedArgs = struct {
     skip: ?[]const u8 = null,
     /// `--intent "<message>"` value for the `commit` command; null when absent.
     intent: ?[]const u8 = null,
+    /// `--summary`: verdict line plus blocking detail only.
+    summary: bool = false,
+    /// `--verbose`: replay every check's output in full (overrides --summary).
+    verbose: bool = false,
     json: bool = false,
     /// `--args`: `test-filter` writes its derived argument string to stdout.
     args_only: bool = false,
     check_filter: ?[]const u8 = null,
+    /// First positional after `size`: the file to measure.
+    target_path: ?[]const u8 = null,
+    /// First positional after `explain`: the check to explain. Held separately
+    /// from `project_dir` so `explain completeness --section X .` can carry both
+    /// a check name and a directory.
+    explain_name: ?[]const u8 = null,
+    /// `--section <name>`: the SPEC.md section `explain completeness` reports on.
+    section: ?[]const u8 = null,
+    /// `--current`: `debt` measures each ratcheted item's value now.
+    current: bool = false,
     prune_stale: bool = false,
     confirm: bool = false,
     assert_density: bool = false,
@@ -164,8 +185,9 @@ const ParsedArgs = struct {
 // Scans argv (sans program name): first non-flag token is the command, the next
 // is the project dir; `--quiet`/`-q` toggles quiet mode, `--full` selects
 // mutate's whole-tree tier, `--against <ref>` sets the diff base, `--only`/
-// `--skip <a,b>` filter the `all` suite, `--intent "<msg>"` is the commit
-// subject, `--unit`/`--dir`/`--note` carry a `bench set` recording, `--version`
+// `--skip <a,b>` filter the `all` suite, `--summary`/`--verbose` set how much of
+// a run's output is printed, `--intent "<msg>"` is the commit subject,
+// `--unit`/`--dir`/`--note` carry a `bench set` recording, `--version`
 // requests the version.
 fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
@@ -188,6 +210,9 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--check")) {
             i += 1;
             if (i < args.len) parsed.check_filter = args[i];
+        } else if (std.mem.eql(u8, arg, "--section")) {
+            i += 1;
+            if (i < args.len) parsed.section = args[i];
         } else if (std.mem.eql(u8, arg, "--unit")) {
             i += 1;
             if (i < args.len) parsed.bench.unit = args[i];
@@ -213,6 +238,10 @@ fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
         parsed.full = true;
     } else if (std.mem.eql(u8, arg, "--gate")) {
         parsed.gate = true;
+    } else if (std.mem.eql(u8, arg, "--summary")) {
+        parsed.summary = true;
+    } else if (std.mem.eql(u8, arg, "--verbose")) {
+        parsed.verbose = true;
     } else if (std.mem.eql(u8, arg, "--version")) {
         parsed.show_version = true;
     } else if (std.mem.eql(u8, arg, "--json")) {
@@ -223,6 +252,8 @@ fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
         parsed.confirm = true;
     } else if (std.mem.eql(u8, arg, "--assert-density")) {
         parsed.assert_density = true;
+    } else if (std.mem.eql(u8, arg, "--current")) {
+        parsed.current = true;
     } else if (std.mem.eql(u8, arg, "--args")) {
         parsed.args_only = true;
     } else if (std.mem.eql(u8, arg, "--force")) {
@@ -245,6 +276,14 @@ fn takePositional(parsed: *ParsedArgs, arg: []const u8) void {
         parsed.accept_checks = arg;
         return;
     }
+    if (std.mem.eql(u8, command, size_cmd.command_name) and parsed.target_path == null) {
+        parsed.target_path = arg;
+        return;
+    }
+    if (std.mem.eql(u8, command, "explain") and parsed.explain_name == null) {
+        parsed.explain_name = arg;
+        return;
+    }
     if (std.mem.eql(u8, command, bench_cmd.command_name) and parsed.bench.takePositional(arg)) return;
     parsed.project_dir = arg;
 }
@@ -260,11 +299,21 @@ fn registeredCommand(name: []const u8) bool {
     return registry.find(name) != null;
 }
 
-/// The check name for `explain`: the positional after the command, or null when
-/// omitted. parseArgs stores that positional in `project_dir`, so its default
-/// "." means no name was given (a bare `explain` lists every check).
-fn explainQuery(parsed: ParsedArgs) ?[]const u8 {
-    return if (std.mem.eql(u8, parsed.project_dir, ".")) null else parsed.project_dir;
+/// Builds the `explain` request: the check name (null lists every check) plus,
+/// for the `--section` dry run only, the project state it reads. guardian.toml
+/// is loaded lazily and falls back to defaults, so `explain` stays answerable on
+/// a project whose config does not parse — the one command you reach for when
+/// something is already wrong.
+fn explainQuery(allocator: std.mem.Allocator, parsed: ParsedArgs) explain.Query {
+    const section = parsed.section orelse return .{ .name = parsed.explain_name };
+    const cfg = config_parser.load(allocator, parsed.project_dir) catch config_mod.Config{};
+    return .{
+        .name = parsed.explain_name,
+        .section = section,
+        .project_dir = parsed.project_dir,
+        .spec_file = cfg.spec_file,
+        .exempt = cfg.completeness.exempt_sections,
+    };
 }
 
 /// True when both --only and --skip were given — a contradiction that is an
@@ -273,9 +322,9 @@ fn onlySkipConflict(parsed: ParsedArgs) bool {
     return parsed.only != null and parsed.skip != null;
 }
 
-/// Splits a comma-separated `--only`/`--skip` value into check names, trimming
-/// whitespace and dropping blank segments ("a,,b" -> {a,b}); empty slice when
-/// null (no filter active).
+/// Splits a comma-separated `--only`/`--skip`/`accept` value into check names,
+/// trimming whitespace, resolving name aliases, and dropping blank segments
+/// ("a,,b" -> {a,b}); empty slice when null (no filter active).
 fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Error![]const []const u8 {
     const s = csv orelse return &.{};
     var list: std.ArrayList([]const u8) = .empty;
@@ -285,7 +334,7 @@ fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Er
         if (trimmed.len == 0) continue;
         // Propagate OOM: a truncated --only/--skip list would silently narrow
         // the suite, skipping checks the user asked to run (fail-open).
-        try list.append(allocator, trimmed);
+        try list.append(allocator, snapshot_helper.canonicalCheckName(trimmed));
     }
     return list.toOwnedSlice(allocator);
 }
@@ -330,6 +379,10 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // that a dev build only reports.
     if (std.mem.eql(u8, command, install_hook.command_name)) return install_hook.run(ctx);
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
+    // size reports one file's current measurements. Dispatched here rather than
+    // registered so it can never join the `all` suite: it measures and prints,
+    // it never gates, and a registry entry would wire it into every build.
+    if (std.mem.eql(u8, command, size_cmd.command_name)) return size_cmd.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
     // test-filter reports the diff-derived test-name filter for a LOCAL edit
     // loop. Dispatched here rather than registered, so it can never join the
@@ -393,8 +446,10 @@ test "project-analysis commands require input preflight" {
 
 // Aggregates every module's tests. Zig only collects `test` decls from files
 // reachable through a `test` block in the test root, so any new file under
-// src/ must be referenced here or its tests silently never run. The
-// `test-root-drift` check enforces that every src/checks/*.zig appears below.
+// src/ must be referenced here — directly, or via a module this root already
+// imports — or its tests silently never run. The `test-reachability` check
+// enforces exactly that: a file with `test` blocks that no test root reaches
+// fails the gate (see guardian.toml, which names src/check.zig as the root).
 test {
     // Framework modules
     _ = @import("config.zig");
@@ -406,6 +461,7 @@ test {
     _ = @import("metadata_transaction.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
+    _ = @import("spec/hints.zig");
     _ = @import("spec/init.zig");
     _ = @import("walk.zig");
     _ = @import("text.zig");
@@ -413,6 +469,10 @@ test {
     _ = @import("scope.zig");
     _ = @import("test_filter.zig");
     _ = @import("cli/test_filter.zig");
+    // NOT src/test_runner.zig: it is this binary's own test *runner*, and Zig
+    // refuses a file that belongs to two modules ("file exists in modules
+    // 'root' and 'root'"). Its tests get their own compilation — see the
+    // runner-tests step in build.zig, which `zig build test` depends on.
     _ = @import("accept_session.zig");
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");
@@ -423,6 +483,9 @@ test {
     _ = @import("cli/bench.zig");
     _ = @import("benchmark.zig");
     _ = @import("cli/debt.zig");
+    _ = @import("cli/debt_current.zig");
+    _ = @import("cli/size.zig");
+    _ = @import("file_metrics.zig");
     _ = @import("cli/doctor.zig");
     _ = @import("cli/spec_sync.zig");
     _ = @import("cli/accept.zig");
@@ -447,6 +510,7 @@ test {
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
+    _ = @import("cli/run_view.zig");
     _ = @import("baseline.zig");
     _ = @import("ratchet.zig");
     _ = @import("testing/golden_runner.zig");
@@ -461,7 +525,8 @@ test {
     _ = @import("fakes/fs.zig");
     _ = @import("fakes/env.zig");
 
-    // Checks — keep in sync with src/checks/*.zig (enforced by test-root-drift)
+    // Checks — keep in sync with src/checks/*.zig (test-reachability blocks any
+    // file whose tests no test root reaches)
     _ = @import("checks/allocator_hygiene.zig");
     _ = @import("checks/anytype_budget.zig");
     _ = @import("checks/assert_doc_consistency.zig");
@@ -527,6 +592,7 @@ test {
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
+    _ = @import("checks/test_reachability.zig");
     _ = @import("checks/test_skip_ban.zig");
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unsafe_ops_budget.zig");
@@ -593,6 +659,29 @@ test "parseArgs reads the --gate flag" {
     try std.testing.expect(!parseArgs(plain).gate);
 }
 
+// spec: Run Summary - Parses the summary and verbose output flags
+
+test "parseArgs reads --summary and --verbose" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 3);
+    args[0] = try a.dupeZ(u8, "all");
+    args[1] = try a.dupeZ(u8, ".");
+    args[2] = try a.dupeZ(u8, "--summary");
+    const parsed = parseArgs(args);
+    try std.testing.expect(parsed.summary);
+    try std.testing.expect(!parsed.verbose);
+    // --verbose is the opposite escape hatch, and neither is on by default.
+    const verbose = try a.alloc([:0]u8, 2);
+    verbose[0] = try a.dupeZ(u8, "all");
+    verbose[1] = try a.dupeZ(u8, "--verbose");
+    try std.testing.expect(parseArgs(verbose).verbose);
+    const plain = try a.alloc([:0]u8, 1);
+    plain[0] = try a.dupeZ(u8, "all");
+    try std.testing.expect(!parseArgs(plain).summary);
+}
+
 // spec: Configuration - Parses the intent flag for the commit command
 
 test "parseArgs reads --intent message alongside command and dir" {
@@ -633,6 +722,34 @@ test "parseArgs reads maintenance report and prune flags" {
     try std.testing.expect(parsed.prune_stale);
     try std.testing.expect(parsed.confirm);
     try std.testing.expect(parsed.assert_density);
+}
+
+// spec: size introspection - Parses the size target path and the debt current flag
+
+test "parseArgs reads the size target before the project dir and the debt --current toggle" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 3);
+    args[0] = try a.dupeZ(u8, "size");
+    args[1] = try a.dupeZ(u8, "src/check.zig");
+    args[2] = try a.dupeZ(u8, "../project");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("size", parsed.command.?);
+    try std.testing.expectEqualStrings("src/check.zig", parsed.target_path.?);
+    try std.testing.expectEqualStrings("../project", parsed.project_dir);
+    try std.testing.expect(!parsed.current);
+
+    // --current is a toggle, and only `size` consumes a target positional: a
+    // debt run's first positional is still the project directory.
+    const debt_args = try a.alloc([:0]u8, 3);
+    debt_args[0] = try a.dupeZ(u8, "debt");
+    debt_args[1] = try a.dupeZ(u8, "../project");
+    debt_args[2] = try a.dupeZ(u8, "--current");
+    const debt_parsed = parseArgs(debt_args);
+    try std.testing.expect(debt_parsed.current);
+    try std.testing.expect(debt_parsed.target_path == null);
+    try std.testing.expectEqualStrings("../project", debt_parsed.project_dir);
 }
 
 // spec: Maintenance - Parses named accept checks before the optional project directory

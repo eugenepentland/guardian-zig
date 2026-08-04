@@ -42,3 +42,10 @@ sibling checkout.
 - Exempt `// spec:` / `// spec-case:` tag lines from the line-length cap — their
   text mirrors SPEC.md bullets, not code style.
 - Add continuous integration, scheduled mutation/fuzzing, and release checks.
+- Make the filtered test loop honest: `guardian.testRunner(dep)` wires a test
+  runner that prints `guardian/test: N test(s) selected` before the first test
+  and fails a run that selected none (`GUARDIAN_TEST_ALLOW_EMPTY=1` opts out),
+  and `guardian.addTestCompileProbe(b, …)` registers `zig build test-compile`,
+  a whole-suite `-fno-emit-bin` compile that type-checks every test without
+  running any — the tier a filtered run cannot provide, since Zig applies
+  `--test-filter` in the compiler and never analyzes what it skips.

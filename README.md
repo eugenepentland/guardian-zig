@@ -54,7 +54,7 @@ merge base with `main` (then `master`) and hands the *per-file* checks — shape
 naming, complexity, per-file style, the hidden-dependency bans — only those
 files. Checks whose verdict is inherently whole-tree keep reading everything:
 import cycles, cross-file duplicate literals/consts, repeated enum switches,
-dead-pub and test-coverage reference maps, orphan-file reachability, the
+dead-pub and test-coverage reference maps, orphan-file and test reachability, the
 SPEC↔tag map, and every tree-wide snapshot/budget (`pub-api-surface`,
 `panic-budget`, `int-from-float-budget`, `unsafe-ops-budget`). The capability
 is a `scope` field on each registry entry with **no default**, so a newly added
@@ -109,6 +109,78 @@ transitively imports a changed one. An empty derivation prints *no* arguments,
 so an interpolating pipeline degrades to the full suite rather than to zero
 tests.
 
+### The filtered loop's two honesty gaps, and the two things that close them
+
+A filtered run is fast, and it lies in two specific ways. Both are properties of
+`--test-filter` being a *compiler* flag — measured on Zig 0.15.1:
+
+| What you see | What actually happened |
+| --- | --- |
+| `zig build test -Dtest-filter=typo` → `3/3 steps succeeded`, exit 0 | The filter matched **nothing**. Zero tests were compiled, zero ran. Identical output to a green suite. |
+| A filtered run passes 59/59 | The tests it skipped were never analyzed. `zig build test` on the same tree can die with a compile error. |
+
+**1. `guardian.testRunner(dep)` — a count you can see.** Guardian ships a custom
+test runner that prints, before the first test executes:
+
+```
+guardian/test: 3 test(s) selected by filter: "wildcard"
+```
+
+and *fails the run* when nothing the filter named actually ran, because a
+zero-match filter is evidence of nothing. Wire it in two lines:
+
+```zig
+const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
+const unit_tests = b.addTest(.{
+    .root_module = test_mod,
+    .filters = filters,
+    .test_runner = guardian.testRunner(guardian_dep),  // <-- the count and the guard
+});
+const run_tests = b.addRunArtifact(unit_tests);
+guardian.announceFilters(run_tests, filters);         // <-- what the filter was
+```
+
+Zig never tells a runner what the filter was, so `announceFilters` forwards the
+texts as `--guardian-filter=` arguments. That is worth wiring: with the filters
+in hand the runner counts how many *selected* tests a filter actually names, and
+fails on zero. Without them it can only detect a completely empty binary — and
+an unnamed `test { }` block has no name to match, so it compiles into every
+filtered binary and pads the count. Guardian's own suite has two: a nonsense
+filter there reports
+
+```
+guardian/test: 2 test(s) selected by filter: "nope" — 0 match by name, 2 unnamed test block(s) run regardless
+```
+
+and fails. The runner runs in `.server` mode, so the build system keeps its own
+progress display, per-test failure attribution, and `--fuzz` support. Set
+`GUARDIAN_TEST_ALLOW_EMPTY=1` for the one legitimate empty case — a project that
+genuinely has no tests yet.
+
+**2. `guardian.addTestCompileProbe(b, …)` — the compile-only middle tier.**
+Between "filtered run" (seconds, proves little) and "the gate" (minutes) sits the
+cheap question a filtered loop can never answer: *does the whole suite still
+compile?* One line registers `zig build test-compile`:
+
+```zig
+_ = guardian.addTestCompileProbe(b, .{ .root_module = test_mod });
+```
+
+It declares no filters and never asks for the binary, so the build system passes
+`-fno-emit-bin`: every test is type-checked, nothing is linked, nothing runs.
+Measured on Guardian's own 756-test suite (Zig 0.15.1): a source edit costs
+**~2 s** to re-analyze this way, against minutes for the full `zig build test`
+— the saving is codegen and linking, which a type-check question does not need.
+It is deliberately **not** a dependency of `test` — making it one would rebuild
+the whole suite on every filtered run and erase the reason to filter. The
+recommended loop:
+
+```bash
+zig build test -Dtest-filter='the thing I am changing'   # fast, narrow, honest about its count
+zig build test-compile                                   # cheap: does everything still compile?
+guardian-check commit --intent "..."                     # the gate: whole suite, whole tree
+```
+
 ## What It Checks
 
 Guardian's self-build runs 68 registered checks. Most hard-block under the default
@@ -123,7 +195,54 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 |---|---|
 | **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
 | **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
-| **completeness** *(opt-in)* | A `## ` SPEC.md feature section that doesn't address (or `completeness-waiver:`) each of the 8 scenario categories: empty/large inputs, unauthorized access, I/O failure, concurrent access, malformed encoding, integer overflow, panic-free. Off unless `[completeness] enabled = true`; exempt non-feature sections via `[completeness] exempt_sections` |
+| **completeness** *(opt-in)* | A `## ` SPEC.md feature section that doesn't address (or `completeness-waiver:`) each of the 8 scenario categories: empty/large inputs, unauthorized access, I/O failure, concurrent access, malformed encoding, integer overflow, panic-free. Off unless `[completeness] enabled = true`; exempt non-feature sections via `[completeness] exempt_sections`. Check a section *before* running the gate with `guardian-check explain completeness --section "<name>"` |
+
+#### Spec failures come with the fix
+
+`spec` blocks on frozen text — a violation line is what a consumer's baseline is
+keyed by — so everything it *learned* rides the advisory channel beside it, and
+survives baseline mode (which otherwise replaces a check's own output with its
+outcome report). On any run with unlinked tags you also get:
+
+* **one line per unlinked tag, never just the first**, each carrying its fix:
+  the exact bullet to paste, or `a bullet with this exact text already lives
+  under `## Other`` when the bullet landed under the wrong heading (that mistake
+  otherwise reads as two unrelated findings — one `unlinked tag:` and one
+  `unverified:` — that never say they are the same behavior), or
+  `closest bullet is X (1 char(s) apart)` when the two texts merely drifted;
+* a note that **the tag scan walks `test/` and `src/` on disk, not the compiled
+  test set** — so a `-Dtest-filter` build sees the same list and the list is
+  complete. Believing otherwise is what turned one edit into an edit-per-tag
+  loop for three consumer sessions;
+* `N other tag(s) here are baselined-unlinked` for a file whose *other* tags are
+  frozen debt in `.guardian/baselines/spec.txt` — previously discoverable only
+  by grepping that file, and easy to misread as the house style to copy.
+
+Tags already frozen in the baseline get no hint: the guidance is about the work
+in front of you, not the backlog behind it.
+
+```
+$ guardian-check explain completeness --section "Widgets" .
+completeness --section "Widgets" — 3/8 categories satisfied in SPEC.md
+
+  ok       empty inputs           bullet: Rejects an empty request body with a 400
+  ok       large inputs           bullet: Streams a very large widget list without buffering it whole
+  MISSING  unauthorized access    add a bullet with one of its keywords, or waive it
+  waived   concurrent access      reason: single-threaded CLI, one request at a time
+  NEEDS    panic-free             waiver has no (reason) — add one
+  …
+Categories, and the keywords a bullet may contain to address one:
+
+  empty inputs          empty | no input | zero-length | zero length | blank
+  integer overflow      overflow | underflow | saturat | wraparound | wrap-around
+  …
+```
+
+Naming a section SPEC.md does not have yet prints the paste-ready skeleton
+instead — the point being that adding a new `## ` section no longer costs a
+whole build to find out whether its eight waivers landed. `explain completeness`
+without `--section` prints the same keyword table, which was previously
+discoverable only by reading the check's source.
 
 ### Process gates (git-aware)
 | Check | Blocks on |
@@ -149,6 +268,7 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
+| **test-reachability** | A .zig file that declares `test` blocks but sits outside every test root's `@import` chain — Zig never compiles those tests, yet the spec check still counts their `// spec:` tags as covered. The finding names how many test blocks are dead. Roots come from `[test_reachability] roots`, else `src/main.zig` / `src/root.zig` / each `.zig` directly under `test/`; when no root resolves the check skips instead of blocking |
 | **test-coverage** *(opt-in)* | A pub fn with no identifier reference from any test block |
 
 ### Public API
@@ -503,7 +623,30 @@ refreshing anything.
 zig build guardian-accept -Dguardian-checks=spec,panic-budget
 ```
 
-An unknown name **hard-fails** the run (a typo can't silently refresh nothing). The names are the same kebab-case names used everywhere else: `mutate` refreshes the mutation-score ratchet, and in baseline mode a check name refreshes that check's baseline.
+An unknown name **hard-fails** the run (a typo can't silently refresh nothing). The names are the same kebab-case names used everywhere else: `mutate` refreshes the mutation-score ratchet, and in baseline mode a check name refreshes that check's baseline. One alias exists, because one snapshot leaf is spelled differently from its check: `pub-api` (the basename of `.guardian/pub-api.txt`, the file you were just reading) resolves to `pub-api-surface` in `accept`, `--only`/`--skip`, and `GUARDIAN_UPDATE_SNAPSHOT`.
+
+### Reading a pub-api-surface diff
+
+The drift report is grouped rather than printed as one alphabetical
+add/remove list, so the shape of the change is legible without hand-diffing:
+
+```
+guardian: pub-api FAILED — surface changed
+  delta: 1 new, 1 changed, 1 removed, 2 moved — review changed/removed below before accepting
+  changed:
+    ~ src/router.zig::claimed | fn claimed(lane: u8) bool -> fn claimed(lane: u8, cls: u8) bool
+  moved: src/router.zig -> src/gap_policy.zig :: helper
+  moved: src/router.zig -> src/gap_policy.zig :: width
+  - src/router.zig::stays | fn stays() void
+  + src/router.zig::brandNew | fn brandNew() void
+```
+
+- **changed** — one symbol whose signature was edited, as a single `~ key | old -> new` line instead of a `+` and a `-` at opposite ends of the listing.
+- **moved** — a byte-identical signature that reappeared under a different file. A relocation counts as neither new nor removed, so a refactor that lifts a cohesive chunk into a new module reads as `N moved` instead of `N new, N removed`. It is still drift: the snapshot must be accepted.
+- **`-` / `+`** — the genuinely one-sided entries.
+
+When the delta is additions-only the summary says so and carries the accept
+commands on the next line, so reviewing and accepting are one step.
 
 The snapshot files are plain text, sorted, designed to diff cleanly in code review.
 
@@ -536,7 +679,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 70 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 72 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -778,6 +921,26 @@ debt report — 2 tracked source(s), sorted by count (delta vs HEAD)
   function-length          8   (unchanged)  worst:   246 src/router.zig|route
 ```
 
+**Ask what a number is right now.** A ratchet freezes each item at the value
+Guardian measured, and neither the checks nor `debt` report that value back
+until something already fails — so trimming a file toward its ceiling used to
+mean re-running the whole gate to read the number. `guardian-check size <path>
+[dir]` answers it in one command, using the checks' own measurement functions
+(so it agrees with the gate byte for byte — a hand-rolled `grep -c` does not,
+because the file-size metric excludes `test { ... }` blocks):
+
+```
+size — src/placement/optimizer.zig (measured now; no gate, no writes)
+  file-size        src/placement/optimizer.zig  11482 code lines  cap 1000 rec / 10000 hard   ceiling 11482 — AT CEILING, 0 headroom
+  function-length  route                          246 lines       cap 120 rec / 400 hard      no ratchet ceiling recorded
+  not measured here (metric lives inside the check's scan): nesting-depth, cognitive-complexity, …
+```
+
+`guardian-check debt . --current` does the same comparison tree-wide: per
+ratcheted check, how many keys have headroom, how many sit exactly on their
+ceiling, and how many are already over — plus a line for each of the last two.
+It is opt-in because it re-reads and re-parses `src/` and `test/`.
+
 ### Tier-by-tier rollout
 
 If you'd rather adopt one rule family at a time, list the checks you're not ready for in the top-level `disabled` array (by their kebab-case names — see the tables above). Delete a name to turn that check on, fix its violations (or baseline them), commit, move on:
@@ -1017,6 +1180,7 @@ commas.
 | `[complexity]` | `enabled`, `max_score` |
 | `[anytype_budget]` | `enabled`, `max_per_file`, `exclude` |
 | `[orphan_files]` | `enabled`, `roots` |
+| `[test_reachability]` | `enabled`, `roots` (test roots; empty = `src/main.zig` / `src/root.zig` / `test/*.zig`) |
 | `[doc_quality]` | `enabled`, `min_chars`, `exempt_names` |
 | `[type_size]` | `enabled`, `max_fields`, `exclude` |
 | `[function_length]` | `enabled`, `max_lines`, `hard_max_lines` |
@@ -1143,10 +1307,14 @@ guardian-check all . --gate          # Force BLOCK mode: fail on any violation (
 guardian-check all . --quiet         # Report/gate but print only failures (what the build wiring uses)
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
+guardian-check all . --summary       # Verdict line + blocking detail only (advisory collapsed to counts)
+guardian-check all . --verbose       # Replay every check in full (overrides --summary and scope-collapse)
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet (always blocks)
 guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, then auto-commit on green
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
+guardian-check size src/parser.zig . # One file's current measurements vs its caps and ratchet ceilings
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
+guardian-check debt . --current      # Also measure every ratcheted key against its frozen ceiling
 guardian-check debt . --json         # Machine-readable debt report
 guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
 guardian-check debt . --check spec   # Restrict the debt report to one check
@@ -1163,6 +1331,8 @@ guardian-check bench rm route_wall_s .  # Drop one recorded metric
 zig build guardian-accept -Dguardian-checks=spec,file-size # Preferred named metadata acceptance
 guardian-check accept spec,file-size . # Raw-binary fallback for the same workflow
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
+guardian-check explain completeness  # ...plus the category -> keyword table it matches on
+guardian-check explain completeness --section "Web Server" .  # Dry-run one SPEC.md section
 guardian-check explain               # List every check name + summary
 guardian-check version               # Print the guardian version (also --version)
 ```
@@ -1171,6 +1341,38 @@ guardian-check version               # Print the guardian version (also --versio
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **The `run-all:` verdict line** closes *every* exit path — green, blocking,
+  and cache-skipped — on the always-visible channel, so one grep covers all
+  three and "no guardian output" is never a possible reading:
+
+  ```
+  run-all: 68 check(s) passed
+  run-all: 68 checks — 0 blocking, 3 report-only
+  run-all: 2/68 failed (type-size, naming) — 3 report-only
+  run-all: cached — 0 blocking (inputs unchanged since last green run)
+  ```
+
+  A diff-scoped run appends ` — diff-scoped vs <base>, N file(s) in scope`. Each
+  failing check's first finding is echoed beneath the verdict with a `(+N more)`
+  tail when it found several, so a check that flagged five things never reads as
+  having flagged one.
+- **Blocking-first output.** Detail is replayed blocking checks first, advisory
+  checks second, so the reader reaches what fails the build without scrolling
+  through report-only findings. (Every check's output is already captured for
+  deterministic replay, so the ordering costs one extra walk of an in-memory
+  array — no additional buffering.)
+- **Scope-aware collapse.** On a diff-scoped run, a non-blocking check whose
+  findings *all* fall outside the changed files collapses to one counted line —
+  `repeated-string-literal: 44 finding(s), none in scope — report-only
+  (--verbose for detail)`. A single in-scope finding prints the check in full, a
+  blocking check is never collapsed, and the full detail always remains in
+  `.guardian/cache/last-run.jsonl`.
+- **`--summary` / `--verbose`** set how much of a run is printed. `--summary`
+  keeps the verdict line and every blocking check's detail, collapses each
+  advisory check to its count, and drops passing checks entirely — the mode for
+  an agent that re-runs the gate many times per task and acts only on the
+  verdict. `--verbose` replays everything, opting out of the scope-collapse; it
+  overrides `--summary` when both are given.
 - **Green-run cache** skips a run when the input digest matches the last green
   run, regardless of whether the Git worktree is dirty. The digest hashes every
   file each check reads (src/ + test/ `.zig`, `build.zig`/`build.zig.zon`, the

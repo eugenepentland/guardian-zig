@@ -1,6 +1,7 @@
-//! Builds the project's `@import` graph: one node per src file with edges to
+//! Builds the project's `@import` graph: one node per walked file with edges to
 //! the importable `.zig` files it pulls in (std/builtin/root and off-tree paths
-//! filtered out). Backs the import-cycle and orphan-file checks.
+//! filtered out). Backs the import-cycle, orphan-file, and test-reachability
+//! checks.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -8,12 +9,19 @@ const walk = @import("../walk.zig");
 const ast = @import("parser.zig");
 
 /// One node in the import graph: a source file's outgoing edges (each edge is
-/// a normalized rel_path of an importable .zig under the project's src tree).
+/// a normalized rel_path of an importable .zig under one of the walked trees),
+/// plus how many `test` blocks the file declares.
 /// Edges to "std", "builtin", "root", or any path not in the walk set are
 /// already filtered out by the builder.
+///
+/// `test_count` rides along with the graph on purpose: the builder already
+/// reads and tokenizes every file, so counting the `test` keyword here costs
+/// one extra token scan instead of a second whole-tree read for the check that
+/// asks whether a file's tests are reachable at all (checks/test_reachability).
 pub const Node = struct {
     path: []const u8,
     edges: []const []const u8,
+    test_count: u32 = 0,
 };
 
 const CollectCtx = struct {
@@ -41,23 +49,59 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     try ctx.nodes.append(a, .{
         .path = entry.rel_path,
         .edges = try edges.toOwnedSlice(a),
+        .test_count = countTestBlocks(entry.content),
     });
 }
 
-/// Errors propagated out of `build`: it walks `src/` and appends one Node per
-/// file, so its failure surface is exactly the walker's (fs + OOM).
+/// How many `test` blocks `z` declares. Token-based, so a `test` inside a
+/// string literal, a comment, or a doc comment never counts.
+fn countTestBlocks(z: [:0]const u8) u32 {
+    var tok = std.zig.Tokenizer.init(z);
+    var count: u32 = 0;
+    while (true) {
+        const t = tok.next();
+        if (t.tag == .eof) break;
+        if (t.tag == .keyword_test) count += 1;
+    }
+    return count;
+}
+
+/// Errors propagated out of `build`: it walks the source trees and appends one
+/// Node per file, so its failure surface is exactly the walker's (fs + OOM).
 pub const BuildError = walk.WalkError;
+
+/// The tree `build` walks — the historical src-only graph the cycle and
+/// orphan checks reason over.
+const src_only_dirs = [_][]const u8{"src"};
 
 /// Walks `<project_dir>/src/`, parses every .zig file's @import paths, and
 /// returns one Node per file. Edges are normalized rel_paths suitable for
 /// matching against other Node.path values. Edges that don't resolve to a
 /// node in the walk set are still kept (callers filter them).
 pub fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node {
+    return buildDirs(allocator, project_dir, &src_only_dirs);
+}
+
+/// Same as `build`, but graphs every tree in `dirs` (each a `project_dir`-
+/// relative directory that doubles as its own display root, e.g. "src",
+/// "test"). A missing directory is simply nothing to walk.
+///
+/// Edges are normalized across the trees, so `test/x.zig` importing
+/// `../src/a.zig` resolves to the `src/a.zig` node — which is what lets a
+/// caller follow reachability from a test root that lives outside `src/`.
+pub fn buildDirs(
+    allocator: Allocator,
+    project_dir: []const u8,
+    dirs: []const []const u8,
+) BuildError![]const Node {
     var nodes: std.ArrayList(Node) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .nodes = &nodes };
 
-    const src_path = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(allocator, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = collectVisit });
+    for (dirs) |dir| {
+        const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
+        const opts: walk.WalkOpts = .{ .display_root = dir };
+        try walk.walkZigFiles(allocator, path, opts, .{ .ctx = &ctx, .visit = collectVisit });
+    }
     return nodes.toOwnedSlice(allocator);
 }
 
@@ -196,6 +240,33 @@ const Bfs = struct {
 
 fn lessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
+}
+
+/// The node whose path is `path`, or null when the graph has no such file.
+/// Used by the tests below to assert on one file without looping in a test body.
+fn nodeAt(nodes: []const Node, path: []const u8) ?Node {
+    for (nodes) |n| {
+        if (std.mem.eql(u8, n.path, path)) return n;
+    }
+    return null;
+}
+
+// spec: Test Reachability - Counts each graphed file's test blocks while building the import graph
+
+test "buildDirs graphs the named trees and counts every file's test blocks" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // The fixture project's root declares four `test` blocks; a missing tree
+    // (it has no test/ directory) is simply nothing to walk, not an error.
+    const nodes = try buildDirs(a, "test-project", &.{ "src", "test" });
+    const root = nodeAt(nodes, "src/main.zig") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 4), root.test_count);
+    // A file with no test block counts zero — the signal the reachability check
+    // reads to decide whether unreachability costs anything.
+    const helpers = nodeAt(nodes, "src/utils/helpers.zig") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 0), helpers.test_count);
 }
 
 test "findCycle returns null for acyclic graph" {

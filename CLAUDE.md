@@ -40,12 +40,30 @@ zig build
 ```bash
 zig build          # compiles AND runs all checks in REPORT mode (exit 0; findings printed)
 zig build test     # tests AND runs all checks (report mode); unit-test failures still fail
+zig build test -Dtest-filter=<name>  # narrow the run; the runner prints how many it selected
+zig build test-compile  # compile every test, run none (the cheap whole-suite tier)
 zig build run      # runs AND runs all guardian checks (report mode)
 zig build spec-init  # generate starter SPEC.md from pub fn signatures
 zig build mutate     # mutation-test lines changed vs HEAD (fast tier)
 zig build mutate-full  # mutation-test the whole tree + score ratchet
 zig build debt       # non-gating baseline/snapshot debt report
 ```
+
+**The filtered test loop is honest, and still not the suite.** Guardian's own
+suite runs on Guardian's test runner (`src/test_runner.zig`), which prints
+`guardian/test: N test(s) selected` before the first test and **fails** when
+nothing the filter named ran — a zero-match `-Dtest-filter` used to exit 0,
+byte-identical to a green run (`GUARDIAN_TEST_ALLOW_EMPTY=1` opts out for a
+project with no tests yet). "Nothing named" rather than "no tests" because
+unnamed `test { }` blocks have no name to match and compile into every filtered
+binary: guardian's two would otherwise report a comforting `2 test(s) selected`
+for a filter that matched nothing. That check needs the filter texts, which Zig
+never gives a runner — `guardian.announceFilters(run, filters)` forwards them.
+The second gap is structural: Zig gives `--test-filter` to the
+*compiler*, so a filtered build never analyzes the tests it skipped and cannot
+prove the suite compiles. `zig build test-compile` is that missing tier —
+whole-suite, no filter, `-fno-emit-bin`, so it type-checks everything and runs
+nothing. It is deliberately not a dependency of `test`.
 
 **The installed `guardian-check` is ReleaseSafe by default** — a plain
 `zig build` (no `-Doptimize`) builds `zig-out/bin/guardian-check` optimized,
@@ -66,7 +84,7 @@ pre-commit hook always block.
 **Diff-scoped during dev, whole-tree at commit.** A local `zig build` scopes
 the *per-file* checks to the files changed since the merge base with
 `main`/`master`; the inherently whole-tree checks (import cycles, cross-file
-duplicates, dead-pub / test-coverage maps, orphan reachability, SPEC↔tag
+duplicates, dead-pub / test-coverage maps, orphan and test reachability, SPEC↔tag
 coverage, every tree-wide snapshot/budget) still read everything. Each check's
 capability is the `scope` field on its `cli/registry.zig` entry — it has **no
 default**, so a new check must classify itself; `src/scope.zig` owns the
@@ -89,12 +107,17 @@ guardian-check commit --intent "..." .  # block-gate, run tests, auto-commit + i
 guardian-check install-hook .        # write .git/hooks/pre-commit that runs the blocking gate
 guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
 guardian-check all . --skip line-length     # run every check except these
+guardian-check all . --summary       # verdict line + blocking detail only (advisory collapsed to counts)
+guardian-check all . --verbose       # replay every check in full (overrides --summary and scope-collapse)
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
+guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps + frozen ratchet ceilings
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
+guardian-check debt . --current      # + each ratcheted key's current value vs its ceiling (re-parses the tree)
 guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
+guardian-check explain completeness --section "<name>" .  # dry-run one SPEC.md section's 8 categories
 guardian-check version               # print the version (also --version)
 ```
 
@@ -127,6 +150,22 @@ const spec_init_run = b.addRunArtifact(check_exe);
 spec_init_run.addArgs(&.{ "spec-init", "." });
 const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
 spec_init_step.dependOn(&spec_init_run.step);
+
+// Honest filtered test loop (both optional, both one line).
+// 1. The counting runner: prints `guardian/test: N test(s) selected` and
+//    fails a run that selected none (GUARDIAN_TEST_ALLOW_EMPTY=1 opts out).
+const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
+const unit_tests = b.addTest(.{
+    .root_module = test_mod,
+    .filters = filters,
+    .test_runner = guardian.testRunner(guardian_dep),
+});
+const run_tests = b.addRunArtifact(unit_tests);
+guardian.announceFilters(run_tests, filters); // optional: name the filters in the line
+
+// 2. `zig build test-compile`: compile every test, run none — the cheap
+//    whole-suite tier a filtered run can never provide. Never a dep of `test`.
+_ = guardian.addTestCompileProbe(b, .{ .root_module = test_mod });
 ```
 
 ## Config (guardian.toml)
@@ -176,18 +215,42 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 4. Guardian enforces 1:1 coverage. Missing tags or duplicate tags fail the build.
 
+**A spec failure carries its own fix, on the advisory channel.** The violation
+*lines* are frozen text — a spec violation is baselined by its rendered form
+(`violation_key.zig` tier 3), so changing a word of `unlinked tag: <tag> in
+<file>` would re-key every consumer's committed baseline. Everything the check
+learned therefore rides `reporter.warn`, which baselines and ratchets exclude by
+construction and which survives baseline mode's capture-and-replace of a check's
+own output: **one hint per unlinked tag** (the exact bullet to paste; or "a
+bullet with this exact text already lives under `## Other`" for the
+wrong-`## `-section mistake, whose two halves otherwise read as an unrelated
+`unlinked tag:` and `unverified:` pair; or "closest bullet is X (N char(s)
+apart)" for a drifted rewording), a note that **the tag scan walks `test/` and
+`src/` on disk rather than the compiled test set** (so a `-Dtest-filter` build
+sees the same list and the list is complete — the opposite belief is what turned
+one edit into an edit-per-tag loop), and `N other tag(s) here are
+baselined-unlinked` for a file whose other tags are frozen debt. Tags already in
+the baseline get no hint, so the guidance is about the new work only.
+
+`guardian-check explain completeness --section "<name>" [dir]` answers "what
+would this section need?" without running the gate: per-category `ok` / `waived`
+/ `MISSING` against the CURRENT SPEC.md with the evidence for each, or a
+paste-ready skeleton when the heading does not exist yet. `explain completeness`
+(no `--section`) prints the category → keyword table, which was previously
+readable only in `src/checks/completeness.zig`.
+
 ## What Guardian Checks
 
-65 checks gate the build (most hard-block; completeness/test-coverage/
+69 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
-off; a 65th check, stdout-flush, is report-only by default — it runs in `all`
+off; one of them, stdout-flush, is report-only by default — it runs in `all`
 but never fails the build unless `[stdout_flush] enabled = true` promotes it to a
 gating hard-block, which Guardian leaves off). Formatting is one of them:
 the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
 `zig fmt --check` build step. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command, and the `debt` report (69 registry entries total;
+command, and the `debt` report (72 registry entries total;
 `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -198,7 +261,16 @@ flow and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` remains selective: `=al
 is the only broad refresh, while a comma-separated check-name list
 (`=pub-api-surface,spec`) refreshes only those checks' snapshots/baselines —
 one accepted change no longer ratifies unrelated drift. Ambiguous `=1` and
-`=true` values, plus unknown names, hard-fail. The non-gating `guardian-check debt [dir]` (`zig build
+`=true` values, plus unknown names, hard-fail — with one alias, since one
+snapshot leaf is spelled differently from its check: `pub-api` (the basename of
+`.guardian/pub-api.txt`) resolves to `pub-api-surface` in `accept`,
+`--only`/`--skip`, and `GUARDIAN_UPDATE_SNAPSHOT`. pub-api-surface's drift
+report is grouped rather than one alphabetical add/remove list: a signature edit
+prints as a single `~ key | old -> new` line under `changed:`, a byte-identical
+signature that reappeared under a different file prints as
+`moved: <fileA> -> <fileB> :: <name>` and counts as neither new nor removed
+(still drift — the snapshot must be accepted), and an additions-only delta
+carries the accept commands on the line under the summary. The non-gating `guardian-check debt [dir]` (`zig build
 debt`) reports every baseline/snapshot total, sorted by count, with the delta
 vs the committed `.guardian/` state, then an informational assert-density table
 (assert() calls per KLOC per top-level src module, ascending).
@@ -213,14 +285,38 @@ then auto-installs the blocking pre-commit hook unless `install_hook = false`.
 `guardian-check install-hook [dir]` writes `.git/hooks/pre-commit` (guardian
 marker; resolves `$GUARDIAN_CHECK` → `./zig-out/bin/guardian-check` →
 `guardian-check` on PATH; never clobbers a foreign hook) so a raw `git commit`
-still hits the gate. The run summary and green skip-stamp both changed: the
-failure line names the failing checks (`run-all: 2/68 failed (type-size, …)`) and
-echoes each failing check's first finding (file:line, item, metric, cap) beneath
-it; a policy-demoted check prints `REPORT` instead of `FAILED` and the green
-summary reads `run-all: 68 checks — 0 blocking, N report-only`,
-and the stamp records the guardian binary's identity so a blocking snapshot/
-ratchet failure whose binary differs from the last green run prints a
-"rebuild (zig build) and re-run" hint (the stale-binary false-positive trap).
+still hits the gate.
+
+**Verdict-first, scope-aware output (`run-all:`).** *Every* exit path ends in
+exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
+never comes up empty and can never be confused with "the pattern was wrong":
+
+```
+run-all: 69 check(s) passed                                  # green
+run-all: 69 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 2/69 failed (type-size, …) — 3 report-only          # blocking
+run-all: cached — 0 blocking (inputs unchanged since last green run)
+```
+
+A diff-scoped run appends ` — diff-scoped vs <base>, N file(s) in scope`. The
+failure line names the failing checks and echoes each one's first finding
+(file:line, item, metric, cap) beneath it, with a `(+N more)` tail when that
+check found more than one thing; a policy-demoted check prints `REPORT` instead
+of `FAILED`. Detail is replayed **blocking first, advisory second**, so a reader
+reaches what fails the build without scrolling through report-only output (the
+run already captures every check's output for deterministic replay, so ordering
+it costs nothing). On a **diff-scoped** run a non-blocking check whose findings
+*all* fall outside the changed files collapses to one counted line —
+`repeated-string-literal: 44 finding(s), none in scope — report-only (--verbose
+for detail)` — with the full detail still in `.guardian/cache/last-run.jsonl`.
+`all --summary` prints the verdict plus blocking detail only (every advisory
+check collapsed to its count, passing checks silent); `all --verbose` restores
+everything and overrides `--summary`. The green stamp records the guardian
+binary's identity, so a blocking snapshot/ratchet failure whose binary differs
+from the last green run prints a hint that names **which side is newer** — a
+newer running binary means the recorded green is stale (re-run the gate), a
+newer stamp means this binary predates the gated tree (rebuild first). That is
+the stale-binary false-positive trap.
 
 Two features diff the working tree against a git ref (`--against` flag,
 `GUARDIAN_AGAINST` env var, or `[change_classification] against`; default
@@ -293,8 +389,9 @@ adds `last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
 src/
   check.zig            # CLI entry / dispatch
   cli/                 # Command registry + run_all + mutate/nightly/commit/install_hook/debt/explain commands
+  cli/run_view.zig     # Presentation policy for a run: verdict line, blocking-first replay, scope-collapse
   checks/              # One file per check
-  spec/                # SPEC.md parser, // spec: matcher, spec-init
+  spec/                # SPEC.md parser, // spec: matcher, spec-init, unlinked-tag hints
   ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)
   git.zig              # git diff parsing/shell-outs for diff-scoped features
   mutation/            # Mutant generator, in-place splice/test runner, result cache + survivor report

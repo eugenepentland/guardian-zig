@@ -2,6 +2,11 @@
 //! (and the mutate steps) into a consumer's build in one call, and
 //! `all_check_names` is derived from the registry at comptime so a newly
 //! registered check is gated automatically with no edit here.
+//!
+//! It also owns the two pieces that make a *filtered* test loop honest:
+//! `testRunner` points a consumer's test binary at Guardian's counting runner,
+//! and `addTestCompileProbe` registers the compile-only whole-suite tier that a
+//! filtered run can never provide.
 
 const std = @import("std");
 const registry = @import("cli/registry.zig");
@@ -264,10 +269,109 @@ fn ensureMutateStep(
     step.dependOn(&run.step);
 }
 
+// ── The honest filtered-test loop ──────────────────────────────────────
+
+/// The counting test runner, as it is spelled from the package root.
+const test_runner_rel_path = "src/test_runner.zig";
+
+/// Default step name for the compile-only whole-suite probe.
+const compile_probe_step = "test-compile";
+
+const compile_probe_desc = "Compile the whole test suite without running it";
+
+/// Guardian's test runner, ready for `b.addTest(.{ .test_runner = ... })`.
+/// A consumer wires it in one line:
+///
+///     .test_runner = guardian.testRunner(guardian_dep),
+///
+/// It prints `guardian/test: N test(s) selected` before the first test and
+/// fails a run that selected none — the signal a filtered `zig build test`
+/// otherwise cannot give, because Zig applies `--test-filter` in the compiler
+/// and a zero-match filter simply produces an empty, silently green binary.
+/// `.server` mode keeps the build system's own progress, per-test failure
+/// attribution, and `--fuzz` support intact.
+pub fn testRunner(dep: *std.Build.Dependency) std.Build.Step.Compile.TestRunner {
+    return .{ .path = dep.path(test_runner_rel_path), .mode = .server };
+}
+
+/// Forwards the active `--test-filter` texts to the runner so its count line
+/// can name them. Zig never tells a test runner what the filter was, so this is
+/// the only way the report can say more than the bare number. Optional: without
+/// it the count alone is still the signal.
+pub fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) void {
+    const b = run.step.owner;
+    for (filters) |filter| run.addArg(b.fmt("--guardian-filter={s}", .{filter}));
+}
+
+/// Tunables for `addTestCompileProbe`.
+pub const CompileProbeOptions = struct {
+    /// The consumer's test module — the same root module its `test` step uses.
+    root_module: *std.Build.Module,
+    /// Compile the same runner the real test step runs, so the probe covers the
+    /// runner too. Null uses the default runner.
+    test_runner: ?std.Build.Step.Compile.TestRunner = null,
+    /// Top-level step name.
+    name: []const u8 = compile_probe_step,
+    description: []const u8 = compile_probe_desc,
+};
+
+/// Registers the `test-compile` step: analyze the whole test suite, run none of
+/// it. One line for a consumer:
+///
+///     _ = guardian.addTestCompileProbe(b, .{ .root_module = test_mod });
+///
+/// This is the missing middle tier. A filtered `zig build test` does not
+/// type-check the tests it skipped, so it can go green against a suite that no
+/// longer compiles; the whole gate is minutes away. The probe declares no
+/// filters and never asks for the binary, so the build system passes
+/// `-fno-emit-bin` and the compiler stops after semantic analysis — every test
+/// is type-checked, nothing is linked or executed. Returns the step so a caller
+/// can attach it elsewhere; idempotent on the step name.
+pub fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step {
+    if (b.top_level_steps.get(opts.name)) |existing| return &existing.step;
+    // No `.filters`: the probe is whole-suite by construction, so a
+    // `-Dtest-filter` narrowing the run can never narrow the probe with it.
+    const probe = b.addTest(.{
+        .root_module = opts.root_module,
+        .test_runner = opts.test_runner,
+    });
+    const step = b.step(opts.name, opts.description);
+    // Depend on the compile itself. Nothing here calls getEmittedBin /
+    // installArtifact / addRunArtifact — that is what keeps `generated_bin`
+    // null and earns the `-fno-emit-bin` fast path.
+    step.dependOn(&probe.step);
+    return step;
+}
+
 // spec: Maintenance - Registers a canonical build runner for the current Guardian binary
 
 test "canonical Guardian runner step name stays stable" {
     try std.testing.expectEqualStrings("guardian", guardian_run_step);
+}
+
+// spec: Build Helper - Points a consumer test binary at the runner file that ships with Guardian
+
+test "the packaged runner path names a file that ships with guardian" {
+    // @embedFile is comptime proof the runner sits next to this file; the
+    // constant is that same file spelled from the package root, which is how a
+    // dependent resolves it (`dep.path(...)`). If either moves, this fails.
+    const runner_src = @embedFile("test_runner.zig");
+    try std.testing.expect(runner_src.len > 0);
+    try std.testing.expectEqualStrings("src/test_runner.zig", test_runner_rel_path);
+    // The runner is only worth pointing at because it prints the count.
+    try std.testing.expect(std.mem.indexOf(u8, runner_src, "test(s) selected") != null);
+}
+
+// spec: Build Helper - Registers the compile-only whole-suite probe under a stable step name
+
+test "compile probe step name and description stay stable" {
+    // Consumers put this step name in their docs and CI; it is API.
+    try std.testing.expectEqualStrings("test-compile", compile_probe_step);
+    try std.testing.expect(std.mem.indexOf(u8, compile_probe_desc, "without running") != null);
+    // The probe takes a module and nothing that could narrow it: a filtered
+    // probe would answer a question nobody asked.
+    try std.testing.expect(@hasField(CompileProbeOptions, "root_module"));
+    try std.testing.expect(!@hasField(CompileProbeOptions, "filters"));
 }
 
 // spec: Maintenance - Gates artifact copies without delaying generators that prepare analysis inputs

@@ -86,7 +86,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const force = snapshot_helper.shouldUpdateForCtx(ctx_param, check_name);
     const spec: snapshot_helper.SnapSpec = .{ .path = snap_path, .version = snapshot_version };
     const outcome = try snapshot_helper.lifecycle(allocator, spec, lines, force, ctx_param.metadata_writable);
-    return reportOutcome(try bridgeMeasured(
+    return reportOutcome(allocator, try bridgeMeasured(
         ctx_param,
         allocator,
         try withoutPhantoms(ctx_param, outcome, lines.len),
@@ -196,7 +196,7 @@ fn noticeSkipped(
     reporter.warn(.{ .check = check_name, .message = message });
 }
 
-fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
+fn reportOutcome(a: std.mem.Allocator, outcome: snapshot_helper.Outcome) registry.RunError!void {
     switch (outcome) {
         .created => |n| ok("pub-api snapshot created ({d} entries)", .{n}),
         .updated => |n| ok("pub-api snapshot updated ({d} entries)", .{n}),
@@ -207,54 +207,159 @@ fn reportOutcome(outcome: snapshot_helper.Outcome) registry.RunError!void {
             snapshot_helper.printAcceptPaths(check_name);
             return error.CheckFailed;
         },
-        .drift => |d| return reportDrift(d),
+        .drift => |d| return reportDrift(a, d),
     }
 }
 
-/// One symbol's classification within a surface diff (C3): the stable identity
-/// is `<file>::<name>` — the line prefix up to the first space, before a fn's
-/// ` | <proto>` or a const's ` <kind>`. A key on both sides is a signature
-/// *change*; added-only is *new*; removed-only is a *removal*.
-const Delta = struct { added: usize, changed: usize, removed: usize };
-
+/// The stable identity of a snapshot entry (C3): `<file>::<name>` — the line
+/// prefix up to the first space, before a fn's ` | <proto>` or a const's
+/// ` <kind>`.
 fn keyOf(line: []const u8) []const u8 {
     const sp = std.mem.indexOfScalar(u8, line, ' ') orelse return line;
     return line[0..sp];
 }
 
-fn keyInLines(lines: []const []const u8, key: []const u8) bool {
-    for (lines) |l| if (std.mem.eql(u8, keyOf(l), key)) return true;
-    return false;
+/// The bare symbol name: the key with its `<file>::` prefix stripped.
+fn nameOf(line: []const u8) []const u8 {
+    const key = keyOf(line);
+    const sep = std.mem.indexOf(u8, key, "::") orelse return key;
+    return key[sep + name_sep.len ..];
 }
 
-fn classifyDelta(added: []const []const u8, removed: []const []const u8) Delta {
-    var new_syms: usize = 0;
-    var changed: usize = 0;
-    for (added) |a| {
-        if (keyInLines(removed, keyOf(a))) changed += 1 else new_syms += 1;
-    }
-    var gone: usize = 0;
-    for (removed) |r| {
-        if (!keyInLines(added, keyOf(r))) gone += 1;
-    }
-    return .{ .added = new_syms, .changed = changed, .removed = gone };
+const name_sep = "::";
+/// A fn entry's separator between the key and its prototype.
+const proto_sep = "| ";
+
+/// The signature half of an entry: everything after the key, with a fn's `| `
+/// separator stripped so a paired line reads `fn f() void -> fn f(a: u8) void`
+/// instead of repeating the bar. Empty for a key-only line (defensive — the
+/// collector always emits a signature).
+fn sigOf(line: []const u8) []const u8 {
+    const sp = std.mem.indexOfScalar(u8, line, ' ') orelse return "";
+    const rest = line[sp + 1 ..];
+    if (std.mem.startsWith(u8, rest, proto_sep)) return rest[proto_sep.len..];
+    return rest;
 }
 
-fn reportDrift(d: @import("../snapshot.zig").Diff) registry.RunError!void {
-    fail("pub-api FAILED — surface changed", .{});
-    const delta = classifyDelta(d.added, d.removed);
-    // A one-line delta classification so accept-vs-investigate is decidable
-    // without diffing snapshots by hand (C3).
-    if (delta.changed == 0 and delta.removed == 0) {
-        print("  delta: {d} new symbol(s), 0 changed, 0 removed — pure additions, safe to accept\n", .{delta.added});
-    } else {
+/// A symbol present on both sides of the diff under the same key, with a
+/// different signature — one edit, reported as one line rather than as a `+`
+/// and a `-` at opposite ends of an alphabetical listing.
+const Changed = struct { key: []const u8, old: []const u8, new: []const u8 };
+
+/// A symbol whose signature text is byte-identical but whose file changed: a
+/// relocation, not a widening or a shrinking of the surface.
+const Moved = struct { from: []const u8, to: []const u8, name: []const u8 };
+
+/// A surface diff partitioned for review: paired edits and relocations lifted
+/// out, leaving only the genuinely one-sided entries under `new` / `removed`.
+const Grouped = struct {
+    new: []const []const u8,
+    changed: []const Changed,
+    moved: []const Moved,
+    removed: []const []const u8,
+};
+
+/// True when two entries share a key — the same symbol in the same file, so the
+/// difference between them is a signature change.
+fn sameKey(old: []const u8, new: []const u8) bool {
+    return std.mem.eql(u8, keyOf(old), keyOf(new));
+}
+
+/// True when `new` is `old` relocated: same bare name, byte-identical
+/// signature, different file.
+fn isRelocation(old: []const u8, new: []const u8) bool {
+    if (std.mem.eql(u8, fileOf(old), fileOf(new))) return false;
+    return std.mem.eql(u8, nameOf(old), nameOf(new)) and std.mem.eql(u8, sigOf(old), sigOf(new));
+}
+
+/// Index of the first not-yet-paired removed entry satisfying `pred` against
+/// `line`. The `taken` flags make the pairing a greedy one-to-one match, so a
+/// name that moved out of two files can never be consumed twice.
+fn pairIndex(
+    removed: []const []const u8,
+    taken: []const bool,
+    line: []const u8,
+    pred: *const fn ([]const u8, []const u8) bool,
+) ?usize {
+    for (removed, taken, 0..) |old, used, i| {
+        if (!used and pred(old, line)) return i;
+    }
+    return null;
+}
+
+/// Partitions a raw added/removed diff into the four review categories. Both
+/// the delta summary and the listing read from this one pass, so the counts a
+/// reviewer sees always describe the lines printed underneath them.
+fn group(
+    a: std.mem.Allocator,
+    added: []const []const u8,
+    removed: []const []const u8,
+) std.mem.Allocator.Error!Grouped {
+    const taken = try a.alloc(bool, removed.len);
+    @memset(taken, false);
+    var new_syms: std.ArrayList([]const u8) = .empty;
+    var changed: std.ArrayList(Changed) = .empty;
+    var moved: std.ArrayList(Moved) = .empty;
+    for (added) |line| {
+        if (pairIndex(removed, taken, line, sameKey)) |i| {
+            taken[i] = true;
+            try changed.append(a, .{ .key = keyOf(line), .old = sigOf(removed[i]), .new = sigOf(line) });
+        } else if (pairIndex(removed, taken, line, isRelocation)) |i| {
+            taken[i] = true;
+            try moved.append(a, .{ .from = fileOf(removed[i]), .to = fileOf(line), .name = nameOf(line) });
+        } else try new_syms.append(a, line);
+    }
+    var gone: std.ArrayList([]const u8) = .empty;
+    for (removed, taken) |line, used| if (!used) try gone.append(a, line);
+    return .{
+        .new = try new_syms.toOwnedSlice(a),
+        .changed = try changed.toOwnedSlice(a),
+        .moved = try moved.toOwnedSlice(a),
+        .removed = try gone.toOwnedSlice(a),
+    };
+}
+
+/// The verdict clause of the delta line: what the reviewer has to do about it.
+fn deltaVerdict(g: Grouped) []const u8 {
+    if (g.changed.len == 0 and g.removed.len == 0 and g.new.len == 0)
+        return "relocation only, signatures identical";
+    return "review changed/removed below before accepting";
+}
+
+/// The one-line delta classification, so accept-vs-investigate is decidable
+/// without diffing snapshots by hand (C3). An additions-only delta carries the
+/// accept commands on the next line: nothing changed or vanished, so the review
+/// and the fix are the same step.
+fn printDelta(g: Grouped) void {
+    if (g.changed.len == 0 and g.removed.len == 0 and g.moved.len == 0) {
+        print("  delta: {d} new symbol(s), 0 changed, 0 removed — pure additions, safe to accept\n", .{g.new.len});
         print(
-            "  delta: {d} new, {d} changed, {d} removed — review changed/removed below before accepting\n",
-            .{ delta.added, delta.changed, delta.removed },
+            "    accept: guardian-check accept {s} .   (or {s}={s} zig build)\n",
+            .{ check_name, snapshot_helper.update_env, check_name },
         );
+        return;
     }
-    for (d.removed) |line| print("  - {s}\n", .{line});
-    for (d.added) |line| print("  + {s}\n", .{line});
+    print(
+        "  delta: {d} new, {d} changed, {d} removed, {d} moved — {s}\n",
+        .{ g.new.len, g.changed.len, g.removed.len, g.moved.len, deltaVerdict(g) },
+    );
+}
+
+/// The grouped listing: paired signature edits first (the whole edit on one
+/// line), then relocations, then the genuinely one-sided entries.
+fn printGroups(g: Grouped) void {
+    if (g.changed.len > 0) print("  changed:\n", .{});
+    for (g.changed) |c| print("    ~ {s} | {s} -> {s}\n", .{ c.key, c.old, c.new });
+    for (g.moved) |m| print("  moved: {s} -> {s} :: {s}\n", .{ m.from, m.to, m.name });
+    for (g.removed) |line| print("  - {s}\n", .{line});
+    for (g.new) |line| print("  + {s}\n", .{line});
+}
+
+fn reportDrift(a: std.mem.Allocator, d: @import("../snapshot.zig").Diff) registry.RunError!void {
+    fail("pub-api FAILED — surface changed", .{});
+    const g = try group(a, d.added, d.removed);
+    printDelta(g);
+    printGroups(g);
     print("  fix: if the change is intentional, accept the snapshot:\n", .{});
     snapshot_helper.printAcceptPaths(check_name);
     return error.CheckFailed;
@@ -339,7 +444,11 @@ test "withoutPhantoms drops symbols from unbuilt files but keeps real removals" 
 
 // spec: Pub Api Surface - Classifies surface drift as new, changed, and removed symbols
 
-test "classifyDelta separates additions, signature changes, and removals" {
+test "group separates additions, signature changes, and removals" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
     // A pure addition, a signature change (same key on both sides), and a removal.
     const added = [_][]const u8{
         "src/x.zig::added | fn added() void", // new
@@ -349,16 +458,138 @@ test "classifyDelta separates additions, signature changes, and removals" {
         "src/x.zig::run | fn run() void", // changed (old proto)
         "src/x.zig::gone value", // removal
     };
-    const d = classifyDelta(&added, &removed);
-    try std.testing.expectEqual(@as(usize, 1), d.added);
-    try std.testing.expectEqual(@as(usize, 1), d.changed);
-    try std.testing.expectEqual(@as(usize, 1), d.removed);
+    const d = try group(a, &added, &removed);
+    try std.testing.expectEqual(@as(usize, 1), d.new.len);
+    try std.testing.expectEqual(@as(usize, 1), d.changed.len);
+    try std.testing.expectEqual(@as(usize, 1), d.removed.len);
+    try std.testing.expectEqual(@as(usize, 0), d.moved.len);
 
     // Pure additions: nothing changed or removed.
-    const pure = classifyDelta(&[_][]const u8{"src/x.zig::a | fn a() void"}, &.{});
-    try std.testing.expectEqual(@as(usize, 1), pure.added);
-    try std.testing.expectEqual(@as(usize, 0), pure.changed);
-    try std.testing.expectEqual(@as(usize, 0), pure.removed);
+    const pure = try group(a, &[_][]const u8{"src/x.zig::a | fn a() void"}, &.{});
+    try std.testing.expectEqual(@as(usize, 1), pure.new.len);
+    try std.testing.expectEqual(@as(usize, 0), pure.changed.len);
+    try std.testing.expectEqual(@as(usize, 0), pure.removed.len);
+}
+
+// spec: Pub Api Surface - Pairs a changed signature into one line instead of a separate addition and removal
+
+test "reportDrift renders a changed signature as one paired line" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // The rename-in-place from the feedback: one parameter added. Alphabetical
+    // sorting would file the `+` and the `-` at opposite ends of the listing.
+    const d: @import("../snapshot.zig").Diff = .{
+        .added = &.{
+            "src/router.zig::alpha | fn alpha() void",
+            "src/router.zig::claimed | fn claimed(lane: u8, cls: u8) bool",
+        },
+        .removed = &.{"src/router.zig::claimed | fn claimed(lane: u8) bool"},
+    };
+    try std.testing.expectError(error.CheckFailed, reportDrift(a, d));
+    const out = cap.buf.items;
+
+    // One `~` line carries the whole edit; the addition stays a plain `+`.
+    try std.testing.expect(std.mem.indexOf(u8, out, "  changed:\n") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        out,
+        "    ~ src/router.zig::claimed | fn claimed(lane: u8) bool -> fn claimed(lane: u8, cls: u8) bool\n",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "  + src/router.zig::alpha | fn alpha() void\n") != null);
+    // The paired symbol appears in neither one-sided list.
+    try std.testing.expect(std.mem.indexOf(u8, out, "  - src/router.zig::claimed") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "  + src/router.zig::claimed") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "delta: 1 new, 1 changed, 0 removed, 0 moved") != null);
+}
+
+// spec: Pub Api Surface - Reports a symbol whose file changed with an identical signature as moved
+
+test "reportDrift classifies an identical signature under a new file as moved" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // Two cohesive symbols lifted out of router.zig into gap_policy.zig,
+    // signatures untouched: the surface neither grew nor shrank.
+    const d: @import("../snapshot.zig").Diff = .{
+        .added = &.{
+            "src/gap_policy.zig::claimed | fn claimed(lane: u8) bool",
+            "src/gap_policy.zig::width value",
+        },
+        .removed = &.{
+            "src/router.zig::claimed | fn claimed(lane: u8) bool",
+            "src/router.zig::width value",
+        },
+    };
+    try std.testing.expectError(error.CheckFailed, reportDrift(a, d));
+    const out = cap.buf.items;
+
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        out,
+        "  moved: src/router.zig -> src/gap_policy.zig :: claimed\n",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        out,
+        "  moved: src/router.zig -> src/gap_policy.zig :: width\n",
+    ) != null);
+    // Moved symbols count as neither new nor removed, and the summary says so.
+    try std.testing.expect(std.mem.indexOf(u8, out, "delta: 0 new, 0 changed, 0 removed, 2 moved") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "relocation only, signatures identical") != null);
+    // A relocation is still drift: the check blocks until the snapshot is accepted.
+    try std.testing.expect(std.mem.indexOf(u8, out, "pub-api FAILED") != null);
+
+    // Same name, same file, different signature is a change — not a move.
+    const edited = try group(
+        a,
+        &[_][]const u8{"src/router.zig::claimed | fn claimed(lane: u16) bool"},
+        &[_][]const u8{"src/router.zig::claimed | fn claimed(lane: u8) bool"},
+    );
+    try std.testing.expectEqual(@as(usize, 0), edited.moved.len);
+    try std.testing.expectEqual(@as(usize, 1), edited.changed.len);
+}
+
+// spec: Pub Api Surface - Offers the accept commands inline when the delta is additions only
+
+test "reportDrift prints the accept commands beside an additions-only delta" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const d: @import("../snapshot.zig").Diff = .{
+        .added = &.{"src/x.zig::added | fn added() void"},
+        .removed = &.{},
+    };
+    try std.testing.expectError(error.CheckFailed, reportDrift(a, d));
+    const out = cap.buf.items;
+    try std.testing.expect(std.mem.indexOf(u8, out, "pure additions, safe to accept") != null);
+    // Both spellings sit directly under the verdict, so accepting is one step.
+    try std.testing.expect(std.mem.indexOf(u8, out, "guardian-check accept pub-api-surface .") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build") != null);
+
+    // A delta with a removal gets no inline accept — it has to be reviewed first.
+    cap.buf.clearRetainingCapacity();
+    const shrink: @import("../snapshot.zig").Diff = .{
+        .added = &.{},
+        .removed = &.{"src/x.zig::gone | fn gone() void"},
+    };
+    try std.testing.expectError(error.CheckFailed, reportDrift(a, shrink));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "    accept: guardian-check") == null);
 }
 
 test "visit emits fn and struct entries" {

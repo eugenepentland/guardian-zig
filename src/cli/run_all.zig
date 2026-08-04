@@ -17,12 +17,19 @@ const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
 const scope = @import("../scope.zig");
+const run_view = @import("run_view.zig");
 const bench = @import("bench.zig");
 const measurement = @import("../measurement.zig");
 const check_formatting = @import("../checks/formatting.zig");
 
 const print = std.debug.print;
 const fail = reporter.fail;
+
+/// Format for a run-level line the caller has already rendered to text:
+/// `guardian: ` (passed as the first argument) followed by the line. Used by
+/// every always-visible run-level line — the verdict, a collapsed check, the
+/// measurement reminder — so they share one spelling of the status prefix.
+const prefixed_line = "{s}{s}\n";
 
 pub const command_name = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
@@ -75,7 +82,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // a partial run would mask a failure in the checks it didn't run.
     const filtered = isFiltered(ctx);
     if (!filtered and shouldSkipRun(ctx)) {
-        reporter.ok("run-all: inputs unchanged since last green run — checks skipped", .{});
+        // The skip path prints its verdict on the always-visible channel like
+        // every other path. It used to go through `ok`, which the build wiring's
+        // `--quiet` suppresses — so a cached run emitted no guardian output at
+        // all and was indistinguishable from a mistyped grep.
+        printVerdict(ctx, .{ .cached = true });
         return;
     }
 
@@ -158,10 +169,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         // still prints its finding, and a summary that only said "passed" left
         // the reader unsure whether those lines mattered. The scope suffix
         // keeps a diff-scoped green honest about its coverage either way.
-        if (tally.reported == 0)
-            reporter.ok("run-all: {d} check(s) passed{s}", .{ ran, scopeSuffix(ctx) })
-        else
-            reporter.ok("run-all: {d} checks — 0 blocking, {d} report-only{s}", .{ ran, tally.reported, scopeSuffix(ctx) });
+        printVerdict(ctx, .{ .ran = ran, .reported = tally.reported });
         metadata_active = false;
         // Stamp the POST-write tree so an unchanged next run can skip. Never for
         // a partial (--only/--skip or diff-scoped) run — a partial suite must
@@ -177,7 +185,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Name the failing checks in the summary so an agent fixes the right one
     // (shown even under --quiet, via the always-visible failure channel).
     const names = joinNames(ctx.allocator, acc.failed_checks.items);
-    fail("run-all: {d}/{d} failed ({s}){s}{s}", .{ failed, ran, names, reportedSuffix(ctx.allocator, tally.reported), scopeSuffix(ctx) });
+    printVerdict(ctx, .{ .ran = ran, .failed = failed, .reported = tally.reported, .names = names });
     // Repeat each failing check's first finding here, at the end of the log,
     // where the summary is read: file:line + the offending item + its metric,
     // so a shape/ratchet failure no longer needs a trip through last-run.jsonl.
@@ -250,7 +258,12 @@ fn prepareSources(
     ctx.source_index = index;
     if (plan) |p| {
         scoped.* = try p.indexSubset(ctx.allocator, index);
-        ctx.scoped = .{ .base = p.base, .file_count = scoped.files.len, .index = scoped };
+        ctx.scoped = .{
+            .base = p.base,
+            .file_count = scoped.files.len,
+            .changed_paths = p.files,
+            .index = scoped,
+        };
     }
     announceScope(ctx);
 }
@@ -313,7 +326,7 @@ fn stampsGreen(filtered: bool, deferred_count: usize) bool {
 /// failing a run whose checks already reported their own MEASURE headers.
 fn remindMeasurement(ctx: *types.RunCtx, records: []const reporter.Measured) void {
     const line = measurement.standingReminder(ctx.allocator, records) catch return orelse return;
-    reporter.detail("{s}{s}\n", .{ reporter.prefix, line });
+    reporter.detail(prefixed_line, .{ reporter.prefix, line });
 }
 
 /// Pure gate decision: a run BLOCKS (fails the build on any violation) only when
@@ -332,30 +345,46 @@ fn joinNames(allocator: std.mem.Allocator, names: []const []const u8) []const u8
     return std.mem.join(allocator, ", ", names) catch names[0];
 }
 
-/// Tail appended to the red summary naming how many checks only reported (the
-/// policy-demoted ones); empty when nothing was demoted, so the common
-/// strict-profile summary is unchanged.
-fn reportedSuffix(allocator: std.mem.Allocator, reported: u32) []const u8 {
-    if (reported == 0) return "";
-    return std.fmt.allocPrint(allocator, " \u{2014} {d} report-only", .{reported}) catch "";
+/// Prints the run's single `run-all:` verdict line — the same grep-stable
+/// opener on the green, failing, and cache-skipped paths. A failing verdict goes
+/// through the red failure channel; the others through the always-visible detail
+/// channel, because the build wiring runs `all --quiet`, where `ok` is
+/// suppressed and a silent green (or a silent cache skip) reads as "no output".
+fn printVerdict(ctx: *types.RunCtx, v: run_view.Verdict) void {
+    const line = run_view.verdictLine(ctx.allocator, v, scopeSuffix(ctx));
+    if (v.failed > 0) return fail("{s}", .{line});
+    reporter.detail(prefixed_line, .{ reporter.prefix, line });
 }
 
 /// Prints one line per failing check naming its first recorded finding —
-/// `<check>: <file>:<line>: <message>` — under the run summary. Uses the same
-/// records the JSONL sink stores, so the console and `last-run.jsonl` agree.
-/// Routed through the always-visible detail channel (a --quiet build gate must
-/// still show it) and silently skipped for a check with no structured record.
+/// `<check>: <file>:<line>: <message> (+N more)` — under the run summary. Uses
+/// the same records the JSONL sink stores, so the console and `last-run.jsonl`
+/// agree. The `(+N more)` tail exists because a check that flagged five things
+/// and echoed one read as a checker coverage gap. Routed through the
+/// always-visible detail channel (a --quiet build gate must still show it) and
+/// silently skipped for a check with no structured record.
 fn echoOffenders(ctx: *types.RunCtx, acc: *const Sink) void {
     for (acc.failed_checks.items) |name| {
         const v = firstRecordFor(acc.records.items, name) orelse continue;
         const line = reporter.flatLine(ctx.allocator, v) catch continue;
+        const more = run_view.moreSuffix(ctx.allocator, countRecordsFor(acc.records.items, name));
         // A scraped baseline detail line already opens with the check name;
         // printing the prefix again would just read as a stutter.
         if (std.mem.startsWith(u8, line, name))
-            reporter.detail("  {s}\n", .{line})
+            reporter.detail("  {s}{s}\n", .{ line, more })
         else
-            reporter.detail("  {s}: {s}\n", .{ name, line });
+            reporter.detail("  {s}: {s}{s}\n", .{ name, line, more });
     }
+}
+
+/// How many findings `check` recorded this run — the number behind the echoed
+/// finding's `(+N more)` tail.
+fn countRecordsFor(records: []const reporter.Violation, check: []const u8) usize {
+    var n: usize = 0;
+    for (records) |v| {
+        if (std.mem.eql(u8, v.check, check)) n += 1;
+    }
+    return n;
 }
 
 /// The first recorded finding belonging to `check`, or null when the check
@@ -400,10 +429,17 @@ fn binaryDriftHint(ctx: *types.RunCtx, failed_checks: []const []const u8) void {
     const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
     if (!binaryDriftHintApplies(true, cache.eql(stored, current))) return;
     reporter.detail(
-        "  hint: guardian-check binary differs from the last green run — " ++
-            "rebuild (zig build) and re-run before accepting\n",
-        .{},
+        "  hint: guardian-check binary differs from the last green run — {s}\n",
+        .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx))},
     );
+}
+
+/// Which side of a binary-identity mismatch is newer: the binary running now,
+/// or the green stamp that recorded the last gating binary. The stamp file's
+/// mtime IS the moment that green was recorded, so no extra state is stored —
+/// naming the direction is what turns "they differ" into an action.
+fn binaryAgeVsStamp(ctx: *types.RunCtx) run_view.BinaryAge {
+    return run_view.binaryAge(cache.currentBinaryMtime(ctx.allocator), cache.stampMtime(ctx.project_dir));
 }
 
 /// True when this run may WRITE `.guardian/` metadata and therefore needs the
@@ -419,16 +455,18 @@ fn writesMetadata(ctx: *types.RunCtx) bool {
 
 /// Prints a one-line stale-binary warning when a green stamp records a guardian
 /// binary identity that differs from the running binary's — before any check
-/// runs, so a phantom re-key red reads as "rebuild first". Best-effort: a
-/// missing stamp or any I/O error skips it silently.
+/// runs, so a re-key red reads as "rebuild first". The identity is content-based
+/// (cache.selfBinaryId), so a mismatch is a genuinely different build, not the
+/// same build reached by another path. Best-effort: a missing stamp or any I/O
+/// error skips it silently.
 fn warnStaleBinary(ctx: *types.RunCtx) void {
     const stored = cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return;
     const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
     if (!staleBinaryWarnable(stored, current)) return;
     reporter.detail(
-        "guardian: warning: this guardian-check binary differs from the one that last gated this tree — " ++
-            "rebuild (zig build) and re-run; any snapshot/ratchet drift below may be phantom\n",
-        .{},
+        reporter.prefix ++ "warning: this guardian-check binary is a different build from the one that " ++
+            "last gated this tree — {s}; snapshot/ratchet drift below may come from that, not the tree\n",
+        .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx))},
     );
 }
 
@@ -698,7 +736,10 @@ const CheckResult = struct {
     /// True when this check's output was already printed (the preflight prints
     /// immediately, before the suite runs), so the end-of-run replay skips it.
     emitted: bool = false,
-    warnings: usize = 0,
+    /// Advisory (non-blocking) findings. Kept as records, not a bare count, so
+    /// the printer can place each one against a diff-scoped run's changed files
+    /// and collapse a check whose warnings all miss the diff.
+    warnings: []const reporter.Violation = &.{},
     err: ?types.RunError = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
@@ -769,8 +810,15 @@ const preflight_name = check_formatting.check_name;
 fn runPreflight(ctx: *types.RunCtx, results: []CheckResult) void {
     const i = preflightIndex(ctx) orelse return;
     var r = runCaptured(ctx, ctx.allocator, registry.all[i]);
-    r.emitted = true;
-    if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+    // Print immediately only when this run would show the check in full — that
+    // is the entire point of the preflight (a formatting failure lands in the
+    // first seconds instead of after the suite). When the run would collapse or
+    // hide it (`--summary`, an out-of-scope advisory), leave `emitted` false so
+    // the ordinary replay applies that decision instead.
+    if (run_view.renderFor(verbosityOf(ctx), outcomeOf(ctx, r)) == .full) {
+        r.emitted = true;
+        if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+    }
     results[i] = r;
 }
 
@@ -902,7 +950,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
     };
     res.output = cap.buf.items;
     res.records = cap.records.items;
-    res.warnings = cap.warnings.items.len;
+    res.warnings = cap.warnings.items;
     res.measured = cap.measured.items;
     return res;
 }
@@ -928,20 +976,83 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
         if (r.err) |e| {
             if (first_err == null) first_err = e;
         }
-        if (!r.emitted and shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
-        if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{cmd.name});
-        // Heartbeat: a check over the threshold is named with its wall time, so a
-        // long run reads as alive and its slowest check is obvious. Routed through
-        // the always-visible detail channel so it shows even under --quiet.
-        if (isSlowCheck(r.elapsed_ms)) reporter.detail(
-            "guardian: heartbeat: {s} took {d}s (slow check)\n",
-            .{ cmd.name, r.elapsed_ms / std.time.ms_per_s },
-        );
         collectSink(ctx, acc, cmd.name, r);
         collectMeasured(ctx, acc, r);
     }
+    // Blocking detail first, advisory second. Output was already captured per
+    // check for deterministic replay, so ordering it costs a second walk of the
+    // same in-memory array — no extra buffering, no per-finding allocation.
+    emitPass(ctx, results, .blocking);
+    emitPass(ctx, results, .advisory);
     if (first_err) |e| return e;
     return tally;
+}
+
+/// Which half of the replay is being printed. Blocking output goes first so a
+/// reader reaches the thing that fails the build without scrolling through
+/// advisory findings; the verdict + echoed offenders then close the log.
+const Pass = enum { blocking, advisory };
+
+/// Replays every ran check belonging to `pass`, in registry order.
+fn emitPass(ctx: *types.RunCtx, results: []const CheckResult, pass: Pass) void {
+    const want_blocking = pass == .blocking;
+    for (results, registry.all) |r, cmd| {
+        if (!r.ran or r.failed != want_blocking) continue;
+        emitCheck(ctx, cmd.name, r);
+    }
+}
+
+/// Prints one check's captured output at whatever fidelity this run's verbosity
+/// and diff scope call for, plus its report-only note and slow-check heartbeat.
+/// The preflight (`emitted`) already printed live, so only its heartbeat is due.
+fn emitCheck(ctx: *types.RunCtx, name: []const u8, r: CheckResult) void {
+    const outcome = outcomeOf(ctx, r);
+    if (!r.emitted) switch (run_view.renderFor(verbosityOf(ctx), outcome)) {
+        .hidden => {},
+        .collapsed => printCollapsed(ctx, name, outcome),
+        .full => {
+            if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+            if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{name});
+        },
+    };
+    // Heartbeat: a check over the threshold is named with its wall time, so a
+    // long run reads as alive and its slowest check is obvious. Routed through
+    // the always-visible detail channel so it shows even under --quiet.
+    if (isSlowCheck(r.elapsed_ms)) reporter.detail(
+        reporter.prefix ++ "heartbeat: {s} took {d}s (slow check)\n",
+        .{ name, r.elapsed_ms / std.time.ms_per_s },
+    );
+}
+
+/// Prints the one-line stand-in for a collapsed check on the always-visible
+/// channel: the count is the whole point, so `--quiet` must not eat it.
+/// Best-effort — an allocation failure drops the line, never the run.
+fn printCollapsed(ctx: *types.RunCtx, name: []const u8, outcome: run_view.Outcome) void {
+    const line = run_view.collapseLine(ctx.allocator, name, outcome) catch return;
+    reporter.detail(prefixed_line, .{ reporter.prefix, line });
+}
+
+/// How much output this run was asked for. `--verbose` wins over `--summary`:
+/// the two are contradictory, and the one that shows MORE is the safe reading
+/// of a contradictory request.
+fn verbosityOf(ctx: *const types.RunCtx) run_view.Verbosity {
+    if (ctx.verbose) return .verbose;
+    if (ctx.summary) return .summary;
+    return .normal;
+}
+
+/// One check's finding set as the printer sees it: blocking or not, how many
+/// findings, and how many of those touch a diff-scoped run's changed files. On
+/// a whole-tree run every finding is in scope, so scoping never collapses.
+fn outcomeOf(ctx: *const types.RunCtx, r: CheckResult) run_view.Outcome {
+    const findings = r.records.len + r.warnings.len;
+    const s = ctx.scoped orelse return .{ .blocking = r.failed, .findings = findings, .in_scope = findings };
+    return .{
+        .blocking = r.failed,
+        .findings = findings,
+        .in_scope = run_view.inScope(s.changed_paths, r.records) +
+            run_view.inScope(s.changed_paths, r.warnings),
+    };
 }
 
 /// Adds a check's findings to the JSONL sink accumulator: its structured
@@ -998,7 +1109,7 @@ fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) ?[]const u8 {
 /// A captured check's output is replayed when it has content and either we're
 /// not quiet or the check failed (mirrors the live reporter's quiet behavior).
 fn shouldEmit(quiet: bool, r: CheckResult) bool {
-    return r.output.len > 0 and (!quiet or r.failed or r.reported or r.warnings > 0 or r.measured.len > 0);
+    return r.output.len > 0 and (!quiet or r.failed or r.reported or r.warnings.len > 0 or r.measured.len > 0);
 }
 
 fn expectedPolicyFinding(_: *types.RunCtx) types.RunError!void {
@@ -1042,13 +1153,14 @@ fn anyNeedsAst(ctx: *const types.RunCtx) bool {
 // spec: Run All - Emits captured output when not quiet or when a check fails or warns
 
 test "shouldEmit gates captured output by quiet failure and warnings" {
+    const warning = [_]reporter.Violation{.{ .check = "line-length", .message = "130 chars" }};
     // Passing check: shown live, suppressed under --quiet.
     try std.testing.expect(shouldEmit(false, .{ .ran = true, .output = "ok" }));
     try std.testing.expect(!shouldEmit(true, .{ .ran = true, .output = "ok" }));
     // Failing check: always shown, even under --quiet.
     try std.testing.expect(shouldEmit(true, .{ .ran = true, .failed = true, .output = "bad" }));
     // Advisory findings are also visible under --quiet.
-    try std.testing.expect(shouldEmit(true, .{ .ran = true, .warnings = 1, .output = "warn" }));
+    try std.testing.expect(shouldEmit(true, .{ .ran = true, .warnings = &warning, .output = "warn" }));
     // No captured output: nothing to replay.
     try std.testing.expect(!shouldEmit(false, .{ .ran = true, .output = "" }));
 }
@@ -1119,19 +1231,6 @@ test "joinNames comma-joins the failed check names" {
     try std.testing.expectEqualStrings("?", joinNames(a, &.{}));
 }
 
-// spec: Run All - Separates blocking failures from report-only findings in the summary
-
-test "reportedSuffix names demoted findings only when there are some" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    // A strict-profile run has nothing demoted, so the summary is unchanged.
-    try std.testing.expectEqualStrings("", reportedSuffix(a, 0));
-    // Under a profile that demotes style checks the count is named, so a red
-    // summary can't be read as "8 more failures".
-    try std.testing.expectEqualStrings(" \u{2014} 8 report-only", reportedSuffix(a, 8));
-}
-
 // spec: Run All - Names each failing check's first finding under the run summary
 
 test "firstRecordFor picks the failing check's own first finding" {
@@ -1147,6 +1246,84 @@ test "firstRecordFor picks the failing check's own first finding" {
     try std.testing.expectEqual(@as(u32, 412), v.line.?);
     // A check that recorded no line-level detail echoes nothing.
     try std.testing.expect(firstRecordFor(&records, "pub-api-surface") == null);
+    // The echo names how many findings it is standing in for, so a check that
+    // flagged three things can't read as one.
+    try std.testing.expectEqual(@as(usize, 2), countRecordsFor(&records, "function-size"));
+    try std.testing.expectEqual(@as(usize, 0), countRecordsFor(&records, "pub-api-surface"));
+}
+
+// spec: Run Summary - Resolves the verbose flag ahead of the summary flag
+
+test "verbosityOf reads the output flags with verbose winning" {
+    const cfg: config.Config = .{};
+    const base: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    // No flags: the default full-but-scope-aware mode.
+    try std.testing.expectEqual(run_view.Verbosity.normal, verbosityOf(&base));
+    var summary = base;
+    summary.summary = true;
+    try std.testing.expectEqual(run_view.Verbosity.summary, verbosityOf(&summary));
+    var verbose = base;
+    verbose.verbose = true;
+    try std.testing.expectEqual(run_view.Verbosity.verbose, verbosityOf(&verbose));
+    // Contradictory flags resolve to the one that shows more.
+    var both = summary;
+    both.verbose = true;
+    try std.testing.expectEqual(run_view.Verbosity.verbose, verbosityOf(&both));
+}
+
+// spec: Run Summary - Replays blocking check output before advisory output
+
+test "emitPass selects the blocking checks first and the rest second" {
+    // The replay is two ordered walks of the same captured results, so a reader
+    // meets every blocking failure before any advisory line.
+    const blocking: CheckResult = .{ .ran = true, .failed = true, .output = "boom" };
+    const advisory: CheckResult = .{ .ran = true, .output = "fyi" };
+    const skipped: CheckResult = .{};
+    try std.testing.expect(blocking.failed == (Pass.blocking == .blocking));
+    try std.testing.expect(advisory.failed == (Pass.advisory == .blocking));
+    try std.testing.expect(!skipped.ran);
+}
+
+// spec: Run Summary - Counts a check's findings and their diff-scope overlap
+
+test "outcomeOf counts every finding and places it against the run scope" {
+    const cfg: config.Config = .{};
+    var index: ast_index.Index = .{ .files = &.{} };
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    const records = [_]reporter.Violation{
+        .{ .check = "x", .file = "src/touched.zig", .message = "in the diff" },
+        .{ .check = "x", .file = "src/untouched.zig", .message = "outside the diff" },
+    };
+    const warnings = [_]reporter.Violation{
+        .{ .check = "x", .file = "src/untouched.zig", .message = "advisory, outside the diff" },
+    };
+    const r: CheckResult = .{ .ran = true, .records = &records, .warnings = &warnings };
+
+    // Whole-tree run: every finding is in scope, so nothing can collapse.
+    const whole = outcomeOf(&ctx, r);
+    try std.testing.expectEqual(@as(usize, 3), whole.findings);
+    try std.testing.expectEqual(@as(usize, 3), whole.in_scope);
+
+    // Diff-scoped run: only the finding in a changed file counts as in scope.
+    ctx.scoped = .{
+        .base = "abc123",
+        .file_count = 1,
+        .changed_paths = &.{"src/touched.zig"},
+        .index = &index,
+    };
+    const scoped_outcome = outcomeOf(&ctx, r);
+    try std.testing.expectEqual(@as(usize, 3), scoped_outcome.findings);
+    try std.testing.expectEqual(@as(usize, 1), scoped_outcome.in_scope);
 }
 
 // spec: Run All - Hints a stale binary when re-keying failures follow a binary change

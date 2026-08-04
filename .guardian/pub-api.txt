@@ -21,6 +21,7 @@ src/ast/decls.zig::precedingDocText | fn precedingDocText(arena: Allocator, tree
 src/ast/import_graph.zig::BuildError value
 src/ast/import_graph.zig::Node struct_
 src/ast/import_graph.zig::build | fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node
+src/ast/import_graph.zig::buildDirs | fn buildDirs( allocator: Allocator, project_dir: []const u8, dirs: []const []const u8, ) BuildError![]const Node
 src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]const []const u8
 src/ast/import_graph.zig::reachableFrom | fn reachableFrom( allocator: Allocator, nodes: []const Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/ast/index.zig::Entry struct_
@@ -87,16 +88,22 @@ src/benchmark.zig::validNote | fn validNote(text: []const u8) bool
 src/benchmark.zig::validToken | fn validToken(text: []const u8) bool
 src/benchmark.zig::without | fn without(arena: Allocator, records: []const Record, name: []const u8) Allocator.Error!?[]const Record
 src/benchmark.zig::write | fn write(arena: Allocator, path: []const u8, records: []const Record) snapshot.WriteError!void
+src/build_helper.zig::CompileProbeOptions struct_
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
+src/build_helper.zig::addTestCompileProbe | fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step
 src/build_helper.zig::all_check_names value
+src/build_helper.zig::announceFilters | fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) void
+src/build_helper.zig::testRunner | fn testRunner(dep: *std.Build.Dependency) std.Build.Step.Compile.TestRunner
 src/cache.zig::Digest value
 src/cache.zig::Error value
 src/cache.zig::currentBinaryIdHash | fn currentBinaryIdHash(arena: Allocator) Error!Digest
+src/cache.zig::currentBinaryMtime | fn currentBinaryMtime(arena: Allocator) ?i128
 src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
 src/cache.zig::inputDigest | fn inputDigest( arena: Allocator, project_dir: []const u8, spec_file: []const u8, external_gates: []const config.ExternalGate, ) Error!Digest
 src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::readStoredBinaryId | fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
+src/cache.zig::stampMtime | fn stampMtime(project_dir: []const u8) ?i128
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
 src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
@@ -146,10 +153,18 @@ src/checks/change_classification.zig::verdictFor | fn verdictFor(t: Totals) Verd
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/compile_error_explanation.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/compile_error_explanation.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/completeness.zig::Category struct_
+src/checks/completeness.zig::CategoryReport struct_
+src/checks/completeness.zig::CategoryState union_
 src/checks/completeness.zig::FeatureSection struct_
+src/checks/completeness.zig::SectionReport struct_
 src/checks/completeness.zig::analyze | fn analyze( arena: Allocator, sections: []const FeatureSection, exempt: []const []const u8, ) Allocator.Error![]const []const u8
+src/checks/completeness.zig::categories value
 src/checks/completeness.zig::parseFeatureSections | fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error![]const FeatureSection
+src/checks/completeness.zig::readFeatureSections | fn readFeatureSections( arena: Allocator, project_dir: []const u8, spec_file: []const u8, ) Allocator.Error!?[]const FeatureSection
+src/checks/completeness.zig::reportSection | fn reportSection( arena: Allocator, sections: []const FeatureSection, exempt: []const []const u8, name: []const u8, ) Allocator.Error!SectionReport
 src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
@@ -227,6 +242,7 @@ src/checks/test_has_assertion.zig::run | fn run(ctx: *registry.RunCtx) registry.
 src/checks/test_no_conditional.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_no_conditional.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
@@ -244,8 +260,14 @@ src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/debt.zig::command_name value
 src/cli/debt.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/debt_current.zig::Report struct_
+src/cli/debt_current.zig::Row struct_
+src/cli/debt_current.zig::Summary struct_
+src/cli/debt_current.zig::collect | fn collect(ctx: *types.RunCtx) types.RunError!Report
+src/cli/debt_current.zig::printReport | fn printReport(arena: Allocator, report: Report) void
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
-src/cli/explain.zig::run | fn run(query: ?[]const u8) bool
+src/cli/explain.zig::Query struct_
+src/cli/explain.zig::run | fn run(allocator: std.mem.Allocator, query: Query) bool
 src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
@@ -271,6 +293,21 @@ src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
+src/cli/run_view.zig::BinaryAge enum_
+src/cli/run_view.zig::Outcome struct_
+src/cli/run_view.zig::Render enum_
+src/cli/run_view.zig::Verbosity enum_
+src/cli/run_view.zig::Verdict struct_
+src/cli/run_view.zig::binaryAge | fn binaryAge(running_mtime: ?i128, stamp_mtime: ?i128) BinaryAge
+src/cli/run_view.zig::binaryAgeNote | fn binaryAgeNote(age: BinaryAge) []const u8
+src/cli/run_view.zig::collapseLine | fn collapseLine(arena: Allocator, check: []const u8, o: Outcome) Allocator.Error![]const u8
+src/cli/run_view.zig::inScope | fn inScope(changed: []const []const u8, records: []const reporter.Violation) usize
+src/cli/run_view.zig::moreSuffix | fn moreSuffix(arena: Allocator, findings: usize) []const u8
+src/cli/run_view.zig::renderFor | fn renderFor(v: Verbosity, o: Outcome) Render
+src/cli/run_view.zig::verdictLine | fn verdictLine(arena: Allocator, v: Verdict, scope_suffix: []const u8) []const u8
+src/cli/run_view.zig::verdict_prefix value
+src/cli/size.zig::command_name value
+src/cli/size.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/test_filter.zig::command_name value
 src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
@@ -318,6 +355,7 @@ src/config.zig::SpecQualityCfg struct_
 src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
+src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
@@ -385,6 +423,15 @@ src/fakes/fs.zig::writeFile | fn writeFile(self: *FakeFs, path: []const u8, byte
 src/fakes/random.zig::SeededRandom struct_
 src/fakes/random.zig::init | fn init(seed: u64) SeededRandom
 src/fakes/random.zig::random | fn random(self: *SeededRandom) std.Random
+src/file_metrics.zig::Item struct_
+src/file_metrics.zig::Standing enum_
+src/file_metrics.zig::ceilingFor | fn ceilingFor(entries: []const ratchet.Entry, key: []const u8) ?u64
+src/file_metrics.zig::ceilingPhrase | fn ceilingPhrase(arena: Allocator, value: u64, ceiling: ?u64) Allocator.Error![]const u8
+src/file_metrics.zig::ceilings | fn ceilings( arena: Allocator, project_dir: []const u8, check_name: []const u8, ) Allocator.Error![]const ratchet.Entry
+src/file_metrics.zig::measureFile | fn measureFile( arena: Allocator, rel_path: []const u8, content: [:0]const u8, cfg: *const config_mod.Config, ) Allocator.Error![]const Item
+src/file_metrics.zig::measured_checks value
+src/file_metrics.zig::standingOf | fn standingOf(value: u64, ceiling: ?u64) Standing
+src/file_metrics.zig::unmeasured_checks value
 src/git.zig::ChangedPath struct_
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
@@ -554,6 +601,7 @@ src/snapshot.zig::writePresortedChecked | fn writePresortedChecked(arena: Alloca
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_
+src/snapshot_helper.zig::canonicalCheckName | fn canonicalCheckName(name: []const u8) []const u8
 src/snapshot_helper.zig::example_named_refresh value
 src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, write_allowed: bool, ) LifecycleError!Outcome
 src/snapshot_helper.zig::preservedMetadataPaths | fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8
@@ -566,6 +614,18 @@ src/snapshot_helper.zig::shouldUpdateForCtx | fn shouldUpdateForCtx(ctx: *const 
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/snapshot_helper.zig::update_env value
 src/snapshot_helper.zig::usesLegacyBroadToken | fn usesLegacyBroadToken(allocator: Allocator) bool
+src/spec/hints.zig::FrozenTag struct_
+src/spec/hints.zig::Hint union_
+src/spec/hints.zig::NearMiss struct_
+src/spec/hints.zig::Parts struct_
+src/spec/hints.zig::frozenCountFor | fn frozenCountFor( arena: Allocator, frozen: []const FrozenTag, file: []const u8, ) Allocator.Error!usize
+src/spec/hints.zig::frozenKeyFor | fn frozenKeyFor(arena: Allocator, tag: []const u8, file: []const u8) Allocator.Error![]const u8
+src/spec/hints.zig::frozenUnlinked | fn frozenUnlinked(arena: Allocator, lines: []const []const u8) Allocator.Error![]const FrozenTag
+src/spec/hints.zig::hintFor | fn hintFor(sections: []const parser.Section, tag: []const u8) Hint
+src/spec/hints.zig::isFrozen | fn isFrozen(frozen: []const FrozenTag, key: []const u8) bool
+src/spec/hints.zig::near_miss_max_distance value
+src/spec/hints.zig::sectionMissing | fn sectionMissing(sections: []const parser.Section, name: []const u8) bool
+src/spec/hints.zig::splitTag | fn splitTag(sections: []const parser.Section, tag: []const u8) Parts
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
 src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayList(ModuleInfo), ) InitError!void
@@ -596,6 +656,9 @@ src/test_filter.zig::declaredTests | fn declaredTests(arena: Allocator, tree: *c
 src/test_filter.zig::derive | fn derive(arena: Allocator, in: Inputs) Allocator.Error!Derivation
 src/test_filter.zig::isEmpty | fn isEmpty(self: Derivation) bool
 src/test_filter.zig::renderArgs | fn renderArgs(arena: Allocator, names: []const []const u8, flag: []const u8) Allocator.Error![]const u8
+src/test_runner.zig::fuzz | fn fuzz( context: anytype, comptime testOne: fn (context: @TypeOf(context), []const u8) anyerror!void, options: testing.FuzzInputOptions, ) anyerror!void
+src/test_runner.zig::main | fn main() void
+src/test_runner.zig::std_options value
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void
