@@ -2421,3 +2421,30 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   gate 1.6s, tests 293.2s, staged 7 paths, and *skipped* an untracked
   `.claude/dp-handoff/` directory with a named warning instead of sweeping it
   in. That skip is the behaviour I want by default.
+
+## 2026-08-04 · Claude (Opus 5) · eda (netlisp) · ward — report the browsable URL via WARD_SERVICE_URL
+- **good:** adding a field to `WardConfig` + a `config.zig` getter + one tagged
+  test passed 68 checks first try, with `pub-api-surface` correctly stopping to
+  show the single new decl (`config.zig::wardServiceUrl`) before letting it
+  through. For a cross-cutting change touching config, serve, and SPEC.md, "one
+  accept and done" is the experience you want.
+- **friction:** `zig build` output on this repo is dominated by report-only
+  checks. `repeated-string-literal` and `repeated-switch-on-enum` alone print
+  ~25 lines every single run (13 occurrences of the latter, each naming 2-7
+  files), so the one line that actually mattered — the `pub-api-surface`
+  failure — was the last line of a very long scroll. I resorted to
+  `zig build 2>&1 | grep -v '^guardian: ok:'` to find it. Suggestion: print
+  report-only findings *after* the run-all summary, or collapse them to one
+  line per check with a `--verbose`/`GUARDIAN_REPORT_DETAIL=1` opt-in for the
+  detail. The summary line should be the last thing on screen, not the middle.
+- **wish:** three different projects this session (ward, zig_genetic_cascades,
+  eda) each needed the same accept incantation, and each printed a slightly
+  different set of the three options (raw CLI / env var / build step). Only the
+  env-var form worked everywhere — `zig build guardian-accept -Dguardian-checks=…`
+  is conditional on the build wiring it, and the message says so, but you cannot
+  tell from the message whether *this* repo wired it. Listing only the forms
+  that actually work in the current project would remove a guess.
+- **good:** `zig build` on eda gates the whole tree AND runs the deploy path's
+  build, so `.githooks/deploy-prod.sh` re-gated before restarting the service —
+  a red tree cannot reach prod even via the deploy script. Same property as
+  ward's deploy.sh. Worth keeping as the documented pattern for new projects.
