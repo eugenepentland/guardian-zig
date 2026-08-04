@@ -17,6 +17,7 @@ const config_policy = @import("config_policy.zig");
 const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
+const BanRule = config.BanRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -154,7 +155,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, external };
+const ArrayKind = enum { none, boundary, allow, ban, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -165,6 +166,11 @@ const ParseState = struct {
     cur_check: ?[]const u8 = null,
     cur_paths: std.ArrayList([]const u8) = .empty,
     allows: std.ArrayList(AllowRule) = .empty,
+    cur_chain: std.ArrayList([]const u8) = .empty,
+    cur_ban_paths: std.ArrayList([]const u8) = .empty,
+    cur_ban_allow: std.ArrayList([]const u8) = .empty,
+    cur_reason: ?[]const u8 = null,
+    bans: std.ArrayList(BanRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -230,6 +236,7 @@ const ParseState = struct {
                     .paths = try self.cur_paths.toOwnedSlice(allocator),
                 });
             },
+            .ban => try self.flushBan(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -261,6 +268,28 @@ const ParseState = struct {
         }
     }
 
+    /// Closes a `[[ban]]` entry. An absent or empty `chain` is refused rather
+    /// than stored: a rule with nothing to match would sit in the config looking
+    /// like a guarantee while banning nothing at all.
+    fn flushBan(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        if (self.cur_chain.items.len == 0) {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[ban]]: 'chain' must be a non-empty string array",
+                .{},
+            );
+            return error.IncompleteTable;
+        }
+        try self.bans.append(allocator, .{
+            .chain = try self.cur_chain.toOwnedSlice(allocator),
+            .paths = try self.cur_ban_paths.toOwnedSlice(allocator),
+            .allow = try self.cur_ban_allow.toOwnedSlice(allocator),
+            .reason = self.cur_reason,
+        });
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -274,6 +303,10 @@ const ParseState = struct {
         self.cur_forbidden = .empty;
         self.cur_check = null;
         self.cur_paths = .empty;
+        self.cur_chain = .empty;
+        self.cur_ban_paths = .empty;
+        self.cur_ban_allow = .empty;
+        self.cur_reason = null;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -294,6 +327,7 @@ const ParseState = struct {
         switch (self.array_kind) {
             .boundary => try self.setBoundaryKey(allocator, kv),
             .allow => try self.setAllowKey(allocator, kv),
+            .ban => try self.setBanKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -314,6 +348,18 @@ const ParseState = struct {
         } else if (std.mem.eql(u8, kv.key, "paths")) {
             self.cur_paths = try parseStringArray(allocator, kv.val);
             self.allow_paths_set = true;
+        }
+    }
+
+    fn setBanKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "chain")) {
+            self.cur_chain = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "paths")) {
+            self.cur_ban_paths = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "allow")) {
+            self.cur_ban_allow = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = parseString(kv.val);
         }
     }
 
@@ -353,6 +399,7 @@ const ThresholdLines = struct {
 fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "boundary")) return .boundary;
     if (std.mem.eql(u8, name, "allow")) return .allow;
+    if (std.mem.eql(u8, name, "ban")) return .ban;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -381,7 +428,13 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
             try pending.append(allocator, '\n');
             try pending.appendSlice(allocator, line);
             if (startsMultilineArray(pending.items)) continue;
-            try parseLine(allocator, &cfg, &st, pending.items, pending_line, diag);
+            // Parsed strings are borrowed slices of the buffer they came from,
+            // and this one is REUSED for the next multiline value — so hand the
+            // parser a stable copy. Without it, a config with two multiline
+            // arrays silently reads the second one's bytes through the first
+            // one's slices (caught by the [[ban]] chain/paths regression test).
+            const stable = try allocator.dupe(u8, pending.items);
+            try parseLine(allocator, &cfg, &st, stable, pending_line, diag);
             pending.clearRetainingCapacity();
             continue;
         }
@@ -401,6 +454,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     try validateConfig(allocator, &cfg, &st, diag);
     cfg.boundary_rules = try st.boundaries.toOwnedSlice(allocator);
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
+    cfg.ban_rules = try st.bans.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -495,6 +549,8 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
     if (st.array_kind != .none) return switch (st.array_kind) {
         .boundary => if (key[0] == 'm') .string else .string_array,
         .allow => if (key[0] == 'c') .string else .string_array,
+        // chain / paths / allow are arrays; only `reason` is prose.
+        .ban => if (key[0] == 'r') .string else .string_array,
         .external => if (key[0] == 'n') .string else .string_array,
         .none => .string_array,
     };
@@ -583,6 +639,7 @@ fn validateValue(
     if (st.array_kind == .none and st.section == .measurement) {
         try validateMeasurementPaths(allocator, kv, line_no, diag);
     }
+    if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
 
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
@@ -623,6 +680,42 @@ fn validateMeasurementPaths(
         );
         return error.InvalidValue;
     }
+}
+
+/// Rejects a `[[ban]] chain` segment that is not a bare identifier. The scanner
+/// matches one identifier token per segment, so `chain = ["a.b"]` — the spelling
+/// everyone reaches for first — would match nothing and sit in the config
+/// looking like an enforced ban. Failing closed here is the difference between a
+/// typo and a silently absent gate.
+fn validateBanChain(
+    allocator: Allocator,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (!std.mem.eql(u8, kv.key, "chain")) return;
+    for (try toStrings(allocator, kv.val)) |segment| {
+        if (isIdentifier(segment)) continue;
+        try setDiag(
+            allocator,
+            diag,
+            line_no,
+            "invalid ban chain segment '{s}' (one identifier per segment: chain = [\"a\", \"b\"] bans a.b)",
+            .{segment},
+        );
+        return error.InvalidValue;
+    }
+}
+
+/// True when `text` is a bare Zig identifier (leading letter or `_`, then
+/// letters, digits, or `_`).
+fn isIdentifier(text: []const u8) bool {
+    if (text.len == 0) return false;
+    if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return false;
+    for (text[1..]) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
+    }
+    return true;
 }
 
 /// True when `path` is a plain project-relative file or directory reference —
@@ -733,11 +826,13 @@ fn validSectionKeys(section: Section) []const []const u8 {
     };
 }
 
-/// Keys accepted inside a `[[boundary]]` / `[[allow]]` array-of-tables entry.
+/// Keys accepted inside a `[[boundary]]` / `[[allow]]` / `[[ban]]` /
+/// `[[external]]` array-of-tables entry.
 fn validArrayKeys(kind: ArrayKind) []const []const u8 {
     return switch (kind) {
         .boundary => &.{ "module", "forbidden" },
         .allow => &.{ "check", "paths" },
+        .ban => &.{ "chain", "paths", "allow", "reason" },
         .external => &.{ "name", "command", "inputs" },
         .none => &.{},
     };
@@ -1365,6 +1460,94 @@ test "parse rejects incomplete array tables at their header" {
         try std.testing.expectEqual(@as(u32, 1), diag.line);
         try std.testing.expect(std.mem.indexOf(u8, diag.message, "incomplete") != null);
     }
+}
+
+// spec: Ban - Parses ban entries with chain, paths, allow, and reason keys
+
+test "parse ban array tables with every key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[ban]]
+        \\chain = ["optimizer", "placeFromPoses"]
+        \\paths = ["src/serve/*"]
+        \\allow = ["src/serve/route_seed.zig"]
+        \\reason = "call through RouteSeed instead"
+        \\
+        \\[[ban]]
+        \\chain = ["gethostbyname"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.ban_rules.len);
+    try std.testing.expectEqual(@as(usize, 2), cfg.ban_rules[0].chain.len);
+    try std.testing.expectEqualStrings("placeFromPoses", cfg.ban_rules[0].chain[1]);
+    try std.testing.expectEqualStrings("src/serve/*", cfg.ban_rules[0].paths[0]);
+    try std.testing.expectEqualStrings("src/serve/route_seed.zig", cfg.ban_rules[0].allow[0]);
+    try std.testing.expectEqualStrings("call through RouteSeed instead", cfg.ban_rules[0].reason.?);
+    // The optional keys default to "everywhere, no exemptions, no reason".
+    try std.testing.expectEqual(@as(usize, 0), cfg.ban_rules[1].paths.len);
+    try std.testing.expectEqual(@as(usize, 0), cfg.ban_rules[1].allow.len);
+    try std.testing.expectEqual(@as(?[]const u8, null), cfg.ban_rules[1].reason);
+}
+
+// spec: Ban - Parses a multiline ban chain array with comments and trailing commas
+
+test "parse a ban chain spread over several lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // A multiline array that silently parsed EMPTY would be the worst failure
+    // this check can have: a rule that reads as an enforced ban while matching
+    // nothing. Pin the multiline path for [[ban]] specifically.
+    const cfg = try parse(arena.allocator(),
+        \\[[ban]]
+        \\chain = [
+        \\  "optimizer", # the module
+        \\  "placeFromPoses",
+        \\]
+        \\paths = [
+        \\  "src/serve/*",
+        \\  "src/api/*",
+        \\]
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.ban_rules.len);
+    try std.testing.expectEqual(@as(usize, 2), cfg.ban_rules[0].chain.len);
+    try std.testing.expectEqualStrings("optimizer", cfg.ban_rules[0].chain[0]);
+    try std.testing.expectEqualStrings("placeFromPoses", cfg.ban_rules[0].chain[1]);
+    try std.testing.expectEqual(@as(usize, 2), cfg.ban_rules[0].paths.len);
+    try std.testing.expectEqualStrings("src/api/*", cfg.ban_rules[0].paths[1]);
+}
+
+// spec: Ban - Hard-fails a ban entry whose chain is missing or empty
+
+test "parse rejects a ban entry with nothing to match" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_][]const u8{
+        "[[ban]]\npaths = [\"src/*\"]",
+        "[[ban]]\nchain = []\nreason = \"nothing here\"",
+    };
+    for (cases) |content| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(error.IncompleteTable, parseInto(arena.allocator(), content, &diag));
+        try std.testing.expectEqual(@as(u32, 1), diag.line);
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, "chain") != null);
+    }
+}
+
+// spec: Ban - Hard-fails a ban chain segment that is not a bare identifier
+
+test "parse rejects a dotted ban chain segment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // The spelling everyone tries first. It would match no token sequence at
+    // all, so it fails closed and says how to split it.
+    const content =
+        \\[[ban]]
+        \\chain = ["optimizer.placeFromPoses"]
+    ;
+    try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "one identifier per segment") != null);
 }
 
 test "parse rejects unsafe mutation invariants" {

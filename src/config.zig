@@ -20,6 +20,24 @@ pub const AllowRule = struct {
     paths: []const []const u8 = &.{},
 };
 
+/// One [[ban]] entry — a symbol chain THIS project forbids, enforced by the
+/// `ban` check. `chain` is the dotted token sequence to reject (`["optimizer",
+/// "placeFromPoses"]` bans `optimizer.placeFromPoses`); `paths` scopes where the
+/// ban applies (empty = the whole source tree); `allow` exempts paths inside
+/// that scope (the sanctioned wrapper's own file); `reason` names what to reach
+/// for instead and is appended to every violation.
+///
+/// The compiled ban-* checks encode Guardian's architectural opinions, so a
+/// project could never ban a symbol of its own — a third-party API, or a
+/// cross-layer call that must route through a wrapper. These entries are that
+/// missing config-side path.
+pub const BanRule = struct {
+    chain: []const []const u8,
+    paths: []const []const u8 = &.{},
+    allow: []const []const u8 = &.{},
+    reason: ?[]const u8 = null,
+};
+
 /// One project-defined command that participates in Guardian's `all` gate.
 /// `command` is an argv array (no shell interpolation); `inputs` are exact
 /// project-relative files mixed into the green-run cache digest so a changed
@@ -524,6 +542,9 @@ pub const Config = struct {
     external_gates: []const ExternalGate = &.{},
     /// [[allow]] entries: per-check allowed-path overrides (see AllowRule).
     allow_rules: []const AllowRule = &.{},
+    /// [[ban]] entries: project-declared banned symbol chains (see BanRule).
+    /// Empty (the default) makes the `ban` check a trivial pass.
+    ban_rules: []const BanRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.

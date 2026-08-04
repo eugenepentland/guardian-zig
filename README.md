@@ -310,10 +310,11 @@ discoverable only by reading the check's source.
 | **oom-discipline** *(opt-in)* | A swallowing `catch` on an allocating call that conflates `OutOfMemory` with "not found" |
 
 ### Hidden Dependency Bans (Tier 1)
-Every nondeterminism source must be injected, not acquired. Each check ships with the FRAMEWORK.md symbol list baked in.
+Every nondeterminism source must be injected, not acquired. Each check ships with the FRAMEWORK.md symbol list baked in — except `ban`, whose rules are yours.
 
 | Check | Blocks on |
 |---|---|
+| **ban** *(configured)* | A symbol chain named by a `[[ban]]` entry, used inside that rule's `paths` and outside its `allow`. The project's own bans, on the same engine as the checks below: `chain = ["optimizer", "placeFromPoses"]` bans `optimizer.placeFromPoses`, `paths` scopes where (omit = the whole tree), `allow` exempts the sanctioned wrapper, and `reason` names the alternative and closes every violation. No entries = a trivial pass. Matching is textual over identifier tokens with no alias resolution: any *reference* counts (not just calls), a chain in a string/comment never does, and uses in `test {…}` / `pub fn main` are allowed — same as every ban-* check. Exempt a file from all rules with `[[allow]] check = "ban"` |
 | **ban-time** | `std.time.timestamp` / `nanoTimestamp` / `Instant.now` etc. outside `infra/clock` |
 | **ban-rng** | `std.crypto.random` / `std.Random.DefaultPrng.init` outside `infra/random` |
 | **ban-fs** | `std.fs.cwd` / `openFileAbsolute` etc. outside `infra/fs` |
@@ -679,7 +680,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 72 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 73 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1149,6 +1150,19 @@ deny_growth = ["spec"]
 [[allow]]
 check = "ban-fs"
 paths = ["src/infra/persistence/*"]
+
+# Your own bans, enforced by the `ban` check on the ban-family engine. Use one
+# when a call must route through a wrapper and the callee's signature isn't
+# yours to change (a non-defaulted struct field is the better trick when it is).
+# chain: one identifier per segment — this bans `optimizer.placeFromPoses`.
+# paths: where the ban applies (omit for the whole tree). allow: exempt paths,
+# typically the sanctioned wrapper itself. reason: what to use instead — it ends
+# every violation message, and is the half worth reading.
+[[ban]]
+chain = ["optimizer", "placeFromPoses"]
+paths = ["src/serve/*"]
+allow = ["src/serve/route_seed.zig"]
+reason = "call through RouteSeed instead"
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
@@ -1160,16 +1174,17 @@ commit, nightly, or mutation can update metadata.
 ### Complete key reference
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
-unknown names, malformed values, incomplete `[[boundary]]`/`[[allow]]` entries,
-and unsafe mutation ranges are hard errors with a `guardian.toml:line:`
-diagnostic). String arrays may span lines and include comments and trailing
-commas.
+unknown names, malformed values, incomplete `[[boundary]]`/`[[allow]]`/`[[ban]]`
+entries, a `[[ban]]` chain segment that isn't a bare identifier, and unsafe
+mutation ranges are hard errors with a `guardian.toml:line:` diagnostic). String
+arrays may span lines and include comments and trailing commas.
 
 | Scope | Keys |
 |---|---|
 | *(top level)* | `spec_file`, `max_file_lines`, `hard_max_file_lines`, `cache_enabled`, `parallel`, `file_size_exclude`, `exclude`, `disabled`, `required_inputs` |
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
+| `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
 | `[[external]]` | `name`, `command`, `inputs` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1346,9 +1361,9 @@ guardian-check version               # Print the guardian version (also --versio
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 68 check(s) passed
-  run-all: 68 checks — 0 blocking, 3 report-only
-  run-all: 2/68 failed (type-size, naming) — 3 report-only
+  run-all: 70 check(s) passed
+  run-all: 70 checks — 0 blocking, 3 report-only
+  run-all: 2/70 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```
 

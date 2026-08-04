@@ -186,6 +186,13 @@ install_hook = true          # commit auto-installs the blocking pre-commit hook
 [[boundary]]
 module = "src/core/*"
 forbidden = ["utils"]
+
+# Your own banned symbols, enforced by the `ban` check (no entries = trivial pass)
+[[ban]]
+chain = ["optimizer", "placeFromPoses"]   # one identifier per segment
+paths = ["src/serve/*"]                   # omit for the whole tree
+allow = ["src/serve/route_seed.zig"]      # the sanctioned wrapper itself
+reason = "call through RouteSeed instead" # ends every violation message
 ```
 
 ### Pattern syntax
@@ -241,7 +248,7 @@ readable only in `src/checks/completeness.zig`.
 
 ## What Guardian Checks
 
-69 checks gate the build (most hard-block; completeness/test-coverage/
+70 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
 off; one of them, stdout-flush, is report-only by default — it runs in `all`
 but never fails the build unless `[stdout_flush] enabled = true` promotes it to a
@@ -250,7 +257,7 @@ the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
 `zig fmt --check` build step. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command, and the `debt` report (72 registry entries total;
+command, and the `debt` report (73 registry entries total;
 `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -292,9 +299,9 @@ exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
 never comes up empty and can never be confused with "the pattern was wrong":
 
 ```
-run-all: 69 check(s) passed                                  # green
-run-all: 69 checks — 0 blocking, N report-only               # green, demoted findings
-run-all: 2/69 failed (type-size, …) — 3 report-only          # blocking
+run-all: 70 check(s) passed                                  # green
+run-all: 70 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 2/70 failed (type-size, …) — 3 report-only          # blocking
 run-all: cached — 0 blocking (inputs unchanged since last green run)
 ```
 
