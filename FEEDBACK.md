@@ -2733,3 +2733,37 @@ in the same commit); nothing to fight.
   review before accepting, so I always have to re-run with `--only` to see it.
   A `--verbose`/`--full-findings` flag (or just not truncating the snapshot
   checks, whose findings are one short line each) would save the second run.
+
+## 2026-08-04 · claude · eda — connectivity-oracle + DRC hole fixes (via↔via, pad↔board-edge)
+- **good:** three blocking checks fired on the first filtered run and every one
+  of them improved the design. `cognitive-complexity` on `buildNetGraph` (26
+  points after adding one nested loop) pushed the via↔via union out into a named
+  `uniteViaOverlaps` that now sits beside the `unitePadOverlaps` it mirrors —
+  the two touch rules read as a pair instead of one being a helper and the other
+  an inline loop. `type-size` on an 8th `NetGraph` field pushed the new
+  `coarsened` bool and the existing `plane_nodes` slice into one nested
+  `PlaneJoin`, which is genuinely the right grouping (both describe the same
+  pour-verdict). `pub-api-surface` then flagged that nested struct as new public
+  API, which was the nudge to notice it never needed to be `pub` at all — Zig
+  lets a pub struct carry a private field type, so `const PlaneJoin` kept the
+  surface flat and cleared the check with no snapshot accept.
+- **good:** the counting test runner earned its keep twice. `-Dtest-filter="dirtyDesignsForPath resolves a nested"` reported
+  `0 match by name` and FAILED instead of exiting green — that zero-match guard
+  is what stopped me concluding an unrelated test was broken.
+- **friction:** a genuine test failure deep in a 6-minute `zig build test` is
+  reported twice and the two reports disagree. The real failure
+  (`placement.router.test.quarter-pitch pass …`) printed at line 318 of the run;
+  the assertion text (`expected 0, found 2`) printed 60 lines later at 380,
+  interleaved with unrelated `[W]` design warnings from other tests; and the
+  build system's own line said `while executing test 'serve.vfs.test.dirtyDesignsForPath …'`
+  — a *different, passing* test that merely happened to be running when the
+  process died. I spent a full extra filtered run (plus a near-miss decision to
+  stash and bisect) chasing the misattributed name. If the counting runner
+  buffered each test's stderr and printed `FAIL <name>` immediately followed by
+  that test's own output, the failure would be one contiguous block.
+- **wish:** a `--only` gate run that reports blocking checks would be much more
+  useful if it could also answer "which existing tests assert on the output I
+  just changed". Adding one DRC rule broke exactly one of 1943 tests, and the
+  only way to find it was the full 6-minute suite; a check that mapped touched
+  `pub fn`s to the test names that call them (guardian already parses both)
+  would turn that into a targeted filter.
