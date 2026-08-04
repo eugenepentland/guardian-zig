@@ -111,7 +111,9 @@ guardian-check all . --summary       # verdict line + blocking detail only (advi
 guardian-check all . --verbose       # replay every check in full (overrides --summary and scope-collapse)
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
+guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps + frozen ratchet ceilings
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
+guardian-check debt . --current      # + each ratcheted key's current value vs its ceiling (re-parses the tree)
 guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)

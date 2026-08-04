@@ -801,3 +801,22 @@ without an explained `--force`.
 - Defaults the roots to src/main.zig, src/root.zig, and each .zig directly under test/
 - Uses the configured roots and drops any that name no graphed file
 - Skips the scan when no test root resolves
+
+## size introspection
+
+- Measures a file's ratcheted metrics with the checks' own measurement code
+- Skips a disabled or excluded check when measuring a file
+- Classifies a measured value against its frozen ceiling
+- Looks up a frozen ceiling by the gate's own ratchet key
+- Reads a check's frozen ceilings and tolerates a missing ratchet
+- Names the ratchets it cannot measure without re-implementing them
+- Resolves a requested path to the walker path the checks use
+- Prints every ratcheted item and the largest unratcheted one
+- Reports a measured value against its ceiling with the headroom left
+- Renders one cap for a single-limit check and both tiers otherwise
+- Reports no ceiling section for a project that has accepted no debt
+- Summarizes each ratchet as keys with headroom, at ceiling, and over
+- Prints each ratchet's headroom split and its stuck keys
+- Renders a ratcheted key's current value against its ceiling
+- Warns that accepting a grown ratchet key raises a frozen ceiling
+- Parses the size target path and the debt current flag

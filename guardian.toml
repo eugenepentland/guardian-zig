@@ -34,7 +34,9 @@ exclude = ["config.zig", "cli/types.zig", "reporter.zig"]
 # the check bite on Guardian itself: every file with a `test` block must be
 # reachable from check.zig's aggregator, or its tests never compile.
 [test_reachability]
-roots = ["src/check.zig"]
+# test_runner.zig is its own test root: build.zig compiles it as a second test
+# binary (a runner file cannot also be imported by the module under test).
+roots = ["src/check.zig", "src/test_runner.zig"]
 
 # magic-number is opt-in (off by default) because it's pure noise in literal-heavy
 # domains. Guardian's own code passes it, so enable it here to keep dogfooding.
