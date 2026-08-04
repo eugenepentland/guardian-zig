@@ -4,14 +4,24 @@
 //! one-line summary is pulled from the registry; the prose lives here as a
 //! name→text table so registry.zig stays lean.
 //!
+//! `explain completeness --section <name>` is the one data-driven variant: it
+//! answers "what would this `## ` section need?" against the CURRENT SPEC.md,
+//! so adding a new section stops being a guess that costs a whole build to
+//! verify. It reads, never writes, and is not a gate.
+//!
 //! Dispatched specially by check.zig (never a gate), so it may import the
 //! registry without forming a cycle. Every registered command must have an
 //! entry here — a unit test walks the registry and fails on any gap.
 
 const std = @import("std");
 const registry = @import("registry.zig");
+const completeness = @import("../checks/completeness.zig");
 
 const print = std.debug.print;
+
+/// The check whose `--section` dry run is implemented; naming it once keeps the
+/// argument rejection and the dispatch from drifting apart.
+const section_check = "completeness";
 
 /// One check's long-form explanation, keyed by its registry name.
 const Entry = struct {
@@ -129,7 +139,13 @@ const entries = [_]Entry{
     \\Fix: for each `## ` feature section in SPEC.md, add a `- ` bullet whose
     \\prose addresses each of the 8 categories (the 1:1 map then forces a test),
     \\or waive one explicitly: `- completeness-waiver: <category> (<reason>)`
-    \\with a non-empty reason.
+    \\with a non-empty reason. A bullet addresses a category when its prose
+    \\contains any one of that category's keywords, listed below.
+    \\Dry run: `guardian-check explain completeness --section "<name>" [dir]`
+    \\prints that section's standing against the CURRENT SPEC.md — which
+    \\categories are already addressed, which are waived, and which are still
+    \\missing — or, for a section that does not exist yet, the paste-ready
+    \\skeleton. Adding a new `## ` section no longer costs a build to verify.
     \\Exempt: off unless `[completeness] enabled = true`; list non-feature
     \\sections (Overview, Changelog) in `[completeness] exempt_sections`.
     },
@@ -724,22 +740,169 @@ fn listAll() void {
     print(" test-filter, accept, size, version\n", .{});
 }
 
-/// Runs the explain command. `query` is the check name (null lists everything).
-/// Returns false only when a non-empty name was given but is unknown, so the
-/// caller can exit non-zero; true otherwise.
-pub fn run(query: ?[]const u8) bool {
-    if (query) |name| {
-        if (!resolves(name)) {
-            print("unknown check: {s}\n\n", .{name});
-            listAll();
-            return false;
-        }
-        print("{s} — {s}\n\n", .{ name, registry.summaryFor(name).? });
-        print("{s}\n", .{lookup(name).?});
+/// What `explain` was asked for. Everything but `name` exists for the
+/// `--section` dry run, which is the only variant that reads project state.
+pub const Query = struct {
+    /// The check name; null lists every command.
+    name: ?[]const u8 = null,
+    /// `--section <name>`: report that SPEC.md section's completeness standing.
+    section: ?[]const u8 = null,
+    /// Directory the dry run resolves the spec file against.
+    project_dir: []const u8 = ".",
+    /// `spec_file` from guardian.toml (defaults are fine when it is unreadable).
+    spec_file: []const u8 = "SPEC.md",
+    /// `[completeness] exempt_sections` — a listed section needs no categories.
+    exempt: []const []const u8 = &.{},
+};
+
+/// Runs the explain command. Returns false only when the request cannot be
+/// answered (an unknown check name, or `--section` on a check that has no
+/// section report), so the caller can exit non-zero; true otherwise.
+pub fn run(allocator: std.mem.Allocator, query: Query) bool {
+    const name = query.name orelse {
+        if (query.section != null) return sectionNeedsCheck();
+        listAll();
         return true;
+    };
+    if (!resolves(name)) {
+        print("unknown check: {s}\n\n", .{name});
+        listAll();
+        return false;
     }
-    listAll();
+    if (query.section) |section| return printSectionReport(allocator, name, section, query);
+    print("{s} — {s}\n\n", .{ name, registry.summaryFor(name).? });
+    print("{s}\n", .{lookup(name).?});
+    if (std.mem.eql(u8, name, section_check)) printKeywordTable();
     return true;
+}
+
+/// The `--section` flag with no check named: say which check owns it rather
+/// than silently listing every command.
+fn sectionNeedsCheck() bool {
+    print("--section needs a check name: guardian-check explain {s} --section \"<name>\" [dir]\n", .{section_check});
+    return false;
+}
+
+/// The category → keyword table, printed straight from the check's own table so
+/// the documented keywords can never drift from the matched ones. This is the
+/// answer to "which words count as addressing a category", which four consumer
+/// sessions could previously get only by reading the check's source.
+fn printKeywordTable() void {
+    print("\nCategories, and the keywords a bullet may contain to address one:\n\n", .{});
+    for (completeness.categories) |cat| {
+        print("  {s: <22}", .{cat.name});
+        for (cat.keywords, 0..) |kw, i| {
+            if (i > 0) print(" | ", .{});
+            print("{s}", .{kw});
+        }
+        print("\n", .{});
+    }
+    print("\n  Matching is case-insensitive substring, so \"overflow\" is addressed by\n", .{});
+    print("  \"Saturates instead of overflowing\" as well as by \"integer overflow\".\n", .{});
+}
+
+/// Prints one SPEC.md section's completeness standing (or its skeleton). Only
+/// `completeness` has a section report; any other check says so and fails.
+fn printSectionReport(
+    allocator: std.mem.Allocator,
+    name: []const u8,
+    section: []const u8,
+    query: Query,
+) bool {
+    if (!std.mem.eql(u8, name, section_check)) {
+        print("--section is only meaningful for `{s}` (asked for `{s}`)\n", .{ section_check, name });
+        return false;
+    }
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sections = readSections(a, query) orelse {
+        print("cannot read {s}/{s} — run from the project root, or pass the directory\n", .{ query.project_dir, query.spec_file });
+        return false;
+    };
+    const report = completeness.reportSection(a, sections, query.exempt, section) catch {
+        print("out of memory building the section report\n", .{});
+        return false;
+    };
+    printReportHeader(report, query.spec_file);
+    if (report.present) printPresentSection(report) else printSkeleton(report);
+    printKeywordTable();
+    return true;
+}
+
+/// Reads the spec's feature sections, collapsing both "unreadable" outcomes
+/// (missing file, OOM) to null — the caller prints one actionable message.
+fn readSections(a: std.mem.Allocator, query: Query) ?[]const completeness.FeatureSection {
+    return completeness.readFeatureSections(a, query.project_dir, query.spec_file) catch null;
+}
+
+fn printReportHeader(report: completeness.SectionReport, spec_file: []const u8) void {
+    const total = completeness.categories.len;
+    if (!report.present) {
+        print("completeness --section \"{s}\" — no such `## ` heading in {s} yet.\n", .{ report.name, spec_file });
+        print("A new section starts at 0/{d} categories; here is the skeleton that satisfies it.\n\n", .{total});
+        return;
+    }
+    print("completeness --section \"{s}\" — {d}/{d} categories satisfied in {s}\n", .{
+        report.name,
+        report.satisfied(),
+        total,
+        spec_file,
+    });
+    if (report.exempt) print(
+        "This section is in `[completeness] exempt_sections`, so the gate skips it entirely.\n",
+        .{},
+    );
+    print("\n", .{});
+}
+
+/// Per-category standing for a section that exists, each line carrying the
+/// evidence: the bullet that matched, the waiver's reason, or the keywords that
+/// would satisfy it.
+fn printPresentSection(report: completeness.SectionReport) void {
+    var missing: usize = 0;
+    for (report.categories) |c| {
+        switch (c.state) {
+            .addressed => |bullet| print("  ok       {s: <22} bullet: {s}\n", .{ c.category.name, bullet }),
+            .waived => |reason| print("  waived   {s: <22} reason: {s}\n", .{ c.category.name, reason }),
+            .waiver_no_reason => {
+                missing += 1;
+                print("  NEEDS    {s: <22} waiver has no (reason) — add one\n", .{c.category.name});
+            },
+            .missing => {
+                missing += 1;
+                print("  MISSING  {s: <22} add a bullet with one of its keywords, or waive it\n", .{c.category.name});
+            },
+        }
+    }
+    if (missing == 0) {
+        print("\nThis section would pass the completeness gate as written.\n", .{});
+        return;
+    }
+    print("\nAdd one line per MISSING category — a real bullet, or a reasoned waiver:\n\n", .{});
+    printWaiverLines(report, .missing_only);
+}
+
+/// The paste-ready skeleton for a section that does not exist yet: the heading
+/// plus one waiver line per category, every reason left as a placeholder so the
+/// author must replace what they can actually address.
+fn printSkeleton(report: completeness.SectionReport) void {
+    print("  ## {s}\n", .{report.name});
+    print("  - <the behaviour this section is actually about>\n", .{});
+    printWaiverLines(report, .all);
+    print("\nReplace each waiver you can genuinely address with a `- ` bullet containing\n", .{});
+    print("one of that category's keywords; a waiver's `(reason)` may not be empty.\n", .{});
+}
+
+/// Whether the waiver skeleton covers every category or only the unsatisfied ones.
+const WaiverScope = enum { all, missing_only };
+
+fn printWaiverLines(report: completeness.SectionReport, scope: WaiverScope) void {
+    for (report.categories) |c| {
+        const unsatisfied = c.state == .missing or c.state == .waiver_no_reason;
+        if (scope == .missing_only and !unsatisfied) continue;
+        print("  - {s} {s} (<why this section cannot hit it>)\n", .{ completeness.waiver_prefix, c.category.name });
+    }
 }
 
 // spec: Explain - Returns the explanation text for a registered check name
@@ -775,6 +938,19 @@ test "registry.summaryFor covers checks and meta commands" {
     try std.testing.expect(registry.summaryFor("commit") != null); // a meta command
     try std.testing.expect(registry.summaryFor("nightly") != null); // a meta command
     try std.testing.expect(registry.summaryFor("not-a-command") == null);
+}
+
+// spec: Completeness Reporting - Refuses a section query aimed at a check with no section report
+
+test "a section query resolves only for the completeness check" {
+    // Asking any other check for a section report is a mistake worth naming:
+    // silently printing that check's prose instead would look like an answer.
+    try std.testing.expect(!run(std.testing.allocator, .{ .name = "spec", .section = "Widgets" }));
+    // ...and `--section` with no check named says which check owns the flag.
+    try std.testing.expect(!run(std.testing.allocator, .{ .section = "Widgets" }));
+    // The keyword table is the completeness explain's own data, so the check
+    // that owns `--section` is the one whose categories are documented.
+    try std.testing.expect(completeness.categories.len > 0);
 }
 
 // spec: Explain - Documents the commit meta command

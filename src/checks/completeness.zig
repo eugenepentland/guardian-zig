@@ -27,14 +27,19 @@ const max_spec_bytes = 1024 * 1024;
 /// One required scenario category: its canonical name (shown in violations and
 /// matched in a waiver) and the lowercase keyword set that counts as addressing
 /// it in a bullet's prose.
-const Category = struct {
+///
+/// Public because the keyword sets were previously discoverable only by reading
+/// this file: four consumer sessions reported "the completeness keyword lists
+/// are undiscoverable", so `explain completeness` now prints the table straight
+/// from here — one source of truth, no hand-copied documentation to drift.
+pub const Category = struct {
     name: []const u8,
     keywords: []const []const u8,
 };
 
 /// The 8 categories, mirroring the Gleam/Rust guardians' set (adapted to
 /// free-form Zig SPEC prose via a small synonym set per category).
-const categories = [_]Category{
+pub const categories = [_]Category{
     .{
         .name = "empty inputs",
         .keywords = &.{ "empty", "no input", "zero-length", "zero length", "blank" },
@@ -77,10 +82,14 @@ pub const FeatureSection = struct {
 };
 
 /// A parsed `completeness-waiver:` bullet: the category it names (trimmed) and
-/// whether it supplied a non-empty `(reason)`.
+/// the `(reason)` it gave (empty when absent — the check then fails it).
 const Waiver = struct {
     category: []const u8,
-    has_reason: bool,
+    reason: []const u8,
+
+    fn hasReason(self: Waiver) bool {
+        return self.reason.len > 0;
+    }
 };
 
 /// Whether a category is covered, missing, or waived without the required reason.
@@ -164,8 +173,96 @@ fn checkSection(
 }
 
 fn categoryStatus(sec: FeatureSection, waivers: []const Waiver, cat: Category) CategoryStatus {
-    if (waiverFor(waivers, cat.name)) |w| return if (w.has_reason) .addressed else .waiver_no_reason;
-    if (mentionsCategory(sec.bullets, cat)) return .addressed;
+    return switch (categoryState(sec, waivers, cat)) {
+        .addressed, .waived => .addressed,
+        .waiver_no_reason => .waiver_no_reason,
+        .missing => .missing,
+    };
+}
+
+/// Why a category counts as satisfied in a section — or why it does not. The
+/// gate only needs the three-way verdict above; the `explain --section` report
+/// needs the evidence, and deriving both from one function is what keeps the
+/// dry-run's answer identical to the gate's.
+pub const CategoryState = union(enum) {
+    /// A non-waiver bullet whose prose carries one of the category's keywords.
+    addressed: []const u8,
+    /// A `completeness-waiver:` bullet with this reason.
+    waived: []const u8,
+    /// A waiver bullet with no `(reason)` — a violation, not a pass.
+    waiver_no_reason,
+    /// Neither a matching bullet nor a waiver.
+    missing,
+};
+
+/// One category's standing in one section.
+pub const CategoryReport = struct {
+    category: Category,
+    state: CategoryState,
+};
+
+/// A whole section's completeness standing: what the gate would say about it
+/// *now*, without running the gate. `present` is false when SPEC.md has no such
+/// heading — the case that made adding a new `## ` section feel risky, since a
+/// new section starts with all 8 categories uncovered and the only way to learn
+/// whether the waivers landed was a full build.
+pub const SectionReport = struct {
+    name: []const u8,
+    present: bool,
+    exempt: bool,
+    categories: []const CategoryReport,
+
+    /// How many categories the gate would accept (addressed or reasoned-waiver).
+    pub fn satisfied(self: SectionReport) usize {
+        var n: usize = 0;
+        for (self.categories) |c| {
+            switch (c.state) {
+                .addressed, .waived => n += 1,
+                else => {},
+            }
+        }
+        return n;
+    }
+};
+
+/// The completeness standing of the section named `name` in `sections`.
+/// A section that does not exist yet reports every category `missing` with
+/// `present = false`, which is exactly the state it would be created in.
+pub fn reportSection(
+    arena: Allocator,
+    sections: []const FeatureSection,
+    exempt: []const []const u8,
+    name: []const u8,
+) Allocator.Error!SectionReport {
+    const found = findSection(sections, name);
+    const sec = found orelse FeatureSection{ .name = name, .bullets = &.{} };
+    const waivers = try collectWaivers(arena, sec);
+    const reports = try arena.alloc(CategoryReport, categories.len);
+    for (categories, 0..) |cat, i| {
+        reports[i] = .{ .category = cat, .state = categoryState(sec, waivers, cat) };
+    }
+    return .{
+        .name = sec.name,
+        .present = found != null,
+        .exempt = inList(exempt, sec.name),
+        .categories = reports,
+    };
+}
+
+/// The section named `name`, matched exactly first so the gate's own (exact)
+/// naming wins, then case-insensitively so a mistyped heading reads as "here is
+/// its standing" rather than "no such section".
+fn findSection(sections: []const FeatureSection, name: []const u8) ?FeatureSection {
+    for (sections) |s| if (std.mem.eql(u8, s.name, name)) return s;
+    for (sections) |s| if (std.ascii.eqlIgnoreCase(s.name, name)) return s;
+    return null;
+}
+
+fn categoryState(sec: FeatureSection, waivers: []const Waiver, cat: Category) CategoryState {
+    if (waiverFor(waivers, cat.name)) |w| {
+        return if (w.hasReason()) .{ .waived = w.reason } else .waiver_no_reason;
+    }
+    if (bulletMentioning(sec.bullets, cat)) |bullet| return .{ .addressed = bullet };
     return .missing;
 }
 
@@ -185,11 +282,11 @@ fn parseWaiver(statement: []const u8) ?Waiver {
     if (!isWaiver(statement)) return null;
     const rest = std.mem.trim(u8, statement[waiver_prefix.len..], &std.ascii.whitespace);
     const open = std.mem.indexOfScalar(u8, rest, '(') orelse
-        return .{ .category = rest, .has_reason = false };
+        return .{ .category = rest, .reason = "" };
     const category = std.mem.trim(u8, rest[0..open], &std.ascii.whitespace);
     const close = std.mem.indexOfScalarPos(u8, rest, open + 1, ')') orelse rest.len;
     const reason = std.mem.trim(u8, rest[open + 1 .. close], &std.ascii.whitespace);
-    return .{ .category = category, .has_reason = reason.len > 0 };
+    return .{ .category = category, .reason = reason };
 }
 
 /// True when a bullet is a completeness-waiver line (case-insensitive prefix).
@@ -204,21 +301,35 @@ fn waiverFor(waivers: []const Waiver, cat_name: []const u8) ?Waiver {
     return null;
 }
 
-/// True when a non-waiver bullet's prose contains any of the category's
-/// keywords (case-insensitive).
-fn mentionsCategory(bullets: []const []const u8, cat: Category) bool {
+/// The first non-waiver bullet whose prose contains any of the category's
+/// keywords (case-insensitive), or null when none does. Returning the bullet
+/// rather than a bool is what lets the section report show its evidence.
+fn bulletMentioning(bullets: []const []const u8, cat: Category) ?[]const u8 {
     for (bullets) |b| {
         if (isWaiver(b)) continue;
         for (cat.keywords) |kw| {
-            if (std.ascii.indexOfIgnoreCase(b, kw) != null) return true;
+            if (std.ascii.indexOfIgnoreCase(b, kw) != null) return b;
         }
     }
-    return false;
+    return null;
 }
 
 fn inList(list: []const []const u8, name: []const u8) bool {
     for (list) |s| if (std.mem.eql(u8, s, name)) return true;
     return false;
+}
+
+/// Reads and splits the project's spec into feature sections, or null when the
+/// file cannot be read. The one filesystem entry point the `explain --section`
+/// dry run needs, kept here so the reader and the gate parse identically.
+pub fn readFeatureSections(
+    arena: Allocator,
+    project_dir: []const u8,
+    spec_file: []const u8,
+) Allocator.Error!?[]const FeatureSection {
+    const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, spec_file });
+    const content = std.fs.cwd().readFileAlloc(arena, path, max_spec_bytes) catch return null;
+    return try parseFeatureSections(arena, content);
 }
 
 /// Entry point for the completeness check. Opt-in: a no-op ok report unless
@@ -373,6 +484,65 @@ test "analyze skips an exempt section entirely" {
     const sections = try parseFeatureSections(a, "## Changelog\n- released v1\n");
     const out = try analyze(a, sections, &.{"Changelog"});
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Completeness Reporting - Reports which categories a section satisfies and the evidence for each
+
+test "reportSection shows the bullet, the waiver reason, and what is still missing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const spec =
+        \\## Sync
+        \\- Rejects an empty request body
+        \\- completeness-waiver: concurrent access (single-threaded CLI)
+        \\- completeness-waiver: panic-free
+    ;
+    const sections = try parseFeatureSections(a, spec);
+    const report = try reportSection(a, sections, &.{}, "Sync");
+    try std.testing.expect(report.present);
+    try std.testing.expect(!report.exempt);
+    // Addressed and reasoned-waiver both count; the reasonless waiver does not.
+    try std.testing.expectEqual(@as(usize, 2), report.satisfied());
+    // Each line carries its evidence, which is what makes the dry run
+    // actionable instead of merely a pass/fail echo of the gate.
+    try std.testing.expectEqualStrings("Rejects an empty request body", report.categories[0].state.addressed);
+    try std.testing.expectEqualStrings("single-threaded CLI", report.categories[4].state.waived);
+    try std.testing.expect(report.categories[7].state == .waiver_no_reason);
+    try std.testing.expect(report.categories[6].state == .missing);
+}
+
+// spec: Completeness Reporting - Reports a section absent from the spec as needing every category
+
+test "reportSection describes a not-yet-written section as zero of eight" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sections = try parseFeatureSections(a, "## Existing\n- addresses empty inputs\n");
+    // The friction this removes: a new `## ` section starts fully uncovered and
+    // the only way to learn that was to run the whole build.
+    const report = try reportSection(a, sections, &.{}, "Brand New");
+    try std.testing.expect(!report.present);
+    try std.testing.expectEqual(@as(usize, 0), report.satisfied());
+    try std.testing.expectEqual(categories.len, report.categories.len);
+    // An exempt section is reported as exempt rather than as work to do.
+    const skipped = try reportSection(a, sections, &.{"Existing"}, "Existing");
+    try std.testing.expect(skipped.exempt);
+}
+
+// spec: Completeness Reporting - Treats an unreadable spec file as an absent section report
+
+test "readFeatureSections parses the project spec and returns null when it is missing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The repo's own spec is readable and has feature sections.
+    const present = try readFeatureSections(a, ".", "SPEC.md");
+    try std.testing.expect(present != null);
+    try std.testing.expect(present.?.len > 0);
+    // A directory with no spec reads as null, so the caller prints one
+    // actionable "run from the project root" line instead of an empty report.
+    try std.testing.expect(try readFeatureSections(a, "/nonexistent-guardian-fixture", "SPEC.md") == null);
 }
 
 test "parseFeatureSections ignores fenced code and groups bullets under headings" {

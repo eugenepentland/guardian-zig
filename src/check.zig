@@ -83,10 +83,11 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    // `explain <check>`: static, needs no project dir or config. An unknown
-    // name exits non-zero after listing the valid checks.
+    // `explain <check>`: static, needs no project dir or config (only the
+    // `--section` dry run reads guardian.toml, and it tolerates a broken one).
+    // An unknown name exits non-zero after listing the valid checks.
     if (std.mem.eql(u8, command, "explain")) {
-        if (!explain.run(explainQuery(parsed))) std.process.exit(1);
+        if (!explain.run(allocator, explainQuery(allocator, parsed))) std.process.exit(1);
         return;
     }
 
@@ -161,6 +162,12 @@ const ParsedArgs = struct {
     check_filter: ?[]const u8 = null,
     /// First positional after `size`: the file to measure.
     target_path: ?[]const u8 = null,
+    /// First positional after `explain`: the check to explain. Held separately
+    /// from `project_dir` so `explain completeness --section X .` can carry both
+    /// a check name and a directory.
+    explain_name: ?[]const u8 = null,
+    /// `--section <name>`: the SPEC.md section `explain completeness` reports on.
+    section: ?[]const u8 = null,
     /// `--current`: `debt` measures each ratcheted item's value now.
     current: bool = false,
     prune_stale: bool = false,
@@ -203,6 +210,9 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--check")) {
             i += 1;
             if (i < args.len) parsed.check_filter = args[i];
+        } else if (std.mem.eql(u8, arg, "--section")) {
+            i += 1;
+            if (i < args.len) parsed.section = args[i];
         } else if (std.mem.eql(u8, arg, "--unit")) {
             i += 1;
             if (i < args.len) parsed.bench.unit = args[i];
@@ -270,6 +280,10 @@ fn takePositional(parsed: *ParsedArgs, arg: []const u8) void {
         parsed.target_path = arg;
         return;
     }
+    if (std.mem.eql(u8, command, "explain") and parsed.explain_name == null) {
+        parsed.explain_name = arg;
+        return;
+    }
     if (std.mem.eql(u8, command, bench_cmd.command_name) and parsed.bench.takePositional(arg)) return;
     parsed.project_dir = arg;
 }
@@ -285,11 +299,21 @@ fn registeredCommand(name: []const u8) bool {
     return registry.find(name) != null;
 }
 
-/// The check name for `explain`: the positional after the command, or null when
-/// omitted. parseArgs stores that positional in `project_dir`, so its default
-/// "." means no name was given (a bare `explain` lists every check).
-fn explainQuery(parsed: ParsedArgs) ?[]const u8 {
-    return if (std.mem.eql(u8, parsed.project_dir, ".")) null else parsed.project_dir;
+/// Builds the `explain` request: the check name (null lists every check) plus,
+/// for the `--section` dry run only, the project state it reads. guardian.toml
+/// is loaded lazily and falls back to defaults, so `explain` stays answerable on
+/// a project whose config does not parse — the one command you reach for when
+/// something is already wrong.
+fn explainQuery(allocator: std.mem.Allocator, parsed: ParsedArgs) explain.Query {
+    const section = parsed.section orelse return .{ .name = parsed.explain_name };
+    const cfg = config_parser.load(allocator, parsed.project_dir) catch config_mod.Config{};
+    return .{
+        .name = parsed.explain_name,
+        .section = section,
+        .project_dir = parsed.project_dir,
+        .spec_file = cfg.spec_file,
+        .exempt = cfg.completeness.exempt_sections,
+    };
 }
 
 /// True when both --only and --skip were given — a contradiction that is an
@@ -437,6 +461,7 @@ test {
     _ = @import("metadata_transaction.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
+    _ = @import("spec/hints.zig");
     _ = @import("spec/init.zig");
     _ = @import("walk.zig");
     _ = @import("text.zig");

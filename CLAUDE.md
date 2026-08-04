@@ -117,6 +117,7 @@ guardian-check debt . --current      # + each ratcheted key's current value vs i
 guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
+guardian-check explain completeness --section "<name>" .  # dry-run one SPEC.md section's 8 categories
 guardian-check version               # print the version (also --version)
 ```
 
@@ -213,6 +214,30 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
    ```
 
 4. Guardian enforces 1:1 coverage. Missing tags or duplicate tags fail the build.
+
+**A spec failure carries its own fix, on the advisory channel.** The violation
+*lines* are frozen text — a spec violation is baselined by its rendered form
+(`violation_key.zig` tier 3), so changing a word of `unlinked tag: <tag> in
+<file>` would re-key every consumer's committed baseline. Everything the check
+learned therefore rides `reporter.warn`, which baselines and ratchets exclude by
+construction and which survives baseline mode's capture-and-replace of a check's
+own output: **one hint per unlinked tag** (the exact bullet to paste; or "a
+bullet with this exact text already lives under `## Other`" for the
+wrong-`## `-section mistake, whose two halves otherwise read as an unrelated
+`unlinked tag:` and `unverified:` pair; or "closest bullet is X (N char(s)
+apart)" for a drifted rewording), a note that **the tag scan walks `test/` and
+`src/` on disk rather than the compiled test set** (so a `-Dtest-filter` build
+sees the same list and the list is complete — the opposite belief is what turned
+one edit into an edit-per-tag loop), and `N other tag(s) here are
+baselined-unlinked` for a file whose other tags are frozen debt. Tags already in
+the baseline get no hint, so the guidance is about the new work only.
+
+`guardian-check explain completeness --section "<name>" [dir]` answers "what
+would this section need?" without running the gate: per-category `ok` / `waived`
+/ `MISSING` against the CURRENT SPEC.md with the evidence for each, or a
+paste-ready skeleton when the heading does not exist yet. `explain completeness`
+(no `--section`) prints the category → keyword table, which was previously
+readable only in `src/checks/completeness.zig`.
 
 ## What Guardian Checks
 
@@ -366,7 +391,7 @@ src/
   cli/                 # Command registry + run_all + mutate/nightly/commit/install_hook/debt/explain commands
   cli/run_view.zig     # Presentation policy for a run: verdict line, blocking-first replay, scope-collapse
   checks/              # One file per check
-  spec/                # SPEC.md parser, // spec: matcher, spec-init
+  spec/                # SPEC.md parser, // spec: matcher, spec-init, unlinked-tag hints
   ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)
   git.zig              # git diff parsing/shell-outs for diff-scoped features
   mutation/            # Mutant generator, in-place splice/test runner, result cache + survivor report

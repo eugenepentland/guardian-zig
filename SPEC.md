@@ -820,3 +820,22 @@ without an explained `--force`.
 - Renders a ratcheted key's current value against its ceiling
 - Warns that accepting a grown ratchet key raises a frozen ceiling
 - Parses the size target path and the debt current flag
+
+## Spec Reporting
+
+- Names the section a byte-identical bullet already lives under
+- Suggests the closest existing bullet when a tag nearly matches one
+- Splits a tag against the longest matching section name
+- Reports a tag whose named section has no SPEC.md heading
+- Counts the unlinked tags a file already has frozen in the spec baseline
+- Guides every unlinked tag the run found rather than only the first
+- Names the tag scan as a file walk that a test filter cannot narrow
+- Omits guidance for an unlinked tag already frozen in the spec baseline
+- Names how many other tags in the edited file are baselined-unlinked
+
+## Completeness Reporting
+
+- Reports which categories a section satisfies and the evidence for each
+- Reports a section absent from the spec as needing every category
+- Treats an unreadable spec file as an absent section report
+- Refuses a section query aimed at a check with no section report

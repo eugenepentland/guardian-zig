@@ -5,6 +5,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const parser = @import("../spec/parser.zig");
 const matcher = @import("../spec/matcher.zig");
+const hints = @import("../spec/hints.zig");
 const reporter = @import("../reporter.zig");
 
 const Suggestion = struct {
@@ -90,7 +91,7 @@ fn makeSuggestions(
     return owned;
 }
 
-const Parts = struct { section: []const u8, bullet: []const u8 };
+const Parts = hints.Parts;
 
 fn suggestionParts(
     allocator: std.mem.Allocator,
@@ -101,22 +102,7 @@ fn suggestionParts(
         .section = "Ungrouped",
         .bullet = try std.fmt.allocPrint(allocator, "[{s}] TODO: describe behavior", .{tag.tag}),
     };
-    return splitTag(sections, tag.tag);
-}
-
-/// Chooses the longest existing section prefix, preserving nested section
-/// names. With no match it falls back to the first ` - ` separator.
-fn splitTag(sections: []const parser.Section, tag: []const u8) Parts {
-    var best: ?[]const u8 = null;
-    for (sections) |section| {
-        if (tag.len <= section.name.len + 3) continue;
-        if (!std.mem.startsWith(u8, tag, section.name)) continue;
-        if (!std.mem.eql(u8, tag[section.name.len .. section.name.len + 3], " - ")) continue;
-        if (best == null or section.name.len > best.?.len) best = section.name;
-    }
-    if (best) |section| return .{ .section = section, .bullet = tag[section.len + 3 ..] };
-    const sep = std.mem.indexOf(u8, tag, " - ") orelse return .{ .section = "Ungrouped", .bullet = tag };
-    return .{ .section = tag[0..sep], .bullet = tag[sep + 3 ..] };
+    return hints.splitTag(sections, tag.tag);
 }
 
 fn suggestionLessThan(_: void, a: Suggestion, b: Suggestion) bool {
@@ -126,18 +112,6 @@ fn suggestionLessThan(_: void, a: Suggestion, b: Suggestion) bool {
 }
 
 // spec: Maintenance - Spec sync suggests missing bullets without editing SPEC.md
-
-test "splitTag prefers the longest existing section" {
-    const sections = &[_]parser.Section{
-        .{ .name = "API", .behaviors = &.{} },
-        .{ .name = "API - Parsing", .behaviors = &.{} },
-    };
-    const got = splitTag(sections, "API - Parsing - rejects blanks");
-    try std.testing.expectEqualStrings("API - Parsing", got.section);
-    try std.testing.expectEqualStrings("rejects blanks", got.bullet);
-}
-
-// spec-case: Maintenance - Spec sync suggests missing bullets without editing SPEC.md
 
 test "stable ID suggestions are deduplicated and keep an editable placeholder" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

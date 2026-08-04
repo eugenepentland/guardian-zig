@@ -153,10 +153,18 @@ src/checks/change_classification.zig::verdictFor | fn verdictFor(t: Totals) Verd
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/compile_error_explanation.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/compile_error_explanation.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/completeness.zig::Category struct_
+src/checks/completeness.zig::CategoryReport struct_
+src/checks/completeness.zig::CategoryState union_
 src/checks/completeness.zig::FeatureSection struct_
+src/checks/completeness.zig::SectionReport struct_
 src/checks/completeness.zig::analyze | fn analyze( arena: Allocator, sections: []const FeatureSection, exempt: []const []const u8, ) Allocator.Error![]const []const u8
+src/checks/completeness.zig::categories value
 src/checks/completeness.zig::parseFeatureSections | fn parseFeatureSections(arena: Allocator, text: []const u8) Allocator.Error![]const FeatureSection
+src/checks/completeness.zig::readFeatureSections | fn readFeatureSections( arena: Allocator, project_dir: []const u8, spec_file: []const u8, ) Allocator.Error!?[]const FeatureSection
+src/checks/completeness.zig::reportSection | fn reportSection( arena: Allocator, sections: []const FeatureSection, exempt: []const []const u8, name: []const u8, ) Allocator.Error!SectionReport
 src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
@@ -258,7 +266,8 @@ src/cli/debt_current.zig::Summary struct_
 src/cli/debt_current.zig::collect | fn collect(ctx: *types.RunCtx) types.RunError!Report
 src/cli/debt_current.zig::printReport | fn printReport(arena: Allocator, report: Report) void
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
-src/cli/explain.zig::run | fn run(query: ?[]const u8) bool
+src/cli/explain.zig::Query struct_
+src/cli/explain.zig::run | fn run(allocator: std.mem.Allocator, query: Query) bool
 src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
@@ -605,6 +614,18 @@ src/snapshot_helper.zig::shouldUpdateForCtx | fn shouldUpdateForCtx(ctx: *const 
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/snapshot_helper.zig::update_env value
 src/snapshot_helper.zig::usesLegacyBroadToken | fn usesLegacyBroadToken(allocator: Allocator) bool
+src/spec/hints.zig::FrozenTag struct_
+src/spec/hints.zig::Hint union_
+src/spec/hints.zig::NearMiss struct_
+src/spec/hints.zig::Parts struct_
+src/spec/hints.zig::frozenCountFor | fn frozenCountFor( arena: Allocator, frozen: []const FrozenTag, file: []const u8, ) Allocator.Error!usize
+src/spec/hints.zig::frozenKeyFor | fn frozenKeyFor(arena: Allocator, tag: []const u8, file: []const u8) Allocator.Error![]const u8
+src/spec/hints.zig::frozenUnlinked | fn frozenUnlinked(arena: Allocator, lines: []const []const u8) Allocator.Error![]const FrozenTag
+src/spec/hints.zig::hintFor | fn hintFor(sections: []const parser.Section, tag: []const u8) Hint
+src/spec/hints.zig::isFrozen | fn isFrozen(frozen: []const FrozenTag, key: []const u8) bool
+src/spec/hints.zig::near_miss_max_distance value
+src/spec/hints.zig::sectionMissing | fn sectionMissing(sections: []const parser.Section, name: []const u8) bool
+src/spec/hints.zig::splitTag | fn splitTag(sections: []const parser.Section, tag: []const u8) Parts
 src/spec/init.zig::InitError value
 src/spec/init.zig::ModuleInfo struct_
 src/spec/init.zig::collectModules | fn collectModules( allocator: std.mem.Allocator, dir_path: []const u8, prefix: []const u8, modules: *std.ArrayList(ModuleInfo), ) InitError!void
