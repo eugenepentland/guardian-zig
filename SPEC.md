@@ -776,3 +776,13 @@ without an explained `--force`.
 - Exempts a module at or below the line threshold
 - Skips a file matching a configured allow path
 - Flags a module over a lowered min_lines threshold
+
+## Test Reachability
+
+- Counts each graphed file's test blocks while building the import graph
+- Passes a test-bearing file that a test root transitively imports
+- Reports a file with test blocks that no test root transitively imports
+- Ignores an unreachable file that declares no test blocks
+- Defaults the roots to src/main.zig, src/root.zig, and each .zig directly under test/
+- Uses the configured roots and drops any that name no graphed file
+- Skips the scan when no test root resolves

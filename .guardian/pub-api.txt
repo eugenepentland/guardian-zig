@@ -21,6 +21,7 @@ src/ast/decls.zig::precedingDocText | fn precedingDocText(arena: Allocator, tree
 src/ast/import_graph.zig::BuildError value
 src/ast/import_graph.zig::Node struct_
 src/ast/import_graph.zig::build | fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node
+src/ast/import_graph.zig::buildDirs | fn buildDirs( allocator: Allocator, project_dir: []const u8, dirs: []const []const u8, ) BuildError![]const Node
 src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]const []const u8
 src/ast/import_graph.zig::reachableFrom | fn reachableFrom( allocator: Allocator, nodes: []const Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/ast/index.zig::Entry struct_
@@ -229,6 +230,7 @@ src/checks/test_has_assertion.zig::run | fn run(ctx: *registry.RunCtx) registry.
 src/checks/test_no_conditional.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_no_conditional.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
@@ -333,6 +335,7 @@ src/config.zig::SpecQualityCfg struct_
 src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
+src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode

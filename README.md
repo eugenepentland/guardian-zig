@@ -54,7 +54,7 @@ merge base with `main` (then `master`) and hands the *per-file* checks — shape
 naming, complexity, per-file style, the hidden-dependency bans — only those
 files. Checks whose verdict is inherently whole-tree keep reading everything:
 import cycles, cross-file duplicate literals/consts, repeated enum switches,
-dead-pub and test-coverage reference maps, orphan-file reachability, the
+dead-pub and test-coverage reference maps, orphan-file and test reachability, the
 SPEC↔tag map, and every tree-wide snapshot/budget (`pub-api-surface`,
 `panic-budget`, `int-from-float-budget`, `unsafe-ops-budget`). The capability
 is a `scope` field on each registry entry with **no default**, so a newly added
@@ -149,6 +149,7 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
+| **test-reachability** | A .zig file that declares `test` blocks but sits outside every test root's `@import` chain — Zig never compiles those tests, yet the spec check still counts their `// spec:` tags as covered. The finding names how many test blocks are dead. Roots come from `[test_reachability] roots`, else `src/main.zig` / `src/root.zig` / each `.zig` directly under `test/`; when no root resolves the check skips instead of blocking |
 | **test-coverage** *(opt-in)* | A pub fn with no identifier reference from any test block |
 
 ### Public API
@@ -559,7 +560,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 70 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 72 registry entries — `skipped` is
   the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
   `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1040,6 +1041,7 @@ commas.
 | `[complexity]` | `enabled`, `max_score` |
 | `[anytype_budget]` | `enabled`, `max_per_file`, `exclude` |
 | `[orphan_files]` | `enabled`, `roots` |
+| `[test_reachability]` | `enabled`, `roots` (test roots; empty = `src/main.zig` / `src/root.zig` / `test/*.zig`) |
 | `[doc_quality]` | `enabled`, `min_chars`, `exempt_names` |
 | `[type_size]` | `enabled`, `max_fields`, `exclude` |
 | `[function_length]` | `enabled`, `max_lines`, `hard_max_lines` |

@@ -34,6 +34,7 @@ const check_dead_pub = @import("../checks/dead_pub.zig");
 const check_allocator_hygiene = @import("../checks/allocator_hygiene.zig");
 const check_debug_print_ban = @import("../checks/debug_print_ban.zig");
 const check_orphan_files = @import("../checks/orphan_files.zig");
+const check_test_reachability = @import("../checks/test_reachability.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
 const check_int_from_float_budget = @import("../checks/int_from_float_budget.zig");
 const check_unsafe_ops_budget = @import("../checks/unsafe_ops_budget.zig");
@@ -250,6 +251,14 @@ pub const all: []const Command = &.{
         .summary = "Flag .zig files under src/ unreachable from any configured root",
         .scope = .whole_tree,
         .run = check_orphan_files.run,
+    },
+    .{
+        .name = "test-reachability",
+        .summary = "Flag files whose test blocks no test root imports (they never compile)",
+        // Reachability is a property of the whole import graph: a file's status
+        // can flip because a file *outside* the diff dropped its import.
+        .scope = .whole_tree,
+        .run = check_test_reachability.run,
     },
     .{
         .name = "stub-body-ban",
@@ -600,7 +609,7 @@ const inherently_whole_tree = [_][]const u8{
     "dead-pub",                "orphan-files",          "int-from-float-budget",
     "unsafe-ops-budget",       "test-coverage",         "repeated-string-literal",
     "repeated-switch-on-enum", "change-classification", "fuzz-presence",
-    "external-gates",          "policy-drift",
+    "external-gates",          "policy-drift",          "test-reachability",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

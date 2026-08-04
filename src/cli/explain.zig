@@ -249,6 +249,20 @@ const entries = [_]Entry{
     \\Fix: `@import` it from a reachable module (or the test root), or delete it.
     \\Exempt: declare explicit roots in `[orphan_files] roots`, or disable.
     },
+    .{ .name = "test-reachability", .text = 
+    \\Why: Zig only compiles the tests it can reach. A file nobody imports from
+    \\the test root contributes no `test` blocks to the test binary, so its tests
+    \\never run — and the spec check still counts their `// spec:` tags as
+    \\satisfied. The suite reads green while nothing verifies the behavior (eda:
+    \\six files, 29 dead tests, found only by accident during a mutation run).
+    \\Fix: put the file in a test root's @import chain — usually one line,
+    \\`_ = @import("path/to/file.zig");` inside the root's aggregator test block.
+    \\The finding names how many test blocks are currently dead.
+    \\Exempt: name your real roots in `[test_reachability] roots` (Guardian's own
+    \\root is src/check.zig, not a main.zig), or set `enabled = false`. The check
+    \\skips itself when no root resolves, so it never blocks a project it cannot
+    \\measure.
+    },
     .{ .name = "stub-body-ban", .text = 
     \\Why: a single-statement `return undefined` / placeholder `@panic` /
     \\`unreachable` body is an agent's unfinished stub masquerading as done.

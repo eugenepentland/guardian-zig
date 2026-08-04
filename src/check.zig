@@ -405,8 +405,10 @@ test "project-analysis commands require input preflight" {
 
 // Aggregates every module's tests. Zig only collects `test` decls from files
 // reachable through a `test` block in the test root, so any new file under
-// src/ must be referenced here or its tests silently never run. The
-// `test-root-drift` check enforces that every src/checks/*.zig appears below.
+// src/ must be referenced here — directly, or via a module this root already
+// imports — or its tests silently never run. The `test-reachability` check
+// enforces exactly that: a file with `test` blocks that no test root reaches
+// fails the gate (see guardian.toml, which names src/check.zig as the root).
 test {
     // Framework modules
     _ = @import("config.zig");
@@ -474,7 +476,8 @@ test {
     _ = @import("fakes/fs.zig");
     _ = @import("fakes/env.zig");
 
-    // Checks — keep in sync with src/checks/*.zig (enforced by test-root-drift)
+    // Checks — keep in sync with src/checks/*.zig (test-reachability blocks any
+    // file whose tests no test root reaches)
     _ = @import("checks/allocator_hygiene.zig");
     _ = @import("checks/anytype_budget.zig");
     _ = @import("checks/assert_doc_consistency.zig");
@@ -540,6 +543,7 @@ test {
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
+    _ = @import("checks/test_reachability.zig");
     _ = @import("checks/test_skip_ban.zig");
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unsafe_ops_budget.zig");

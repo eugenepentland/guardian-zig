@@ -66,7 +66,7 @@ pre-commit hook always block.
 **Diff-scoped during dev, whole-tree at commit.** A local `zig build` scopes
 the *per-file* checks to the files changed since the merge base with
 `main`/`master`; the inherently whole-tree checks (import cycles, cross-file
-duplicates, dead-pub / test-coverage maps, orphan reachability, SPEC↔tag
+duplicates, dead-pub / test-coverage maps, orphan and test reachability, SPEC↔tag
 coverage, every tree-wide snapshot/budget) still read everything. Each check's
 capability is the `scope` field on its `cli/registry.zig` entry — it has **no
 default**, so a new check must classify itself; `src/scope.zig` owns the
@@ -180,16 +180,16 @@ This syntax is used in both `file_size_exclude` and `[[boundary]]` module patter
 
 ## What Guardian Checks
 
-65 checks gate the build (most hard-block; completeness/test-coverage/
+69 checks gate the build (most hard-block; completeness/test-coverage/
 escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
-off; a 65th check, stdout-flush, is report-only by default — it runs in `all`
+off; one of them, stdout-flush, is report-only by default — it runs in `all`
 but never fails the build unless `[stdout_flush] enabled = true` promotes it to a
 gating hard-block, which Guardian leaves off). Formatting is one of them:
 the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
 `zig fmt --check` build step. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command, and the `debt` report (69 registry entries total;
+command, and the `debt` report (72 registry entries total;
 `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -231,9 +231,9 @@ exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
 never comes up empty and can never be confused with "the pattern was wrong":
 
 ```
-run-all: 68 check(s) passed                                  # green
-run-all: 68 checks — 0 blocking, N report-only               # green, demoted findings
-run-all: 2/68 failed (type-size, …) — 3 report-only          # blocking
+run-all: 69 check(s) passed                                  # green
+run-all: 69 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 2/69 failed (type-size, …) — 3 report-only          # blocking
 run-all: cached — 0 blocking (inputs unchanged since last green run)
 ```
 

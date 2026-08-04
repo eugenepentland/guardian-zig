@@ -160,6 +160,16 @@ pub const OrphanFilesCfg = struct {
     roots: []const []const u8 = &.{},
 };
 
+/// Per-check config for the test-reachability scan: which files Zig actually
+/// roots the test binary at. Paths are walker-relative ("src/check.zig",
+/// "test/integration.zig"). When empty, the check looks for `src/main.zig`,
+/// `src/root.zig`, and every `.zig` directly under `test/`; when none of those
+/// exists either, it skips rather than reporting the whole tree as dead.
+pub const TestReachabilityCfg = struct {
+    enabled: bool = true,
+    roots: []const []const u8 = &.{},
+};
+
 /// Per-check config for doc-quality (content lint on /// doc comments).
 pub const DocQualityCfg = struct {
     enabled: bool = true,
@@ -484,6 +494,7 @@ pub const Config = struct {
     complexity: ComplexityCfg = .{},
     anytype_budget: AnytypeBudgetCfg = .{},
     orphan_files: OrphanFilesCfg = .{},
+    test_reachability: TestReachabilityCfg = .{},
     doc_quality: DocQualityCfg = .{},
     type_size: TypeSizeCfg = .{},
     function_length: FunctionLengthCfg = .{},
