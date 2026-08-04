@@ -503,7 +503,30 @@ refreshing anything.
 zig build guardian-accept -Dguardian-checks=spec,panic-budget
 ```
 
-An unknown name **hard-fails** the run (a typo can't silently refresh nothing). The names are the same kebab-case names used everywhere else: `mutate` refreshes the mutation-score ratchet, and in baseline mode a check name refreshes that check's baseline.
+An unknown name **hard-fails** the run (a typo can't silently refresh nothing). The names are the same kebab-case names used everywhere else: `mutate` refreshes the mutation-score ratchet, and in baseline mode a check name refreshes that check's baseline. One alias exists, because one snapshot leaf is spelled differently from its check: `pub-api` (the basename of `.guardian/pub-api.txt`, the file you were just reading) resolves to `pub-api-surface` in `accept`, `--only`/`--skip`, and `GUARDIAN_UPDATE_SNAPSHOT`.
+
+### Reading a pub-api-surface diff
+
+The drift report is grouped rather than printed as one alphabetical
+add/remove list, so the shape of the change is legible without hand-diffing:
+
+```
+guardian: pub-api FAILED — surface changed
+  delta: 1 new, 1 changed, 1 removed, 2 moved — review changed/removed below before accepting
+  changed:
+    ~ src/router.zig::claimed | fn claimed(lane: u8) bool -> fn claimed(lane: u8, cls: u8) bool
+  moved: src/router.zig -> src/gap_policy.zig :: helper
+  moved: src/router.zig -> src/gap_policy.zig :: width
+  - src/router.zig::stays | fn stays() void
+  + src/router.zig::brandNew | fn brandNew() void
+```
+
+- **changed** — one symbol whose signature was edited, as a single `~ key | old -> new` line instead of a `+` and a `-` at opposite ends of the listing.
+- **moved** — a byte-identical signature that reappeared under a different file. A relocation counts as neither new nor removed, so a refactor that lifts a cohesive chunk into a new module reads as `N moved` instead of `N new, N removed`. It is still drift: the snapshot must be accepted.
+- **`-` / `+`** — the genuinely one-sided entries.
+
+When the delta is additions-only the summary says so and carries the accept
+commands on the next line, so reviewing and accepting are one step.
 
 The snapshot files are plain text, sorted, designed to diff cleanly in code review.
 

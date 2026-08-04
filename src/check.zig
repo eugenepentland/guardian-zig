@@ -23,6 +23,7 @@ const bench_cmd = @import("cli/bench.zig");
 const benchmark = @import("benchmark.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
+const snapshot_helper = @import("snapshot_helper.zig");
 const mutation_runner = @import("mutation/runner.zig");
 const required_inputs = @import("required_inputs.zig");
 
@@ -273,9 +274,9 @@ fn onlySkipConflict(parsed: ParsedArgs) bool {
     return parsed.only != null and parsed.skip != null;
 }
 
-/// Splits a comma-separated `--only`/`--skip` value into check names, trimming
-/// whitespace and dropping blank segments ("a,,b" -> {a,b}); empty slice when
-/// null (no filter active).
+/// Splits a comma-separated `--only`/`--skip`/`accept` value into check names,
+/// trimming whitespace, resolving name aliases, and dropping blank segments
+/// ("a,,b" -> {a,b}); empty slice when null (no filter active).
 fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Error![]const []const u8 {
     const s = csv orelse return &.{};
     var list: std.ArrayList([]const u8) = .empty;
@@ -285,7 +286,7 @@ fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Er
         if (trimmed.len == 0) continue;
         // Propagate OOM: a truncated --only/--skip list would silently narrow
         // the suite, skipping checks the user asked to run (fail-open).
-        try list.append(allocator, trimmed);
+        try list.append(allocator, snapshot_helper.canonicalCheckName(trimmed));
     }
     return list.toOwnedSlice(allocator);
 }

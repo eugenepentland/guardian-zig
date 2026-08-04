@@ -198,7 +198,16 @@ flow and commit `.guardian/`. `GUARDIAN_UPDATE_SNAPSHOT` remains selective: `=al
 is the only broad refresh, while a comma-separated check-name list
 (`=pub-api-surface,spec`) refreshes only those checks' snapshots/baselines —
 one accepted change no longer ratifies unrelated drift. Ambiguous `=1` and
-`=true` values, plus unknown names, hard-fail. The non-gating `guardian-check debt [dir]` (`zig build
+`=true` values, plus unknown names, hard-fail — with one alias, since one
+snapshot leaf is spelled differently from its check: `pub-api` (the basename of
+`.guardian/pub-api.txt`) resolves to `pub-api-surface` in `accept`,
+`--only`/`--skip`, and `GUARDIAN_UPDATE_SNAPSHOT`. pub-api-surface's drift
+report is grouped rather than one alphabetical add/remove list: a signature edit
+prints as a single `~ key | old -> new` line under `changed:`, a byte-identical
+signature that reappeared under a different file prints as
+`moved: <fileA> -> <fileB> :: <name>` and counts as neither new nor removed
+(still drift — the snapshot must be accepted), and an additions-only delta
+carries the accept commands on the line under the summary. The non-gating `guardian-check debt [dir]` (`zig build
 debt`) reports every baseline/snapshot total, sorted by count, with the delta
 vs the committed `.guardian/` state, then an informational assert-density table
 (assert() calls per KLOC per top-level src module, ascending).

@@ -554,6 +554,7 @@ src/snapshot.zig::writePresortedChecked | fn writePresortedChecked(arena: Alloca
 src/snapshot_helper.zig::LifecycleError value
 src/snapshot_helper.zig::Outcome union_
 src/snapshot_helper.zig::SnapSpec struct_
+src/snapshot_helper.zig::canonicalCheckName | fn canonicalCheckName(name: []const u8) []const u8
 src/snapshot_helper.zig::example_named_refresh value
 src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, write_allowed: bool, ) LifecycleError!Outcome
 src/snapshot_helper.zig::preservedMetadataPaths | fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8

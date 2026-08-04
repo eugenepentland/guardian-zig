@@ -286,6 +286,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Diff fails on unexpected pub additions or removals
 - Diff fails when an existing pub fn signature changes
 - Classifies surface drift as new, changed, and removed symbols
+- Pairs a changed signature into one line instead of a separate addition and removal
+- Reports a symbol whose file changed with an identical signature as moved
+- Offers the accept commands inline when the delta is additions only
+- Accepts the pub-api snapshot leaf name as an alias for the check name
 - Skips removed symbols whose file is unbuilt generated output
 
 ## Panic Budget
