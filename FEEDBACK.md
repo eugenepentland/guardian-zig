@@ -2999,3 +2999,51 @@ in the same commit); nothing to fight.
   `--budget` mode ("router.zig: 10450 / 10428, over by 22") would turn the
   trim-and-recheck loop into one measurement. The blocking line does carry both
   numbers — it just took me three compiles to notice.
+
+## 2026-08-04 · claude · eda — autorouter audit C6 (keepout escape zones reach the rescue contexts)
+
+- **friction:** `file-size`'s frozen ratchet on `src/placement/router.zig` (ceiling
+  10428) is a **hard zero-growth budget**, and it dominated the design of a
+  ~20-line correctness fix. My first, most readable implementation (a small
+  struct + a dedicated `stampBand` function + its unit tests) came to +143
+  counted lines and was refused outright, so I rewrote the fix twice into a
+  shape chosen for line count rather than clarity (transient state on an
+  existing struct instead of an explicit parameter). That is the ratchet doing
+  its job on a file 570 lines past the hard limit — but the *only* affordance
+  Guardian offers is "shed lines somewhere", and on a file this size the honest
+  move (extract a module) is exactly what a concurrent multi-agent wave cannot
+  do without wrecking siblings' merges. A `file-size` escape valve scoped to a
+  *net-neutral* change (grew here, shrank there, same file) would not have
+  helped; what would is the `--budget` mode already wished for below.
+- **good:** test blocks appear to be excluded from `file-size`'s count — my two
+  new `test { … }` bodies (~110 raw lines) cost only ~4 counted lines, so the
+  ratchet never pushed me toward writing fewer or thinner tests. That is exactly
+  the right incentive and is worth documenting explicitly in `explain
+  file-size`; I only discovered it by bisecting my own diff with four
+  `guardian-check file-size .` runs.
+- **friction:** the same opacity reported by earlier sessions bit again — the
+  reported count (10428) is not derivable from any obvious line filter of the
+  13666-line file, so "how many lines must I shed?" took an empirical
+  append-N-lines-and-remeasure probe before I trusted the delta. `guardian-check
+  file-size .` is fast (~1 s) which made the loop survivable, but a
+  "router.zig: 10439 / 10428 (over by 11)" line would have saved ~20 minutes.
+- **good:** `pub-api-surface` caught the two new `pub` decls in
+  `src/placement/keepout.zig` immediately, and `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface
+  zig build` accepted exactly those two rows and nothing else — a two-line,
+  reviewable `.guardian/pub-api.txt` diff. Selective snapshot refresh is doing
+  precisely what it should.
+- **good:** the `spec` check's **duplicate tag** error is a genuinely useful
+  design constraint. I had tagged two different tests with one SPEC bullet;
+  being forced to split it made me articulate the raster rule and the wiring as
+  two separate claims, which is what they are.
+- **wish:** nothing in the gate caught the real defect in my first working
+  version — a **3x wall-time regression** (barracuda-base 97 s -> >480 s) from
+  eagerly computing a geometry midpoint in a hot inner loop. Every check was
+  green; only a hand-run `bench-route` A/B found it. The `.guardian/benchmarks.txt`
+  ledger already holds `barracuda_route_wall_s` and `barracuda_oneshot_wall_s`
+  ratchets, and they were *printed* during `guardian-check commit` — but purely
+  informationally, never measured against the tree being committed. A tier that
+  actually re-runs one cheap recorded benchmark on a changed hot path (even
+  opt-in, e.g. `bench_on_paths = ["src/placement/"]`) would have caught this
+  where 70 static checks could not. As it stands the benchmark ledger is a
+  display of history, not a gate.
