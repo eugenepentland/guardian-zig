@@ -1166,6 +1166,8 @@ guardian-check all . --gate          # Force BLOCK mode: fail on any violation (
 guardian-check all . --quiet         # Report/gate but print only failures (what the build wiring uses)
 guardian-check all . --only spec,file-size   # Run ONLY the named checks
 guardian-check all . --skip line-length      # Run every check EXCEPT the named ones
+guardian-check all . --summary       # Verdict line + blocking detail only (advisory collapsed to counts)
+guardian-check all . --verbose       # Replay every check in full (overrides --summary and scope-collapse)
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet (always blocks)
 guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, then auto-commit on green
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
@@ -1194,6 +1196,38 @@ guardian-check version               # Print the guardian version (also --versio
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **The `run-all:` verdict line** closes *every* exit path — green, blocking,
+  and cache-skipped — on the always-visible channel, so one grep covers all
+  three and "no guardian output" is never a possible reading:
+
+  ```
+  run-all: 68 check(s) passed
+  run-all: 68 checks — 0 blocking, 3 report-only
+  run-all: 2/68 failed (type-size, naming) — 3 report-only
+  run-all: cached — 0 blocking (inputs unchanged since last green run)
+  ```
+
+  A diff-scoped run appends ` — diff-scoped vs <base>, N file(s) in scope`. Each
+  failing check's first finding is echoed beneath the verdict with a `(+N more)`
+  tail when it found several, so a check that flagged five things never reads as
+  having flagged one.
+- **Blocking-first output.** Detail is replayed blocking checks first, advisory
+  checks second, so the reader reaches what fails the build without scrolling
+  through report-only findings. (Every check's output is already captured for
+  deterministic replay, so the ordering costs one extra walk of an in-memory
+  array — no additional buffering.)
+- **Scope-aware collapse.** On a diff-scoped run, a non-blocking check whose
+  findings *all* fall outside the changed files collapses to one counted line —
+  `repeated-string-literal: 44 finding(s), none in scope — report-only
+  (--verbose for detail)`. A single in-scope finding prints the check in full, a
+  blocking check is never collapsed, and the full detail always remains in
+  `.guardian/cache/last-run.jsonl`.
+- **`--summary` / `--verbose`** set how much of a run is printed. `--summary`
+  keeps the verdict line and every blocking check's detail, collapses each
+  advisory check to its count, and drops passing checks entirely — the mode for
+  an agent that re-runs the gate many times per task and acts only on the
+  verdict. `--verbose` replays everything, opting out of the scope-collapse; it
+  overrides `--summary` when both are given.
 - **Green-run cache** skips a run when the input digest matches the last green
   run, regardless of whether the Git worktree is dirty. The digest hashes every
   file each check reads (src/ + test/ `.zig`, `build.zig`/`build.zig.zon`, the

@@ -89,6 +89,8 @@ guardian-check commit --intent "..." .  # block-gate, run tests, auto-commit + i
 guardian-check install-hook .        # write .git/hooks/pre-commit that runs the blocking gate
 guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
 guardian-check all . --skip line-length     # run every check except these
+guardian-check all . --summary       # verdict line + blocking detail only (advisory collapsed to counts)
+guardian-check all . --verbose       # replay every check in full (overrides --summary and scope-collapse)
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
@@ -222,14 +224,38 @@ then auto-installs the blocking pre-commit hook unless `install_hook = false`.
 `guardian-check install-hook [dir]` writes `.git/hooks/pre-commit` (guardian
 marker; resolves `$GUARDIAN_CHECK` → `./zig-out/bin/guardian-check` →
 `guardian-check` on PATH; never clobbers a foreign hook) so a raw `git commit`
-still hits the gate. The run summary and green skip-stamp both changed: the
-failure line names the failing checks (`run-all: 2/68 failed (type-size, …)`) and
-echoes each failing check's first finding (file:line, item, metric, cap) beneath
-it; a policy-demoted check prints `REPORT` instead of `FAILED` and the green
-summary reads `run-all: 68 checks — 0 blocking, N report-only`,
-and the stamp records the guardian binary's identity so a blocking snapshot/
-ratchet failure whose binary differs from the last green run prints a
-"rebuild (zig build) and re-run" hint (the stale-binary false-positive trap).
+still hits the gate.
+
+**Verdict-first, scope-aware output (`run-all:`).** *Every* exit path ends in
+exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
+never comes up empty and can never be confused with "the pattern was wrong":
+
+```
+run-all: 68 check(s) passed                                  # green
+run-all: 68 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 2/68 failed (type-size, …) — 3 report-only          # blocking
+run-all: cached — 0 blocking (inputs unchanged since last green run)
+```
+
+A diff-scoped run appends ` — diff-scoped vs <base>, N file(s) in scope`. The
+failure line names the failing checks and echoes each one's first finding
+(file:line, item, metric, cap) beneath it, with a `(+N more)` tail when that
+check found more than one thing; a policy-demoted check prints `REPORT` instead
+of `FAILED`. Detail is replayed **blocking first, advisory second**, so a reader
+reaches what fails the build without scrolling through report-only output (the
+run already captures every check's output for deterministic replay, so ordering
+it costs nothing). On a **diff-scoped** run a non-blocking check whose findings
+*all* fall outside the changed files collapses to one counted line —
+`repeated-string-literal: 44 finding(s), none in scope — report-only (--verbose
+for detail)` — with the full detail still in `.guardian/cache/last-run.jsonl`.
+`all --summary` prints the verdict plus blocking detail only (every advisory
+check collapsed to its count, passing checks silent); `all --verbose` restores
+everything and overrides `--summary`. The green stamp records the guardian
+binary's identity, so a blocking snapshot/ratchet failure whose binary differs
+from the last green run prints a hint that names **which side is newer** — a
+newer running binary means the recorded green is stale (re-run the gate), a
+newer stamp means this binary predates the gated tree (rebuild first). That is
+the stale-binary false-positive trap.
 
 Two features diff the working tree against a git ref (`--against` flag,
 `GUARDIAN_AGAINST` env var, or `[change_classification] against`; default
@@ -302,6 +328,7 @@ adds `last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
 src/
   check.zig            # CLI entry / dispatch
   cli/                 # Command registry + run_all + mutate/nightly/commit/install_hook/debt/explain commands
+  cli/run_view.zig     # Presentation policy for a run: verdict line, blocking-first replay, scope-collapse
   checks/              # One file per check
   spec/                # SPEC.md parser, // spec: matcher, spec-init
   ast/                 # Zig AST helpers (pubFns, fnDeclInfos, import_graph)

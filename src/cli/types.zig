@@ -61,6 +61,14 @@ pub const RunCtx = struct {
     /// `--intent "<message>"`: the commit subject for the `commit` command.
     /// Null for every other command; `commit` errors when it is null or blank.
     intent: ?[]const u8 = null,
+    /// `--summary`: `all` prints its verdict line plus every blocking check's
+    /// detail, collapsing each advisory check to a one-line count. The mode for
+    /// an agent that re-runs the gate many times and acts only on the verdict.
+    summary: bool = false,
+    /// `--verbose`: `all` replays every check's output in full, opting out of
+    /// the scope-collapse (and of `--summary`, which it overrides). The escape
+    /// hatch when a collapsed count is the thing you need to expand.
+    verbose: bool = false,
     /// Machine-readable maintenance-command output.
     json: bool = false,
     /// `--args`: the read-only `test-filter` report also writes its derived
@@ -124,6 +132,11 @@ pub const ScopedRun = struct {
     /// How many indexed source files are in scope — reported alongside every
     /// verdict so a scoped green is never mistaken for a full-tree green.
     file_count: usize,
+    /// Every project-relative path that changed since `base`, including the
+    /// non-Zig ones the parsed index cannot hold (SPEC.md, assets). The printer
+    /// places each finding against this set to decide whether a whole-tree
+    /// check's advisory output is relevant to the diff (see cli/run_view.zig).
+    changed_paths: []const []const u8 = &.{},
     /// The shared parsed-source index narrowed to those files.
     index: *const ast_index.Index,
 };
