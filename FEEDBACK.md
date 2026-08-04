@@ -2304,3 +2304,48 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 - good: `guardian-check commit --intent "…"` staged 8 paths (source, SPEC.md and
   both `.guardian/` files) in one green commit with no `git add` of my own, on a
   worktree with a scratch designs tree beside it. Nothing stray was swept in.
+
+## 2026-08-04 · Claude (Opus 5) · ward — percent-decode the login `rd` parameter
+- **friction:** `allocator-hygiene` flagged `src/server/http/percent.zig:139-140:
+  hardcoded std.testing.allocator outside test block` for a fuzz-harness body —
+  `fn fuzzDecode(context: void, input: []const u8) anyerror!void`, a plain fn
+  whose only caller is `std.testing.fuzz({}, fuzzDecode, …)` inside a `test`
+  block one screen below it. It is test-scope in every sense but the syntactic
+  one. Cost one build+gate cycle to discover and one to clear. The fix turned out
+  clean (pass `std.testing.allocator` as the fuzz *context* parameter, so the
+  helper takes an allocator), and arguably nicer than what I wrote — but I only
+  found it by re-reading `std.testing.fuzz`'s signature. Two suggestions, either
+  works: treat a fn referenced only by a `std.testing.fuzz(...)` call inside a
+  `test` block as test-scope; or have the failure message name the context-param
+  workaround, since it is the idiomatic escape for exactly this shape.
+- **friction:** `fuzz_presence` lists modules by path, so moving a gated parser
+  (or, as here, adding one) is a `guardian.toml` edit in the same diff. That is
+  the right design, but nothing warns when a module that *decodes pre-auth bytes*
+  is absent from the list — I added `percent.zig` because I happened to read the
+  comment above the key. A heuristic ("this file has a `pub fn` taking
+  `[]const u8` and is imported by a pre-auth handler, and is not fuzz-listed")
+  would have found it for me; report-only would be plenty.
+- **good:** `pub-api-surface` turned a pure file move
+  (`oauth/percent.zig` → `http/percent.zig`) into a blocking review with all
+  seven lines shown — 3 removed, 3 new with byte-identical signatures, plus the
+  one genuinely new `http.zig::percent` re-export. Reading that delta is exactly
+  how I confirmed the move changed no signature. `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface
+  zig build` then accepted it in one shot.
+- **good:** `change-classification` (11 behavioral, 37 test lines) meant the
+  SPEC bullet + regression test were never optional. The bug being fixed here was
+  precisely a missing-decode that no test covered, so the gate demanding a test
+  in the same diff is the check earning its keep.
+- **good:** `guardian-check commit --intent "…" .` staged 10 paths (src, SPEC.md,
+  guardian.toml, `.guardian/pub-api.txt`) in one green commit and left two
+  unrelated untracked paths (`--gate/`, `.githooks/pre-commit`) untouched.
+- **wish:** `pub-api-surface` rename detection. Three of the four "new" decls had
+  signatures identical to three of the "removed" ones, differing only in the path
+  prefix. Collapsing those into `moved: oauth/percent.zig → http/percent.zig (3
+  decls, signatures unchanged)` would have left one line to actually review
+  instead of seven to diff by eye.
+- **wish:** every run this session opened with `guardian: warning: this
+  guardian-check binary differs from the one that last gated this tree — rebuild
+  (zig build) and re-run; any snapshot/ratchet drift below may be phantom`, and
+  `zig build` is what I was running. If the warning cannot be resolved by the
+  action it recommends, it trains the reader to skip the first line of output —
+  which is where the real failures print.
