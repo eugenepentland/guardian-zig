@@ -2767,3 +2767,36 @@ in the same commit); nothing to fight.
   only way to find it was the full 6-minute suite; a check that mapped touched
   `pub fn`s to the test names that call them (guardian already parses both)
   would turn that into a targeted filter.
+
+## 2026-08-04 · Claude · eda — report-honesty fixes (net_open double-count, oracle gate, severity-table drift)
+
+- **good:** `pub-api-surface --verbose` printed the exact 4-line surface delta
+  (`+drc.defaultSeverity`, `+drc.errorCount`, `+drc_rules.checkDefaultRules`,
+  `-pcb_layout_page.fabErrorCount`) for a change that deliberately consolidated
+  four copies of one counting loop into one shared helper. Seeing the removal
+  line beside the additions was what confirmed the consolidation was complete
+  rather than a fifth copy — that's exactly the review the snapshot is for.
+  `guardian-check accept pub-api-surface .` then re-ran the whole-tree gate
+  before writing, and the `.guardian/pub-api.txt` diff was self-reviewing.
+- **good:** `test-no-conditional`'s explain text ("extra `for` loops at the top
+  level of a test body … lift the fixture-building loop into a helper, leaving
+  the asserting loop in the test") directly shaped a better test. I was about to
+  write a parity test with two top-level loops — one asserting each emitted DRC
+  violation matches the canonical severity table, one `inline for` checking that
+  every warning-severity kind had fixture coverage. Splitting both into named
+  helpers (`observedKindSeverities`, `firstUncoveredWarningKind`) left a
+  three-line test body and turned the coverage check into a function with a
+  meaningful return type (`?Kind`), so the failure message now names the kind
+  that lost its fixture instead of printing `expected true, found false`.
+- **friction:** the `spec` check reports `unlinked tag: <section> - <bullet> in
+  ./src/foo.zig (+3 more)` — it names the TAG that has no bullet, which is the
+  right direction, but the truncation hides the rest, and this is exactly the
+  case where you want all of them: I had 6 new tagged tests across 4 files and
+  had to re-run the check alone to collect the list before editing SPEC.md.
+  Same `(+N more)` truncation the earlier `pub-api-surface` entry below asks
+  about; snapshot/spec findings are one short line each and could print in full.
+- **wish:** a `spec --emit-missing` that prints the missing bullets as ready-to-
+  paste `- ` lines grouped under their `## ` section. The tag already carries
+  both halves (`// spec: Section - Behavior`), so the fix is mechanical
+  transcription; doing it by hand is where a typo silently becomes a second
+  orphan tag on the next run.
