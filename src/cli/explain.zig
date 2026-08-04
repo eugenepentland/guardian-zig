@@ -163,9 +163,13 @@ const entries = [_]Entry{
     \\(the retired `vague-name-blacklist` name is tolerated there too).
     },
     .{ .name = "function-size", .text = 
+    \\Scope: this is the PARAMETER-COUNT check — "size" means how many runtime
+    \\arguments a fn takes, not how long it is. For line count see
+    \\`explain function-length`.
     \\Why: a runtime parameter list that keeps growing signals an agent bolting
     \\on args instead of bundling related inputs — each call site gets more
-    \\fragile. `comptime` specialization parameters are reported but excluded.
+    \\fragile. `comptime` specialization parameters are reported but excluded,
+    \\and the finding states both counts ("has 7 runtime params (+1 comptime)").
     \\Fix: group related runtime parameters into an options/context struct.
     \\Exempt: raise `[function_size] max_params`, or disable the check.
     },
@@ -207,7 +211,9 @@ const entries = [_]Entry{
     \\Why: `catch unreachable`, `catch {}` and `catch undefined` convert a real
     \\error into a crash, silent swallow, or UB — a classic agent shortcut.
     \\Fix: handle the error with a `switch`, a named `catch |e|` body, or a
-    \\deliberate return.
+    \\deliberate return. When the same file already handles an error properly the
+    \\finding quotes that shape and line ("this file already uses `catch return`
+    \\at line 765") — copy it rather than inventing a new policy.
     \\Exempt: none in src/; test blocks are already exempt.
     },
     .{ .name = "unwrap-discipline", .text = 
@@ -235,7 +241,11 @@ const entries = [_]Entry{
     \\Why: over-using `anytype` erases type information, so mistakes surface as
     \\confusing comptime errors far from the cause.
     \\Fix: give parameters concrete types; reserve `anytype` for genuine
-    \\writer/formatter boundaries.
+    \\writer/formatter boundaries. When factoring two `comptime fmt: []const u8,
+    \\args: anytype` entry points onto one helper would ADD a third anytype pair,
+    \\pass the formatted result down instead: the shared helper takes the
+    \\`BufPrintError![]const u8` (or the rendered slice) and the fmt+args stay at
+    \\the two call sites, so the budget falls instead of rising.
     \\Exempt: raise `[anytype_budget] max_per_file`, or list the file in
     \\`[anytype_budget] exclude`.
     },
@@ -408,6 +418,12 @@ const entries = [_]Entry{
     \\Why: `if`/`while`/`for`/`switch` inside an `init`/`create`/`make` body means
     \\the constructor is doing work it should delegate — hard to test.
     \\Fix: keep init to plain field assignment; move logic to a named method.
+    \\Test fixtures: a NON-PUB init referenced only from `test` blocks in its own
+    \\file is already exempt — a fixture builder filling an array in a loop is
+    \\doing its job, and renaming it (`init` -> `setupBoard`) to get past the
+    \\check is a rename for the checker's benefit. If yours is still flagged it is
+    \\`pub` (any file can construct with it) or something outside a test block
+    \\references it: drop the `pub`, or move the builder into the test block.
     \\Exempt: disable via the top-level `disabled` list if your init genuinely
     \\needs branching.
     },
@@ -439,6 +455,9 @@ const entries = [_]Entry{
     \\Why: `if`/`while`/`switch` (or extra `for`) at a test's top level usually
     \\means the test only checks one branch, or skips silently.
     \\Fix: split into separate tests, or drive inputs table-style with asserts.
+    \\For the multi-loop case the finding names the loop that asserts nothing —
+    \\that fixture-building loop is the one to lift into a helper, leaving the
+    \\asserting loop in the test.
     \\Exempt: none — restructure the test. Disable only as a last resort.
     },
     .{ .name = "test-skip-ban", .text = 
@@ -573,6 +592,9 @@ const entries = [_]Entry{
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
     \\no regression test" pattern that lets the same bug return.
     \\Fix: add a test (or `// spec:` tag / SPEC.md bullet) in the same change.
+    \\Not an accept: "N behavioral line(s) added" is not baseline churn — there is
+    \\no snapshot to ratify. `GUARDIAN_UPDATE_SNAPSHOT=change-classification` and
+    \\`guardian-check accept change-classification .` do not clear it.
     \\Exempt: `[change_classification] enabled = false`, or set the diff base via
     \\`--against` / `GUARDIAN_AGAINST`; skips silently outside a git repo.
     },
@@ -951,6 +973,22 @@ test "a section query resolves only for the completeness check" {
     // The keyword table is the completeness explain's own data, so the check
     // that owns `--section` is the one whose categories are documented.
     try std.testing.expect(completeness.categories.len > 0);
+}
+
+// spec: Explain - Aims each entry at the fix the reader came for
+
+test "explain entries lead with the disambiguation each check is misread on" {
+    // `function-size` reads like "function length": say which one it is, first.
+    const size = lookup("function-size").?;
+    try std.testing.expect(std.mem.startsWith(u8, size, "Scope: this is the PARAMETER-COUNT check"));
+    try std.testing.expect(std.mem.indexOf(u8, size, "function-length") != null);
+    // anytype-budget: the fix for a shared formatting helper is passing the
+    // formatted result down, not a third `comptime fmt, args: anytype` pair.
+    try std.testing.expect(std.mem.indexOf(u8, lookup("anytype-budget").?, "BufPrintError") != null);
+    // init-hygiene: the test-fixture escape, so nobody renames init for the checker.
+    try std.testing.expect(std.mem.indexOf(u8, lookup("init-hygiene").?, "setupBoard") != null);
+    // change-classification: name the flow that does NOT clear it.
+    try std.testing.expect(std.mem.indexOf(u8, lookup("change-classification").?, "not baseline churn") != null);
 }
 
 // spec: Explain - Documents the commit meta command

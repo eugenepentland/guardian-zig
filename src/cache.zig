@@ -16,10 +16,13 @@ const git = @import("git.zig");
 pub const Digest = [Sha256.digest_length]u8;
 
 /// Errors from computing or persisting the skip-cache digest: the walker's
-/// (fs + OOM) surface, plus the extra failures of resolving and stat-ing the
-/// running guardian binary (`selfExePathAlloc` + `statFile`) mixed into the
-/// digest. Callers in run_all catch these and fall back to a full run.
+/// (fs + OOM) surface, plus the extra failures of resolving, opening and
+/// sampling the running guardian binary (`selfExePathAlloc` + open/stat/pread)
+/// whose content identity is mixed into the digest. Callers in run_all catch
+/// these and fall back to a full run.
 pub const Error = walk.WalkError ||
+    std.fs.File.StatError ||
+    std.fs.File.PReadError ||
     error{ NotSupported, FileSystem, NotLink, UnrecognizedVolume, UnknownName };
 
 // Bump when the hashed input set below changes, so a stale cache written by
@@ -64,16 +67,54 @@ fn readSingle(
     try items.append(arena, .{ .path = try arena.dupe(u8, leaf), .content = content });
 }
 
-/// Identity of the running guardian-check binary: absolute path, size, and
-/// mtime. Run via `zig build`, the binary lives in a content-addressed
-/// `o/<hash>/` artifact dir, so any guardian source or config change lands
-/// at a new path with a fresh mtime — the same invalidation guarantee as
-/// hashing the binary's bytes without paying a content hash of a multi-MB
-/// executable on every run. Errors propagate: no identity means no skip.
-fn selfBinaryId(arena: Allocator) ![]const u8 {
-    const exe_path = try std.fs.selfExePathAlloc(arena);
-    const st = try std.fs.cwd().statFile(exe_path);
-    return std.fmt.allocPrint(arena, "{s}\x00{d}\x00{d}", .{ exe_path, st.size, st.mtime });
+/// Identity of the running guardian-check binary, derived from its CONTENT: the
+/// byte size plus three sampled windows (head, middle, tail). Never the path or
+/// mtime — `./zig-out/bin/guardian-check` and the `zig build` cache artifact it
+/// was installed from are the same build, and keying on the path made those two
+/// permanently "different binaries": every manual zig-out invocation after a
+/// `zig build` tripped the stale-binary warning against a stamp that the very
+/// same build had written. Content makes byte-identical copies share an
+/// identity, so the warning fires only on real drift.
+///
+/// Windows rather than the whole ~10 MB executable so the identity stays
+/// sub-millisecond on a ~1.1 s gate: `windowOffsets` samples the ELF header and
+/// the start of .text, the middle of the code, and the trailing symbol tables,
+/// and the size participates directly. A rebuild that changes behavior moves the
+/// size or one of those windows in practice; the residual risk is a re-run that
+/// is skipped, never a wrong verdict. Errors propagate: no identity, no skip.
+fn selfBinaryId(arena: Allocator) Error![]const u8 {
+    return binaryIdOf(arena, try std.fs.selfExePathAlloc(arena));
+}
+
+/// The content identity of the executable at `path` (see `selfBinaryId`). Split
+/// out from the running-binary lookup so the "two copies of one build share an
+/// identity" rule is testable against ordinary files.
+fn binaryIdOf(arena: Allocator, path: []const u8) Error![]const u8 {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    const size = (try file.stat()).size;
+
+    var hasher = Sha256.init(.{});
+    hasher.update(std.mem.asBytes(&size));
+    var window: [fingerprint_window]u8 = undefined;
+    for (windowOffsets(size)) |off| {
+        const n = try file.preadAll(&window, off);
+        hasher.update(window[0..n]);
+    }
+    const out = try arena.alloc(u8, Sha256.digest_length);
+    hasher.final(out[0..Sha256.digest_length]);
+    return out;
+}
+
+/// Bytes sampled per fingerprint window (three of them). 64 KiB covers the ELF
+/// header plus the head of `.text` and is read in a single pread.
+const fingerprint_window = 64 * 1024;
+
+/// The three byte offsets `selfBinaryId` samples for a file of `size` bytes:
+/// head, middle, and tail. They coincide for a file smaller than one window,
+/// which simply hashes the same bytes three times — correct, just redundant.
+fn windowOffsets(size: u64) [3]u64 {
+    return .{ 0, size / 2, size -| fingerprint_window };
 }
 
 /// SHA-256 of the running guardian-check binary's identity (see `selfBinaryId`),
@@ -498,6 +539,41 @@ test "writeGreenStamp round-trips the digest and the binary identity" {
 
     // currentBinaryIdHash is stable for the running binary within a process.
     _ = &currentBinaryIdHash;
+}
+
+// spec: Skip Cache - Identifies the guardian binary by content so two copies of one build share an identity
+
+test "binaryIdOf matches byte-identical copies at different paths and splits on content" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/cache-binid-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("binid test cleanup: {s}", .{@errorName(e)});
+
+    // The exact shape that used to fire a phantom stale-binary warning on every
+    // run: the same build sitting at ./zig-out/bin/guardian-check and in the
+    // zig build cache artifact dir. Same bytes, different paths — one identity.
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/installed", .data = "GUARDIAN-BUILD-1" });
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/o-artifact", .data = "GUARDIAN-BUILD-1" });
+    // A genuinely different build: same length, different bytes.
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/rebuilt", .data = "GUARDIAN-BUILD-2" });
+    // And one that differs only in size, which the fingerprint hashes directly.
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/grown", .data = "GUARDIAN-BUILD-1x" });
+
+    const installed = try binaryIdOf(a, dir ++ "/installed");
+    try std.testing.expectEqualSlices(u8, installed, try binaryIdOf(a, dir ++ "/o-artifact"));
+    try std.testing.expect(!std.mem.eql(u8, installed, try binaryIdOf(a, dir ++ "/rebuilt")));
+    try std.testing.expect(!std.mem.eql(u8, installed, try binaryIdOf(a, dir ++ "/grown")));
+
+    // Head/middle/tail windows: distinct for a real multi-window binary, and
+    // harmlessly clamped to the head for anything smaller than one window.
+    const wide = windowOffsets(4 * fingerprint_window);
+    try std.testing.expectEqual(@as(u64, 0), wide[0]);
+    try std.testing.expectEqual(@as(u64, 2 * fingerprint_window), wide[1]);
+    try std.testing.expectEqual(@as(u64, 3 * fingerprint_window), wide[2]);
+    try std.testing.expectEqual(@as(u64, 0), windowOffsets(16)[2]);
 }
 
 // spec: Skip Cache - Reads the stamp and binary timestamps behind the stale-binary direction hint

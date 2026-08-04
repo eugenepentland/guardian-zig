@@ -455,15 +455,17 @@ fn writesMetadata(ctx: *types.RunCtx) bool {
 
 /// Prints a one-line stale-binary warning when a green stamp records a guardian
 /// binary identity that differs from the running binary's — before any check
-/// runs, so a phantom re-key red reads as "rebuild first". Best-effort: a
-/// missing stamp or any I/O error skips it silently.
+/// runs, so a re-key red reads as "rebuild first". The identity is content-based
+/// (cache.selfBinaryId), so a mismatch is a genuinely different build, not the
+/// same build reached by another path. Best-effort: a missing stamp or any I/O
+/// error skips it silently.
 fn warnStaleBinary(ctx: *types.RunCtx) void {
     const stored = cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return;
     const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
     if (!staleBinaryWarnable(stored, current)) return;
     reporter.detail(
-        reporter.prefix ++ "warning: this guardian-check binary differs from the one that last gated " ++
-            "this tree — {s}; any snapshot/ratchet drift below may be phantom\n",
+        reporter.prefix ++ "warning: this guardian-check binary is a different build from the one that " ++
+            "last gated this tree — {s}; snapshot/ratchet drift below may come from that, not the tree\n",
         .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx))},
     );
 }

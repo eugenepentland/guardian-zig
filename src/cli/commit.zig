@@ -11,7 +11,9 @@
 //! source, so a legitimate `credentials.zig` module can't be silently dropped
 //! and leave the commit desynced from the gated tree; `.guardian/` metadata and
 //! SPEC.md are always included so the baseline/snapshot churn a run produced
-//! rides the commit that caused it.
+//! rides the commit that caused it. A path git already records as deleted is
+//! kept out of the argv entirely (see `stagingDecision`) — it matches no
+//! pathspec, and one such path used to fail `git add` for the whole change set.
 //!
 //! Because it gates the exact working-tree diff it is about to commit,
 //! change-classification's diff-timing hole is structurally closed for this
@@ -167,6 +169,7 @@ fn runTests(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     }
     reporter.ok("commit: running tests (`{s}`) before committing ...", .{ctx.cfg.gate.test_command});
+    adviseTestTier(ctx.cfg.gate.test_command);
     const outcome = spawnTests(a, ctx.project_dir, argv) catch |e| {
         reporter.fail("commit: could not run tests ({s}) — nothing committed", .{@errorName(e)});
         return error.CheckFailed;
@@ -177,6 +180,69 @@ fn runTests(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     }
     reporter.ok("commit: tests passed", .{});
+}
+
+/// The default whole-suite command `commit` assumes when nothing overrides it.
+const default_test_command = "zig build test";
+
+/// Tokens that mark a test command as a deliberately narrowed tier: Zig's own
+/// filter flag, and the conventional names for a fast/smoke subset.
+const narrowing_tokens = [_][]const u8{ "-Dtest-filter", "--test-filter", "fast", "smoke", "quick" };
+
+/// How much of the suite the configured `[gate] test_command` covers, as far as
+/// guardian can tell from the string: the default whole-suite command, a
+/// recognisably narrowed tier, or something guardian cannot classify.
+const TestTier = enum { whole_suite, filtered, custom };
+
+/// Pure classifier for `[gate] test_command`. Anything token-equal to the
+/// default is the whole suite; a filter flag or a fast/smoke/quick token marks a
+/// narrowed tier; every other command is unclassifiable (`custom`).
+fn testTier(cmd: []const u8) TestTier {
+    if (tokensEqual(cmd, default_test_command)) return .whole_suite;
+    var it = std.mem.tokenizeAny(u8, cmd, " \t\r\n");
+    while (it.next()) |tok| {
+        for (narrowing_tokens) |n| {
+            if (std.ascii.indexOfIgnoreCase(tok, n) != null) return .filtered;
+        }
+    }
+    return .custom;
+}
+
+/// True when two commands tokenize to the same argv (whitespace-insensitive).
+fn tokensEqual(a_cmd: []const u8, b_cmd: []const u8) bool {
+    var ita = std.mem.tokenizeAny(u8, a_cmd, " \t\r\n");
+    var itb = std.mem.tokenizeAny(u8, b_cmd, " \t\r\n");
+    while (true) {
+        const x = ita.next();
+        const y = itb.next();
+        if (x == null or y == null) return x == null and y == null;
+        if (!std.mem.eql(u8, x.?, y.?)) return false;
+    }
+}
+
+/// Advisory (never blocking) printed before a non-default test command runs: a
+/// green filtered/smoke tier does not prove the whole suite compiles, because
+/// Zig hands `--test-filter` to the *compiler* — the tests it skipped are never
+/// analyzed. Two commits once landed on top of an uncompilable suite this way.
+/// Routed through the always-visible detail channel so `--quiet` can't eat it.
+fn adviseTestTier(cmd: []const u8) void {
+    const why = switch (testTier(cmd)) {
+        .whole_suite => return,
+        .filtered => "a narrowed tier",
+        .custom => "not the default `" ++ default_test_command ++ "`",
+    };
+    reporter.detail(
+        reporter.prefix ++ "commit: note — [gate] test_command (`{s}`) is {s}: a green run here does " ++
+            "NOT prove the whole test suite still compiles (Zig applies --test-filter at COMPILE time, " ++
+            "so skipped tests are never analyzed).\n",
+        .{ cmd, why },
+    );
+    reporter.detail(
+        "  fix: wire the whole-suite compile tier — `_ = guardian.addTestCompileProbe(b, .{{ .root_module = " ++
+            "test_mod }});` in build.zig registers `zig build test-compile`, which type-checks every test " ++
+            "(no filter, -fno-emit-bin) and runs none. Then make test_command run it too.\n",
+        .{},
+    );
 }
 
 /// The argv the commit gate runs: exactly the configured `[gate] test_command`.
@@ -241,20 +307,49 @@ fn stageAndCommit(ctx: *types.RunCtx, intent: []const u8) types.RunError!void {
     const plan = try planStaging(a, changed, ctx.cfg.spec_file, hook_path);
 
     warnSkipped(plan.skipped);
-    if (plan.stage.len == 0) {
-        reporter.ok("commit: nothing to commit", .{});
-        return;
-    }
-    if (!try git.addPaths(a, ctx.project_dir, plan.stage)) {
-        reporter.fail("commit: `git add` failed — nothing committed", .{});
-        return error.CheckFailed;
+    switch (commitAction(plan)) {
+        .nothing_to_commit => {
+            reporter.ok("commit: nothing to commit", .{});
+            return;
+        },
+        .commit_already_staged => {}, // every change is already in the index
+        .stage_then_commit => if (!try git.addPaths(a, ctx.project_dir, plan.stage)) {
+            reporter.fail("commit: `git add` failed — nothing committed", .{});
+            return error.CheckFailed;
+        },
     }
     if (!git.commit(a, ctx.project_dir, intent)) {
         reporter.fail("commit: `git commit` failed", .{});
         return error.CheckFailed;
     }
     const hash = git.headHash(a, ctx.project_dir) orelse "(unknown)";
-    reporter.ok("commit: {s} — \"{s}\" ({d} path(s) staged)", .{ hash, intent, plan.stage.len });
+    reporter.ok("commit: {s} — \"{s}\" ({s})", .{ hash, intent, try stagedSummary(a, plan) });
+}
+
+/// What the staging phase does with a computed plan. A path git already records
+/// as deleted needs no `git add` — and, when it is the *only* change, must not
+/// be mistaken for "nothing to commit": the index holds a real deletion.
+const CommitAction = enum { nothing_to_commit, stage_then_commit, commit_already_staged };
+
+/// Pure staging decision over a plan. Separated from `stageAndCommit` so the
+/// "deletion-only change set still commits" rule is tested without touching git.
+fn commitAction(plan: StagePlan) CommitAction {
+    if (plan.stage.len > 0) return .stage_then_commit;
+    if (plan.staged_deletions.len > 0) return .commit_already_staged;
+    return .nothing_to_commit;
+}
+
+/// The parenthesised path tally on the success line. Names already-staged
+/// deletions separately, because they are in the commit without ever appearing
+/// in the `git add` argv — a silent difference otherwise.
+fn stagedSummary(a: Allocator, plan: StagePlan) Allocator.Error![]const u8 {
+    if (plan.staged_deletions.len == 0) {
+        return std.fmt.allocPrint(a, "{d} path(s) staged", .{plan.stage.len});
+    }
+    return std.fmt.allocPrint(a, "{d} path(s) staged, {d} already-staged deletion(s)", .{
+        plan.stage.len,
+        plan.staged_deletions.len,
+    });
 }
 
 /// Prints the loud skip warning through the reporter's failure channel, which
@@ -268,14 +363,17 @@ fn warnSkipped(skipped: []const []const u8) void {
     reporter.detail("  fix: gitignore it, rename it, or `git add` it yourself to include it\n", .{});
 }
 
-/// The staging split: paths to stage vs the forbidden paths that were skipped.
+/// The staging split: paths to stage, the forbidden paths that were skipped,
+/// and the deletions git has already recorded (no `git add` possible or needed).
 const StagePlan = struct {
     stage: []const []const u8,
     skipped: []const []const u8,
+    staged_deletions: []const []const u8 = &.{},
 };
 
-/// Partitions `changed` into the stage set and the skipped-forbidden set. Pure
-/// over its inputs so the rails are unit-tested without touching git.
+/// Partitions `changed` into the stage set, the skipped-forbidden set, and the
+/// already-staged deletions. Pure over its inputs so the rails are unit-tested
+/// without touching git.
 fn planStaging(
     a: Allocator,
     changed: []const git.ChangedPath,
@@ -284,19 +382,27 @@ fn planStaging(
 ) Allocator.Error!StagePlan {
     var stage: std.ArrayList([]const u8) = .empty;
     var skipped: std.ArrayList([]const u8) = .empty;
+    var deletions: std.ArrayList([]const u8) = .empty;
     for (changed) |c| {
         switch (stagingDecision(c, spec_file, hook_path)) {
             .stage => try stage.append(a, c.path),
             .skip_forbidden => try skipped.append(a, c.path),
+            .already_staged => try deletions.append(a, c.path),
             .skip_generated => {},
         }
     }
-    return .{ .stage = try stage.toOwnedSlice(a), .skipped = try skipped.toOwnedSlice(a) };
+    return .{
+        .stage = try stage.toOwnedSlice(a),
+        .skipped = try skipped.toOwnedSlice(a),
+        .staged_deletions = try deletions.toOwnedSlice(a),
+    };
 }
 
 /// What to do with one changed path. `skip_generated` is warning-free — see
-/// `stagingDecision` for why that one silent drop is safe.
-const StageAction = enum { stage, skip_forbidden, skip_generated };
+/// `stagingDecision` for why that one silent drop is safe. `already_staged` is
+/// warning-free for a different reason: the change IS in the commit, just not
+/// via `git add`.
+const StageAction = enum { stage, skip_forbidden, skip_generated, already_staged };
 
 /// Per-path staging decision: the always-include set (guardian metadata + the
 /// spec file) wins; the filters apply only to untracked paths — a tracked path
@@ -311,6 +417,13 @@ const StageAction = enum { stage, skip_forbidden, skip_generated };
 /// it is never gated source, and dropping it cannot desync the commit from the
 /// tree the gate verified.
 fn stagingDecision(c: git.ChangedPath, spec_file: []const u8, hook_path: ?[]const u8) StageAction {
+    // A deletion git already recorded comes first, ahead of every other rail:
+    // the path is in neither the worktree nor the index, so naming it in the
+    // `git add` argv is a fatal `pathspec … did not match any files` that aborts
+    // the WHOLE batch — one deleted file used to mean "git add failed — nothing
+    // committed" for the entire change set. Deletions are ordinary change-set
+    // members; this one is simply already staged, so there is nothing to add.
+    if (c.staged_deletion) return .already_staged;
     // Guardian's own operational cache is git-ignored, digest-excluded state that
     // must never enter history — checked BEFORE alwaysInclude, which otherwise
     // carries everything under `.guardian/` wholesale. Silent, like the hook: it
@@ -463,6 +576,91 @@ fn untracked(path: []const u8) git.ChangedPath {
 /// Test shorthand for a tracked porcelain entry (anything but `??`).
 fn tracked(path: []const u8) git.ChangedPath {
     return .{ .path = path, .tracked = true };
+}
+
+/// Test shorthand for a path git already records as deleted (`D ` porcelain).
+fn deleted(path: []const u8) git.ChangedPath {
+    return .{ .path = path, .tracked = true, .staged_deletion = true };
+}
+
+// spec: Commit Hygiene - Leaves an already-staged deletion out of the git add path list
+
+test "planStaging keeps a deleted path out of the add list without warning" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The reported bug: one `D ` path (gone from worktree AND index) in the
+    // change set made `git add -- <paths…>` exit 128 with `pathspec … did not
+    // match any files`, so a whole green gate ended in "nothing committed".
+    const changed = [_]git.ChangedPath{
+        deleted("src/removed.zig"),
+        tracked("src/keep.zig"),
+        // A deletion under an always-include prefix is still un-addable.
+        deleted(".guardian/baselines/gone.txt"),
+    };
+    const plan = try planStaging(a, &changed, "SPEC.md", null);
+    try testing.expectEqual(@as(usize, 1), plan.stage.len);
+    try testing.expectEqualStrings("src/keep.zig", plan.stage[0]);
+    try testing.expectEqual(@as(usize, 2), plan.staged_deletions.len);
+    // Not a skip: the deletion IS in the commit, so the loud warning stays quiet.
+    try testing.expectEqual(@as(usize, 0), plan.skipped.len);
+    // The success line names them, since they never appear in the add argv.
+    try testing.expectEqualStrings(
+        "1 path(s) staged, 2 already-staged deletion(s)",
+        try stagedSummary(a, plan),
+    );
+}
+
+// spec: Commit Hygiene - Commits an already-staged deletion when no path needs staging
+
+test "commitAction commits a deletion-only change set and stops on an empty one" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Deleting a file and nothing else is a real commit — "nothing to commit"
+    // would silently drop the change the gate just verified.
+    const only_deletion = try planStaging(a, &[_]git.ChangedPath{deleted("src/gone.zig")}, "SPEC.md", null);
+    try testing.expectEqual(CommitAction.commit_already_staged, commitAction(only_deletion));
+    // With something to add, the add step runs as before.
+    const both = [_]git.ChangedPath{ deleted("src/gone.zig"), tracked("src/keep.zig") };
+    const mixed = try planStaging(a, &both, "SPEC.md", null);
+    try testing.expectEqual(CommitAction.stage_then_commit, commitAction(mixed));
+    // Everything filtered out: still a no-op, and the tally omits deletions.
+    const empty = try planStaging(a, &[_]git.ChangedPath{untracked(".env")}, "SPEC.md", null);
+    try testing.expectEqual(CommitAction.nothing_to_commit, commitAction(empty));
+    try testing.expectEqualStrings("0 path(s) staged", try stagedSummary(a, empty));
+}
+
+// spec: Commit Hygiene - Advises when the configured test command is not the whole default suite
+
+test "testTier classifies the default suite, filtered tiers, and custom commands" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // The default is the whole suite: no advisory, no noise on every commit.
+    try testing.expectEqual(TestTier.whole_suite, testTier("zig build test"));
+    try testing.expectEqual(TestTier.whole_suite, testTier("  zig   build\ttest "));
+    // The reported case: `zig build test-fast` let two commits land on top of a
+    // suite that no longer compiled, because a filtered build never analyzes the
+    // tests it skipped.
+    try testing.expectEqual(TestTier.filtered, testTier("zig build test-fast"));
+    try testing.expectEqual(TestTier.filtered, testTier("zig build test -Dtest-filter=commit"));
+    try testing.expectEqual(TestTier.filtered, testTier("zig build smoke"));
+    // Anything else is unclassifiable — still advised, since guardian cannot
+    // tell whether it covers the suite.
+    try testing.expectEqual(TestTier.custom, testTier("make check"));
+    // The advisory names the command and the probe that closes the gap.
+    var cap: reporter.Capture = .{ .allocator = arena.allocator() };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    adviseTestTier("zig build test-fast");
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "test-fast") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "addTestCompileProbe") != null);
+    cap.buf.clearRetainingCapacity();
+    // The default tier says nothing at all.
+    adviseTestTier("zig build test");
+    try testing.expectEqual(@as(usize, 0), cap.buf.items.len);
 }
 
 // spec: Commit - Reports a gate and test timing split

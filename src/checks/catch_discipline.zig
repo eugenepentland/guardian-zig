@@ -20,12 +20,24 @@ const ScanCtx = struct {
 
 // Per-file destination for reported violations. `z` and `rel_path` are constant
 // for the duration of one `visit`, so bundling them keeps `appendAt` to a small
-// parameter list.
+// parameter list. Findings are buffered rather than rendered on sight: the
+// conforming catch a file already uses may sit *below* the offending one (in the
+// report that prompted this, two lines below), and the message names it.
 const Sink = struct {
     ctx: *ScanCtx,
     z: []const u8,
     rel_path: []const u8,
+    findings: std.ArrayList(Finding) = .empty,
+    conforming: ?Conforming = null,
 };
+
+// One swallowing catch: where it is, and what is wrong with it.
+const Finding = struct { pos: usize, what: []const u8 };
+
+// The first error-handling catch this file already gets right. Naming the shape
+// the surrounding code uses turns "handle the error" into a one-line edit the
+// author can copy — the fix is almost always the neighbouring idiom.
+const Conforming = struct { shape: []const u8, pos: usize };
 
 // State machine for the tokenizer scan. Tracks the current parse state and the
 // source offset of the most recent `catch` keyword so a violation can be
@@ -45,7 +57,7 @@ const Scanner = struct {
             .in_capture => if (t.tag == .pipe) {
                 self.state = .expect_brace;
             },
-            .expect_brace => self.expectBrace(t),
+            .expect_brace => self.expectBrace(sink, t, in_test),
             .after_lbrace => try self.afterLbrace(sink, t, in_test),
         }
     }
@@ -71,8 +83,21 @@ const Scanner = struct {
             .pipe => self.state = .in_capture,
             .l_brace => self.state = .after_lbrace,
             .keyword_catch => self.catch_pos = t.loc.start,
-            else => self.state = .none,
+            else => {
+                self.noteConforming(sink, t.tag, in_test, .bare);
+                self.state = .none;
+            },
         }
+    }
+
+    // Records the file's first conforming catch — the shape its own code already
+    // uses to handle an error — so a violation's message can point at it.
+    // Production code only: a `catch return` inside a test block is not
+    // necessarily an idiom the surrounding src can copy.
+    fn noteConforming(self: *Scanner, sink: *Sink, tag: std.zig.Token.Tag, in_test: bool, form: CatchForm) void {
+        if (in_test or sink.conforming != null) return;
+        const shape = shapeName(tag, form) orelse return;
+        sink.conforming = .{ .shape = shape, .pos = self.catch_pos };
     }
 
     // `catch undefined` assigns undefined (UB) on error; other identifiers pass.
@@ -83,14 +108,17 @@ const Scanner = struct {
     }
 
     // Skip the `|capture|`; the closing pipe leads to the body.
-    fn expectBrace(self: *Scanner, t: std.zig.Token) void {
+    fn expectBrace(self: *Scanner, sink: *Sink, t: std.zig.Token, in_test: bool) void {
         switch (t.tag) {
             .l_brace => self.state = .after_lbrace,
             .keyword_catch => {
                 self.catch_pos = t.loc.start;
                 self.state = .after_catch;
             },
-            else => self.state = .none,
+            else => {
+                self.noteConforming(sink, t.tag, in_test, .captured);
+                self.state = .none;
+            },
         }
     }
 
@@ -106,6 +134,30 @@ const Scanner = struct {
         }
     }
 };
+
+// Whether a conforming catch captured the error (`catch |e| return`) or not
+// (`catch return`) — quoted back verbatim, so the hint matches the file's style.
+const CatchForm = enum { bare, captured };
+
+// The quotable source shape for a conforming catch, or null for a token that
+// isn't one of the handled forms.
+fn shapeName(tag: std.zig.Token.Tag, form: CatchForm) ?[]const u8 {
+    return switch (tag) {
+        .keyword_return => switch (form) {
+            .bare => "catch return",
+            .captured => "catch |e| return",
+        },
+        .keyword_continue => switch (form) {
+            .bare => "catch continue",
+            .captured => "catch |e| continue",
+        },
+        .keyword_break => switch (form) {
+            .bare => "catch break",
+            .captured => "catch |e| break",
+        },
+        else => null,
+    };
+}
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
@@ -132,14 +184,29 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
         scope.update(t.tag);
         try scanner.step(&sink, t, scope.in_test);
     }
+    try renderFindings(&sink);
+}
+
+// Turns the file's buffered findings into violation lines. Deferred to here so
+// every message can name the conforming catch the file already contains, even
+// when that catch appears further down the file than the violation.
+fn renderFindings(sink: *Sink) !void {
+    const a = sink.ctx.allocator;
+    for (sink.findings.items) |f| {
+        const line = lineOf(sink.z, f.pos);
+        const msg = if (sink.conforming) |c| try std.fmt.allocPrint(
+            a,
+            "{s}:{d}: {s} — this file already uses `{s}` at line {d}",
+            .{ sink.rel_path, line, f.what, c.shape, lineOf(sink.z, c.pos) },
+        ) else try std.fmt.allocPrint(a, "{s}:{d}: {s}", .{ sink.rel_path, line, f.what });
+        try sink.ctx.violations.append(a, msg);
+    }
 }
 
 const TestScope = @import("../text.zig").TestScope;
 
-fn appendAt(sink: *Sink, pos: usize, comptime what: []const u8) !void {
-    const ctx = sink.ctx;
-    const msg = try std.fmt.allocPrint(ctx.allocator, "{s}:{d}: " ++ what, .{ sink.rel_path, lineOf(sink.z, pos) });
-    try ctx.violations.append(ctx.allocator, msg);
+fn appendAt(sink: *Sink, pos: usize, what: []const u8) !void {
+    try sink.findings.append(sink.ctx.allocator, .{ .pos = pos, .what = what });
 }
 
 const lineOf = @import("../text.zig").lineOf;
@@ -162,7 +229,8 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("catch discipline FAILED ({d} occurrence(s))", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: handle the error explicitly with a switch or named return.\n", .{});
+    print("  fix: handle the error explicitly with a switch or named return — when the finding " ++
+        "names a shape the file already uses, copy that one.\n", .{});
     return error.CheckFailed;
 }
 
@@ -272,6 +340,46 @@ test "visit catches `catch |e| {}` empty captured body" {
     ;
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+// spec: Catch Discipline - Names a conforming catch the same file already uses
+
+test "visit quotes the file's own catch shape in the violation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayList([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    // The reported case: "catch block is empty" two lines above a `catch return;`
+    // the author could have copied. The conforming catch sits BELOW the
+    // violation, so the message can only name it after the whole file is scanned.
+    const content =
+        \\fn x() void {
+        \\    list.append(item) catch {};
+        \\}
+        \\fn y() void {
+        \\    list.append(item) catch return;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    try std.testing.expectEqualStrings(
+        "src/x.zig:2: catch block is empty (silently swallows the error) — " ++
+            "this file already uses `catch return` at line 5",
+        violations.items[0],
+    );
+
+    // A file with no conforming catch to point at keeps the plain message.
+    violations.clearRetainingCapacity();
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/y.zig", .content = 
+        \\fn x() void {
+        \\    list.append(item) catch {};
+        \\}
+    });
+    try std.testing.expectEqualStrings(
+        "src/y.zig:2: catch block is empty (silently swallows the error)",
+        violations.items[0],
+    );
 }
 
 test "visit allows `catch |e| { handle(e); }` non-empty body" {

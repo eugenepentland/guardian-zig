@@ -72,6 +72,11 @@ fn scan(ctx: *ScanCtx, z: [:0]const u8) Allocator.Error!void {
     }
 }
 
+/// One top-level loop in a test body: where it starts, and whether anything
+/// inside it asserts. An assertion-free loop is the fixture-builder shape — the
+/// one worth extracting when a test has several loops.
+const LoopRec = struct { line: u32, has_assert: bool = false };
+
 /// Mutable state and shared inputs threaded through the per-keyword handlers
 /// while scanning a single test body. `depth` starts at 1 (the body itself).
 const BodyScan = struct {
@@ -81,14 +86,22 @@ const BodyScan = struct {
     /// The enclosing test's name, carried into each violation's identity.
     test_name: []const u8,
     depth: u32 = 1,
-    top_loop_count: u32 = 0,
+    /// Every top-level loop seen so far, in source order.
+    loops: std.ArrayList(LoopRec) = .empty,
+    /// Index into `loops` of the loop currently being scanned for assertions,
+    /// or null between loops.
+    active_loop: ?usize = null,
+    /// Indices into `ctx.violations` of this body's extra-loop findings, whose
+    /// message is finalized once every loop's assertion status is known.
+    extra_loops: std.ArrayList(usize) = .empty,
 };
 
 fn scanBody(ctx: *ScanCtx, z: []const u8, tok: *std.zig.Tokenizer, test_name: []const u8) Allocator.Error!void {
     var bs: BodyScan = .{ .ctx = ctx, .z = z, .tok = tok, .test_name = test_name };
     while (bs.depth > 0) {
         const t = tok.next();
-        if (t.tag == .eof) return;
+        if (t.tag == .eof) break;
+        noteAssertion(&bs, t);
         switch (t.tag) {
             .l_brace => bs.depth += 1,
             .r_brace => bs.depth -= 1,
@@ -98,16 +111,84 @@ fn scanBody(ctx: *ScanCtx, z: []const u8, tok: *std.zig.Tokenizer, test_name: []
             .keyword_switch => try handleSwitch(&bs, t.loc.start),
             else => {},
         }
+        closeLoopIfEnded(&bs, t.tag);
+    }
+    try nameExtractionCandidate(&bs);
+}
+
+/// Records that the loop currently being scanned contains an assertion call.
+/// `try` alone is deliberately NOT enough: a fixture builder is full of `try
+/// list.append(...)`, and counting that would make every loop look assertive.
+fn noteAssertion(bs: *BodyScan, t: std.zig.Token) void {
+    const idx = bs.active_loop orelse return;
+    if (t.tag != .identifier) return;
+    if (!isAssertionName(bs.z[t.loc.start..t.loc.end])) return;
+    bs.loops.items[idx].has_assert = true;
+}
+
+/// Ends the active loop's extent: its braced body closed back to the top level,
+/// or a braceless `for (x) |v| stmt;` reached its terminating semicolon.
+fn closeLoopIfEnded(bs: *BodyScan, tag: std.zig.Token.Tag) void {
+    if (bs.active_loop == null or bs.depth != 1) return;
+    if (tag == .r_brace or tag == .semicolon) bs.active_loop = null;
+}
+
+/// Counts a top-level loop and flags the second (and later) one. The finding's
+/// message is provisional: which loop to extract is only known once the whole
+/// body has been scanned (see `nameExtractionCandidate`).
+fn handleLoop(bs: *BodyScan, byte: usize) Allocator.Error!void {
+    if (bs.depth != 1) return;
+    try bs.loops.append(bs.ctx.allocator, .{ .line = lineOf(bs.z, byte) });
+    bs.active_loop = bs.loops.items.len - 1;
+    if (bs.loops.items.len > 1) {
+        try report(bs, byte, "loop", multi_loop_reason);
+        try bs.extra_loops.append(bs.ctx.allocator, bs.ctx.violations.items.len - 1);
     }
 }
 
-/// Counts a top-level loop and flags the second (and later) one.
-fn handleLoop(bs: *BodyScan, byte: usize) Allocator.Error!void {
-    if (bs.depth != 1) return;
-    bs.top_loop_count += 1;
-    if (bs.top_loop_count > 1) {
-        try report(bs, byte, "loop", "more than one top-level loop");
+/// The bare finding text, used when no loop stands out as the fixture builder.
+const multi_loop_reason = "more than one top-level loop";
+
+/// Points the reader at the loop to extract. A test with one loop that asserts
+/// and another that does not is the fixture-builder shape: the assertion-free
+/// loop is setup, and moving *that* one into a helper leaves the assertions
+/// where they belong. Naming it costs nothing here and saves a gate cycle spent
+/// guessing which loop the check meant.
+fn nameExtractionCandidate(bs: *BodyScan) Allocator.Error!void {
+    if (bs.extra_loops.items.len == 0) return;
+    const candidate = fixtureLoop(bs.loops.items) orelse return;
+    const msg = try std.fmt.allocPrint(
+        bs.ctx.allocator,
+        multi_loop_reason ++ " — the loop at line {d} asserts nothing; extract that one into a fixture helper",
+        .{candidate.line},
+    );
+    for (bs.extra_loops.items) |i| bs.ctx.violations.items[i].message = msg;
+}
+
+/// The first assertion-free loop, but only when another loop in the same test
+/// does assert — otherwise there is no fixture/assertion split to point at and
+/// the check says nothing it cannot back up.
+fn fixtureLoop(loops: []const LoopRec) ?LoopRec {
+    var candidate: ?LoopRec = null;
+    var any_asserts = false;
+    for (loops) |l| {
+        if (l.has_assert) any_asserts = true else if (candidate == null) candidate = l;
     }
+    return if (any_asserts) candidate else null;
+}
+
+/// True for std.testing / std.debug assertion call names — `expect`/`assert`
+/// exactly, or continued in camelCase (expectEqual, assertEqual). A lowercase
+/// continuation (`expected`) is a variable, not a call. Mirrors the same rule in
+/// the test-has-assertion check.
+fn isAssertionName(name: []const u8) bool {
+    return assertPrefix(name, "expect") or assertPrefix(name, "assert");
+}
+
+fn assertPrefix(name: []const u8, prefix: []const u8) bool {
+    if (!std.mem.startsWith(u8, name, prefix)) return false;
+    if (name.len == prefix.len) return true;
+    return std.ascii.isUpper(name[prefix.len]);
 }
 
 /// Flags a `switch` at the top level of a test body.
@@ -249,7 +330,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     detail("  why: tests assert, helpers compute — a conditional or a second loop can " ++
         "silently skip the assertion it was meant to pin.\n", .{});
     detail("  fix: one top-level loop is fine; merge multiple loops into one table-driven " ++
-        "loop, split a branch into two independent tests, or hoist the computation into a helper.\n", .{});
+        "loop, split a branch into two independent tests, or hoist the computation into a helper. " ++
+        "A multi-loop finding names the loop that asserts nothing — that is the one to extract.\n", .{});
     return error.CheckFailed;
 }
 
@@ -350,6 +432,44 @@ test "analyzeContent flags second top-level for" {
         \\}
     );
     try std.testing.expectEqual(@as(usize, 1), out.len);
+}
+
+// spec: Test Hygiene - Names the assertion-free loop as the one to extract
+
+test "analyzeRecords points a multi-loop finding at the fixture loop" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The reported shape: a fixture builder that fills a board, then the loop
+    // that actually asserts. Guessing which one the check meant costs a full
+    // gate cycle, so the finding names the assertion-free one by line.
+    const recs = try analyzeRecords(a, "src/x.zig",
+        \\test "two loops" {
+        \\    var board: [9]u8 = undefined;
+        \\    for (&board, 0..) |*cell, i| {
+        \\        cell.* = @intCast(i);
+        \\    }
+        \\    for (board) |cell| {
+        \\        try std.testing.expect(cell < 9);
+        \\    }
+        \\}
+    );
+    try std.testing.expectEqual(@as(usize, 1), recs.len);
+    // The finding still sits on the second loop (line 6) — it is the one the
+    // rule flags — but the message points at the fixture loop on line 3.
+    try std.testing.expectEqual(@as(u32, 6), recs[0].line.?);
+    try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "line 3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "asserts nothing") != null);
+
+    // With no fixture/assertion split there is nothing to single out, so the
+    // check makes no claim it cannot back up.
+    const both_assert = try analyzeRecords(a, "src/x.zig",
+        \\test "both assert" {
+        \\    for (a1) |x| try std.testing.expect(x > 0);
+        \\    for (b1) |y| try std.testing.expect(y > 0);
+        \\}
+    );
+    try std.testing.expectEqualStrings(multi_loop_reason, both_assert[0].message);
 }
 
 test "analyzeContent allows nested if inside for" {
