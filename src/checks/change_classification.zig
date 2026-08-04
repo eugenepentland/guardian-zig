@@ -297,9 +297,20 @@ fn report(against: []const u8, totals: Totals, offenders: []const []const u8) re
     if (offenders.len > max_reported_files) {
         detail("  ... and {d} more file(s)\n", .{offenders.len - max_reported_files});
     }
-    detail("  fix: add or update a `// spec:`-tagged test covering the change (or update SPEC.md).\n", .{});
-    detail("       a genuinely behavior-free refactor can disable via " ++
-        "`disabled = [\"change-classification\"]`.\n", .{});
+    // Which action clears this, in the order an agent should try them. The old
+    // two-liner read like a wall of counts and was easy to mistake for baseline
+    // churn — there is no snapshot here to ratify, and saying so is the point.
+    detail("  fix: commit these lines WITH a test — add or update a `// spec:`-tagged test, " ++
+        "or add the behavior as a SPEC.md bullet, in this same change.\n", .{});
+    detail("  not that: there is no snapshot or baseline to accept here. " ++
+        "`GUARDIAN_UPDATE_SNAPSHOT=change-classification` and " ++
+        "`guardian-check accept change-classification .` do NOT clear it — only a test/spec " ++
+        "change, or one of the two waivers below, does.\n", .{});
+    detail("  wrong base? the diff is against {s}: pass `--against <ref>` (or GUARDIAN_AGAINST=<ref>, " ++
+        "or `[change_classification] against`) when your change spans more than that.\n", .{against});
+    detail("  behavior-free refactor: `[change_classification] enabled = false` in guardian.toml " ++
+        "(or the top-level `disabled = [\"change-classification\"]`) — for the whole project, " ++
+        "not this one change.\n", .{});
     return error.CheckFailed;
 }
 
@@ -486,6 +497,31 @@ test "specBulletsAdded is false for headers, prose, blanks, and fenced bullets" 
     try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 8, .len = 1 }}));
     try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 11, .len = 1 }}));
     try testing.expect(!specBulletsAdded(spec_sample, &.{.{ .start = 2, .len = 1 }}));
+}
+
+// spec: Change Classification - Names the actions that actually clear an uncovered change
+
+test "report tells an uncovered change what to do and what will not work" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var cap: reporter.Capture = .{ .allocator = arena.allocator() };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const failing: Totals = .{ .counts = .{ .behavioral = 12 } };
+    try testing.expectError(error.CheckFailed, report("HEAD", failing, &.{"src/a.zig: 12 behavioral line(s) added"}));
+
+    // The action that resolves it, named as an action.
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "// spec:") != null);
+    // "N behavioral lines added" reads like discardable baseline churn; the
+    // report says outright that the accept flow does not apply here.
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "GUARDIAN_UPDATE_SNAPSHOT") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "do NOT clear it") != null);
+    // The two real waivers: a different diff base, or turning the check off.
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "--against") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "enabled = false") != null);
 }
 
 // spec: Change Classification - Gates the last commit when the working tree is clean against HEAD

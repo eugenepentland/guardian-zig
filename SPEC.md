@@ -153,6 +153,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
 - Records the guardian binary identity in the green stamp for a drift hint
+- Identifies the guardian binary by content so two copies of one build share an identity
 - Reads the stamp and binary timestamps behind the stale-binary direction hint
 
 ## Run All
@@ -209,6 +210,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Provides an explanation entry for every registered command
 - Resolves a summary for checks and documented meta commands
 - Documents the commit meta command
+- Aims each entry at the fix the reader came for
 
 ## Commit
 
@@ -227,6 +229,12 @@ blocking correctness checks and advisory maintainability guidance.
 - Never stages the git-ignored guardian cache directory
 - Reports a gate and test timing split
 - Reports up front when the change set contains no gate inputs
+
+## Commit Hygiene
+
+- Leaves an already-staged deletion out of the git add path list
+- Commits an already-staged deletion when no path needs staging
+- Advises when the configured test command is not the whole default suite
 
 ## Install Hook
 
@@ -319,6 +327,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects catch unreachable in production code
 - Rejects catch with empty block (silent error swallow)
 - Rejects catch undefined assigning undefined on error
+- Names a conforming catch the same file already uses
 
 ## Unwrap Discipline
 
@@ -418,6 +427,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Rejects @compileError without a non-empty string explanation
 - Rejects init bodies with loops, conditionals, or switch statements
+- Exempts a non-pub init used only from test blocks
 - Rejects static factory / singleton patterns in business logic
 - Requires structs that own an allocator field to declare a pub fn deinit
 - Requires init bodies with multiple try calls to use errdefer
@@ -542,6 +552,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Counts a commit's parents from a rev-list line
 - Extracts changed and untracked paths from porcelain status resolving renames
 - Distinguishes untracked entries from tracked ones in porcelain status
+- Marks an index-side deletion so no pathspec is built for it
 - Classifies a not-a-git-repository failure as a skip, not a hard error
 - Hard-fails a diff-scoped git command that fails for any other reason
 - Resolves the merge base with a branch and reports null when it cannot
@@ -594,6 +605,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Counts remaining added source lines as behavioral changes
 - Passes when behavioral changes are accompanied by test changes
 - Fails when behavioral changes have no test or spec change
+- Names the actions that actually clear an uncovered change
 - Treats an added SPEC.md behavior bullet as a spec change
 - Ignores SPEC.md edits confined to prose, headers, or fenced code
 - Gates the last commit when the working tree is clean against HEAD
@@ -675,6 +687,7 @@ without an explained `--force`.
 
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
+- Names the assertion-free loop as the one to extract
 - Identifies a flagged construct by its test and keyword
 - Rejects production code @import-ing test files
 
