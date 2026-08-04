@@ -88,9 +88,13 @@ src/benchmark.zig::validNote | fn validNote(text: []const u8) bool
 src/benchmark.zig::validToken | fn validToken(text: []const u8) bool
 src/benchmark.zig::without | fn without(arena: Allocator, records: []const Record, name: []const u8) Allocator.Error!?[]const Record
 src/benchmark.zig::write | fn write(arena: Allocator, path: []const u8, records: []const Record) snapshot.WriteError!void
+src/build_helper.zig::CompileProbeOptions struct_
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
+src/build_helper.zig::addTestCompileProbe | fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step
 src/build_helper.zig::all_check_names value
+src/build_helper.zig::announceFilters | fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) void
+src/build_helper.zig::testRunner | fn testRunner(dep: *std.Build.Dependency) std.Build.Step.Compile.TestRunner
 src/cache.zig::Digest value
 src/cache.zig::Error value
 src/cache.zig::currentBinaryIdHash | fn currentBinaryIdHash(arena: Allocator) Error!Digest
@@ -615,6 +619,9 @@ src/test_filter.zig::declaredTests | fn declaredTests(arena: Allocator, tree: *c
 src/test_filter.zig::derive | fn derive(arena: Allocator, in: Inputs) Allocator.Error!Derivation
 src/test_filter.zig::isEmpty | fn isEmpty(self: Derivation) bool
 src/test_filter.zig::renderArgs | fn renderArgs(arena: Allocator, names: []const []const u8, flag: []const u8) Allocator.Error![]const u8
+src/test_runner.zig::fuzz | fn fuzz( context: anytype, comptime testOne: fn (context: @TypeOf(context), []const u8) anyerror!void, options: testing.FuzzInputOptions, ) anyerror!void
+src/test_runner.zig::main | fn main() void
+src/test_runner.zig::std_options value
 src/testing/golden_runner.zig::GoldenError value
 src/testing/golden_runner.zig::Scenario struct_
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void

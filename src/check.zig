@@ -427,6 +427,10 @@ test {
     _ = @import("scope.zig");
     _ = @import("test_filter.zig");
     _ = @import("cli/test_filter.zig");
+    // NOT src/test_runner.zig: it is this binary's own test *runner*, and Zig
+    // refuses a file that belongs to two modules ("file exists in modules
+    // 'root' and 'root'"). Its tests get their own compilation — see the
+    // runner-tests step in build.zig, which `zig build test` depends on.
     _ = @import("accept_session.zig");
     _ = @import("mutation/gen.zig");
     _ = @import("mutation/runner.zig");

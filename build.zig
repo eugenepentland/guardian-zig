@@ -6,6 +6,10 @@ const guardian_helper = @import("src/build_helper.zig");
 pub const addAllChecks = guardian_helper.addAllChecks;
 pub const all_check_names = guardian_helper.all_check_names;
 pub const Options = guardian_helper.Options;
+pub const testRunner = guardian_helper.testRunner;
+pub const announceFilters = guardian_helper.announceFilters;
+pub const addTestCompileProbe = guardian_helper.addTestCompileProbe;
+pub const CompileProbeOptions = guardian_helper.CompileProbeOptions;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -75,10 +79,48 @@ pub fn build(b: *std.Build) void {
     var test_filters: std.ArrayList([]const u8) = .empty;
     test_filters.appendSlice(b.allocator, name_filters) catch @panic("out of memory");
     if (fuzz_filter) |filter| test_filters.append(b.allocator, filter) catch @panic("out of memory");
-    const unit_tests = b.addTest(.{ .root_module = test_mod, .filters = test_filters.items });
+    // Dogfooding: guardian's own suite runs on guardian's counting test runner,
+    // so `zig build test` states how many tests it selected and a zero-match
+    // filter fails loudly instead of exiting 0 (`.mode = .server` keeps the
+    // build system's progress, failure attribution, and --fuzz support).
+    const unit_tests = b.addTest(.{
+        .root_module = test_mod,
+        .filters = test_filters.items,
+        .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .server },
+    });
     const run_tests = b.addRunArtifact(unit_tests);
+    guardian_helper.announceFilters(run_tests, test_filters.items);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    // The runner's own tests need their own binary: a custom test runner is
+    // never part of the module it runs (Zig: "file exists in modules 'root' and
+    // 'root'"), so its test decls are invisible to the suite above. This second
+    // compilation makes them run, on the stock runner.
+    //
+    // Consequence of the split, only in this repo: filtering for a test that
+    // lives in src/test_runner.zig makes the *main* binary report zero matches
+    // and fail, because nothing the filter named ran there. That verdict is
+    // correct; run the filter without expecting the main suite to be happy.
+    const runner_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/test_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const runner_tests = b.addTest(.{ .root_module = runner_test_mod, .filters = test_filters.items });
+    test_step.dependOn(&b.addRunArtifact(runner_tests).step);
+
+    // test-compile: the middle tier between a filtered run and the gate.
+    // Compiles every test (no filter, ever) and runs none of them, so a
+    // filtered loop can still prove the whole suite type-checks in seconds.
+    // Deliberately NOT a dependency of `test`: making it one would re-compile
+    // the whole suite on every filtered run and erase the reason to filter.
+    const probe_step = guardian_helper.addTestCompileProbe(b, .{
+        .root_module = test_mod,
+        .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .server },
+    });
+    // The suite lives in two binaries here, so the probe covers both.
+    probe_step.dependOn(&b.addTest(.{ .root_module = runner_test_mod }).step);
 
     // Format check
     const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
