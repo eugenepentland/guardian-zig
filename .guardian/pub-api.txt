@@ -93,10 +93,12 @@ src/build_helper.zig::all_check_names value
 src/cache.zig::Digest value
 src/cache.zig::Error value
 src/cache.zig::currentBinaryIdHash | fn currentBinaryIdHash(arena: Allocator) Error!Digest
+src/cache.zig::currentBinaryMtime | fn currentBinaryMtime(arena: Allocator) ?i128
 src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
 src/cache.zig::inputDigest | fn inputDigest( arena: Allocator, project_dir: []const u8, spec_file: []const u8, external_gates: []const config.ExternalGate, ) Error!Digest
 src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::readStoredBinaryId | fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
+src/cache.zig::stampMtime | fn stampMtime(project_dir: []const u8) ?i128
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
 src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
@@ -271,6 +273,19 @@ src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
+src/cli/run_view.zig::BinaryAge enum_
+src/cli/run_view.zig::Outcome struct_
+src/cli/run_view.zig::Render enum_
+src/cli/run_view.zig::Verbosity enum_
+src/cli/run_view.zig::Verdict struct_
+src/cli/run_view.zig::binaryAge | fn binaryAge(running_mtime: ?i128, stamp_mtime: ?i128) BinaryAge
+src/cli/run_view.zig::binaryAgeNote | fn binaryAgeNote(age: BinaryAge) []const u8
+src/cli/run_view.zig::collapseLine | fn collapseLine(arena: Allocator, check: []const u8, o: Outcome) Allocator.Error![]const u8
+src/cli/run_view.zig::inScope | fn inScope(changed: []const []const u8, records: []const reporter.Violation) usize
+src/cli/run_view.zig::moreSuffix | fn moreSuffix(arena: Allocator, findings: usize) []const u8
+src/cli/run_view.zig::renderFor | fn renderFor(v: Verbosity, o: Outcome) Render
+src/cli/run_view.zig::verdictLine | fn verdictLine(arena: Allocator, v: Verdict, scope_suffix: []const u8) []const u8
+src/cli/run_view.zig::verdict_prefix value
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/test_filter.zig::command_name value
 src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void

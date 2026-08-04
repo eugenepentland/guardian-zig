@@ -88,6 +88,31 @@ pub fn currentBinaryIdHash(arena: Allocator) Error!Digest {
     return out;
 }
 
+/// Modification time of the running guardian-check binary, or null when it
+/// cannot be resolved. Feeds the stale-binary warning's "which side is newer"
+/// note only — never a digest, never a skip decision — so a missing timestamp
+/// degrades the wording rather than the gate.
+pub fn currentBinaryMtime(arena: Allocator) ?i128 {
+    const exe_path = std.fs.selfExePathAlloc(arena) catch return null;
+    const st = std.fs.cwd().statFile(exe_path) catch return null;
+    return st.mtime;
+}
+
+/// Modification time of the green stamp file — when the binary recorded in it
+/// last gated this tree — or null when no stamp exists. Paired with
+/// `currentBinaryMtime` so a binary-identity mismatch can name a direction
+/// ("this binary is older than the one that last gated the tree") instead of
+/// only reporting that the two differ.
+pub fn stampMtime(project_dir: []const u8) ?i128 {
+    // Stack-buffered on purpose: an allocating path build would have to fold
+    // OOM into the same null the "no stamp yet" case uses, conflating "guardian
+    // is out of memory" with "there is nothing to compare against".
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ project_dir, cache_leaf }) catch return null;
+    const st = std.fs.cwd().statFile(path) catch return null;
+    return st.mtime;
+}
+
 /// Digest over every file Guardian reads as a check input: `.zig` files under
 /// src/ and test/, build.zig/build.zig.zon, the spec/config, `.guardian`
 /// metadata, declared external inputs, and project-local `@embedFile` assets.
@@ -473,6 +498,29 @@ test "writeGreenStamp round-trips the digest and the binary identity" {
 
     // currentBinaryIdHash is stable for the running binary within a process.
     _ = &currentBinaryIdHash;
+}
+
+// spec: Skip Cache - Reads the stamp and binary timestamps behind the stale-binary direction hint
+
+test "stampMtime reports a written stamp and nothing for an absent one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/cache-mtime-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("mtime test cleanup: {s}", .{@errorName(e)});
+
+    // No stamp yet: no timestamp to compare against, so the hint stays generic.
+    try std.testing.expect(stampMtime(dir) == null);
+
+    var d: Digest = undefined;
+    Sha256.hash("green-inputs", &d, .{});
+    writeStored(a, dir, d);
+    // Once stamped, the file's mtime is the moment that green was recorded.
+    try std.testing.expect(stampMtime(dir) != null);
+    // The running test binary always has a resolvable mtime of its own.
+    try std.testing.expect(currentBinaryMtime(a) != null);
 }
 
 test "writeStored then readStored round-trips the digest" {

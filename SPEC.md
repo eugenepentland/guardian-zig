@@ -153,6 +153,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
 - Records the guardian binary identity in the green stamp for a drift hint
+- Reads the stamp and binary timestamps behind the stale-binary direction hint
 
 ## Run All
 
@@ -173,9 +174,24 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns before the run when the binary differs from the last green stamp
 - Runs a metadata transaction only when the run can write metadata
 - Names a check that runs past the heartbeat threshold
-- Separates blocking failures from report-only findings in the summary
 - Runs the cheapest formatting gate before the rest of the suite
 - Names each failing check's first finding under the run summary
+
+## Run Summary
+
+- Renders one verdict line for the green failing and cached exit paths
+- Separates blocking failures from report-only findings in the summary
+- Replays blocking check output before advisory output
+- Collapses an out-of-scope report-only check to one counted line
+- Names the finding count and scope in a collapsed check line
+- Counts a finding as in scope when its file changed or it has no file
+- Counts a check's findings and their diff-scope overlap
+- Prints only the verdict and blocking detail in summary mode
+- Keeps every check's full output under the verbose flag
+- Parses the summary and verbose output flags
+- Resolves the verbose flag ahead of the summary flag
+- Appends a plus-N-more count when a failing check has several findings
+- Names which binary is newer when the gating binary differs from the last green stamp
 
 ## Nightly
 

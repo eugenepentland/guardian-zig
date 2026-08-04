@@ -110,6 +110,8 @@ pub fn main() !void {
         .only = try splitCsv(allocator, parsed.only),
         .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
+        .summary = parsed.summary,
+        .verbose = parsed.verbose,
         .json = parsed.json,
         .args_only = parsed.args_only,
         .check_filter = parsed.check_filter,
@@ -145,6 +147,10 @@ const ParsedArgs = struct {
     skip: ?[]const u8 = null,
     /// `--intent "<message>"` value for the `commit` command; null when absent.
     intent: ?[]const u8 = null,
+    /// `--summary`: verdict line plus blocking detail only.
+    summary: bool = false,
+    /// `--verbose`: replay every check's output in full (overrides --summary).
+    verbose: bool = false,
     json: bool = false,
     /// `--args`: `test-filter` writes its derived argument string to stdout.
     args_only: bool = false,
@@ -164,8 +170,9 @@ const ParsedArgs = struct {
 // Scans argv (sans program name): first non-flag token is the command, the next
 // is the project dir; `--quiet`/`-q` toggles quiet mode, `--full` selects
 // mutate's whole-tree tier, `--against <ref>` sets the diff base, `--only`/
-// `--skip <a,b>` filter the `all` suite, `--intent "<msg>"` is the commit
-// subject, `--unit`/`--dir`/`--note` carry a `bench set` recording, `--version`
+// `--skip <a,b>` filter the `all` suite, `--summary`/`--verbose` set how much of
+// a run's output is printed, `--intent "<msg>"` is the commit subject,
+// `--unit`/`--dir`/`--note` carry a `bench set` recording, `--version`
 // requests the version.
 fn parseArgs(args: []const [:0]u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
@@ -213,6 +220,10 @@ fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
         parsed.full = true;
     } else if (std.mem.eql(u8, arg, "--gate")) {
         parsed.gate = true;
+    } else if (std.mem.eql(u8, arg, "--summary")) {
+        parsed.summary = true;
+    } else if (std.mem.eql(u8, arg, "--verbose")) {
+        parsed.verbose = true;
     } else if (std.mem.eql(u8, arg, "--version")) {
         parsed.show_version = true;
     } else if (std.mem.eql(u8, arg, "--json")) {
@@ -447,6 +458,7 @@ test {
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
+    _ = @import("cli/run_view.zig");
     _ = @import("baseline.zig");
     _ = @import("ratchet.zig");
     _ = @import("testing/golden_runner.zig");
@@ -591,6 +603,29 @@ test "parseArgs reads the --gate flag" {
     const plain = try a.alloc([:0]u8, 1);
     plain[0] = try a.dupeZ(u8, "all");
     try std.testing.expect(!parseArgs(plain).gate);
+}
+
+// spec: Run Summary - Parses the summary and verbose output flags
+
+test "parseArgs reads --summary and --verbose" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 3);
+    args[0] = try a.dupeZ(u8, "all");
+    args[1] = try a.dupeZ(u8, ".");
+    args[2] = try a.dupeZ(u8, "--summary");
+    const parsed = parseArgs(args);
+    try std.testing.expect(parsed.summary);
+    try std.testing.expect(!parsed.verbose);
+    // --verbose is the opposite escape hatch, and neither is on by default.
+    const verbose = try a.alloc([:0]u8, 2);
+    verbose[0] = try a.dupeZ(u8, "all");
+    verbose[1] = try a.dupeZ(u8, "--verbose");
+    try std.testing.expect(parseArgs(verbose).verbose);
+    const plain = try a.alloc([:0]u8, 1);
+    plain[0] = try a.dupeZ(u8, "all");
+    try std.testing.expect(!parseArgs(plain).summary);
 }
 
 // spec: Configuration - Parses the intent flag for the commit command
