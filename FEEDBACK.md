@@ -2527,3 +2527,108 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   step with usage help rather than the tailored stale message (fail-closed but
   less legible; documented). A version floor in the wiring — "prebuilt older
   than <feature version>: compile from source" — would make that path clean.
+
+## 2026-08-04 · claude · eda — first consumer adoption of the test runner, test-compile probe, prebuilt binary, test-reachability and [[ban]]
+
+- **good:** prebuilt + selfcheck engaged with **zero eda changes**, exactly as
+  designed. A brand-new eda worktree (its own empty `.zig-cache`) went from
+  first `git worktree add` to a complete gated `zig build` in **15.0 s**, with
+  `guardian: selfcheck: prebuilt guardian-check matches <dep root> (source
+  03d628cba640)` as the first line of output. Second build 3.3 s. eda's
+  build.zig still calls `b.dependency("guardian", …).artifact("guardian-check")`
+  and that compile simply never happens.
+- **good:** the counting test runner closed eda's #1 filed friction on the
+  first try. `zig build test-fast` (8 hardcoded filters) now prints
+  `guardian/test: 16 test(s) selected by filter: "parse rejects excessively
+  deep nesting", … (+5 more) — 9 match by name, 7 unnamed test block(s) run
+  regardless`, and `zig build test -Dtest-filter=this-name-matches-nothing-xyz`
+  **fails** with exit 1 and a message that names the fix and the
+  `GUARDIAN_TEST_ALLOW_EMPTY=1` opt-out. The "9 match by name / 7 unnamed"
+  split is the detail that makes it trustworthy — eda's unnamed `test { }`
+  blocks would otherwise have padded a zero-match run into looking alive.
+  `announceFilters` is not optional in practice; wire it or the count lies.
+- **good:** `addTestCompileProbe` caught a deliberate type error injected into
+  a test body in `src/coverage.zig` in 10 s, while `zig build test-fast`
+  stayed green and exited 0 on the same tree — the exact false-green that
+  twice put eda's gate on an uncompilable suite, reproduced and closed in one
+  session. `-fno-emit-bin` is visible in the emitted `zig test` command line.
+- **good:** `test-reachability` and `ban` were both green on eda with zero
+  config. test-reachability's default roots are right for eda (`src/main.zig`
+  is genuinely the test root; `test/` holds no .zig), so no
+  `[test_reachability] roots` was needed. eda's six dead-test files from July
+  stayed fixed — no new ones.
+- **bug (in eda, found BY guardian):** the multiline-array parser fix in the
+  [[ban]] wave changed a consumer's effective config, and nothing warned about
+  it. eda's `guardian.toml` has two multiline arrays — `[int_from_float]
+  require_guard` then `[fuzz_presence] modules` — so `require_guard` had been
+  silently reading fuzz_presence's paths and matching **no file in the tree**
+  since the day it was written. The fix turned that check on for the first
+  time: 16 real unguarded `@intFromFloat` sites, two of them narrowing
+  *untrusted* input (a DSL value in src/eval/design_block.zig:2341, parsed JSON
+  in src/kicad_pcb/project_rules.zig:153). That is Guardian working exactly as
+  intended — but from the consumer's chair it arrived as "your previously
+  green tree is now red on a check you didn't touch", and diagnosing it took
+  reading guardian's git log to find the parser-fix commit message. It cost
+  ~20 min and it was the only thing standing between me and any commit.
+- **wish (high value, from that bug):** a config-effect diff. Something like
+  `guardian-check doctor` reporting *resolved* config — "`require_guard`:
+  4 patterns, matching 41 of 294 files" — would have turned that 20 minutes
+  into 10 seconds, and would have caught the original aliasing bug in eda
+  years earlier. A pattern list that matches zero files is almost always a
+  typo or a bug, and Guardian is the only thing positioned to say so.
+  Adjacent: a one-time "N check(s) changed behavior in this upgrade" note.
+- **friction (minor):** `addTestCompileProbe` returns the **top-level** step,
+  but a consumer that generates source before compiling needs to order the
+  *compile* behind the generator. eda compiles zt templates into
+  `src/serve/templates/*.zig`, so I had to reach one level down —
+  `for (probe_step.dependencies.items) |dep| dep.dependOn(&templates_fmt.step)`
+  — because hanging it off the returned step makes codegen a concurrent
+  sibling of the compile it feeds, not a predecessor. Worse, the first version
+  of that wiring ordered the probe behind codegen but *not* behind eda's
+  auto-fmt of the generated files, so a standalone `zig build test-compile`
+  left unformatted generated .zig in the tree and **red-lined `formatting` on
+  the next gate run**. Guardian caught it immediately (good), but a
+  `CompileProbeOptions.extra_deps: []const *std.Build.Step`, or returning the
+  Compile step, would make the correct wiring the obvious one.
+- **good:** the `[[ban]]` investigation resolved to "don't". The motivating
+  case — ban `optimizer.placeFromPoses` in `src/serve/*` — is now **wrong** for
+  eda: the refactor made `PoseSeed.outline` a non-defaulted field, so omitting
+  the outline is a compile error and ~12 src/serve call sites legitimately call
+  it directly. Recorded that reasoning as a comment in eda's guardian.toml. The
+  general lesson is worth putting in the README next to `[[ban]]`: when you own
+  the callee's signature, a non-defaulted field beats a path ban, because it
+  fails at compile time instead of commit time. `[[ban]]` earns its keep on
+  symbols you *don't* own.
+- **friction (eda's problem, but Guardian is where it hurts):** `commit`
+  reported `timing — gate 1.6s · tests 273.5s` for a change that edited **one
+  comment in guardian.toml**. Cause: eda stamps `build_options.git_hash` (from
+  `git rev-parse --short HEAD`) into its test modules, so every commit moves
+  HEAD, invalidates the test binary, and the *next* commit pays a full
+  ReleaseSafe rebuild of a 1930-test suite. Confirmed cheaply: immediately
+  after a commit `zig build test-compile` costs 10.5 s, and 1.5 s when run
+  again unchanged. Filed as an eda follow-up. It does make the case that
+  `commit`'s two-line timing breakdown is worth having — it's what made the
+  cause findable at all.
+- **decision recorded:** eda keeps `[gate] test_command = "zig build test"`.
+  The task brief assumed eda still gated on a filtered tier; it hasn't since
+  2026-07-25. Measured on a fresh worktree after a one-file src edit (the only
+  case a commit ever sees): `test-compile` 10.4 s, full `zig build test`
+  4 m 30 s; the no-op cases are 1.5 s and 11 s. Adding test-compile to the gate
+  is strictly redundant (an unfiltered `zig build test` already analyzes every
+  test), and demoting to `test-compile test-fast` would buy ~14 s by giving up
+  *running* 1930 tests. test-compile's value is the dev loop before the gate,
+  which is where eda's CLAUDE.md now documents it. Both numbers went into the
+  benchmark ledger — `bench set` was the right home for a measurement that
+  justifies a config decision, and it's non-gating without `[benchmark] gate`.
+- **good:** no baseline churn whatsoever from v3 identity baselines. Every one
+  of eda's ~50 baseline files was byte-identical across a guardian upgrade that
+  reworded messages; the only `.guardian/` diff in the whole session was the
+  int-from-float debt I accepted deliberately, and `accept <named-check>`
+  touched exactly that one file — the `casts 0` budget snapshot next to it was
+  left alone, which is precisely the behavior that makes accepting safe.
+- **good:** `run-all: 70 checks — 0 blocking, 5 report-only` and `run-all:
+  cached — 0 blocking (inputs unchanged since last green run)` are both large
+  legibility wins over a bare pass. The failure form is better still: `run-all:
+  1/70 failed (formatting)` followed by the first offending file:line meant I
+  never once had to scroll back through 200 lines of report-only output to find
+  what actually blocked.
