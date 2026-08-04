@@ -93,9 +93,12 @@ reason = "reporter.fail(...) then `return error.CheckFailed`, so the run finishe
 # appends its JSONL delivery-telemetry file.
 # install-hook writes .git/hooks/pre-commit (createFile/makePath/readFileAlloc)
 # — the same static-analyzer-writes-files category as spec_init.
+# cli/selfcheck opens the Guardian source root it was handed so source_digest
+# can walk it — the same static-analyzer-reads-the-filesystem category as
+# walk.zig. (source_digest.zig itself needs no allow: it takes an open Dir.)
 [[allow]]
 check = "ban-fs"
-paths = ["src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/required_inputs*", "src/missing_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
+paths = ["src/cli/selfcheck*", "src/walk*", "src/cache*", "src/snapshot*", "src/config*", "src/required_inputs*", "src/missing_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
 
 # Delivery telemetry is guardian's one legitimate wall-clock consumer: the DORA
 # sink times each gate run with std.time.Timer to record duration_ms. The bench
@@ -114,9 +117,13 @@ paths = ["src/dora*", "src/cli/bench*"]
 # The test runner is a process entry point (its own main) and reads
 # GUARDIAN_TEST_ALLOW_EMPTY there — the env is the only channel a test binary
 # spawned by the build system has.
+# build_helper reads GUARDIAN_PREBUILT at CONFIGURE time, inside a consumer's
+# build.zig, to decide whether to compile guardian-check or reuse the
+# dependency's already-built one. There is no RunCtx or config file at that
+# point in a build — the environment is the only channel a build script has.
 [[allow]]
 check = "ban-env"
-paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*", "src/cli/commit*", "src/test_runner.zig"]
+paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*", "src/cli/commit*", "src/test_runner.zig", "src/build_helper.zig"]
 
 # reporter is Guardian's logging boundary; it legitimately owns a global + prints.
 # The mutation journal owns process-global in-flight state because a signal

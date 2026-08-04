@@ -309,6 +309,9 @@ src/cli/run_view.zig::moreSuffix | fn moreSuffix(arena: Allocator, findings: usi
 src/cli/run_view.zig::renderFor | fn renderFor(v: Verbosity, o: Outcome) Render
 src/cli/run_view.zig::verdictLine | fn verdictLine(arena: Allocator, v: Verdict, scope_suffix: []const u8) []const u8
 src/cli/run_view.zig::verdict_prefix value
+src/cli/selfcheck.zig::command_name value
+src/cli/selfcheck.zig::embedded_digest value
+src/cli/selfcheck.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/size.zig::command_name value
 src/cli/size.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
@@ -618,6 +621,10 @@ src/snapshot_helper.zig::shouldUpdateForCtx | fn shouldUpdateForCtx(ctx: *const 
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
 src/snapshot_helper.zig::update_env value
 src/snapshot_helper.zig::usesLegacyBroadToken | fn usesLegacyBroadToken(allocator: Allocator) bool
+src/source_digest.zig::Error value
+src/source_digest.zig::Hex value
+src/source_digest.zig::compute | fn compute(allocator: std.mem.Allocator, root: std.fs.Dir) Error!Hex
+src/source_digest.zig::hex_len value
 src/spec/hints.zig::FrozenTag struct_
 src/spec/hints.zig::Hint union_
 src/spec/hints.zig::NearMiss struct_

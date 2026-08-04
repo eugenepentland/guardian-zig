@@ -1,5 +1,6 @@
 const std = @import("std");
 const guardian_helper = @import("src/build_helper.zig");
+const source_digest = @import("src/source_digest.zig");
 
 // Re-exported so dependents can `const guardian = @import("guardian");`
 // in their own build.zig and call guardian.addAllChecks(...).
@@ -27,12 +28,25 @@ pub fn build(b: *std.Build) void {
     const exe_optimize: std.builtin.OptimizeMode =
         if (b.user_input_options.contains("optimize")) optimize else .ReleaseSafe;
 
+    // Identity of the source this build is about to compile. A consumer that
+    // reuses zig-out/bin/guardian-check instead of paying the ~49 s cold
+    // compile proves the binary current by re-running this same walk through
+    // `guardian-check selfcheck` and comparing against the value embedded here
+    // (src/source_digest.zig; both sides import it so they cannot drift).
+    // Reading our own source root is a precondition of building at all, so a
+    // failure here is fatal rather than a silently unverifiable binary.
+    const digest = source_digest.compute(b.allocator, b.build_root.handle) catch |err|
+        std.debug.panic("guardian: cannot digest own source root: {s}", .{@errorName(err)});
+    const guardian_options = b.addOptions();
+    guardian_options.addOption([]const u8, "source_digest", &digest);
+
     // Guardian check executable — used by this project and dependents
     const check_mod = b.createModule(.{
         .root_source_file = b.path("src/check.zig"),
         .target = target,
         .optimize = exe_optimize,
     });
+    check_mod.addOptions("build_options", guardian_options);
     const check_exe = b.addExecutable(.{
         .name = "guardian-check",
         .root_module = check_mod,
@@ -53,6 +67,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    test_mod.addOptions("build_options", guardian_options);
     const fuzz_filter = b.option(
         []const u8,
         "fuzz-filter",
