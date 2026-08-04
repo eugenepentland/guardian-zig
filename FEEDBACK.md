@@ -2681,3 +2681,29 @@ in the same commit); nothing to fight.
 
 ## 2026-08-04 · claude · eda — autorouter audit report commit
 - good: docs-only commit through `guardian-check commit` was frictionless — gate 1.8s, suite 303.8s, path-scoped staging correctly skipped a pre-existing untracked `.claude/dp-handoff/` with a clear NOT-committed warning naming the fix options.
+
+## 2026-08-04 · claude · eda — multi-guide rework list on the assembly page
+- **good:** `pub-api-surface` did exactly its job. Turning
+  `rework_guide.load() ?[]const u8` into `loadAll() []const Guide` is a real
+  API break, and the check surfaced it as a reviewable 3-line diff
+  (`+ Guide struct_`, `+ loadAll`, `- load`) rather than a wall of noise. The
+  per-check `accept pub-api-surface .` re-ran the whole-tree gate and confirmed
+  green before touching `.guardian/pub-api.txt` — no chance of ratifying an
+  unrelated snapshot.
+- **good:** spec `deny_growth` was invisible friction-free here: 3 new SPEC.md
+  bullets + 3 `// spec: Web Server - <exact bullet>` tagged tests in one commit,
+  no complaint. Matching the section name is easy because existing tags in the
+  same file spell it out.
+- **friction:** the line-length report listed 8 warnings in
+  `src/serve/assembly_debug.zig` that were all PRE-EXISTING lines whose numbers
+  had merely shifted because I inserted a test above them. It cost a detour
+  (`awk 'length>120'` + a diff against main) to prove none were mine. Since the
+  check is diff-scoped for blocking purposes, the report-only output could say
+  which findings fall on lines the diff actually touched — e.g. "8 findings, 0
+  on changed lines" — instead of listing them all as if new.
+- **wish:** `guardian.toml [[external]]` runs `node --check` on
+  `pcb_board.js` and `pcb_model_sprites.js` but not on the other browser assets
+  (`assembly_debug.js` here, ~1000 lines and embedded into Zig tests via
+  `@embedFile`). A syntax error in it compiles and tests fine and only fails in
+  the browser; I had to run `node --check` by hand. An `inputs`-globbed external
+  (`src/serve/assets/*.js`) would close that by default.
