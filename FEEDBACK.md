@@ -2830,3 +2830,48 @@ in the same commit); nothing to fight.
   A filter that silently selects 0 tests and exits green is indistinguishable
   from a passing run; failing loudly turned "my new test seems fine" into
   "my new test was never compiled" in one command.
+
+## 2026-08-04 · claude · eda — same-net via spacing DRC + via reuse + needless-dive elision
+- **good:** `type-size` blocked exactly the right thing and taught the right
+  lesson. Adding one `via_to_via` field pushed `env.DesignRulesSpec` and
+  `optimizer.DesignRules` from 12 to 13, both at their frozen ceiling. Rather
+  than raise the cap I grouped the two solder-mask scalars into one nested
+  `MaskRules` — ~20 call sites, 15 minutes — and both types came back to 12
+  with a genuinely better shape. The message ("split into smaller types, group
+  related fields into nested structs") named the fix I ended up using.
+- **good:** the `file-size` HARD violation on `src/placement/router.zig`
+  (10428 code lines, frozen) is doing real architectural work. It made it
+  impossible to add even a 3-line pass call there, which forced the new
+  `dive_elide.zig` / `via_merge.zig` to be self-contained plain-data modules
+  driven from a sibling. That is the better design; I would have taken the
+  lazy hook otherwise.
+- **friction:** `pub-api-surface` cost three extra ~8-minute ReleaseSafe build
+  cycles. Each time I added or renamed one `pub fn` in a NEW file, the whole
+  build failed at the end (after the 4-minute gate AND the codegen), and the
+  only remedy is to re-run the same 8 minutes with
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface`. For a file that is entirely new
+  in this diff, every one of its pub decls is by definition an addition, so
+  the snapshot diff carried no signal — it was pure ceremony three times over.
+  A `--refresh-additions-in-new-files` (or simply not diffing files absent
+  from the previous snapshot) would have saved ~25 minutes of wall clock.
+- **friction:** the blocking checks are reported ALL AT ONCE at the end of the
+  run but fixed one build at a time. My first gated build reported
+  `formatting`, `doc-comments`, `pub-api-surface`, `int-from-float-budget` and
+  `test-no-conditional` together; four of the five were 30-second fixes, but I
+  could not verify any of them without paying the full 8-minute cycle again.
+  A `guardian-check <check> .` single-check re-run exists and I used it — it is
+  what made this survivable — but it is not mentioned in the failure output.
+  The "accept:" hint block is printed; a "verify just this one:" line next to
+  it would be worth as much.
+- **wish:** `zig build` (install) and `zig build test` both re-run the gate, so
+  proving a change green costs the gate twice plus two separate codegens
+  (test binary at ReleaseSafe, exe at ReleaseSafe). On this task that was ~16
+  minutes per iteration for a one-line edit. A cached-gate handshake between
+  the two steps in one session — `run-all: cached — inputs unchanged` already
+  exists and fired correctly on the second run — could be advertised in the
+  docs; I only discovered it by reading the log.
+- **good:** spec `deny_growth` was frictionless again: 16 new SPEC.md bullets
+  across five sections with 16 matching `// spec:` tags landed in one commit,
+  including one bullet I had to RETITLE (a via_fence behaviour genuinely
+  changed) — renaming the bullet and its tag together was accepted without
+  complaint, which is exactly right.
