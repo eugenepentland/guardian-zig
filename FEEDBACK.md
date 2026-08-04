@@ -2923,3 +2923,42 @@ in the same commit); nothing to fight.
   strong argument for that feature, but a check for "a src file containing
   `test \"` that no test-root imports" would have caught the dormant file
   outright.
+
+## 2026-08-04 · claude · eda — autorouter audit C1/C8: stale copper index + finish-pass ordering
+
+- **good:** the `file-size` frozen ratchet did exactly its job and made the
+  change better. `src/placement/router.zig` sits at its ceiling (10428), my
+  fix added 79 lines, and the block message (`grew 10428 -> 10507 ... this item
+  is at its frozen cap; reduce or split before adding`) left no room to argue.
+  I extracted the spatial index (`PadGrid` + `nearSegment` + `PadObs` + its two
+  coverage tests) into a new `src/placement/pad_grid.zig`, which is a genuinely
+  better home for it — the module the C1 bug was about now owns its own tests —
+  and the file came out 42 lines *below* where it started. Without the ratchet
+  I would have dropped the regression test into the 13k-line file and moved on.
+- **friction:** `file-size`'s "code lines" number does not match anything I can
+  compute locally, so I could not tell how much headroom an edit needed until I
+  ran the check. The file is 13745 raw lines / 725 blank / 2913 comment, and
+  guardian reports 10507 — none of raw, non-blank, or non-blank-non-comment.
+  The *delta* did track raw lines exactly (109 added − 30 removed = +79 =
+  10428 → 10507), so comments evidently count, which makes the absolute number
+  the confusing part. Printing "N of M lines counted" once, or documenting the
+  rule in `guardian-check explain file-size`, would let a caller budget an edit
+  before compiling.
+- **good:** relocating a struct across files was handled cleanly by two
+  snapshot checks with zero drama — `type-size` renamed its key
+  (`router.zig|PadObs` → `pad_grid.zig|PadObs`, same 8 fields) and
+  `pub-api-surface` showed the eight new pub decls plus the one changed kind
+  (`PadObs struct_` → `value`, the alias) as a reviewable diff. `accept
+  <check> .` for each, and the `.guardian/` diff was small enough to read line
+  by line. This is the workflow working as designed.
+- **good:** `guardian-check commit` timing was honest and worth the wait: gate
+  0.2 s (cached, inputs unchanged since the last green run) + tests 288.5 s.
+  The cached-gate line meant I paid the 4.5-minute suite once, not twice, after
+  a session of filtered runs.
+- **friction:** the counting test runner's message for a filter that matches
+  one test reads `8 test(s) selected by filter: "aliased index" — 1 match by
+  name, 7 unnamed test block(s) run regardless`, but `zig build test
+  -Dtest-filter=...` prints no pass/fail tally of its own, so I could not tell
+  a green run from a red one without checking `$?` separately (the "Build
+  Summary: N/M tests passed" line only appears on some paths). Echoing
+  `guardian/test: N passed` at the end of the run would close that.
