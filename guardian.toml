@@ -28,6 +28,14 @@ exclude = ["reporter.zig", "testing/golden_runner.zig"]
 [type_size]
 exclude = ["config.zig", "cli/types.zig", "reporter.zig"]
 
+# Guardian's test binary is rooted at src/check.zig (build.zig's
+# root_source_file), not the conventional src/main.zig or src/root.zig, so the
+# default heuristic would find no root and skip. Naming it here is what makes
+# the check bite on Guardian itself: every file with a `test` block must be
+# reachable from check.zig's aggregator, or its tests never compile.
+[test_reachability]
+roots = ["src/check.zig"]
+
 # magic-number is opt-in (off by default) because it's pure noise in literal-heavy
 # domains. Guardian's own code passes it, so enable it here to keep dogfooding.
 [magic_number]
