@@ -560,6 +560,7 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "test-filter", .summary = "Report the diff-derived test-name filter for local runs (never gates)" },
     .{ .name = "accept", .summary = "Preview, accept, and verify named baseline/snapshot drift" },
     .{ .name = "bench", .summary = "Record, list, or remove measured metrics in the benchmark ledger" },
+    .{ .name = "size", .summary = "Print one file's current measurements against their caps and ratchet ceilings" },
     .{ .name = "version", .summary = "Print the guardian-check version (also --version)" },
 };
 

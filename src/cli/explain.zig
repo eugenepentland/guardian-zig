@@ -660,6 +660,24 @@ const entries = [_]Entry{
         "Exempt: n/a — never part of `all` and never blocking. Naming a metric in\n" ++
         "`[benchmark] gate = [...]` opts it into a ratchet: `set` then refuses a\n" ++
         "regression unless `--force` arrives with an explanatory `--note`." },
+    .{ .name = "size", .text = 
+    \\Why: a ratchet freezes each item at the value guardian measured, but nothing
+    \\reported that value back — the checks print a number only once an item is
+    \\already over its cap, and `debt` lists ceilings without the current value
+    \\beside them. Reading the number back cost one consumer six ~90s gate runs for
+    \\a single file trim, with a 170-line disagreement against `grep -c` (guardian
+    \\excludes `test { ... }` blocks from the file-size metric; grep does not).
+    \\Fix: n/a — run `guardian-check size <path> [dir]`. It prints the file's code
+    \\lines, per-fn length and runtime params, per-type field counts, and the count
+    \\of over-long lines, each against the check's caps and its frozen ceiling with
+    \\the headroom left. Add `--current` to `debt` for the same comparison
+    \\tree-wide. The values come from the checks' own measurement functions, so
+    \\they match what the gate would ratchet.
+    \\Exempt: n/a — never part of `all`, never gates, never writes. Five ratchets
+    \\(nesting-depth, cognitive-complexity, struct-method-cap, optional-density,
+    \\bool-ops-per-condition) compute their metric inside the check's own threshold
+    \\scan; they are named in the report rather than approximated.
+    },
 };
 
 /// Returns the explanation text for `name`, or null when no entry exists.
@@ -684,7 +702,8 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync, test-filter, accept, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync,", .{});
+    print(" test-filter, accept, size, version\n", .{});
 }
 
 /// Runs the explain command. `query` is the check name (null lists everything).

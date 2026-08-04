@@ -14,6 +14,7 @@ const reporter = @import("../reporter.zig");
 const walk = @import("../walk.zig");
 const git = @import("../git.zig");
 const ratchet = @import("../ratchet.zig");
+const debt_current = @import("debt_current.zig");
 const file_size = @import("../checks/file_size.zig");
 
 const Allocator = std.mem.Allocator;
@@ -87,18 +88,36 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         try collectDensityRows(ctx.allocator, ctx.project_dir)
     else
         &.{};
+    // `--current` measures the tree so every frozen ceiling can be printed with
+    // the value it faces today; opt-in because it re-parses src/ and test/.
+    const current: debt_current.Report = if (ctx.current)
+        try debt_current.collect(ctx)
+    else
+        .{ .summaries = &.{}, .rows = &.{} };
     if (ctx.json) {
         const json = try std.json.Stringify.valueAlloc(ctx.allocator, JsonReport{
             .project_dir = ctx.project_dir,
             .rows = rows,
             .assert_density = density,
+            .ratchet_ceilings = current.rows,
         }, .{});
         print("{s}\n", .{json});
     } else {
         printReport(ctx.allocator, ctx.project_dir, rows);
         try reportFileSizes(ctx);
+        reportCurrent(ctx, current);
         if (ctx.assert_density) printDensityReport(density);
     }
+}
+
+/// Prints the current-vs-ceiling section, or the one-line pointer to it. The
+/// pointer matters: without it a reader sees frozen ceilings with no way to
+/// tell which of them still has room, which is the state that cost one
+/// consumer six gate runs to resolve by hand.
+fn reportCurrent(ctx: *types.RunCtx, current: debt_current.Report) void {
+    if (ctx.current) return debt_current.printReport(ctx.allocator, current);
+    print("  add --current to measure each ratcheted item against its frozen ceiling " ++
+        "(re-parses src/ and test/), or `guardian-check size <file>` for one file\n", .{});
 }
 
 /// Prints the file-size section: every source file over the recommended line
@@ -116,6 +135,9 @@ const JsonReport = struct {
     project_dir: []const u8,
     rows: []const Row,
     assert_density: []const DensityRow,
+    /// Present (non-empty) only under `--current`: one entry per ratcheted key
+    /// with no headroom left, each with its measured value and frozen ceiling.
+    ratchet_ceilings: []const debt_current.Row,
 };
 
 fn filterRows(allocator: Allocator, rows: []const Row, filter: ?[]const u8) Allocator.Error![]const Row {

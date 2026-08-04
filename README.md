@@ -778,6 +778,26 @@ debt report — 2 tracked source(s), sorted by count (delta vs HEAD)
   function-length          8   (unchanged)  worst:   246 src/router.zig|route
 ```
 
+**Ask what a number is right now.** A ratchet freezes each item at the value
+Guardian measured, and neither the checks nor `debt` report that value back
+until something already fails — so trimming a file toward its ceiling used to
+mean re-running the whole gate to read the number. `guardian-check size <path>
+[dir]` answers it in one command, using the checks' own measurement functions
+(so it agrees with the gate byte for byte — a hand-rolled `grep -c` does not,
+because the file-size metric excludes `test { ... }` blocks):
+
+```
+size — src/placement/optimizer.zig (measured now; no gate, no writes)
+  file-size        src/placement/optimizer.zig  11482 code lines  cap 1000 rec / 10000 hard   ceiling 11482 — AT CEILING, 0 headroom
+  function-length  route                          246 lines       cap 120 rec / 400 hard      no ratchet ceiling recorded
+  not measured here (metric lives inside the check's scan): nesting-depth, cognitive-complexity, …
+```
+
+`guardian-check debt . --current` does the same comparison tree-wide: per
+ratcheted check, how many keys have headroom, how many sit exactly on their
+ceiling, and how many are already over — plus a line for each of the last two.
+It is opt-in because it re-reads and re-parses `src/` and `test/`.
+
 ### Tier-by-tier rollout
 
 If you'd rather adopt one rule family at a time, list the checks you're not ready for in the top-level `disabled` array (by their kebab-case names — see the tables above). Delete a name to turn that check on, fix its violations (or baseline them), commit, move on:
@@ -1146,7 +1166,9 @@ guardian-check all . --skip line-length      # Run every check EXCEPT the named 
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet (always blocks)
 guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, then auto-commit on green
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
+guardian-check size src/parser.zig . # One file's current measurements vs its caps and ratchet ceilings
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
+guardian-check debt . --current      # Also measure every ratcheted key against its frozen ceiling
 guardian-check debt . --json         # Machine-readable debt report
 guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
 guardian-check debt . --check spec   # Restrict the debt report to one check

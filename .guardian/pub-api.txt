@@ -244,6 +244,11 @@ src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/debt.zig::command_name value
 src/cli/debt.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/debt_current.zig::Report struct_
+src/cli/debt_current.zig::Row struct_
+src/cli/debt_current.zig::Summary struct_
+src/cli/debt_current.zig::collect | fn collect(ctx: *types.RunCtx) types.RunError!Report
+src/cli/debt_current.zig::printReport | fn printReport(arena: Allocator, report: Report) void
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/explain.zig::run | fn run(query: ?[]const u8) bool
 src/cli/install_hook.zig::command_name value
@@ -271,6 +276,8 @@ src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
+src/cli/size.zig::command_name value
+src/cli/size.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/test_filter.zig::command_name value
 src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
@@ -385,6 +392,15 @@ src/fakes/fs.zig::writeFile | fn writeFile(self: *FakeFs, path: []const u8, byte
 src/fakes/random.zig::SeededRandom struct_
 src/fakes/random.zig::init | fn init(seed: u64) SeededRandom
 src/fakes/random.zig::random | fn random(self: *SeededRandom) std.Random
+src/file_metrics.zig::Item struct_
+src/file_metrics.zig::Standing enum_
+src/file_metrics.zig::ceilingFor | fn ceilingFor(entries: []const ratchet.Entry, key: []const u8) ?u64
+src/file_metrics.zig::ceilingPhrase | fn ceilingPhrase(arena: Allocator, value: u64, ceiling: ?u64) Allocator.Error![]const u8
+src/file_metrics.zig::ceilings | fn ceilings( arena: Allocator, project_dir: []const u8, check_name: []const u8, ) Allocator.Error![]const ratchet.Entry
+src/file_metrics.zig::measureFile | fn measureFile( arena: Allocator, rel_path: []const u8, content: [:0]const u8, cfg: *const config_mod.Config, ) Allocator.Error![]const Item
+src/file_metrics.zig::measured_checks value
+src/file_metrics.zig::standingOf | fn standingOf(value: u64, ceiling: ?u64) Standing
+src/file_metrics.zig::unmeasured_checks value
 src/git.zig::ChangedPath struct_
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_

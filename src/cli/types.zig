@@ -80,6 +80,13 @@ pub const RunCtx = struct {
     metadata_writable: bool = false,
     /// Optional check-name filter used by `debt`.
     check_filter: ?[]const u8 = null,
+    /// The file `size` measures: the first positional after the command name.
+    /// Null for every other command; `size` errors when it is null.
+    target_path: ?[]const u8 = null,
+    /// Measure each ratcheted item's CURRENT value in `debt` (`--current`).
+    /// Off by default: the measurement pass re-reads and re-parses the tree,
+    /// which a plain metadata-only debt report should not pay for.
+    current: bool = false,
     /// Identify obsolete baseline files; dry-run unless `confirm` is true.
     prune_stale: bool = false,
     /// Explicit confirmation for a mutating maintenance operation (`--yes`).

@@ -20,6 +20,7 @@ const spec_sync = @import("cli/spec_sync.zig");
 const test_filter_cmd = @import("cli/test_filter.zig");
 const accept = @import("cli/accept.zig");
 const bench_cmd = @import("cli/bench.zig");
+const size_cmd = @import("cli/size.zig");
 const benchmark = @import("benchmark.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
@@ -113,6 +114,8 @@ pub fn main() !void {
         .json = parsed.json,
         .args_only = parsed.args_only,
         .check_filter = parsed.check_filter,
+        .target_path = parsed.target_path,
+        .current = parsed.current,
         .prune_stale = parsed.prune_stale,
         .confirm = parsed.confirm,
         .assert_density = parsed.assert_density,
@@ -149,6 +152,10 @@ const ParsedArgs = struct {
     /// `--args`: `test-filter` writes its derived argument string to stdout.
     args_only: bool = false,
     check_filter: ?[]const u8 = null,
+    /// First positional after `size`: the file to measure.
+    target_path: ?[]const u8 = null,
+    /// `--current`: `debt` measures each ratcheted item's value now.
+    current: bool = false,
     prune_stale: bool = false,
     confirm: bool = false,
     assert_density: bool = false,
@@ -223,6 +230,8 @@ fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
         parsed.confirm = true;
     } else if (std.mem.eql(u8, arg, "--assert-density")) {
         parsed.assert_density = true;
+    } else if (std.mem.eql(u8, arg, "--current")) {
+        parsed.current = true;
     } else if (std.mem.eql(u8, arg, "--args")) {
         parsed.args_only = true;
     } else if (std.mem.eql(u8, arg, "--force")) {
@@ -243,6 +252,10 @@ fn takePositional(parsed: *ParsedArgs, arg: []const u8) void {
     };
     if (std.mem.eql(u8, command, accept.command_name) and parsed.accept_checks == null) {
         parsed.accept_checks = arg;
+        return;
+    }
+    if (std.mem.eql(u8, command, size_cmd.command_name) and parsed.target_path == null) {
+        parsed.target_path = arg;
         return;
     }
     if (std.mem.eql(u8, command, bench_cmd.command_name) and parsed.bench.takePositional(arg)) return;
@@ -330,6 +343,10 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // that a dev build only reports.
     if (std.mem.eql(u8, command, install_hook.command_name)) return install_hook.run(ctx);
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
+    // size reports one file's current measurements. Dispatched here rather than
+    // registered so it can never join the `all` suite: it measures and prints,
+    // it never gates, and a registry entry would wire it into every build.
+    if (std.mem.eql(u8, command, size_cmd.command_name)) return size_cmd.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
     // test-filter reports the diff-derived test-name filter for a LOCAL edit
     // loop. Dispatched here rather than registered, so it can never join the
@@ -423,6 +440,9 @@ test {
     _ = @import("cli/bench.zig");
     _ = @import("benchmark.zig");
     _ = @import("cli/debt.zig");
+    _ = @import("cli/debt_current.zig");
+    _ = @import("cli/size.zig");
+    _ = @import("file_metrics.zig");
     _ = @import("cli/doctor.zig");
     _ = @import("cli/spec_sync.zig");
     _ = @import("cli/accept.zig");
@@ -633,6 +653,34 @@ test "parseArgs reads maintenance report and prune flags" {
     try std.testing.expect(parsed.prune_stale);
     try std.testing.expect(parsed.confirm);
     try std.testing.expect(parsed.assert_density);
+}
+
+// spec: size introspection - Parses the size target path and the debt current flag
+
+test "parseArgs reads the size target before the project dir and the debt --current toggle" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 3);
+    args[0] = try a.dupeZ(u8, "size");
+    args[1] = try a.dupeZ(u8, "src/check.zig");
+    args[2] = try a.dupeZ(u8, "../project");
+    const parsed = parseArgs(args);
+    try std.testing.expectEqualStrings("size", parsed.command.?);
+    try std.testing.expectEqualStrings("src/check.zig", parsed.target_path.?);
+    try std.testing.expectEqualStrings("../project", parsed.project_dir);
+    try std.testing.expect(!parsed.current);
+
+    // --current is a toggle, and only `size` consumes a target positional: a
+    // debt run's first positional is still the project directory.
+    const debt_args = try a.alloc([:0]u8, 3);
+    debt_args[0] = try a.dupeZ(u8, "debt");
+    debt_args[1] = try a.dupeZ(u8, "../project");
+    debt_args[2] = try a.dupeZ(u8, "--current");
+    const debt_parsed = parseArgs(debt_args);
+    try std.testing.expect(debt_parsed.current);
+    try std.testing.expect(debt_parsed.target_path == null);
+    try std.testing.expectEqualStrings("../project", debt_parsed.project_dir);
 }
 
 // spec: Maintenance - Parses named accept checks before the optional project directory

@@ -833,18 +833,25 @@ fn firstOffender(a: std.mem.Allocator, reg: ratchet.Regression, records: []const
     return reporter.flatLine(a, v) catch key;
 }
 
-/// The failing half of `reportRatchet`, worded by growth class. A `volume`
-/// check (file/type size) usually grew because a feature landed, so the header
-/// says growth and the accept guidance leads; a `shape` check regressed
-/// structurally, so the fix guidance leads and accept stays the last resort.
+/// The failing half of `reportRatchet`, worded by growth class and by whether
+/// accepting would RAISE a frozen ceiling. A `volume` check (file/type size)
+/// whose regression is only new offenders usually grew because a feature
+/// landed, so the accept guidance leads; a `shape` regression, and any
+/// regression that would raise a ceiling, lead with the fix instead — raising a
+/// frozen ceiling is not an ordinary option (see `AcceptTone`).
 fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: RatchetReport) types.RunError!void {
     const n = reg.grown.len + reg.new_offenders.len;
     const class = ratchet.growthClass(check_name);
+    const tone = toneFor(reg);
     // The status line names the offender itself — file:line, the item, the
     // measured value and its cap — not just the check. Without it the only
     // place with that detail was .guardian/cache/last-run.jsonl.
     const offender = firstOffender(rep.allocator, reg, rep.records);
-    switch (class) {
+    switch (headlineFor(class, tone)) {
+        .raise => reporter.fail(
+            "{s}: {d} key(s) grew past a frozen ratchet ceiling — {s}",
+            .{ check_name, n, offender },
+        ),
         .volume => reporter.fail(
             "{s}: {d} key(s) grew past ratchet — volume growth; review, then accept if intended — {s}",
             .{ check_name, n, offender },
@@ -872,17 +879,57 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: Ratchet
         "  this item is at its frozen cap; reduce or split before adding.\n",
         .{},
     );
-    switch (class) {
-        .volume => {
-            reportAcceptCommand(check_name);
+    switch (guidanceOrder(class, tone)) {
+        .accept_first => {
+            reportAcceptCommand(check_name, tone);
             if (rep.fix_hint) |h| reporter.detail("  {s} (if the growth is accidental)\n", .{h});
         },
-        .shape => {
+        .fix_first => {
             if (rep.fix_hint) |h| reporter.detail("  {s}\n", .{h});
-            reportAcceptCommand(check_name);
+            reportAcceptCommand(check_name, tone);
         },
     }
     return error.CheckFailed;
+}
+
+/// Whether accepting this regression would RAISE a frozen ceiling (`raises`) or
+/// only record a subject the ratchet never held (`plain`). The distinction is
+/// the whole point: lowering or pruning a ceiling is always fine and reads as a
+/// routine accept, while raising one is the move a project's own rules usually
+/// forbid — so the two must not share a tone.
+const AcceptTone = enum { plain, raises };
+
+/// A grown key is one the ratchet froze at exactly its current value, so the
+/// only way to accept it is to raise that ceiling. A regression made only of
+/// new offenders raises nothing — those keys were never on file.
+fn toneFor(reg: ratchet.Regression) AcceptTone {
+    return if (atFrozenCap(reg)) .raises else .plain;
+}
+
+/// Which status line the regression gets. A ceiling-raising regression is
+/// named as such whatever its growth class; otherwise the class decides.
+const Headline = enum { raise, volume, shape };
+
+fn headlineFor(class: ratchet.GrowthClass, tone: AcceptTone) Headline {
+    if (tone == .raises) return .raise;
+    return switch (class) {
+        .volume => .volume,
+        .shape => .shape,
+    };
+}
+
+/// Which guidance leads. Volume growth that ratifies a brand-new offender
+/// leads with accept (it is usually the right call); everything else leads with
+/// the fix, because raising a frozen ceiling should be the last thing a reader
+/// reaches, not the first.
+const GuidanceOrder = enum { accept_first, fix_first };
+
+fn guidanceOrder(class: ratchet.GrowthClass, tone: AcceptTone) GuidanceOrder {
+    if (tone == .raises) return .fix_first;
+    return switch (class) {
+        .volume => .accept_first,
+        .shape => .fix_first,
+    };
 }
 
 /// True when a regression includes a key that GREW — i.e. an item that was
@@ -999,7 +1046,9 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
             // whole affected file(s) and say so, rather than implying all are new.
             reporter.detail("  one or more of these is new debt:\n", .{});
             for (m.lines) |line| reporter.detail("    {s}\n", .{line});
-            reportAcceptCommand(check_name);
+            // An identity baseline records violations, not per-item ceilings:
+            // accepting adds a key, it never raises a frozen number.
+            reportAcceptCommand(check_name, .plain);
             return error.CheckFailed;
         },
         .grown => |g| {
@@ -1008,7 +1057,7 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
                 .{ check_name, g.new_lines.len, g.baseline_size },
             );
             for (g.new_lines) |line| reporter.detail("  {s}\n", .{line});
-            reportAcceptCommand(check_name);
+            reportAcceptCommand(check_name, .plain);
             return error.CheckFailed;
         },
     }
@@ -1018,7 +1067,17 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
 /// leads because it always works; the `guardian-accept` build step exists only
 /// when the consumer's build wired it, so it is qualified rather than assumed.
 /// Keeps the `accept:` marker `reportRegressed` orders against the `fix:` hint.
-fn reportAcceptCommand(check_name: []const u8) void {
+///
+/// A `.raises` tone prefixes the commands with what accepting them would do.
+/// Without it the accept line reads as a normal option in exactly the case a
+/// project's own rules forbid — raising a frozen ceiling — while a tightening
+/// (a lowered or pruned key, which never reaches this path) is always fine.
+fn reportAcceptCommand(check_name: []const u8, tone: AcceptTone) void {
+    if (tone == .raises) reporter.detail(
+        "  this raises a frozen ceiling — prefer moving code to a cohesive module boundary; " ++
+            "accept only when the larger item is genuinely the right shape.\n",
+        .{},
+    );
     reporter.detail("  accept: guardian-check accept {s} .   # raw CLI, always works\n", .{check_name});
     reporter.detail(
         "          zig build guardian-accept -Dguardian-checks={s}   # if your build wires guardian-accept\n",
@@ -1215,9 +1274,10 @@ test "reportRegressed words volume growth accept-first and shape regressions fix
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
 
+    // A brand-new offender raises no ceiling — the routine volume case.
     const reg: ratchet.Regression = .{
-        .grown = &.{.{ .key = "src/x.zig", .old = 100, .new = 120 }},
-        .new_offenders = &.{},
+        .grown = &.{},
+        .new_offenders = &.{.{ .key = "src/x.zig", .value = 120 }},
         .remaining = 1,
     };
     // file-size is a volume check: growth header, accept guidance first.
@@ -1243,6 +1303,42 @@ test "reportRegressed words volume growth accept-first and shape regressions fix
     const s_fix = std.mem.indexOf(u8, shape_out, "fix:").?;
     const s_accept = std.mem.indexOf(u8, shape_out, "accept:").?;
     try std.testing.expect(s_fix < s_accept);
+}
+
+// spec: size introspection - Warns that accepting a grown ratchet key raises a frozen ceiling
+
+test "a ceiling-raising regression leads with the raise warning before accept" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // A GROWN key can only be accepted by raising the ceiling the ratchet
+    // froze it at — the move a project's own rules typically forbid. Even for
+    // file-size, a volume check whose plain wording is accept-first, that must
+    // not read as a routine option.
+    const raising: ratchet.Regression = .{
+        .grown = &.{.{ .key = "src/x.zig", .old = 10_000, .new = 10_005 }},
+        .new_offenders = &.{},
+        .remaining = 1,
+    };
+    try std.testing.expect(toneFor(raising) == .raises);
+    try std.testing.expect(headlineFor(.volume, .raises) == .raise);
+    try std.testing.expect(guidanceOrder(.volume, .raises) == .fix_first);
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportRegressed("file-size", raising, testReport(std.testing.allocator, "fix: split the file", &.{})),
+    );
+    const out = cap.buf.items;
+    try std.testing.expect(std.mem.indexOf(u8, out, "grew past a frozen ratchet ceiling") != null);
+    const lead = "this raises a frozen ceiling — prefer moving code to a cohesive module boundary";
+    const warning = std.mem.indexOf(u8, out, lead).?;
+    // The warning leads; the accept commands come after it, never before.
+    try std.testing.expect(warning < std.mem.indexOf(u8, out, "accept:").?);
+    // The plain "accept if intended" wording is reserved for a regression that
+    // raises nothing.
+    try std.testing.expect(std.mem.indexOf(u8, out, "accept if intended") == null);
 }
 
 // spec: Per-Item Ratchets - Notes that a grown ratchet item was already sitting at its frozen cap
