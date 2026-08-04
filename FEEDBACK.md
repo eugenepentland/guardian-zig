@@ -2875,3 +2875,51 @@ in the same commit); nothing to fight.
   including one bullet I had to RETITLE (a via_fence behaviour genuinely
   changed) — renaming the bullet and its tag together was accepted without
   complaint, which is exactly right.
+
+## 2026-08-04 · Claude · eda — autorouter audit C4a+C5 (coupled diff-pair bend report, router probe for the RF smoother)
+- **good:** the `file-size` per-file ratchet did exactly its job and changed my
+  design for the better. `src/placement/router.zig` measured 10428 vs ceiling
+  10428 — AT CEILING, 0 headroom — so my first cut (+27 lines: a new
+  `auditPairBends`, a `TautProbe.arcProbe` helper, a fixture and a test) was
+  refused outright. That forced the work into `diff_couple.zig`, which is the
+  module that *exists* because router.zig is at its cap, and the final
+  router.zig diff is line-neutral (two genuine tidy-ups paid for the two lines
+  I added). A recommended-only cap would have let the slop through.
+- **good:** `guardian-check size <file> .` is the single most useful command in
+  this situation and it is what made the ratchet actionable rather than
+  mysterious. "10455 vs ceiling 10428 — OVER by 27; the gate blocks" told me
+  the exact budget. I used it four times while shrinking the diff.
+- **friction:** the failure line does not tell you *how much* you are over —
+  only the run summary does. `guardian: run-all: 2/70 failed (file-size,
+  pub-api-surface)` sent me to `.guardian/cache/last-run.jsonl`, which had rows
+  for `pub-api-surface` but **none at all for `file-size`**, so the one check I
+  needed detail on was the one the machine-readable log omitted. I found the
+  number only by guessing at `guardian-check size`. Either put file-size rows in
+  last-run.jsonl, or print the ceiling delta in the summary line.
+- **friction:** the summary is self-contradictory about severity. It printed
+  `run-all: 2/70 failed (file-size, pub-api-surface) — 2 report-only` and, on
+  the next line, `2 check(s) would block commit (file-size, pub-api-surface)`.
+  I could not tell whether "2 report-only" was counting those two checks or two
+  unrelated ones, and I spent a cycle deciding whether file-size was worth
+  restructuring for. It was — but the output should say so unambiguously
+  (e.g. name which failing checks are report-only).
+- **good:** `anytype-budget` and `unsafe-ops-budget` both fired on the same
+  design (a type-erased probe handle: one `anytype` in `bind`, one
+  `@ptrCast(@alignCast(...))` to restore it) and pushing back against BOTH
+  produced strictly better code — `bind(comptime P: type, probe: *const P, …)`
+  instead of `anytype`, and an `*align(N) const anyopaque` handle so the cast
+  needs no `@alignCast` at all. A probe type that cannot meet the alignment is
+  now a compile error instead of a runtime assumption. Two budgets, two real
+  improvements; neither needed accepting.
+- **friction:** `test-no-conditional`'s message is `more than one top-level
+  loop` with a file:line, which reads like a style nit until you realise the
+  fix (hoist the scan into a named helper) is the one it wants. It cost a cycle
+  to work out that "extra for loops" meant "> 1", not "any".
+- **wish:** the test aggregator gap is invisible to Guardian and cost me a
+  silent no-op. I moved a test into `src/placement/diff_couple.zig` and it
+  simply did not run — that file was never `@import`-ed in main.zig's test
+  block, so its two PRE-EXISTING tests had never run either. The counting test
+  runner saved me (`3 match by name` dropped to `2` and I noticed), which is a
+  strong argument for that feature, but a check for "a src file containing
+  `test \"` that no test-root imports" would have caught the dormant file
+  outright.
