@@ -75,6 +75,22 @@ plain Debug default so its compile stays fast. If commits in a consumer repo
 start reporting a gate of tens of seconds, check this binary's size first
 (ReleaseSafe ≈ 10 MB, Debug ≈ 55 MB).
 
+**Consumers reuse that binary instead of recompiling it.** `addAllChecks`
+prefers `<guardian dep root>/zig-out/bin/guardian-check` over a from-source
+compile, because a consumer with a private per-worktree Zig cache otherwise pays
+a full cold ReleaseSafe compile of an unchanged tool before any of its own code
+builds (measured on a minimal consumer, fresh `--cache-dir`: 67.9 s → 11.3 s).
+Selection order: self-hosting always compiles, then `GUARDIAN_PREBUILT=off|0`
+compiles, then `GUARDIAN_PREBUILT=<path>` runs that binary, then the
+dependency's installed binary, else compile. Every prebuilt invocation depends
+on one prepended `guardian-selfcheck` step running `guardian-check selfcheck
+<dep root>`, which recomputes the source digest `build.zig` embedded at
+configure time (`src/source_digest.zig`, imported by both sides so they cannot
+drift) and **fails the build** on a mismatch — never a warning. Guardian's own
+build never uses the prebuilt path, whatever `GUARDIAN_PREBUILT` says: a
+zig-out binary gating the source it was built from is the stale-binary trap, and
+selfcheck cannot catch it there. `guardian-check version` prints the digest.
+
 **Report during dev, block at commit** (`[gate] on_build`, default `"report"`).
 A plain `zig build` runs every check and prints findings but exits 0, so a dev
 build always produces a binary — verify guardian-clean with `guardian-check all
@@ -118,7 +134,8 @@ guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # rec
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
 guardian-check explain completeness --section "<name>" .  # dry-run one SPEC.md section's 8 categories
-guardian-check version               # print the version (also --version)
+guardian-check selfcheck <guardian-root>  # prove a prebuilt binary matches that Guardian source
+guardian-check version               # print the version + source digest (also --version)
 ```
 
 Guardian is invisible — every build runs it (report mode by default), and
@@ -142,7 +159,12 @@ const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
 b.getInstallStep().dependOn(&fmt_check.step);
 
 // One call wires every hard-block check into the install step.
-// Adding new checks doesn't change this snippet.
+// Adding new checks doesn't change this snippet. It also picks how
+// guardian-check is reached: the dependency's already-built
+// zig-out/bin/guardian-check when there is one (behind a fail-closed
+// `guardian-selfcheck` staleness step), else a compile from source.
+// GUARDIAN_PREBUILT=off forces the compile; GUARDIAN_PREBUILT=<path> picks a
+// binary.
 guardian.addAllChecks(b, check_exe, b.getInstallStep(), .{});
 
 // spec-init: generate starter SPEC.md (separate step, not a gate)
@@ -406,7 +428,8 @@ src/
   violation_key.zig    # Content-derived violation identity (baseline v3 keys)
   cache.zig            # Skip-when-unchanged input digest for `all`
   config.zig           # guardian.toml parser
-  build_helper.zig     # addAllChecks for downstream consumers
+  build_helper.zig     # addAllChecks for downstream consumers + prebuilt-binary selection
+  source_digest.zig    # std-only digest of Guardian's own source; imported by build.zig AND the binary
   fakes/               # Deterministic test doubles (FakeClock/SeededRandom/FakeFs/FakeEnv) — the `guardian-fakes` module consumers import in tests
   testing/             # Golden-file test harness
 ```

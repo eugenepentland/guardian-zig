@@ -7,6 +7,10 @@
 //! `testRunner` points a consumer's test binary at Guardian's counting runner,
 //! and `addTestCompileProbe` registers the compile-only whole-suite tier that a
 //! filtered run can never provide.
+//!
+//! Finally it decides HOW guardian-check is reached — compiled from the
+//! dependency's source, or reused from the binary already sitting in that
+//! dependency's `zig-out/` (see `chooseSource` and the `selfcheck` guard).
 
 const std = @import("std");
 const registry = @import("cli/registry.zig");
@@ -20,8 +24,18 @@ const accept_name = "accept";
 const nightly_name = "nightly"; // composed scheduled tier, dispatched specially
 const commit_name = "commit"; // gate + auto-commit, dispatched specially
 const run_all_name = "all";
+const selfcheck_name = "selfcheck"; // staleness guard in front of a prebuilt binary
 const guardian_run_step = "guardian";
 const guardian_explain_step = "guardian-explain";
+const guardian_selfcheck_step = "guardian-selfcheck";
+
+/// Env var selecting how guardian-check is reached: `off`/`0` always compiles,
+/// any other value is the path of a binary to run, unset auto-detects.
+const prebuilt_env = "GUARDIAN_PREBUILT";
+
+/// Where a `zig build` in the Guardian checkout leaves its ReleaseSafe binary —
+/// the artifact auto-detection reuses.
+const prebuilt_rel_path = "zig-out/bin/guardian-check";
 
 // Comptime branch budget for the registry-iteration loop in
 // all_check_names. Bumped manually if the registry grows enough to
@@ -83,28 +97,26 @@ pub const Options = struct {
     gate_install: bool = true,
 };
 
-/// Adds RunArtifact step(s) for the registered gates as dependencies of
+/// Adds guardian-check step(s) for the registered gates as dependencies of
 /// `target_step`. By default emits one combined step (`all`); set
 /// `opts.single_process = false` to emit one step per check. Unless
 /// `opts.mutate_steps = false`, also registers the top-level `mutate` /
 /// `mutate-full` steps once.
+///
+/// Whether those steps run a freshly compiled guardian-check or the one already
+/// built in the dependency's `zig-out/` is decided here — see `chooseSource`.
 pub fn addAllChecks(
     b: *std.Build,
     check_exe: *std.Build.Step.Compile,
     target_step: *std.Build.Step,
     opts: Options,
 ) void {
-    if (opts.mutate_steps) registerMutateSteps(b, check_exe, opts);
-    if (opts.maintenance_steps) registerMaintenanceSteps(b, check_exe, opts);
+    const wiring = resolve(b, check_exe, opts);
+    if (opts.mutate_steps) registerMutateSteps(wiring);
+    if (opts.maintenance_steps) registerMaintenanceSteps(wiring);
 
     if (opts.single_process) {
-        const run = b.addRunArtifact(check_exe);
-        if (opts.quiet) {
-            run.addArgs(&.{ run_all_name, ".", "--quiet" });
-        } else {
-            run.addArgs(&.{ run_all_name, "." });
-        }
-        if (opts.cwd) |cwd| run.setCwd(cwd);
+        const run = wiring.invoke(checkArgs(wiring, run_all_name));
         target_step.dependOn(&run.step);
         maybeGateInstall(b, target_step, opts, &.{&run.step});
         return;
@@ -112,17 +124,163 @@ pub fn addAllChecks(
 
     var gates: [all_check_names.len]*std.Build.Step = undefined;
     for (all_check_names, 0..) |name, i| {
-        const run = b.addRunArtifact(check_exe);
-        if (opts.quiet) {
-            run.addArgs(&.{ name, ".", "--quiet" });
-        } else {
-            run.addArgs(&.{ name, "." });
-        }
-        if (opts.cwd) |cwd| run.setCwd(cwd);
+        const run = wiring.invoke(checkArgs(wiring, name));
         target_step.dependOn(&run.step);
         gates[i] = &run.step;
     }
     maybeGateInstall(b, target_step, opts, &gates);
+}
+
+/// Argv for one gate invocation: the command, the project dir, and `--quiet`
+/// when the caller asked for it.
+fn checkArgs(w: Wiring, name: []const u8) []const []const u8 {
+    if (!w.opts.quiet) return w.b.dupeStrings(&.{ name, "." });
+    return w.b.dupeStrings(&.{ name, ".", "--quiet" });
+}
+
+// ── Reaching guardian-check ────────────────────────────────────────────
+
+/// How this build reaches guardian-check.
+const Source = union(enum) {
+    /// Compile it from the dependency's source. What every build did before
+    /// prebuilt reuse existed, and still the answer for Guardian's own build.
+    compile,
+    /// Run this already-built binary. A fresh consumer worktree with its own
+    /// Zig cache otherwise pays the full cold ReleaseSafe compile of an
+    /// unchanged tool (measured 49 s of a 53 s first build in one consumer);
+    /// reusing the artifact turns that into a directory walk.
+    prebuilt: []const u8,
+};
+
+/// The three resolved facts `chooseSource` decides from, split out so the
+/// decision is a pure function instead of a tangle of build-graph and
+/// filesystem lookups.
+const Choice = struct {
+    /// `GUARDIAN_PREBUILT`, or null when unset.
+    override: ?[]const u8 = null,
+    /// True when the Guardian dependency IS the project being gated.
+    self_hosting: bool = false,
+    /// Path of the dependency's already-installed binary; null when absent.
+    installed: ?[]const u8 = null,
+};
+
+/// Picks how guardian-check is reached.
+///
+/// Self-hosting wins over everything, including an explicit override: a binary
+/// in `zig-out/` gating the very source it was built from is exactly the
+/// stale-binary trap, and `selfcheck` cannot rescue it — the digest it compares
+/// against is the one baked into that stale binary. Guardian's own build always
+/// compiles.
+///
+/// Otherwise an explicit override decides (`off`/`0` to compile, any other
+/// value read as a binary path), then the dependency's installed binary, then
+/// compiling.
+fn chooseSource(choice: Choice) Source {
+    if (choice.self_hosting) return .compile;
+    const override = choice.override orelse return installedOrCompile(choice.installed);
+    if (override.len == 0) return installedOrCompile(choice.installed);
+    if (isDisabled(override)) return .compile;
+    return .{ .prebuilt = override };
+}
+
+/// Reuses the dependency's installed binary when it has one, else compiles.
+fn installedOrCompile(installed: ?[]const u8) Source {
+    const path = installed orelse return .compile;
+    return .{ .prebuilt = path };
+}
+
+/// The two spellings that turn prebuilt reuse off.
+fn isDisabled(value: []const u8) bool {
+    return std.mem.eql(u8, value, "off") or std.mem.eql(u8, value, "0");
+}
+
+/// One build's answer to "how do I run guardian-check?", plus everything a step
+/// registration needs. Resolved once per `addAllChecks` call.
+const Wiring = struct {
+    b: *std.Build,
+    check_exe: *std.Build.Step.Compile,
+    opts: Options,
+    source: Source,
+    /// Absolute path of the Guardian dependency's build root: what `selfcheck`
+    /// is pointed at, and what the self-hosting comparison is made against.
+    dep_root: []const u8,
+    /// The staleness guard every prebuilt invocation depends on; null when this
+    /// build compiles guardian-check and the question cannot arise.
+    guard: ?*std.Build.Step,
+
+    /// Registers one guardian-check invocation, wired the way this build
+    /// resolved the binary.
+    fn invoke(w: Wiring, args: []const []const u8) *std.Build.Step.Run {
+        const run = switch (w.source) {
+            .compile => w.b.addRunArtifact(w.check_exe),
+            .prebuilt => |path| w.b.addSystemCommand(&.{path}),
+        };
+        run.addArgs(args);
+        if (w.opts.cwd) |cwd| run.setCwd(cwd);
+        // Fail closed: nothing a prebuilt binary reports counts until it has
+        // proved it was built from the source it claims to speak for.
+        if (w.guard) |guard| run.step.dependOn(guard);
+        return run;
+    }
+};
+
+/// Resolves how this build reaches guardian-check and, when that is a prebuilt
+/// binary, registers the `selfcheck` guard every invocation hangs off.
+///
+/// The dependency's build root comes from the artifact the caller already
+/// passed in — `check_exe.step.owner` IS the dependency's `*std.Build` — so
+/// consumers need no extra argument and Guardian never guesses at a path.
+fn resolve(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) Wiring {
+    const dep = check_exe.step.owner;
+    const dep_root = buildRoot(b, dep);
+    const source = chooseSource(.{
+        .override = readEnv(b, prebuilt_env),
+        .self_hosting = std.mem.eql(u8, dep_root, buildRoot(b, b)),
+        .installed = installedBinary(b, dep, dep_root),
+    });
+    return .{
+        .b = b,
+        .check_exe = check_exe,
+        .opts = opts,
+        .source = source,
+        .dep_root = dep_root,
+        .guard = switch (source) {
+            .compile => null,
+            .prebuilt => |path| ensureGuardStep(b, path, dep_root),
+        },
+    };
+}
+
+/// Absolute build root of `owner`, resolved through `b` so both sides of the
+/// self-hosting comparison are spelled the same way.
+fn buildRoot(b: *std.Build, owner: *std.Build) []const u8 {
+    return b.pathResolve(&.{owner.build_root.path orelse "."});
+}
+
+/// The dependency's already-built binary, or null when it isn't there. Probed
+/// through the dependency's own directory handle, so no path is synthesized
+/// before it is known to resolve.
+fn installedBinary(b: *std.Build, dep: *std.Build, dep_root: []const u8) ?[]const u8 {
+    dep.build_root.handle.access(prebuilt_rel_path, .{}) catch return null;
+    return b.pathResolve(&.{ dep_root, prebuilt_rel_path });
+}
+
+/// Reads a configure-time environment variable; null when unset or unreadable.
+fn readEnv(b: *std.Build, name: []const u8) ?[]const u8 {
+    return std.process.getEnvVarOwned(b.allocator, name) catch null;
+}
+
+/// Registers `guardian-selfcheck`: the prebuilt binary proving it matches the
+/// source root it is about to gate, before anything else runs. A top-level step
+/// so it is also invokable on its own; idempotent on the name, so repeated
+/// `addAllChecks` calls share one guard.
+fn ensureGuardStep(b: *std.Build, binary: []const u8, dep_root: []const u8) *std.Build.Step {
+    if (b.top_level_steps.get(guardian_selfcheck_step)) |existing| return &existing.step;
+    const run = b.addSystemCommand(&.{binary});
+    run.addArgs(&.{ selfcheck_name, dep_root });
+    const step = b.step(guardian_selfcheck_step, "Verify the prebuilt Guardian binary matches its source");
+    step.dependOn(&run.step);
+    return step;
 }
 
 /// Re-orders every artifact install already attached to the consumer's
@@ -132,7 +290,8 @@ pub fn addAllChecks(
 /// inputs that Guardian is expected to scan. Only applies when the caller wired
 /// the gate onto the install step itself (a test-step wiring must not schedule
 /// extra gate runs into plain `zig build`). No cycle risk: a gate run depends
-/// only on compiling guardian-check, never on an install.
+/// only on reaching guardian-check — compiling it, or proving the prebuilt one
+/// current — never on an install.
 fn maybeGateInstall(
     b: *std.Build,
     target_step: *std.Build.Step,
@@ -158,47 +317,29 @@ fn containsStep(steps: []const *std.Build.Step, step: *std.Build.Step) bool {
     return false;
 }
 
-fn registerMaintenanceSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
-    ensureForwardingStep(b, check_exe, opts);
-    ensureToolStep(
-        b,
-        check_exe,
-        opts,
-        "guardian-doctor",
-        "Audit Guardian metadata and integration",
-        &.{ doctor_name, "." },
-    );
-    ensureToolStep(b, check_exe, opts, "guardian-debt", "Report accepted Guardian debt", &.{ debt_name, "." });
-    ensureToolStep(
-        b,
-        check_exe,
-        opts,
-        "guardian-spec-sync",
-        "Suggest missing SPEC.md bullets",
-        &.{ spec_sync_name, "." },
-    );
+fn registerMaintenanceSteps(w: Wiring) void {
+    ensureForwardingStep(w);
+    ensureToolStep(w, "guardian-doctor", "Audit Guardian metadata and integration", &.{ doctor_name, "." });
+    ensureToolStep(w, "guardian-debt", "Report accepted Guardian debt", &.{ debt_name, "." });
+    ensureToolStep(w, "guardian-spec-sync", "Suggest missing SPEC.md bullets", &.{ spec_sync_name, "." });
 
-    if (!b.top_level_steps.contains("guardian-accept")) {
-        const checks = b.option(
+    if (!w.b.top_level_steps.contains("guardian-accept")) {
+        const checks = w.b.option(
             []const u8,
             "guardian-checks",
             "Comma-separated checks accepted by guardian-accept",
         ) orelse "";
         ensureToolStep(
-            b,
-            check_exe,
-            opts,
+            w,
             "guardian-accept",
             "Accept named Guardian metadata drift (-Dguardian-checks=a,b)",
             &.{ accept_name, checks, "." },
         );
     }
-    if (!b.top_level_steps.contains(guardian_explain_step)) {
-        const check = b.option([]const u8, guardian_explain_step, "Check explained by guardian-explain") orelse "";
+    if (!w.b.top_level_steps.contains(guardian_explain_step)) {
+        const check = w.b.option([]const u8, guardian_explain_step, "Check explained by guardian-explain") orelse "";
         ensureToolStep(
-            b,
-            check_exe,
-            opts,
+            w,
             guardian_explain_step,
             "Explain one Guardian check (-Dguardian-explain=name)",
             &.{ "explain", check },
@@ -206,33 +347,26 @@ fn registerMaintenanceSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, o
     }
 }
 
-/// Registers `zig build guardian -- <guardian-check args>`. Because the run
-/// artifact depends on `check_exe`, it always executes the binary built from
-/// the current dependency source rather than an arbitrary cache artifact.
-/// With no forwarded args it runs the full suite for the current project.
-fn ensureForwardingStep(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
-    if (b.top_level_steps.contains(guardian_run_step)) return;
-    const run = b.addRunArtifact(check_exe);
-    run.addArgs(b.args orelse &.{ run_all_name, "." });
-    if (opts.cwd) |cwd| run.setCwd(cwd);
-    const step = b.step(guardian_run_step, "Run the freshly built Guardian binary; forward args after --");
+/// Registers `zig build guardian -- <guardian-check args>`. It always executes
+/// the binary that speaks for the current dependency source rather than an
+/// arbitrary cache artifact — either by compiling it, or by running the prebuilt
+/// one behind its `selfcheck` guard. With no forwarded args it runs the full
+/// suite for the current project.
+fn ensureForwardingStep(w: Wiring) void {
+    if (w.b.top_level_steps.contains(guardian_run_step)) return;
+    const run = w.invoke(w.b.args orelse &.{ run_all_name, "." });
+    const step = w.b.step(guardian_run_step, "Run the current Guardian binary; forward args after --");
     step.dependOn(&run.step);
 }
 
-fn ensureToolStep(
-    b: *std.Build,
-    check_exe: *std.Build.Step.Compile,
-    opts: Options,
-    name: []const u8,
-    description: []const u8,
-    args: []const []const u8,
-) void {
-    if (b.top_level_steps.contains(name)) return;
-    const run = b.addRunArtifact(check_exe);
-    run.addArgs(args);
-    if (opts.cwd) |cwd| run.setCwd(cwd);
-    const step = b.step(name, description);
-    step.dependOn(&run.step);
+/// Creates one top-level step wired to `guardian-check <args>`, but only when no
+/// step of that name already exists — `b.step` panics on a duplicate, so the
+/// `contains` guard is what makes repeated `addAllChecks` calls (and a
+/// consumer's own hand-rolled step of the same name) safe in either order.
+fn ensureToolStep(w: Wiring, name: []const u8, description: []const u8, args: []const []const u8) void {
+    if (w.b.top_level_steps.contains(name)) return;
+    const step = w.b.step(name, description);
+    step.dependOn(&w.invoke(args).step);
 }
 
 /// Registers the `mutate` (fast tier) and `mutate-full` (whole-tree ratchet)
@@ -240,33 +374,11 @@ fn ensureToolStep(
 /// of the build (a mutant costs a build + test cycle, so mutation is not a
 /// gate). Idempotent so it survives multiple addAllChecks calls and a
 /// consumer's own hand-rolled steps.
-fn registerMutateSteps(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) void {
-    ensureMutateStep(b, check_exe, opts, mutate_name, "Mutation-test changed lines (fast tier)", &.{
-        mutate_name, ".",
-    });
-    ensureMutateStep(b, check_exe, opts, "mutate-full", "Mutation-test whole tree + score ratchet", &.{
+fn registerMutateSteps(w: Wiring) void {
+    ensureToolStep(w, mutate_name, "Mutation-test changed lines (fast tier)", &.{ mutate_name, "." });
+    ensureToolStep(w, "mutate-full", "Mutation-test whole tree + score ratchet", &.{
         mutate_name, ".", "--full",
     });
-}
-
-/// Creates one mutate step wired to `guardian-check <args>`, but only when no
-/// top-level step of that name already exists — `b.step` panics on a duplicate,
-/// so the `contains` guard is what makes repeated calls (and a consumer's own
-/// hand-rolled `mutate` step) safe in either order.
-fn ensureMutateStep(
-    b: *std.Build,
-    check_exe: *std.Build.Step.Compile,
-    opts: Options,
-    name: []const u8,
-    description: []const u8,
-    args: []const []const u8,
-) void {
-    if (b.top_level_steps.contains(name)) return;
-    const run = b.addRunArtifact(check_exe);
-    run.addArgs(args);
-    if (opts.cwd) |cwd| run.setCwd(cwd);
-    const step = b.step(name, description);
-    step.dependOn(&run.step);
 }
 
 // ── The honest filtered-test loop ──────────────────────────────────────
@@ -341,6 +453,75 @@ pub fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.
     // null and earns the `-fno-emit-bin` fast path.
     step.dependOn(&probe.step);
     return step;
+}
+
+/// The binary a `Source` names, or null when the build will compile one — the
+/// shape the selection tests assert against.
+fn chosenPath(source: Source) ?[]const u8 {
+    return switch (source) {
+        .compile => null,
+        .prebuilt => |path| path,
+    };
+}
+
+// spec: Prebuilt Binary - Compiles from source when Guardian is gating its own tree
+
+test "self-hosting outranks both an installed binary and an explicit override" {
+    // The trap this guard exists for: a zig-out binary gating the very source it
+    // was built from. selfcheck cannot catch it — the digest it compares against
+    // is the stale one baked into that binary — so the choice must never arise.
+    try std.testing.expect(chosenPath(chooseSource(.{
+        .self_hosting = true,
+        .installed = "/g/zig-out/bin/guardian-check",
+    })) == null);
+    try std.testing.expect(chosenPath(chooseSource(.{
+        .self_hosting = true,
+        .override = "/elsewhere/guardian-check",
+    })) == null);
+}
+
+// spec: Prebuilt Binary - Compiles from source when the prebuilt override is switched off
+
+test "the off and zero spellings of the override force a compile" {
+    try std.testing.expect(chosenPath(chooseSource(.{
+        .override = "off",
+        .installed = "/g/zig-out/bin/guardian-check",
+    })) == null);
+    try std.testing.expect(chosenPath(chooseSource(.{
+        .override = "0",
+        .installed = "/g/zig-out/bin/guardian-check",
+    })) == null);
+    // An empty value is an unset variable, not an opt-out: auto-detection wins.
+    try std.testing.expectEqualStrings("/g/zig-out/bin/guardian-check", chosenPath(chooseSource(.{
+        .override = "",
+        .installed = "/g/zig-out/bin/guardian-check",
+    })).?);
+}
+
+// spec: Prebuilt Binary - Runs the binary named by the prebuilt override
+
+test "a non-empty override names the binary, outranking auto-detection" {
+    try std.testing.expectEqualStrings("/opt/bin/guardian-check", chosenPath(chooseSource(.{
+        .override = "/opt/bin/guardian-check",
+        .installed = "/g/zig-out/bin/guardian-check",
+    })).?);
+}
+
+// spec: Prebuilt Binary - Reuses the dependency's installed binary when auto-detection finds one
+
+test "an installed dependency binary is used when nothing overrides it" {
+    try std.testing.expectEqualStrings("/g/zig-out/bin/guardian-check", chosenPath(chooseSource(.{
+        .installed = "/g/zig-out/bin/guardian-check",
+    })).?);
+}
+
+// spec: Prebuilt Binary - Compiles from source when the dependency has no installed binary
+
+test "no installed binary falls back to compiling, as builds always did" {
+    try std.testing.expect(chosenPath(chooseSource(.{})) == null);
+    // The probed location is API: it is where a plain `zig build` in the
+    // Guardian checkout leaves the ReleaseSafe binary consumers reuse.
+    try std.testing.expectEqualStrings("zig-out/bin/guardian-check", prebuilt_rel_path);
 }
 
 // spec: Maintenance - Registers a canonical build runner for the current Guardian binary

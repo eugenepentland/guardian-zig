@@ -75,6 +75,65 @@ moved), and whenever the base or the diff can't be resolved. `--against <ref>`
 picks an explicit base. Measured on a 234-file consumer tree: 42.0 s whole-tree
 → 15.5 s for a one-file edit.
 
+### Prebuilt `guardian-check` — don't recompile an unchanged tool
+
+Guardian is a `.path` dependency, so by default every consumer *compiles* it
+into that consumer's own Zig cache. A project that gives each short-lived
+worktree a private cache therefore pays a full cold ReleaseSafe compile of an
+unchanged quality tool before any of its own code builds — one consumer
+measured 49 s of a 53 s first build.
+
+`addAllChecks` now looks for the binary a plain `zig build` already leaves in
+the Guardian checkout (`<dep root>/zig-out/bin/guardian-check`) and runs *that*
+instead. Measured here on a minimal consumer, `-Doptimize=ReleaseSafe`, fresh
+`--cache-dir` per run:
+
+| first build | compiled from source | prebuilt reused |
+| --- | --- | --- |
+| private local cache, shared global cache | 67.9 s | **11.3 s** |
+| private local *and* global cache | 73.1 s | **15.4 s** |
+
+Selection order, decided once per `addAllChecks` call:
+
+1. **Guardian gating its own tree** (dependency build root == project build
+   root) → always compile. Nothing else is considered — see below.
+2. `GUARDIAN_PREBUILT=off` or `=0` → compile from source (the old behavior).
+3. `GUARDIAN_PREBUILT=<path>` → run that binary.
+4. `<dep root>/zig-out/bin/guardian-check` exists → run it.
+5. Otherwise → compile from source.
+
+**Fail closed.** A reused binary could predate the source it is gating, so every
+prebuilt invocation depends on one prepended step:
+
+```
+guardian-selfcheck → guardian-check selfcheck <dep root>
+```
+
+`build.zig` hashes Guardian's own sources at configure time (`build.zig`,
+`build.zig.zon`, every `.zig` under `src/`) and embeds the digest in the binary;
+`selfcheck` recomputes that hash over the source root and compares. Both sides
+import `src/source_digest.zig`, so they cannot drift. A mismatch **fails the
+build** before a single check runs — it never degrades to a warning:
+
+```
+guardian: selfcheck: prebuilt guardian-check is stale vs its source (binary c845a5f2262e, source 11c27a552883)
+  run `zig build` in /path/to/guardian-zig, or set GUARDIAN_PREBUILT=off to compile guardian-check from source
+```
+
+The walk costs under 10 ms, so the guard is free next to what it saves.
+`guardian-check version` prints the same digest, and `zig build
+guardian-selfcheck` runs the guard on its own.
+
+Guardian's **own** build never takes this path, whatever `GUARDIAN_PREBUILT`
+says: a `zig-out` binary gating the very source it was compiled from is the
+stale-binary trap, and `selfcheck` cannot catch it there — the digest it
+compares against is the stale one baked into that same binary.
+
+One upgrade caveat: a prebuilt binary from a Guardian older than this feature
+has no `selfcheck` command, so the guard step fails with Guardian's usage help
+rather than the message above. `zig build` in the Guardian checkout (or
+`GUARDIAN_PREBUILT=off`) clears it.
+
 **`test-filter` — the same idea for the *test* suite, but report-only.**
 `guardian-check test-filter .` derives the `test "…"` names declared by the
 files your diff changed and prints them, so a local edit/verify loop can run
@@ -1334,7 +1393,8 @@ guardian-check explain catch-discipline      # Why a check blocks, how to fix, h
 guardian-check explain completeness  # ...plus the category -> keyword table it matches on
 guardian-check explain completeness --section "Web Server" .  # Dry-run one SPEC.md section
 guardian-check explain               # List every check name + summary
-guardian-check version               # Print the guardian version (also --version)
+guardian-check selfcheck ../guardian-zig  # Prove a prebuilt binary matches that Guardian source root
+guardian-check version               # Print the guardian version + source digest (also --version)
 ```
 
 - **`--only` / `--skip`** take comma-separated check names and are mutually

@@ -597,6 +597,24 @@ blocking correctness checks and advisory maintainability guidance.
 - Points a consumer test binary at the runner file that ships with Guardian
 - Registers the compile-only whole-suite probe under a stable step name
 
+## Prebuilt Binary
+
+- Digests an unchanged source tree to the same value on every run
+- Moves the digest when a covered file's contents change
+- Moves the digest when a source file is added, removed, or renamed
+- Covers only the build files and the zig sources under src
+- Refuses to digest a source root that is missing its build files
+- Judges the binary current only when the recomputed digest equals the embedded one
+- Names both the rebuild and the opt-out when the binary is stale
+- Fails when the named Guardian source root cannot be opened
+- Embeds a full-width hex source digest that the version command prints
+- Abbreviates a digest for the report line
+- Compiles from source when Guardian is gating its own tree
+- Compiles from source when the prebuilt override is switched off
+- Runs the binary named by the prebuilt override
+- Reuses the dependency's installed binary when auto-detection finds one
+- Compiles from source when the dependency has no installed binary
+
 ## Change Classification
 
 - Counts added lines inside test blocks as test changes

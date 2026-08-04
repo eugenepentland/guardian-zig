@@ -21,6 +21,7 @@ const test_filter_cmd = @import("cli/test_filter.zig");
 const accept = @import("cli/accept.zig");
 const bench_cmd = @import("cli/bench.zig");
 const size_cmd = @import("cli/size.zig");
+const selfcheck_cmd = @import("cli/selfcheck.zig");
 const benchmark = @import("benchmark.zig");
 const version = @import("version.zig");
 const baseline = @import("baseline.zig");
@@ -74,7 +75,13 @@ pub fn main() !void {
     // `--version` / `version`: print and exit before any project work. Printing
     // std.debug.print from pub fn main is exempt from debug-print-ban.
     if (parsed.show_version or isVersionCommand(parsed.command)) {
-        std.debug.print("guardian-check {s}\n", .{version.string});
+        // The source digest rides along because a version alone cannot answer
+        // "is this prebuilt binary the one my source builds?" — see
+        // `guardian-check selfcheck`.
+        std.debug.print("guardian-check {s}\nsource-digest {s}\n", .{
+            version.string,
+            selfcheck_cmd.embedded_digest,
+        });
         return;
     }
 
@@ -383,6 +390,10 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // registered so it can never join the `all` suite: it measures and prints,
     // it never gates, and a registry entry would wire it into every build.
     if (std.mem.eql(u8, command, size_cmd.command_name)) return size_cmd.run(ctx);
+    // selfcheck compares a prebuilt binary against the Guardian source root it
+    // is handed. Dispatched here for the same reason as size: it is a statement
+    // about the tool, not the project, so it must never join the `all` suite.
+    if (std.mem.eql(u8, command, selfcheck_cmd.command_name)) return selfcheck_cmd.run(ctx);
     if (std.mem.eql(u8, command, "spec-sync")) return spec_sync.run(ctx);
     // test-filter reports the diff-derived test-name filter for a LOCAL edit
     // loop. Dispatched here rather than registered, so it can never join the
@@ -485,6 +496,8 @@ test {
     _ = @import("cli/debt.zig");
     _ = @import("cli/debt_current.zig");
     _ = @import("cli/size.zig");
+    _ = @import("cli/selfcheck.zig");
+    _ = @import("source_digest.zig");
     _ = @import("file_metrics.zig");
     _ = @import("cli/doctor.zig");
     _ = @import("cli/spec_sync.zig");
