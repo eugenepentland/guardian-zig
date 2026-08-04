@@ -40,12 +40,30 @@ zig build
 ```bash
 zig build          # compiles AND runs all checks in REPORT mode (exit 0; findings printed)
 zig build test     # tests AND runs all checks (report mode); unit-test failures still fail
+zig build test -Dtest-filter=<name>  # narrow the run; the runner prints how many it selected
+zig build test-compile  # compile every test, run none (the cheap whole-suite tier)
 zig build run      # runs AND runs all guardian checks (report mode)
 zig build spec-init  # generate starter SPEC.md from pub fn signatures
 zig build mutate     # mutation-test lines changed vs HEAD (fast tier)
 zig build mutate-full  # mutation-test the whole tree + score ratchet
 zig build debt       # non-gating baseline/snapshot debt report
 ```
+
+**The filtered test loop is honest, and still not the suite.** Guardian's own
+suite runs on Guardian's test runner (`src/test_runner.zig`), which prints
+`guardian/test: N test(s) selected` before the first test and **fails** when
+nothing the filter named ran — a zero-match `-Dtest-filter` used to exit 0,
+byte-identical to a green run (`GUARDIAN_TEST_ALLOW_EMPTY=1` opts out for a
+project with no tests yet). "Nothing named" rather than "no tests" because
+unnamed `test { }` blocks have no name to match and compile into every filtered
+binary: guardian's two would otherwise report a comforting `2 test(s) selected`
+for a filter that matched nothing. That check needs the filter texts, which Zig
+never gives a runner — `guardian.announceFilters(run, filters)` forwards them.
+The second gap is structural: Zig gives `--test-filter` to the
+*compiler*, so a filtered build never analyzes the tests it skipped and cannot
+prove the suite compiles. `zig build test-compile` is that missing tier —
+whole-suite, no filter, `-fno-emit-bin`, so it type-checks everything and runs
+nothing. It is deliberately not a dependency of `test`.
 
 **The installed `guardian-check` is ReleaseSafe by default** — a plain
 `zig build` (no `-Doptimize`) builds `zig-out/bin/guardian-check` optimized,
@@ -127,6 +145,22 @@ const spec_init_run = b.addRunArtifact(check_exe);
 spec_init_run.addArgs(&.{ "spec-init", "." });
 const spec_init_step = b.step("spec-init", "Generate starter SPEC.md from pub fn signatures");
 spec_init_step.dependOn(&spec_init_run.step);
+
+// Honest filtered test loop (both optional, both one line).
+// 1. The counting runner: prints `guardian/test: N test(s) selected` and
+//    fails a run that selected none (GUARDIAN_TEST_ALLOW_EMPTY=1 opts out).
+const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
+const unit_tests = b.addTest(.{
+    .root_module = test_mod,
+    .filters = filters,
+    .test_runner = guardian.testRunner(guardian_dep),
+});
+const run_tests = b.addRunArtifact(unit_tests);
+guardian.announceFilters(run_tests, filters); // optional: name the filters in the line
+
+// 2. `zig build test-compile`: compile every test, run none — the cheap
+//    whole-suite tier a filtered run can never provide. Never a dep of `test`.
+_ = guardian.addTestCompileProbe(b, .{ .root_module = test_mod });
 ```
 
 ## Config (guardian.toml)

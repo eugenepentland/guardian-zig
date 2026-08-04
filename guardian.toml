@@ -89,18 +89,23 @@ paths = ["src/dora*", "src/cli/bench*"]
 # GUARDIAN_POLICY_APPROVED in main; the
 # mutation runner clones the env to inject the child-build skip flag; commit
 # clones the env to set GUARDIAN_SKIP_CHECKS on its `zig build test` child.
+# The test runner is a process entry point (its own main) and reads
+# GUARDIAN_TEST_ALLOW_EMPTY there — the env is the only channel a test binary
+# spawned by the build system has.
 [[allow]]
 check = "ban-env"
-paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*", "src/cli/commit*"]
+paths = ["src/snapshot_helper*", "src/testing/*", "src/check.zig", "src/mutation/*", "src/cli/commit*", "src/test_runner.zig"]
 
 # reporter is Guardian's logging boundary; it legitimately owns a global + prints.
 # The mutation journal owns process-global in-flight state because a signal
 # handler (its SIGINT/SIGTERM revert) takes no context argument — the catchable-
 # signal analog of the SIGKILL-recovery journal, same category as the reporter
-# singleton.
+# singleton. The test runner is the `src/main*` case under a different name: its
+# log counter, argv arena, protocol buffers and fuzz flag are process-lifetime
+# singletons of an entry point (the stock Zig runner carries the same five).
 [[allow]]
 check = "ban-globals"
-paths = ["src/reporter.zig", "src/mutation/journal.zig"]
+paths = ["src/reporter.zig", "src/mutation/journal.zig", "src/test_runner.zig"]
 
 # reporter.zig defines the fatal helper (reporter.fatal), so its own
 # std.process.exit(1) is the one sanctioned raw exit outside the pub-fn-main
@@ -159,6 +164,12 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # install (sigaction on SIGINT/SIGTERM) and trackChild (an atomic store the
 # signal handler reads) are OS-side-effect shells with no pure logic to assert —
 # the same untestable-process-shell category as runOne/commit/currentBranch.
+# testRunner, announceFilters and addTestCompileProbe join addAllChecks as build
+# integration: each needs a live *std.Build graph, so what is assertable about
+# them (the runner path, the probe's step name and its lack of filters) is
+# tested as constants instead.
+# fuzz is what `std.testing.fuzz` dispatches to in the test runner's root
+# module — std calls it, no Guardian code can.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "measure", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "hooksDir", "measureBaseline", "install", "trackChild"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "measure", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "hooksDir", "measureBaseline", "install", "trackChild", "testRunner", "announceFilters", "addTestCompileProbe", "fuzz"]

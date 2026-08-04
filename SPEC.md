@@ -551,6 +551,21 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports no filter when the run cannot be diff-scoped
 - Leaves the commit gate running the whole configured test command
 
+## Test Runner
+
+- Prints the number of selected tests before any test runs
+- Names the filters that selected the tests and summarizes any beyond the first few
+- Fails a run in which no selected test matches the filter
+- Counts only the selected tests a filter names, since unnamed blocks always run
+- Permits an empty run only when the empty-suite opt-out is set
+- Treats an empty or zero-valued opt-out variable as unset
+- Counts a logged error so a test that only logs one still fails
+
+## Build Helper
+
+- Points a consumer test binary at the runner file that ships with Guardian
+- Registers the compile-only whole-suite probe under a stable step name
+
 ## Change Classification
 
 - Counts added lines inside test blocks as test changes

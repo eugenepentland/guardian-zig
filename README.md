@@ -109,6 +109,78 @@ transitively imports a changed one. An empty derivation prints *no* arguments,
 so an interpolating pipeline degrades to the full suite rather than to zero
 tests.
 
+### The filtered loop's two honesty gaps, and the two things that close them
+
+A filtered run is fast, and it lies in two specific ways. Both are properties of
+`--test-filter` being a *compiler* flag — measured on Zig 0.15.1:
+
+| What you see | What actually happened |
+| --- | --- |
+| `zig build test -Dtest-filter=typo` → `3/3 steps succeeded`, exit 0 | The filter matched **nothing**. Zero tests were compiled, zero ran. Identical output to a green suite. |
+| A filtered run passes 59/59 | The tests it skipped were never analyzed. `zig build test` on the same tree can die with a compile error. |
+
+**1. `guardian.testRunner(dep)` — a count you can see.** Guardian ships a custom
+test runner that prints, before the first test executes:
+
+```
+guardian/test: 3 test(s) selected by filter: "wildcard"
+```
+
+and *fails the run* when nothing the filter named actually ran, because a
+zero-match filter is evidence of nothing. Wire it in two lines:
+
+```zig
+const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
+const unit_tests = b.addTest(.{
+    .root_module = test_mod,
+    .filters = filters,
+    .test_runner = guardian.testRunner(guardian_dep),  // <-- the count and the guard
+});
+const run_tests = b.addRunArtifact(unit_tests);
+guardian.announceFilters(run_tests, filters);         // <-- what the filter was
+```
+
+Zig never tells a runner what the filter was, so `announceFilters` forwards the
+texts as `--guardian-filter=` arguments. That is worth wiring: with the filters
+in hand the runner counts how many *selected* tests a filter actually names, and
+fails on zero. Without them it can only detect a completely empty binary — and
+an unnamed `test { }` block has no name to match, so it compiles into every
+filtered binary and pads the count. Guardian's own suite has two: a nonsense
+filter there reports
+
+```
+guardian/test: 2 test(s) selected by filter: "nope" — 0 match by name, 2 unnamed test block(s) run regardless
+```
+
+and fails. The runner runs in `.server` mode, so the build system keeps its own
+progress display, per-test failure attribution, and `--fuzz` support. Set
+`GUARDIAN_TEST_ALLOW_EMPTY=1` for the one legitimate empty case — a project that
+genuinely has no tests yet.
+
+**2. `guardian.addTestCompileProbe(b, …)` — the compile-only middle tier.**
+Between "filtered run" (seconds, proves little) and "the gate" (minutes) sits the
+cheap question a filtered loop can never answer: *does the whole suite still
+compile?* One line registers `zig build test-compile`:
+
+```zig
+_ = guardian.addTestCompileProbe(b, .{ .root_module = test_mod });
+```
+
+It declares no filters and never asks for the binary, so the build system passes
+`-fno-emit-bin`: every test is type-checked, nothing is linked, nothing runs.
+Measured on Guardian's own 756-test suite (Zig 0.15.1): a source edit costs
+**~2 s** to re-analyze this way, against minutes for the full `zig build test`
+— the saving is codegen and linking, which a type-check question does not need.
+It is deliberately **not** a dependency of `test` — making it one would rebuild
+the whole suite on every filtered run and erase the reason to filter. The
+recommended loop:
+
+```bash
+zig build test -Dtest-filter='the thing I am changing'   # fast, narrow, honest about its count
+zig build test-compile                                   # cheap: does everything still compile?
+guardian-check commit --intent "..."                     # the gate: whole suite, whole tree
+```
+
 ## What It Checks
 
 Guardian's self-build runs 68 registered checks. Most hard-block under the default

@@ -2,7 +2,7 @@
 @alignCast 65
 @bitCast 0
 @constCast 0
-@intFromPtr 0
+@intFromPtr 1
 @ptrCast 75
 @ptrFromInt 0
 @volatileCast 0
