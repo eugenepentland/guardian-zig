@@ -2448,3 +2448,30 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   build, so `.githooks/deploy-prod.sh` re-gated before restarting the service —
   a red tree cannot reach prod even via the deploy script. Same property as
   ward's deploy.sh. Worth keeping as the documented pattern for new projects.
+
+## 2026-08-04 · claude (Fable, orchestrator) · guardian-zig — feedback-backlog wave: 7 opus agents, 7 branches merged
+
+- **good:** the brand-new `test-reachability` check caught a real cross-branch
+  integration gap during the merge itself: one agent's `src/test_runner.zig`
+  (its own test root, compiled as a second test binary) was unreachable from
+  the configured roots, so its 7 test blocks would have been silently dead —
+  exactly the failure class the check was built for, found on its first run.
+- **good:** the pre-commit hook blocked a merge commit because the stale
+  installed binary rejected the new `[test_reachability]` config section —
+  the gate refusing to run with a binary older than the config it's asked to
+  read is the right failure, and `zig build` + retry resolved it in one step.
+- **friction:** hand-merging `.guardian/` snapshot conflicts is a trap: a
+  hand-union of `unsafe-ops-budget.txt` missed that both branches had grown
+  `@alignCast` (65 → 67) and clobbered the header once. The reliable recipe is
+  resolve-provisionally then regenerate via
+  `GUARDIAN_UPDATE_SNAPSHOT=<checks> zig build` on the merged tree and review
+  that diff — worth documenting as the canonical snapshot-merge procedure.
+- **friction:** SPEC.md and the tail of `explain.zig` produced the predicted
+  append-at-same-anchor conflicts (two branches adding sections/tests at the
+  same trailing brace). Assigning each parallel branch a distinct SPEC section
+  name up front kept every conflict mechanical; the `explain.zig` one still
+  cost a manual resolve.
+- **wish:** a `guardian-check accept --regen <check>` alias for the
+  merge-resolution case above — same behavior as the env-var refresh, but
+  discoverable at the moment of a snapshot conflict (the error message could
+  name it when a snapshot file contains conflict markers).
