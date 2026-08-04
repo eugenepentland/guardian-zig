@@ -173,7 +173,11 @@ const entries = [_]Entry{
     \\Fix: make the API change intentional, then accept it into the snapshot.
     \\Exempt: `zig build guardian-accept -Dguardian-checks=pub-api-surface`
     \\and commit `.guardian/` once the surface change is deliberate. The raw CLI
-    \\fallback is `guardian-check accept pub-api-surface .`.
+    \\fallback is `guardian-check accept pub-api-surface .`; `pub-api` — the
+    \\basename of `.guardian/pub-api.txt` — is accepted as an alias for the name.
+    \\Read the report by group: `~` is one signature edited in place, `moved:` is
+    \\the same signature under a different file (neither new nor removed), and
+    \\`+`/`-` are the one-sided entries.
     },
     .{ .name = "panic-budget", .text = 
     \\Why: agents scatter `@panic` / `unreachable` / `TODO` / `FIXME` as they

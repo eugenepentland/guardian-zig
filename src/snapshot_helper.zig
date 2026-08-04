@@ -58,17 +58,36 @@ fn isRejectedBroadToken(v: []const u8) bool {
     return std.mem.eql(u8, v, "1") or std.mem.eql(u8, v, "true");
 }
 
-/// Splits a comma-separated check-name list, trimming each segment and dropping
-/// blanks ("a,,b" -> {a,b}). Propagates OOM: a truncated list would silently
-/// drop a check from the refresh set — the public entry points below turn OOM
-/// into the fail-closed "no refresh" default rather than a partial list.
+/// A spelling of a check name that isn't the registered one. The snapshot leaf
+/// and the check name diverge for exactly one check (`.guardian/pub-api.txt` vs
+/// `pub-api-surface`), and the file is what a reviewer has just been looking at
+/// when they reach for the accept command — so the leaf's basename resolves to
+/// the check everywhere a name is accepted. Anything not listed here is
+/// returned unchanged and still hard-fails the registry validator.
+const Alias = struct { spelling: []const u8, check: []const u8 };
+const aliases = [_]Alias{
+    .{ .spelling = "pub-api", .check = "pub-api-surface" },
+};
+
+/// Resolves an alias spelling to its registered check name; every other name
+/// passes through untouched, so a typo still hard-fails validation.
+pub fn canonicalCheckName(name: []const u8) []const u8 {
+    for (aliases) |a| if (std.mem.eql(u8, a.spelling, name)) return a.check;
+    return name;
+}
+
+/// Splits a comma-separated check-name list, trimming each segment, resolving
+/// aliases, and dropping blanks ("a,,b" -> {a,b}). Propagates OOM: a truncated
+/// list would silently drop a check from the refresh set — the public entry
+/// points below turn OOM into the fail-closed "no refresh" default rather than
+/// a partial list.
 fn splitNames(allocator: Allocator, csv: []const u8) Allocator.Error![]const []const u8 {
     var list: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, csv, ',');
     while (it.next()) |part| {
         const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
         if (trimmed.len == 0) continue;
-        try list.append(allocator, trimmed);
+        try list.append(allocator, canonicalCheckName(trimmed));
     }
     return list.toOwnedSlice(allocator);
 }
@@ -432,6 +451,27 @@ test "classifyValue and refreshIncludes select only the named checks" {
     try testing.expect(refreshIncludes(r, "pub-api-surface"));
     try testing.expect(refreshIncludes(r, "spec"));
     try testing.expect(!refreshIncludes(r, "panic-budget"));
+}
+
+// spec: Pub Api Surface - Accepts the pub-api snapshot leaf name as an alias for the check name
+
+test "canonicalCheckName resolves the snapshot leaf spelling and leaves typos alone" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // The file a reviewer has just been reading is .guardian/pub-api.txt, so
+    // that basename names the check everywhere a check name is accepted.
+    try testing.expectEqualStrings("pub-api-surface", canonicalCheckName("pub-api"));
+    const r = try classifyValue(a, "pub-api");
+    try testing.expect(refreshIncludes(r, "pub-api-surface"));
+    // Its metadata expansion is the canonical check's, not a "pub-api.txt.txt".
+    try testing.expectEqualStrings("pub-api.txt", (try metadataRelPathsFor(a, r.named))[2]);
+
+    // Everything else passes through untouched, so an unknown name still
+    // hard-fails the registry validator instead of silently refreshing nothing.
+    try testing.expectEqualStrings("pub-ap", canonicalCheckName("pub-ap"));
+    try testing.expectEqualStrings("panic-budget", canonicalCheckName("panic-budget"));
 }
 
 // spec: Snapshot Lifecycle - Requires the explicit all token for a full refresh
