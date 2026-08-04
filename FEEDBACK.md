@@ -2707,3 +2707,29 @@ in the same commit); nothing to fight.
   `@embedFile`). A syntax error in it compiles and tests fine and only fails in
   the browser; I had to run `node --check` by hand. An `inputs`-globbed external
   (`src/serve/assets/*.js`) would close that by default.
+
+## 2026-08-04 · claude · eda — Tier-1 agent-loop fixes (route_experiment / diagnose_net / trials)
+- **good:** the three blocking checks fired on the *first* filtered run and each
+  named the exact fix, so the whole design correction happened before the 6-min
+  gate ever ran. `type-size` caught that making an existing 9-field private
+  struct `pub` (to accept it as a batch-append argument) crosses a public-API
+  cap the private version never had to meet — the right answer was a purpose-built
+  3-field input struct with the six measured numbers nested, which is a better
+  API than the one I was about to ship. `error-discipline` on `!T` for a new
+  `pub fn` pushed the same way: collapsing a wide `std.fs` error union into a
+  3-member `RecordError` is what the (best-effort, log-and-continue) caller
+  actually wants.
+- **good:** `accept pub-api-surface .` re-ran the whole-tree gate before writing
+  `.guardian/pub-api.txt`, and the resulting diff (10 added lines + 1 `~` line
+  showing `routeExperiment`'s 5th param changing from `?PcbPlanSpec` to an
+  options struct) was reviewable as a signature-change record on its own.
+- **friction:** the per-check `run` invocation is `guardian-check all . --only a,b`,
+  but the natural guesses (`guardian-check run . --only a`, and `--only a --only b`)
+  both silently fall through to printing the full check list + meta-command help,
+  with no "unknown subcommand" line. It reads like success until you notice the
+  output is a manual. An unrecognised first arg should say so.
+- **wish:** the blocking summary abbreviates as `pub-api-surface: + <first> (+14 more)`.
+  On a change that legitimately adds public API, the *whole* list is what you
+  review before accepting, so I always have to re-run with `--only` to see it.
+  A `--verbose`/`--full-findings` flag (or just not truncating the snapshot
+  checks, whose findings are one short line each) would save the second run.
