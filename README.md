@@ -195,7 +195,54 @@ evidence-based thresholds. Retired and folded check names remain tolerated in a
 |---|---|
 | **spec** | Missing SPEC.md, unverified behaviors, unlinked tags, duplicate tags |
 | **spec-quality** | Vague phrases (`properly`, `as needed`, etc.); behaviors shorter than 20 chars |
-| **completeness** *(opt-in)* | A `## ` SPEC.md feature section that doesn't address (or `completeness-waiver:`) each of the 8 scenario categories: empty/large inputs, unauthorized access, I/O failure, concurrent access, malformed encoding, integer overflow, panic-free. Off unless `[completeness] enabled = true`; exempt non-feature sections via `[completeness] exempt_sections` |
+| **completeness** *(opt-in)* | A `## ` SPEC.md feature section that doesn't address (or `completeness-waiver:`) each of the 8 scenario categories: empty/large inputs, unauthorized access, I/O failure, concurrent access, malformed encoding, integer overflow, panic-free. Off unless `[completeness] enabled = true`; exempt non-feature sections via `[completeness] exempt_sections`. Check a section *before* running the gate with `guardian-check explain completeness --section "<name>"` |
+
+#### Spec failures come with the fix
+
+`spec` blocks on frozen text — a violation line is what a consumer's baseline is
+keyed by — so everything it *learned* rides the advisory channel beside it, and
+survives baseline mode (which otherwise replaces a check's own output with its
+outcome report). On any run with unlinked tags you also get:
+
+* **one line per unlinked tag, never just the first**, each carrying its fix:
+  the exact bullet to paste, or `a bullet with this exact text already lives
+  under `## Other`` when the bullet landed under the wrong heading (that mistake
+  otherwise reads as two unrelated findings — one `unlinked tag:` and one
+  `unverified:` — that never say they are the same behavior), or
+  `closest bullet is X (1 char(s) apart)` when the two texts merely drifted;
+* a note that **the tag scan walks `test/` and `src/` on disk, not the compiled
+  test set** — so a `-Dtest-filter` build sees the same list and the list is
+  complete. Believing otherwise is what turned one edit into an edit-per-tag
+  loop for three consumer sessions;
+* `N other tag(s) here are baselined-unlinked` for a file whose *other* tags are
+  frozen debt in `.guardian/baselines/spec.txt` — previously discoverable only
+  by grepping that file, and easy to misread as the house style to copy.
+
+Tags already frozen in the baseline get no hint: the guidance is about the work
+in front of you, not the backlog behind it.
+
+```
+$ guardian-check explain completeness --section "Widgets" .
+completeness --section "Widgets" — 3/8 categories satisfied in SPEC.md
+
+  ok       empty inputs           bullet: Rejects an empty request body with a 400
+  ok       large inputs           bullet: Streams a very large widget list without buffering it whole
+  MISSING  unauthorized access    add a bullet with one of its keywords, or waive it
+  waived   concurrent access      reason: single-threaded CLI, one request at a time
+  NEEDS    panic-free             waiver has no (reason) — add one
+  …
+Categories, and the keywords a bullet may contain to address one:
+
+  empty inputs          empty | no input | zero-length | zero length | blank
+  integer overflow      overflow | underflow | saturat | wraparound | wrap-around
+  …
+```
+
+Naming a section SPEC.md does not have yet prints the paste-ready skeleton
+instead — the point being that adding a new `## ` section no longer costs a
+whole build to find out whether its eight waivers landed. `explain completeness`
+without `--section` prints the same keyword table, which was previously
+discoverable only by reading the check's source.
 
 ### Process gates (git-aware)
 | Check | Blocks on |
@@ -1284,6 +1331,8 @@ guardian-check bench rm route_wall_s .  # Drop one recorded metric
 zig build guardian-accept -Dguardian-checks=spec,file-size # Preferred named metadata acceptance
 guardian-check accept spec,file-size . # Raw-binary fallback for the same workflow
 guardian-check explain catch-discipline      # Why a check blocks, how to fix, how to exempt
+guardian-check explain completeness  # ...plus the category -> keyword table it matches on
+guardian-check explain completeness --section "Web Server" .  # Dry-run one SPEC.md section
 guardian-check explain               # List every check name + summary
 guardian-check version               # Print the guardian version (also --version)
 ```
