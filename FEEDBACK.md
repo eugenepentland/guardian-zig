@@ -2632,3 +2632,44 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
   1/70 failed (formatting)` followed by the first offending file:line meant I
   never once had to scroll back through 200 lines of report-only output to find
   what actually blocked.
+
+## 2026-08-04 · claude · eda — gap-closer "vacate cheap neighbour copper" tier
+
+- **good:** `zig build test` caught two defects a green `zig build` had waved
+  through — two stale call sites after I added a parameter to two private fns
+  (`corridorBlockers`, `planFor`), and then an ArrayList leak in a new pure
+  function under `testing.allocator`. Both were invisible to the install build;
+  the leak in particular would have been an arena-masked production bug. This is
+  the third session where the "`zig build` doesn't type-check tests" gap cost a
+  cycle — worth a one-line hint on a green `zig build` when `src/**` changed but
+  the test binary wasn't compiled.
+- **good:** `test-no-conditional` fired on a genuinely weak test I'd just
+  written (two top-level loops with `if` guards inside a test block, which can
+  silently assert nothing when the filter matches zero elements). Moving the
+  scan into a named helper made the assertion exact — `expectEqual(0, …)` /
+  `expectEqual(1, …)` instead of a loop that might never execute. The check
+  earned its keep; the message ("more than one top-level loop") named the
+  problem precisely enough to fix without running `explain`.
+- **friction:** a worktree branched from a commit older than the one that
+  populated a baseline reports the whole pre-existing debt as MY regression.
+  `int-from-float-budget: 16 new violation(s) above baseline of 0` listed 16
+  sites in seven files I had never opened (`design_block.zig`,
+  `bend_smooth.zig`, `router.zig`, …), and the only offered remedy was
+  `guardian-check accept int-from-float-budget .` — i.e. ratify 16 unguarded
+  casts I did not write. The correct fix was to rebase onto current main, where
+  the baseline already carries exactly those 16. Diagnosing that took a
+  single-check run in the main checkout to compare ("baseline matches (16
+  violation(s))") plus a `git merge-base --is-ancestor` check. Suggestion: when
+  a check fails and EVERY offending path is outside the diff scope, say so —
+  "no offender is in the 3 file(s) you changed; your base may predate the
+  baseline commit (`git log -1 -- .guardian/baselines/<check>.txt`)" — before
+  offering `accept`. An agent that trusts the suggested remedy here quietly
+  loosens a gate to fix a rebase problem.
+- **good:** the selective refresh worked exactly as documented.
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` touched only
+  `.guardian/pub-api.txt` and only with the 14 new decls from my one new module,
+  so the diff was reviewable at a glance and nothing else was ratified.
+- **good:** `guardian-check commit --intent "…"` staged exactly the five paths
+  that changed (including the new untracked module and the snapshot) with no
+  `git add .`, on a tree that also held an unrelated untracked scratch dir. That
+  is the property that makes it safe to use on a busy checkout.
