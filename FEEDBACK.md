@@ -3065,3 +3065,30 @@ in the same commit); nothing to fight.
 - **friction:** a build failure was invisible because I piped `zig build -Doptimize=ReleaseSafe` through `grep -E "error|warning: "` — the ~40 report-only `guardian: warning: <file>: N code lines (recommended: 1000)` lines dominated the output, my grep matched them, and the ONE real `error: name shadows primitive 'i0'` scrolled past. I then ran a 12-minute benchmark against a stale binary before noticing the mtime hadn't moved. The file-size *warnings* are pure noise on a repo where 20 files are permanently over the recommendation and the ratchet is what's actually enforced; printing them once as a count (`guardian: file-size: 20 file(s) over recommendation, 0 over hard limit`) with the list behind `--verbose` would make build output greppable again.
 - **wish (repeat of the 2026-08-04 entry, now with a number):** this task's whole deliverable was a **37x wall-time reduction** (561 s -> 15 s of planner time on barracuda) and the gate had no opinion about it whatsoever — 70 checks green before and after. Every measurement came from hand-run `bench-route` + throwaway `std.debug.print` timers, and the numbers that justify the change live only in doc comments and a report. `.guardian/benchmarks.txt` already holds `barracuda_route_wall_s`; a tier that re-ran one recorded benchmark when a listed hot path changed would have turned "I believe this is faster" into a gated fact.
 - **wish:** `guardian-check commit` has no way to scope a commit to a path subset. I had two logically separate landings (a planner restructure and a bench-harness field) and the instruction I was working under preferred two commits, but the only way to split them was to `git stash` half the tree — which would have separated a new SPEC bullet from its tagged test and tripped the `spec` check mid-split. A `guardian-check commit --paths <a> <b>` that gates the whole tree but stages only those paths would make split commits safe.
+
+## 2026-08-05 · claude-fable · eda — topology-planner orchestration (M0-M3a)
+
+- good: the whole-tree pre-commit hook caught a plain `git commit` attempt while
+  two subagents' WIP sat in the shared tree — exactly the "no bypass" promise;
+  the 4/70 failing checks named the WIP files precisely, so triage was instant.
+- friction: orchestrating parallel agents in ONE worktree means nobody can
+  commit until everyone is green — guardian-check commit gates the whole tree,
+  not a path set. A path-scoped gate mode (`commit -- <paths>` gating only the
+  staged subset plus whole-tree checks that could regress) would let independent
+  landings interleave. Workaround used: agents report, orchestrator sequences
+  explicit-path commits after the tree is green.
+- good: `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` + committing the
+  .guardian diff alongside the new module was smooth; the snapshot diff was
+  reviewable at 5 lines.
+- bug(ish): SPEC.md `###` subheadings re-scope every FOLLOWING bullet via
+  handleSubheading, so a new subsection placed before a section's
+  completeness-waiver bullets silently migrates the waivers out of their
+  section and trips the completeness gate. Surprising action-at-a-distance;
+  subagent burned time discovering placement is load-bearing. A lint naming the
+  migrated bullets (or scoping waivers to the whole `##` regardless of `###`)
+  would have saved the round.
+- wish: shape caps (type-size/function-size) forced two API redesigns mid-task
+  (PlanWave 13→14 fields, ResolvedWave 8→9). Both redesigns were genuinely
+  better (cohesive sub-structs), so the caps worked as intended — but a hint in
+  the finding ("consider grouping related fields into a sub-struct") would get
+  agents to the good fix faster than `explain` does today.
