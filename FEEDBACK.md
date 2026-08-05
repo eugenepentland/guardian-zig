@@ -3166,3 +3166,15 @@ good: merge-triggered deploy gate green in seconds on an 18-file merge landing
 concurrently with another session's router merge (clean ort merge, no conflict);
 the agent's frozen-ceiling workarounds (12-field DesignRules → nested MaskRules)
 held up through the gate without any cap raises.
+
+## 2026-08-05 · claude-fable · eda — shove/joint-rescue wave
+
+- good: the file-size ratchet again produced a better tree — the joint-rescue
+  agent landed router.zig at NET −25 lines by extracting the escape-pair rule
+  into pad_exit.zig, and the ratchet ceiling tightens.
+- good: anytype-budget caught a would-be anytype in the extracted pad_exit
+  helper during development; the agent shipped a concrete Term record instead.
+- friction: two parallel agents in one tree each saw the OTHER's blocking
+  findings on every gate run (spec/debug-print-ban/type-size naming sibling
+  files). Fine for triage, but a `--paths` filter on run output would cut the
+  noise agents must ignore.
