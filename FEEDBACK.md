@@ -3118,3 +3118,18 @@ in the same commit); nothing to fight.
   commit" — an agent reading only the warning has no reason to act, and then
   discovers later that a 2500-line file is now a ratchet. One clause in the
   finding ("committing freezes this as the ceiling") would change the decision.
+
+## 2026-08-05 · claude-fable · eda — topology-planner v2 wave (router fix + planner refinement)
+
+- good: the frozen file-size ratchet on router.zig (10428) forced the v2-A agent
+  to land its fix at NET NEGATIVE lines via two genuine compactions — exactly
+  the ratchet's intent, and the resulting dedup (shrinkCopper) is better code.
+- good: `guardian: run-all: cached — 0 blocking (inputs unchanged since last
+  green run)` made the second of two back-to-back explicit-path commits
+  instant. The cache keying clearly saw through the commit boundary.
+- good: two agents' whole-tree-blocking findings correctly named each other's
+  files throughout a shared-tree parallel session; no false positives on the
+  reporter's own files.
+- wish: a per-item note in the file-size finding stating the frozen ceiling
+  number (not just "at or above the cap") would have let the orchestrator warn
+  the second agent without running the gate itself.
