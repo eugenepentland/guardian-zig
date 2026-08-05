@@ -3160,3 +3160,9 @@ in the same commit); nothing to fight.
   "src/placement/shove.zig: +13 new public declarations (new file)" line, with
   the list behind the detail expansion, would match how the reviewer actually
   decides.
+
+## 2026-08-05 · claude · eda — merge via-spacing/dive-elision wave + deploy
+good: merge-triggered deploy gate green in seconds on an 18-file merge landing
+concurrently with another session's router merge (clean ort merge, no conflict);
+the agent's frozen-ceiling workarounds (12-field DesignRules → nested MaskRules)
+held up through the gate without any cap raises.
