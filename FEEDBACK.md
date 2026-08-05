@@ -3092,3 +3092,29 @@ in the same commit); nothing to fight.
   better (cohesive sub-structs), so the caps worked as intended — but a hint in
   the finding ("consider grouping related fields into a sub-struct") would get
   agents to the good fix faster than `explain` does today.
+
+## 2026-08-05 · Claude (Opus 5) · eda — topology planner v2: per-wave adaptive lattice pitch
+- good: `guardian-check size <file>` is the single most useful command in this
+  workflow. `type-size` blocked on `Params` (8 fields vs cap 7) after I added a
+  `refine` sub-struct; `size` told me the exact metric and cap in one call, and
+  the fix (grouping `frames`/`gs_sweeps`/`stability_checks`/`stability_overlap`
+  into a `budget` sub-struct) genuinely improved the type. Same pattern the
+  earlier entry reports — the caps push toward cohesive sub-structs and that is
+  the right pressure.
+- friction: two agents editing one worktree share the file-size ratchet, so my
+  otherwise-green `zig build test -Dtest-filter=topo` reported "1 check(s) would
+  block commit (file-size)" naming a file I never touched (a sibling's
+  router.zig 10428 -> 10460). Correct behaviour for a whole-tree gate, but it
+  cost a round to establish the finding was not mine. The whole-tree-vs-path
+  point in the previous entry again: a per-run "of the N findings, 0 are in the
+  files you changed" line would have answered it instantly.
+- good: the counting test runner earned its keep — `guardian/test: 31 test(s)
+  selected by filter: "topo" — 24 match by name, 7 unnamed test block(s) run
+  regardless` made it obvious my six new tests were actually being run, which is
+  exactly the failure mode the runner was added for.
+- wish: `file-size` warns at 1000 code lines and hard-blocks at 10000, so a file
+  at 2447 lines is a warning with a *frozen ceiling recorded on first commit*.
+  Nothing in the warning says "this number becomes your cap the moment you
+  commit" — an agent reading only the warning has no reason to act, and then
+  discovers later that a 2500-line file is now a ratchet. One clause in the
+  finding ("committing freezes this as the ceiling") would change the decision.
