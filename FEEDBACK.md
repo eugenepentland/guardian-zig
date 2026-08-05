@@ -3133,3 +3133,30 @@ in the same commit); nothing to fight.
 - wish: a per-item note in the file-size finding stating the frozen ceiling
   number (not just "at or above the cap") would have let the orchestrator warn
   the second agent without running the gate itself.
+
+## 2026-08-05 · claude-fable · eda — new pure module (src/placement/shove.zig, geometric push-and-shove primitive)
+
+- good: on a brand-new 1327-line module with 14 tests, the gate flagged exactly
+  four real design problems on the first run and nothing spurious:
+  `init-hygiene` (my `State.init` contained a `for` loop — renaming it to a
+  non-constructor verb was the right fix, not a suppression),
+  `bool-ops-per-condition` (a 4-op guard in `finish` that genuinely wanted to be
+  a named predicate), `test-no-conditional` (two top-level loops in one test —
+  extracting the assertion walk into a helper made the test read better), and
+  `spec` unlinked tags. All four made the code better; none cost a retry cycle
+  beyond the one build they were reported in.
+- friction: in a shared worktree with a sibling agent, a compile error in the
+  sibling's file blocked `zig build test -Dtest-filter=<mine>` entirely — the
+  filter narrows which tests RUN but the whole binary still has to compile, so a
+  neighbour's WIP is a hard stop. I unblocked myself by writing a two-line probe
+  root in `src/` (`test { _ = @import("placement/shove.zig"); }`), running
+  `zig test src/zz_probe.zig --test-filter shove`, and deleting it — that
+  compiles only my module's import closure. Worth documenting as the
+  parallel-agent escape hatch; a `--only-module`-style filter that scoped
+  compilation, not just execution, would remove the need for the trick.
+- wish: `pub-api-surface` reports each new pub decl as a separate violation
+  line (13 for one new module), which reads as 13 problems rather than one
+  "this module is new, accept its surface" decision. A grouped
+  "src/placement/shove.zig: +13 new public declarations (new file)" line, with
+  the list behind the detail expansion, would match how the reviewer actually
+  decides.
