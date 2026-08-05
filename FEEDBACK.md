@@ -3178,3 +3178,32 @@ held up through the gate without any cap raises.
   findings on every gate run (spec/debug-print-ban/type-size naming sibling
   files). Fine for triage, but a `--paths` filter on run output would cut the
   noise agents must ignore.
+
+## 2026-08-05 · claude-fable · eda — escape_assign bimodal-corridor fix
+
+- good: `type-size` (cap 7 fields) blocked me adding 2 fields to a 7-field pub
+  `Assignment` and 2 to a 7-field `Plan`, and forcing the decomposition made the
+  API strictly better: `Origin` (hub pad), `Fit` (ideal/offset/refusal) and
+  `Schedule` (lanes/assignments/unassigned) all name real concepts that were
+  previously smeared across flat fields. The check named both offenders with
+  their exact counts, so the fix was one pass.
+- good: `unsafe-ops-budget/undefined_reassign` fired at 10-vs-7 the moment my
+  five new test fixtures used `var f: Fixture = undefined;`. Giving the fixture
+  struct blank field defaults removed all five and left the tests clearer. Good
+  ratchet: the budget was over precisely because the pattern is contagious.
+- good: `test-no-conditional`'s "more than one top-level loop — the loop at line
+  N asserts nothing" told me exactly WHICH loop to extract. That is the most
+  actionable phrasing of any shape check I have hit; the two fixture-reader
+  helpers it pushed me to write are now reused by three tests.
+- friction: the gate's own diff scoping is per-file, so every run reprinted 15
+  report-only `repeated-switch-on-enum` / `repeated-string-literal` findings from
+  files I never touched (`src/pdf.zig`, `src/render_html.zig`, …). Roughly 30
+  lines of noise per iteration for ~12 iterations; a `--paths`/`--changed-only`
+  filter on report-only output would make the blocking lines findable without
+  grep.
+- friction: cost of the measurement loop, not Guardian per se, but worth
+  recording next to `bench`: `zig build -Doptimize=ReleaseSafe` is ~5 min after a
+  one-file edit in this tree, so an empirical router/placement change pays 5 min
+  per hypothesis. The `test_full_wall_s = 270 s` bench entry captures the test
+  side of that; a companion `release_build_wall_s` entry would make the real
+  per-experiment cost visible in `bench list`.
