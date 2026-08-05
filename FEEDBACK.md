@@ -3207,3 +3207,39 @@ held up through the gate without any cap raises.
   per hypothesis. The `test_full_wall_s = 270 s` bench entry captures the test
   side of that; a companion `release_build_wall_s` entry would make the real
   per-experiment cost visible in `bench list`.
+
+## 2026-08-05 · Claude (Opus 5) · eda — oracle-gated declared-resolution router windows
+- good: the `file-size` per-item ratchet did exactly its job. `src/placement/router.zig`
+  sat at 10401 code lines with a 10428 baseline; the task required net-zero growth, and
+  because the ratchet reports the CURRENT count (`guardian-check debt .` →
+  `10401 code lines`) I could measure each edit and push the helper logic into a new
+  `fine_accept.zig` / into `fine_window.zig` until it balanced. On commit the baseline
+  auto-tightened 10428 → 10401. One surprise worth documenting: the count includes
+  **comment lines**, so a four-line doc comment replacing a three-line one moved the
+  number by one. That is defensible but not obvious from the check name.
+- good: `errdefer-in-init` fired on a new `Gate.init` with three `try`s. The
+  allocations were all arena-backed so the errdefer is nearly a no-op, but writing it
+  forced me to name each acquired resource and the function reads better for it.
+  `guardian-check explain errdefer-in-init` gave the fix in one line ("Exempt: none —
+  add the errdefer"), which stopped me hunting for an annotation that does not exist.
+- friction: `allocator-hygiene`'s `// allocator-ok:` exemption appears to need the
+  comment on the IMMEDIATELY preceding line. I wrote a two-line justification above
+  `.scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator)` with
+  `// allocator-ok:` on the first of the two, and the check still fired. Cost one
+  failed 5-minute ReleaseSafe build to notice. (I ended up not needing the exemption —
+  backing the scratch arena with the caller's allocator was better — but the rule
+  "the marker must be the last comment line before the site" belongs in
+  `explain allocator-hygiene`.)
+- good: `deny_growth = ["spec", "completeness"]` caught that I had written six new
+  `// spec:` tags without SPEC.md bullets, by name, before the tests ran. Adding the
+  bullets in the same edit is the right workflow and the message made it mechanical.
+- friction (repeat of an existing entry, now with a number): the empirical half of this
+  task cost **eight** `zig build -Doptimize=ReleaseSafe` cycles at ~5 min each, because
+  the only way to observe router internals is to add a `std.debug.print`, rebuild,
+  measure, and strip it. `debug-print-ban` is right to block those from shipping, but
+  there is no sanctioned "instrumented build" seam — a `GUARDIAN_ALLOW_DEBUG_PRINT=1`
+  style escape that keeps the check blocking on commit while letting a local
+  measurement build through would have saved ~40 minutes of pure compile wall.
+- good: `guardian-check commit` timing line (`gate 1.8s · tests 306.0s`) makes the
+  cost split obvious; the 1.8s gate on a 70-check suite is not what anyone would
+  guess, and printing it stops people blaming Guardian for the test wall.
