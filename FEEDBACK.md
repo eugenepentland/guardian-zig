@@ -3281,3 +3281,15 @@ held up through the gate without any cap raises.
   hand-written Python script. A `guardian-check bench record --from-json <file>
   --map geomean_completion=corpus_geomean_completion` would turn that into a ratchet
   the gate could hold, which is what the ledger is for.
+
+## 2026-08-05 · claude-fable · eda — barracuda finishing wave (3-branch merge)
+
+- good: two branches independently tightened router.zig's file-size ratchet
+  (10401 vs 10398) and the merge conflicted on the baseline line — resolving to
+  the TIGHTEST value and letting the gate verify worked perfectly: the merged
+  file satisfied 10398 because both branches' compactions composed. Ratchet
+  merge semantics are effectively "min wins", which is the right default; a
+  documented note (or a merge driver for .guardian/baselines/*) would make
+  this self-serve.
+- good: three agents ran the full gate independently in three worktrees with
+  zero cross-contamination of baselines/snapshots.
