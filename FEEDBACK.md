@@ -3243,3 +3243,41 @@ held up through the gate without any cap raises.
 - good: `guardian-check commit` timing line (`gate 1.8s · tests 306.0s`) makes the
   cost split obvious; the 1.8s gate on a 70-check suite is not what anyone would
   guess, and printing it stops people blaming Guardian for the test wall.
+
+## 2026-08-05 · Claude (Opus 5) · eda — GND plane-via placement (in-pad search + gate stitch planner)
+- good: the `file-size` per-item ratchet on `src/placement/router.zig` (10428 code
+  lines, frozen) again shaped the design for the better. The task mandated net-zero
+  growth, so instead of bolting the new in-pad via search onto the router I moved
+  `groundFanDir` + `swivel` out into a new `placement/plane_via.zig` alongside it. The
+  file came back three lines SMALLER than it started and the new module got a real
+  doc header and its own unit tests — none of which I would have written if growing
+  router.zig had been free.
+- good: `deny_growth = ["spec", "completeness"]` made the new `## placement/plane-via`
+  SPEC section mechanical rather than optional. The 8-category completeness waiver list
+  is tedious to write but it forced me to actually think about the empty/large-input
+  behaviour of the ring scan, and I found the `rings == 0` degenerate case that way.
+- friction: the same instrumented-build cost as the previous entry, now measured on a
+  different task. Diagnosing WHICH clearance predicate refused a via at a pad needs
+  `std.debug.print` inside `router.zig`, which `debug-print-ban` (correctly) blocks. I
+  worked around it with a throwaway `src/dbg_gnd.zig` test module plus a temporary
+  `pub fn dbgPlaneViaReport` in router.zig — which then tripped FOUR checks at once
+  (`debug-print-ban`, `pub-api-surface`, `nesting-depth`, `ban-hardcoded-paths`) on
+  every `zig build` while I was iterating. None of them blocked the build, so it was
+  noise rather than a wall, but a sanctioned "scratch module" convention (e.g. checks
+  skip `src/**/scratch_*.zig`, and the `change-classification`/commit gate refuses to
+  stage such a file) would let an empirical session run clean and make it impossible
+  to ship the scratch by accident.
+- friction: `guardian-check run-all .` is not a subcommand — typing it prints the full
+  help listing with no error, which reads like success. I lost a couple of minutes
+  thinking the checks had passed. `explain`/`debt`/`doctor` all exist, so `run-all`
+  looks plausible; an "unknown command" line above the help would fix it.
+- good: the counting test runner's `guardian/test: 14 test(s) selected by filter:
+  "cheapest net first", "appendStitches" — 3 match by name` line is exactly right for
+  this workflow. I renamed a test mid-session and the count told me immediately that
+  the new name matched, without having to trust a green exit.
+- wish: `guardian-check bench` has `barracuda_routed_nets` / `corpus_geomean_completion`
+  entries, but nothing writes them from `netlisp bench-route --json`. This task produced
+  five full corpus runs (~12 min each) whose numbers all had to be diffed by a
+  hand-written Python script. A `guardian-check bench record --from-json <file>
+  --map geomean_completion=corpus_geomean_completion` would turn that into a ratchet
+  the gate could hold, which is what the ledger is for.
