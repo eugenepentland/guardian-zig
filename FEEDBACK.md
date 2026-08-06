@@ -3506,3 +3506,27 @@ held up through the gate without any cap raises.
   wanted next was the same counter on the FULL run's stderr summary line
   alongside the check tally, so "70 checks — 0 blocking" and "1930 tests passed"
   read as one verdict instead of two places to look.
+
+## 2026-08-06 · Claude · eda — Tier-3 escape-contention auto-detection (new preflight gate + DSL suggestion)
+- friction: `type-size` and `function-size` both fired correctly on new code, but
+  neither message names the CEILING it is judging against. `type-size` said
+  "src/placement/escape_assign.zig|Contention — 8 fields, a new offender at or
+  above the cap (accept to ratchet, or reduce)"; I could not tell from that
+  whether to drop one field or four, so I histogrammed
+  `.guardian/baselines/type-size.txt` (15 entries at 8, 8 at 9, 10 at 10 …) to
+  infer the cap was 8 and therefore that 7 fields was the target. Same for
+  `function-size`: I wanted a 9th parameter on `pcb_describe.writeLint` and had
+  to grep the baseline to learn its per-item ceiling was 8. Printing
+  "8 fields (cap 8, so ≤7 here)" / "9 params (this item's ratchet is 8)" would
+  turn a 3-command detour into a 0-command one. Both gates were RIGHT — dropping
+  the redundant field and bundling the parameter into a struct both improved the
+  code — the cost was purely in finding the number.
+- good: `zig build test-compile` (10 s) was exactly the right probe after
+  changing `routability_lint.preflight`'s signature: it found every call site
+  across serve/ + the test bodies before I spent 4.5 min on the suite.
+- good: the counting test runner's "guardian/test: N test(s) selected by filter"
+  line made a four-filter run legible — I could see 99 tests were actually
+  selected rather than trusting a green exit on a filter that matched nothing.
+- good: the whole 70-check gate ran in ~1 s per invocation on a ReleaseSafe
+  `guardian-check`, so iterating on formatting/spec/pub-api was free next to the
+  Zig compile it rides on.
