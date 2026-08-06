@@ -3394,3 +3394,15 @@ held up through the gate without any cap raises.
 - good: 4 asset-heavy commits (one ~400 KB JS file) each gated + committed cleanly
   with path-scoped staging; the untracked `.claude/dp-handoff/` was skipped loudly
   every time rather than swept in.
+
+## 2026-08-06 · claude-fable · eda — viewer perf round 2 (sprites + overscan buffer)
+- good: the gate again caught an embedded-JS probe drift no JS tool could —
+  static_assets' copper-before-pads byte-sequence probe (indent-sensitive) broke
+  on a pure refactor (paintScene extraction); fixed the probe, invariant intact.
+  Second such catch today (pour_json's evenodd probe was the first).
+- friction: the transient wasm32-drc compile failure on the FIRST gate run after
+  new work recurred (same worktree this time, so not a cold-worktree thing) —
+  immediate retry green both times. Reproducible-ish pattern: first
+  `guardian-check commit` after ~20+ min of file churn fails in the wasm
+  sub-compile, retry passes. Cache invalidation race somewhere in the shared
+  .zig-cache wasm step.
