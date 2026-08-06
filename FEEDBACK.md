@@ -3428,3 +3428,12 @@ held up through the gate without any cap raises.
 - good: spec workflow behaved exactly as documented for a prototype — adding one
   `SPEC.md` bullet plus its tagged test in the same change satisfied
   `deny_growth = ["spec","completeness"]` with no ratchet fight.
+
+## 2026-08-06 · claude-fable · eda — webgpu M1 spike (new asset + JS renderer)
+- good: full commit gate (70 checks + 2072 tests, ~5 min) passed first try on a
+  change spanning a new embedded asset, page-template wiring, a SPEC bullet with
+  its tagged test, and ~750 lines of new JS — the spec deny_growth pairing
+  (bullet + test in one change) was natural to satisfy, not a fight.
+- good: neither embedded-JS byte-probe drifted this time because the agent was
+  briefed to keep paintScene untouched and put its skips INSIDE the passes —
+  probe-awareness as a design constraint works better than probe-repair after.
