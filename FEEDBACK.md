@@ -3530,3 +3530,45 @@ held up through the gate without any cap raises.
 - good: the whole 70-check gate ran in ~1 s per invocation on a ReleaseSafe
   `guardian-check`, so iterating on formatting/spec/pub-api was free next to the
   Zig compile it rides on.
+
+## 2026-08-06 · Claude · eda — Tier-3 escalation bundle (blocked-net retry, diff-pair re-couple, last-K rungs)
+- friction: `file-size`'s ratchet subject is "total lines MINUS lines inside
+  `test {}` blocks", which counts every doc comment and blank line. The brief I
+  was working to said "net growth ≤ 0" for a 10333-line file, so I needed the
+  exact rule before writing a line — and the only place it exists is
+  `src/checks/file_size.zig`'s `codeLines`. I guessed wrong twice from the
+  outside (non-blank-non-comment = 10059, non-doc-comment = 11139) before
+  reading the source. `guardian-check explain file-size` naming the counting
+  rule ("total lines, excluding `test {}` bodies; comments and blanks count")
+  would have saved that. The `debt` report's `src/placement/router.zig  10320
+  code lines` line was the tool I ended up living in — one command, exact
+  number, ran in ~1 s. It is the right answer; it just is not discoverable from
+  the check's own message.
+- friction: `pub-api-surface` blocked BOTH commits and each time the fix was the
+  same `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` + re-run. The
+  failure line does print the added symbols, but not the refresh command; since
+  this check is a snapshot (accepting is the normal response to a deliberate
+  export), printing "refresh with GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig
+  build" under it would close the loop. Cost was ~11 min across two commits,
+  almost all of it a re-run of the 5-min gated build.
+- friction: a failing test inside `zig build test` reports only
+  `failed: guardian/test: N test(s) selected by filter …` with no assertion
+  detail — the counting runner's banner appears to replace the failure message.
+  Running the cached test binary directly gave `FAIL (TestUnexpectedResult)` and
+  still no location, so I had to convert `testing.expect(x)` into
+  `testing.expectEqual([4]bool{…}, [4]bool{…})` purely to learn WHICH assertion
+  fired. Two extra 5-min build/run cycles. Passing the failing test's own
+  stderr through would have made that one cycle.
+- good: `zig build test-compile` (10 s) again earned its place — after moving
+  `escalatePair`/`isPairMember` out of `router.zig` into `diff_couple.zig` and
+  making five router internals `pub`, it type-checked the whole tree before I
+  spent 5 min on the suite.
+- good: the per-item `file-size` ratchet is exactly the pressure the task
+  needed. Being unable to grow `router.zig` is what made me delete the dead
+  `ripUpEligible` stub (a 16-line always-true predicate with three dead
+  branches) and move the pair-escalation driver to the module that owns coupled
+  routing. Both are real improvements the task would not otherwise have made.
+- good: `guardian-check commit --intent "…"` doing gate → full suite → staged
+  commit in one call, twice, with `.guardian/` + SPEC.md riding along, meant I
+  never had to think about what to `git add`. ~300 s each, all of it the Zig
+  suite; the 70-check gate itself was cached at 0.2 s.
