@@ -3765,3 +3765,44 @@ held up through the gate without any cap raises.
   in the form the commit gate expected. Running `zig fmt src/serve/templates`
   fixed trailing-newline-only findings, but cost one extra whole-tree gate
   invocation before the 316.5-second full test phase could begin.
+
+## 2026-08-06 · claude · eda — Tier-4 negotiated congestion on an overlap-tolerant accept gate
+
+- **friction:** `guardian-check debt .` prints `worst: 10223 src/placement/router.zig`
+  for `file-size`, which reads like a live measurement but is the STORED baseline
+  — I appended 100 code lines, 100 blank lines and 100 doc lines to router.zig in
+  turn and `debt` reported 10223 every time. My whole task budget was "router.zig
+  may gain only lines paid for by compaction", so I needed the live number after
+  every edit. The workaround was a script that strips the file's row out of
+  `.guardian/baselines/file-size.txt`, runs `guardian-check file-size . --verbose`,
+  and puts the baseline back — three shell lines to read one integer the tool
+  already computes. Either label the debt column (`worst (baselined): 10223`) or
+  add a `--live` that prints current values beside stored ones.
+- **friction:** a baselined file is invisible in the standalone check. `guardian-check
+  file-size . --verbose` printed nine over-recommendation warnings and NOT the one
+  file at the hard limit, because that one is in the baseline. For a ratchet I am
+  actively working against, "the file you are trying not to grow" is precisely the
+  row I want printed — suppressed-but-shown (greyed, with its stored value) would
+  be better than absent.
+- **friction:** the "code lines" metric is undocumented and not any of the obvious
+  candidates. `guardian-check explain file-size` describes what the check does but
+  not what it counts; total, non-blank, and non-comment-non-blank all disagreed with
+  the reported number. I reverse-engineered it empirically (blank lines, `//`
+  comments and `///` docs all COUNT; `test { … }` blocks are free). Two sentences in
+  `explain` would have saved four calibration builds — and the rule is a genuinely
+  good one worth stating, because "tests are free" changes how you budget an edit.
+- **good:** `guardian-check commit --intent` did exactly what it promises, twice, on
+  a two-stage split where I rewrote one 1200-line module down to its stage-1 subset,
+  committed, then restored the full version. Each run gated the exact working tree
+  including the full 2228-test suite and staged only the intended paths; the second
+  commit's `.guardian/pub-api.txt` update rode along without my having to remember it.
+- **good:** the per-item ratchet did its job as a design constraint rather than an
+  obstacle. Being unable to grow router.zig pushed me to spend +4 lines on hooks and
+  pay them back by folding five `for (x) |y| { if (…) …; }` bodies into the file's
+  own one-line house form — the change landed at 10223 exactly, and the compaction is
+  a real (small) improvement I would not otherwise have made.
+- **wish:** `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` is the documented
+  selective refresh, but a run that only needs the snapshot still pays a full
+  ~4.5-minute gated build. A `guardian-check accept pub-api-surface .` that only
+  re-records (the `accept` verb the output itself suggests for `dead-pub`) would
+  turn a five-minute pause into a two-second one.
