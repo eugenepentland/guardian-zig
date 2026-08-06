@@ -3716,3 +3716,39 @@ held up through the gate without any cap raises.
   baseline list; it did not fire here. The signature is narrow and mechanical:
   `&[_]T{…}` with any non-comptime field, whose address outlives the function.
   Worth a look — this idiom is everywhere in Zig test fixtures and fails silently.
+
+## 2026-08-06 · Claude (Opus 5) · eda — router lane reservations + close_open_nets rung adoption
+
+- **good:** `guardian-check size <file>` was the single most useful command of the
+  session. `file-size` blocked on `src/placement/router.zig` (10223 → 10279 code
+  lines against a frozen ratchet), and `size` told me the exact overage in one
+  read, with no gate run. I then trimmed comments, re-measured, extracted a
+  35-line struct into a sibling module, re-measured, and landed on 10223 — three
+  iterations, each about two seconds. Without `size` each of those iterations
+  would have been a full `run-all`.
+- **friction:** the `file-size` metric is "code lines", and it counts `///` doc
+  comments. That is defensible, but it is not what "code lines" says, and it is
+  not what the obvious local approximation (`grep -cvE '^\s*(//.*)?$'`) computes —
+  that gave 10050 for the same file guardian scored 10223. I spent a couple of
+  minutes trying to reverse-engineer the metric from the baseline number before
+  giving up and just using `size`. Either rename it in the finding ("source
+  lines"), or have `size` print the definition once.
+- **friction:** `type-size` fired on `route_policy.Options` growing 11 → 12
+  fields, which is a correct and useful nudge — but the same change would ALSO
+  have fired on `gap_policy.GapOptions` (7 → 8, at the cap). Both were real
+  design signals and I restructured for both (the lanes went into the existing
+  `Guides` bundle, and onto `GapBoard` rather than `GapOptions`). What cost time
+  was that the two fired in separate runs: the first was reported, I fixed it,
+  and only then did the second surface. A single run reporting every type that
+  the diff pushes to/over the cap would have collapsed two edit/measure cycles
+  into one.
+- **wish:** `pub-api-surface` reported "14 new violation(s)" and, in the detail
+  lines, 8 additions. The count and the list disagree because the check counts
+  something else (probably add+remove, or per-file rows), and for a few seconds I
+  thought I had six public symbols I could not account for. Either report the
+  same number twice, or label the headline ("14 API deltas — 8 additions").
+- **good:** the counting test runner earned its keep again. `-Dtest-filter` with
+  three filters printed `31 test(s) selected by filter … 18 match by name`, so I
+  could see at a glance that my new tests were actually in the set — on a branch
+  whose whole risk was "did the reservation change anything", running a filter
+  that silently matched nothing would have been the worst possible outcome.
