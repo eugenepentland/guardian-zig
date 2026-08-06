@@ -3470,3 +3470,39 @@ held up through the gate without any cap raises.
   probe after resolving nine conflicted files — it found the merge compiled
   before I spent 5 min on the suite, and later caught nothing only because the
   resolutions were correct. Cheap enough to run after every hunk.
+
+## 2026-08-06 · claude-opus5 · eda — Tier-3 "multi-seed joint vacate" (new module + two edited modules + SPEC section)
+- good: `guardian-check commit` gated the whole change first try — gate 1.9 s,
+  tests 308.6 s, 0 blocking over 70 checks, 8 paths staged including a brand-new
+  untracked `src/placement/blocker_nomination.zig`. Staging the new file with a
+  plain `git add` beforehand was enough for it to be picked up; nothing else
+  needed doing.
+- good: `test-no-conditional` fired on exactly the right thing and its message
+  named the fix. Two of my new tests had a fixture-building loop plus two
+  assertion loops; the report said "the loop at line 336 asserts nothing —
+  extract that one into a fixture helper", which is precisely what I did, and
+  the resulting tests read better. A style check that improves the test rather
+  than just blocking it.
+- good: the `spec` deny_growth pairing (bullet + tagged test in one change) was
+  cheap to satisfy across TWO spec sections plus a new `## ` section with its 8
+  completeness waivers. `run-all` listed the unlinked tags verbatim, so filling
+  SPEC.md was a copy of the check's own output.
+- friction: `pub-api-surface` reports "14 new symbol(s), 0 changed, 0 removed —
+  pure additions, safe to accept" and then still BLOCKS. When the delta is
+  provably additive and the check itself says so, an `--accept-additive` (or a
+  policy knob) would save a build cycle; as it is, every new module costs one
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` (~15 s here, but it is a
+  full build) purely to ratify what the tool already classified as safe.
+- friction: the very first `zig build` in a FRESH worktree fails with
+  `unable to load 'src/serve/templates/pages.zig': FileNotFound` — the wasm
+  `drc` artifact is compiled before the `templates_step` that generates those
+  files, so it loses a race that a second identical `zig build` then wins. Not a
+  Guardian check, but it is the first thing an agent hits in a new worktree and
+  it looks like a real build break. (eda's build.zig: the wasm exe needs
+  `dependOn(templates_step)` like the native exe has.)
+- wish: `zig build test -Dtest-filter=...` printing
+  `guardian/test: N test(s) selected by filter` is genuinely good — I relied on
+  it to know my five filters had matched 105 tests rather than zero. What I
+  wanted next was the same counter on the FULL run's stderr summary line
+  alongside the check tally, so "70 checks — 0 blocking" and "1930 tests passed"
+  read as one verdict instead of two places to look.
