@@ -3752,3 +3752,16 @@ held up through the gate without any cap raises.
   could see at a glance that my new tests were actually in the set — on a branch
   whose whole risk was "did the reservation change anything", running a filter
   that silently matched nothing would have been the worst possible outcome.
+
+## 2026-08-06 · codex · eda — WebGPU retained command stream and benchmark dwells
+
+- **good:** `guardian-check commit` provided one transactional path through the
+  70-check gate, the complete `zig build test` suite, safe staging, and the final
+  commit; after fixing the one formatting finding, it committed exactly the 8
+  intended paths and reported the resulting hash.
+- **friction:** the first `guardian-check commit` stopped on formatting drift in
+  four ignored generated `src/serve/templates/*.zig` files. Those files were not
+  part of the change, and an earlier `zig build test-compile` had not left them
+  in the form the commit gate expected. Running `zig fmt src/serve/templates`
+  fixed trailing-newline-only findings, but cost one extra whole-tree gate
+  invocation before the 316.5-second full test phase could begin.
