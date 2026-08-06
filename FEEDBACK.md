@@ -3620,3 +3620,51 @@ held up through the gate without any cap raises.
   bullets ("unlinked tag: placement/class-pitch - …"), naming the exact tag
   text. That is the check working as designed on a change whose measurement was
   negative — the spec still had to state what shipped.
+
+## 2026-08-06 · claude-opus-5 · eda — Tier-4 (4): stackup εr + (net-class (impedance)) width-from-Z₀
+
+- good: `explain completeness --section "<name>"` is the best check UX here by a
+  wide margin. Two brand-new SPEC sections needed all 8 scenario categories;
+  the dry-run printed exactly which were missing, a paste-ready waiver skeleton,
+  AND the keyword table each category matches on — so I fixed both sections in
+  two iterations without a single build. It even caught that my panic-free
+  bullet said "rather than panicking" (no keyword match) and needed "never
+  panics". That check went from what would have been a multi-build guessing game
+  to ~30 s.
+- good: `type-size` blocking `NetClassSpec 10 -> 11` was a genuinely better
+  design forced on me. My first instinct was to accept the ratchet. The check's
+  "split along cohesion lines" pushed me to look again, and the impedance target
+  turned out to belong inside the existing `ClassRf` electrical block next to
+  `(max-freq …)` — which is where the audit item's own framing put it
+  ("upgrades (max-freq) from geometry discipline to electrical truth"). Zero
+  churn, better model, and both frozen ceilings held.
+- good: `file-size` blocking optimizer.zig at 10014 vs the 10000 hard limit made
+  me extract the DSL-bridge half (stackup→model translation + width derivation +
+  its tests) into its own `impedance_rules.zig`. That is the split I should have
+  made anyway; the check found it for me. Note the interaction with the previous
+  entry's friction: router.zig's ratchet auto-lowered 10333 -> 10320 on the
+  accept run this time, so that gap may already be narrowing.
+- friction: `test-no-conditional` rejects `while` at a test's top level but
+  allows one `for`. My loops were genuinely asserting (a 200-step monotonicity
+  sweep, a 290-target solver sweep), and mechanically rewriting `while (i < N)`
+  into `for (0..N)` satisfied the check without changing a single behaviour —
+  the same loop, the same assertions, one keyword different. The rule's stated
+  rationale ("the test only checks one branch, or skips silently") does not
+  distinguish these, so it reads as a style rule wearing a correctness rule's
+  error message. Suggest either allowing `while` whose body contains an
+  assertion, or rewording the finding for the loop case.
+- friction: the `catch-discipline` / errdefer interaction bit me in a way no
+  check caught. I converted four lint emitters to a shared `emit(...)` helper
+  that takes ownership of two heap allocations, plus an `emitStatic(...)`
+  wrapper — and left a function-scope `errdefer alloc.free(refs_owned)` in the
+  wrapper that overlapped with `emit`'s own errdefer, i.e. a double free on the
+  allocation-failure path. The existing failing-allocator leak test passed
+  before AND after I noticed, because it never hit that exact ordering. Found it
+  by reading my own diff. An "ownership transferred to a callee that also
+  errdefers it" lint would be a hard one to write, but this is the second
+  ownership-handoff bug class I have seen in this repo's lint layer.
+- wish: `guardian-check accept <check> .` runs a whole-tree gate (~2 s here,
+  fine) but prints the full 70-check log for a single named accept. A
+  `--quiet` that prints only the accepted check's before/after and the resulting
+  `.guardian/` diff would make the accept step reviewable at a glance instead of
+  something to scroll past.
