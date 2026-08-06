@@ -3375,3 +3375,22 @@ held up through the gate without any cap raises.
   refused to sweep in a pre-existing untracked `.claude/dp-handoff/` directory, reporting
   it as skipped with the fix. That is exactly the behavior that keeps an agent from
   committing someone else's loose state.
+
+## 2026-08-06 · claude-fable · eda — PCB viewer perf wave (4 JS fixes, benched)
+- friction: first `guardian-check commit` in a warm worktree failed with a transient
+  `wasm32 drc` compile error (`templates/pdf_viewer.zig: FileNotFound` — the file
+  existed); an immediate plain `zig build` succeeded and the retried commit went
+  green. Smells like a .zig-cache race on the wasm sub-compile; cost one confusing
+  4-min gate run.
+- friction: `zig build test -Dtest-filter=writePours` reported `12 test(s) selected
+  by filter — 0 match by name, 12 unnamed test block(s) run regardless` and failed
+  the empty-filter guard, even though `src/serve/pour_json.zig` has
+  `test "writePours ships interior antipad holes …"`. Could not reproduce the
+  actual test failure through the filter path at all; had to read the test source
+  instead. Either the name index misses these tests or the message is misleading.
+- good: the full-suite commit gate caught what no JS tooling could — a Zig test
+  string-probing the @embedFile'd viewer JS for `fill("evenodd")` that a JS
+  refactor had re-spelled. Exactly the cross-language drift the gate exists for.
+- good: 4 asset-heavy commits (one ~400 KB JS file) each gated + committed cleanly
+  with path-scoped staging; the untracked `.claude/dp-handoff/` was skipped loudly
+  every time rather than swept in.
