@@ -3340,3 +3340,38 @@ held up through the gate without any cap raises.
   `cascade_spec_source.Source`) that appear as independent new symbols. Collapsing an
   alias onto its target in the delta would make a module split read as ~0 API change,
   which is what it actually is.
+
+## 2026-08-06 · Claude · eda — router rollback leak: restore `ctx.search_limited` in the snapshot idiom
+
+- **good:** the `file-size` per-item ratchet did exactly its job. `src/placement/router.zig`
+  sits at its frozen ceiling (10398 code lines), so a ~5-line correctness fix could not
+  land as pure growth. It pushed me to compact the three `search_limited` helpers I was
+  already editing (`searchWasLimited`, `recordSearchLimit`, `clearSearchLimit` — the last
+  two now share one membership predicate instead of two open-coded scans) and land the
+  change at **net 0 lines**. That is the ratchet working as designed, not fighting me.
+- **friction:** `file-size` counts `totalLines - testBlockLines`, so a test's `// spec:`
+  tag line AND the blank line above it count as PRODUCTION lines. I budgeted my
+  compactions against the production diff, hit 10400 vs 10398, and had to do a second
+  round of compaction for two lines I hadn't attributed to the test. Cost: one extra
+  ~5-minute gated build. The violation text is precise about the numbers
+  ("grew 10398 -> 10400 code lines") but nothing says the spec tag + its separator are
+  on the production side of the split. One clause in `explain file-size` — "test bodies
+  are excluded, but a test's leading comment and blank line are not" — would have saved
+  the round trip.
+- **friction:** `guardian-check debt . --json` reported `file-size … 'worst: 10398 …',
+  delta 0` on a tree the gate had just failed at 10400. Both were run seconds apart in
+  the same worktree. I trusted `debt` first and lost a few minutes concluding the gate
+  had flagged some other file before going back to the raw gate output for the real
+  number. If `debt` is reading a cached measurement, saying so (or re-measuring) would
+  keep it from contradicting the gate.
+- **wish:** the `file-size` failure suggests "split the file at a cohesive module
+  boundary", which is right in general but is a multi-hour refactor of a 13.6k-line
+  router — not something to do inside a 5-line bug fix. What actually unblocked me was
+  "find offsetting compaction in the code you are already touching". A second fix hint
+  along those lines ("or offset the growth elsewhere in this file; the ratchet is on the
+  total") would match what an agent can realistically do in one change.
+- **good:** `guardian-check commit --intent "…"` was the right seam. It gated (70 checks,
+  0 blocking), ran the full `zig build test` (294.8s), staged a path list, and — notably —
+  refused to sweep in a pre-existing untracked `.claude/dp-handoff/` directory, reporting
+  it as skipped with the fix. That is exactly the behavior that keeps an agent from
+  committing someone else's loose state.
