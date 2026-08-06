@@ -3437,3 +3437,36 @@ held up through the gate without any cap raises.
 - good: neither embedded-JS byte-probe drifted this time because the agent was
   briefed to keep paintScene untouched and put its skips INSIDE the passes —
   probe-awareness as a design constraint works better than probe-repair after.
+
+## 2026-08-06 · claude-fable · eda — integrating a 16-commit parked branch onto 39 commits of main
+- good: `guardian-check file-size .` reported "1 lowered" on the merged tree, and
+  `guardian-check accept file-size .` wrote the real number for me. Both sides of
+  the merge had extracted modules out of one 10k-line file with DIFFERENT frozen
+  ceilings (10360 vs 10398) — a conflict with no textually correct answer. The
+  accept path turned it into a measurement (10333, tighter than either side) in
+  one command. This is exactly the right shape for a ratchet during a merge.
+- bug: `guardian-check pub-api-surface .` PANICS (`reached unreachable`,
+  baseline.zig:379 via `cmd.run(ctx)`) on a snapshot file whose entries are not
+  sorted. A conflicted `.guardian/pub-api.txt` resolved by union — the obvious
+  resolution — is unsorted by construction, so the first thing an agent does
+  after resolving it crashes with no diagnostic. Sorting the file by hand made
+  the same command print "baseline matches (0 violation(s))". A malformed or
+  unsorted snapshot should be a named error ("snapshot is not sorted; run
+  `guardian-check accept pub-api-surface .`"), never a panic — the panic gives
+  no hint that ORDER is the problem, and I only found it by diffing my resolved
+  file against main's.
+- wish: no way to ask "what would this snapshot look like if regenerated" without
+  going through `accept`, which also ratifies. During a merge I wanted to SEE the
+  regenerated pub-api before adopting it, to confirm the union I hand-resolved
+  was the same set the merged code actually exposes. `accept --dry-run` exists
+  for baselines in spirit (`debt --prune-stale` has one); a preview mode on
+  `accept` for snapshot checks would close this.
+- good: the pre-commit hook gates a MERGE commit correctly — `git commit -F msg`
+  concluding a merge ran all 70 checks (diff-scoped vs the merged parent, 34
+  files) in 1.7 s and reported "0 blocking". Worth documenting that this is the
+  path for merges, since `guardian-check commit` cannot be used (it stages a path
+  list, and git refuses a partial commit during a merge).
+- good: `zig build test-compile` (1.5 s cached, ~10 s cold) was the right first
+  probe after resolving nine conflicted files — it found the merge compiled
+  before I spent 5 min on the suite, and later caught nothing only because the
+  resolutions were correct. Cheap enough to run after every hunk.
