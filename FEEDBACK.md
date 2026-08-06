@@ -3572,3 +3572,12 @@ held up through the gate without any cap raises.
   commit in one call, twice, with `.guardian/` + SPEC.md riding along, meant I
   never had to think about what to `git add`. ~300 s each, all of it the Zig
   suite; the 70-check gate itself was cached at 0.2 s.
+
+## 2026-08-06 · claude-fable · eda — webgpu M2-M4 (stencil pours, parity, default flip)
+- good: the M4 default-on flip was BLOCKED by the M1 spec bullet's probe ("stays
+  inert without the ?gpu=1 opt-in") — a policy change had to consciously rewrite
+  the spec bullet + test rather than sliding through. Exactly what spec/test
+  pairing is for; the failure message named the test clearly.
+- good: three more full commit gates (each ~5 min incl. 2072 tests) stayed green
+  across ~1500 new JS lines + probe-sensitive pcb_board.js edits with zero
+  false blocks.
