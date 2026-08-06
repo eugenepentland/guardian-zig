@@ -3293,3 +3293,50 @@ held up through the gate without any cap raises.
   this self-serve.
 - good: three agents ran the full gate independently in three worktrees with
   zero cross-contamination of baselines/snapshots.
+
+## 2026-08-06 · claude-opus · zig_genetic_cascades — spec `source` input-power drive (spec + engine + MCP + CLI + web)
+
+- good: the SPEC-bullet → tagged-test → implement loop caught real gaps rather than
+  ceremony. `spec`'s `unverified:` list was the whole to-do: I wrote 13 bullets across
+  6 sections, and the gate named exactly which ones still lacked a test after each
+  round. Two of those bullets turned out to be untestable as written against the real
+  fixtures (an infinite cumulative P1dB can't be produced by any `test_fixtures` part),
+  which pushed me to unit-test the helper directly — a better test than the one I'd
+  planned.
+- friction: `optional-density` fired on `cascade_spec.Band` for adding ONE optional
+  field (4/8 → 5/9, 50% → 55%), and on `cascade_api.BudgetOptions` (3/6 → 4/7). Band is
+  a v3 override record where every optional literally means "inherit the shared value";
+  there is no "maybe-built vs fully-built phase" split available. The fix the message
+  suggests doesn't apply to inheritance records, so the only move is `accept`. The
+  BudgetOptions hit was actually useful — it pushed me to group `input_power_dbm` +
+  `tone_freq_mhz` into one `?Drive` sub-struct, which is a better API. So: the check
+  earns its keep on parameter bags and is pure tax on override/inheritance records.
+  A recognized shape (e.g. a doc-comment marker, or a name convention like `*Override`)
+  that exempts inheritance records would remove the false positive without weakening it.
+- friction: `init-hygiene` rejected `fn init(drive: ?Drive) PowerWalk` for containing a
+  single `if` — `return .{ .x = if (d) |v| v.f else null }`. Renaming it to `forDrive`
+  silenced the check with zero behavioral change, which means the rule is matching on
+  the NAME, not on constructor-ness. That's a rename-to-evade escape hatch that makes
+  the check feel arbitrary; either payload-derived construction should be allowed
+  (a single `if` in a `return .{...}` expression is straight-line by any reading), or
+  the check should catch the renamed twin too.
+- friction: `deprecated-alias` flagged `std.ArrayListUnmanaged` in a NEW file while the
+  sibling module it was factored out of (`cascade_spec_mixer.zig`) uses the same alias
+  under a baseline. Correct behavior, but the error text ("use std.ArrayList (unmanaged
+  by default since 0.15)") doesn't say the two are the SAME type in 0.15 — I had to
+  verify that before changing a `DiagList` that has to stay type-compatible with the
+  caller's. One clause ("they are the same type; this is a spelling change") would have
+  saved the check.
+- friction (not guardian, worth recording): a stale Zig build cache in this worktree
+  served an `rf-design` binary compiled against the pre-change `cascade_spec.zig` for
+  ~15 minutes. `zig build test` was green the whole time (the test binary rebuilt fine),
+  but the installed exe rejected the new spec field as `unknown_field`. `rm -rf
+  .zig-cache` fixed it. Since guardian runs inside `zig build`, a green gate on a stale
+  artifact is indistinguishable from a real green — if guardian can cheaply assert that
+  the artifacts it gated are the ones it just built, that's worth a check.
+- wish: `pub-api-surface` printed `delta: 10 new symbol(s), 0 changed, 0 removed — pure
+  additions, safe to accept`, which is exactly the judgment I needed and made the accept
+  a one-liner. Two of those ten were re-exports (`cascade_spec.Source` aliasing
+  `cascade_spec_source.Source`) that appear as independent new symbols. Collapsing an
+  alias onto its target in the delta would make a module split read as ~0 API change,
+  which is what it actually is.
