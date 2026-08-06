@@ -3406,3 +3406,25 @@ held up through the gate without any cap raises.
   `guardian-check commit` after ~20+ min of file churn fails in the wasm
   sub-compile, retry passes. Cache invalidation race somewhere in the shared
   .zig-cache wasm step.
+
+## 2026-08-06 · claude-fable · eda — WebGPU board renderer M1 spike (?gpu=1)
+- good: `test-no-conditional` caught a real house-style slip on the first gate run
+  — my new `static_assets.zig` asset-presence test had TWO top-level `for` loops
+  (one per marker table). The message named file:line and the rule ("more than one
+  top-level loop") precisely enough to fix without running `explain`; splitting
+  the second table into direct `try expect` lines matched the neighbouring tests
+  exactly. Whole loop cost ~4 min (one gate re-run) with zero guessing.
+- good: the "1 check(s) would block commit" line printed even though `zig build
+  test` itself exited 0. That distinction is genuinely useful — I would otherwise
+  have shipped a change that `guardian-check commit` refuses, and only found out
+  at commit time. Please keep that line; it is the reason this was caught early.
+- friction: mild — `zig build test` exiting 0 while a check "would block commit"
+  is easy to miss if you only check `$?` (I grep the log, but an agent that
+  doesn't would sail past it). A non-zero exit, or a louder final line, would make
+  the two verdicts impossible to conflate.
+- good: the transient wasm32-drc `FileNotFound` first-run failure logged in the
+  two entries above did NOT recur across three full gate runs in a fresh worktree
+  today (2072 tests, ~4 min each, all green first try).
+- good: spec workflow behaved exactly as documented for a prototype — adding one
+  `SPEC.md` bullet plus its tagged test in the same change satisfied
+  `deny_growth = ["spec","completeness"]` with no ratchet fight.
