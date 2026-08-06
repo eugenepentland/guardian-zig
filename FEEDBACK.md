@@ -3668,3 +3668,51 @@ held up through the gate without any cap raises.
   `--quiet` that prints only the accepted check's before/after and the resulting
   `.guardian/` diff would make the accept step reviewable at a glance instead of
   something to scroll past.
+
+## 2026-08-06 · Claude (Opus 5) · eda — `(match-group)` length matching (Tier-4 item 3)
+
+- **good:** `file-size` did its job as a *design* signal, not a nuisance. My
+  first cut put the `(match-group …)` profile merge and its test in
+  `optimizer.zig` (which mirrors every other net-class field there), and the
+  check reported `10023 code lines (hard limit: 10000)` — a file that had been
+  sitting just under. Rather than accept, I moved the merge and its test into
+  the new `match_group.zig` and pointed `NetRule.match` at `env.ClassMatch`
+  instead of minting a duplicate placement-side mirror. The result is genuinely
+  better layered (resolution and consumption of a group now live in one file)
+  and optimizer.zig came back under the cap. The check found real structure, not
+  just volume.
+- **good:** `type-size` (frozen field-count ratchet) pushed me the same way. It
+  flagged `NetClassSpec 10 -> 12` and `NetRule 9 -> 11`; bundling each feature's
+  two fields into one nested struct — the pattern `ClassRf`/`ClassFence` already
+  set in that file — halved the growth and read better. It also flagged my new
+  `Report` struct at 9 fields, which I restructured into
+  `{group, members, routed_members, span, extremes}` (5). Every one of those
+  edits improved the code. Only the three irreducible +1s were accepted.
+- **good:** the DRC severity-parity ratchet in `eda`'s own `drc.zig`
+  (`firstUncoveredWarningKind`) caught that my new `length_mismatch` warning kind
+  had no fixture proving it fires through `drc.check`, only through its own
+  module's tests. That is exactly the gap that would have let the checker and
+  the settings drawer drift, and it cost one fixture to close. Not a Guardian
+  check, but it is the kind of ratchet Guardian's philosophy produces.
+- **friction:** `test-no-conditional` flagged `const block = switch (value) {
+  .design_block => |b| b, else => return error.TestUnexpectedResult };` at a test
+  body's top level — the exact unwrap idiom ~6 baselined tests in the same file
+  already use. The fix (extract a `designBlockOf(value) !*DesignBlock` helper)
+  is fine and arguably better, but the finding reads oddly when the file it is
+  in is full of grandfathered copies of the same line. A note in the finding like
+  "N baselined occurrences of this pattern exist in this file" would have made it
+  obvious in one read that this was debt-freezing, not a new rule I had missed.
+- **bug (minor, cosmetic):** the `file-size` finding says
+  `a new offender at or above the cap (accept to ratchet, or reduce)` for a file
+  crossing the *hard* limit (10000). "Accept to ratchet" is the first suggestion
+  offered for crossing a hard limit, which is the one case where accepting is
+  probably the wrong move. Suggest the hard-limit case lead with "reduce" and
+  mention accept second.
+- **wish:** guardian caught a genuine dangling-pointer bug for me only
+  indirectly — I wrote `const groups = &[_]Group{.{ .tolerance_mm = tol, … }};`
+  in a test helper taking a *runtime* `tol`, which makes the array a stack
+  temporary, and returned a struct pointing at it. Three tests failed with
+  nonsense values rather than a crash. There is a `stack-escape` check in the
+  baseline list; it did not fire here. The signature is narrow and mechanical:
+  `&[_]T{…}` with any non-comptime field, whose address outlives the function.
+  Worth a look — this idiom is everywhere in Zig test fixtures and fails silently.
