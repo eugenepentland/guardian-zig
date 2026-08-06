@@ -3581,3 +3581,42 @@ held up through the gate without any cap raises.
 - good: three more full commit gates (each ~5 min incl. 2072 tests) stayed green
   across ~1500 new JS lines + probe-sensitive pcb_board.js edits with zero
   false blocks.
+
+## 2026-08-06 · claude-fable · eda — Tier-4 item 2: per-class routing-lattice pitch
+- good: the `file-size` per-item ratchet on `router.zig` (frozen 10333) is again
+  the reason this change is architecturally better than it would have been. The
+  task was "add a pitch policy"; the ratchet made "add" impossible, so the
+  lattice-sizing cluster (`routeGridDims`, `fittedGridScale`,
+  `effectiveGridScale`, `maxRouteParams`, `selectedDiffPairGap`,
+  `selectedCount`) moved into a new `src/placement/route_grid.zig` and the
+  monolith went 10333 -> 10227 code lines. The `const foo = route_grid.foo;`
+  alias trick kept ~25 call sites untouched, so the extraction was reviewable.
+- friction: the ratchet did NOT auto-lower after the file shrank. `zig build`
+  reported 0 blocking with the file at 10227 while
+  `.guardian/baselines/file-size.txt` still read 10333, so the 106-line
+  improvement was unprotected until I noticed and ran
+  `GUARDIAN_UPDATE_SNAPSHOT=file-size` by hand. `guardian-check debt .` DID show
+  the true 10227 next to "worst: 10333", which is what tipped me off — but a
+  ratchet that only tightens when asked is one an agent will usually forget to
+  tighten. Consider auto-lowering shrinking ratchets on a green gate (or at
+  least printing "file-size: router.zig improved 10333 -> 10227, run
+  GUARDIAN_UPDATE_SNAPSHOT=file-size to lock it in").
+- friction: same failing-test-stderr gap as the previous entry. A test failed
+  with bare `FAIL (TestUnexpectedResult)` and no assertion detail through
+  `zig build test`, and running the cached test binary directly
+  (`./.zig-cache/o/<hash>/test --guardian-filter=…`) printed nothing more. I had
+  to add a temporary `std.debug.print` and pay another build cycle to learn the
+  failing assertion was a non-vacuity `tracks.len > 5` against an actual 4.
+  Surfacing the failing expectation's own message would have saved ~5 min.
+- good: `-Dtest-filter` + the counting runner made the inner loop cheap and
+  honest — every filtered run printed "N test(s) selected by filter … M match by
+  name", so I could see my new tests were actually being run rather than
+  silently filtered to nothing.
+- good: three `guardian-check commit --intent "…"` runs (gate cached at
+  0.2-1.7 s, full suite ~300 s each) staged SPEC.md + `.guardian/` + sources
+  together with no `git add` decisions, across a change that touched a 13k-line
+  file, added a module, and edited the shared SPEC.
+- good: `spec` deny_growth caught two tagged tests I added without their SPEC
+  bullets ("unlinked tag: placement/class-pitch - …"), naming the exact tag
+  text. That is the check working as designed on a change whose measurement was
+  negative — the spec still had to state what shipped.
