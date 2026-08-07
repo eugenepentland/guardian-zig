@@ -3880,3 +3880,13 @@ held up through the gate without any cap raises.
   Web Server SPEC behavior, parsed the edited PCB JavaScript through the external
   syntax gate, and passed all 70 commit checks after the complete 2,244-test
   ReleaseSafe suite; no snapshot acceptance or unrelated staging was needed.
+
+## 2026-08-07 · codex · eda — assembly copper-pour clearance rendering
+
+- **bug:** a fresh EDA worktree again hit the ignored-template build-DAG race:
+  the first filtered `zig build test` generated `src/serve/templates/*.zig`
+  concurrently with the WASM compile, which failed because all four generated
+  files were missing. The identical retry passed, costing one failed invocation.
+- **good:** the focused test linked the assembly-only even-odd pour-fill contract
+  to an exact Web Server SPEC behavior, and the whole-tree 70-check commit gate
+  passed without snapshot acceptance or unrelated staging.
