@@ -3836,3 +3836,17 @@ held up through the gate without any cap raises.
   `guardian-check commit --intent` ran the whole-tree 70-check gate, reused the
   test cache, pruned exactly two resolved completeness-baseline rows, staged only
   the eight intended paths, and created the commit automatically.
+
+## 2026-08-07 · codex · eda — autorouter via spacing and board-edge legality
+
+- **bug:** in a fresh EDA worktree, the first filtered `zig build test` generated
+  ignored `src/serve/templates/*.zig` files concurrently with the WASM compile,
+  which failed with four `FileNotFound` errors. The identical rerun passed,
+  costing one failed build and reproducing the existing template-DAG race.
+- **good:** the `file-size` ratchet pushed the new via-rule geometry into a
+  cohesive `router_via_rules.zig` module and kept `router.zig` below its frozen
+  10223-code-line ceiling; the filtered checks then identified the required
+  public-API snapshot without accepting a larger router.
+- **good:** `guardian-check commit --intent` ran the whole-tree gate and complete
+  ReleaseSafe suite, staged only the intended EDA paths, and created commit
+  `f9eb256` automatically.
