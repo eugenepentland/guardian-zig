@@ -3850,3 +3850,14 @@ held up through the gate without any cap raises.
 - **good:** `guardian-check commit --intent` ran the whole-tree gate and complete
   ReleaseSafe suite, staged only the intended EDA paths, and created commit
   `f9eb256` automatically.
+
+## 2026-08-07 · codex · eda — terminal-via reuse during route cleanup
+
+- **good:** the filtered-test runner rejected a broad `via spacing` filter that
+  matched no named test instead of allowing a misleading green run. Retrying
+  with the exact `same-net via copper spacing rejects` name made the evidence
+  explicit and cost one extra 14-second invocation.
+- **good:** `guardian-check commit --intent` passed the whole-tree 70-check gate
+  and the 311-second unfiltered ReleaseSafe suite, refreshed the already-reduced
+  `router.zig` file-size snapshot from 10223 to 10219, and committed the engine,
+  SPEC, and generated baseline together as `473098a`.
