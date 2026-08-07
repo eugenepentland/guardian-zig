@@ -3948,3 +3948,14 @@ held up through the gate without any cap raises.
   advisory inventory (roughly 72,000 output tokens), burying the selected-test
   result and making iterative failures expensive to inspect even though none of
   those advisories blocked the run.
+
+## 2026-08-07 · codex · eda — perimeter-fence production merge
+
+- **friction:** the post-merge ReleaseSafe deployment invoked Guardian
+  diff-scoped against the new `db6ef69` HEAD itself, so it reported 0/317 source
+  files in scope and only exercised the 18 whole-tree checks. The branch had
+  already passed the full 2,252-test gate, but the deployment gate provided no
+  change-specific verification of the six files it was deploying.
+- **good:** all 70 checks completed with zero blocking findings, after which the
+  generated-language documentation check, service restart, and health probes
+  passed cleanly.
