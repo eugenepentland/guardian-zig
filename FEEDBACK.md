@@ -3902,3 +3902,15 @@ held up through the gate without any cap raises.
 - **good:** after the template bootstrap, Guardian completed with zero blocking
   findings while building a clean, current Netlisp binary for independent EDA
   schematic validation.
+
+## 2026-08-07 · codex · eda — positional instance-net shorthand
+
+- **bug:** a fresh EDA worktree again hit the ignored-template build-DAG race:
+  the first filtered `zig build test -Dtest-filter='instance positional nets'`
+  generated `src/serve/templates/*.zig` concurrently with the WASM compile,
+  which failed because all four generated files were missing. The identical
+  retry passed, costing one failed invocation.
+- **good:** `cognitive-complexity` caught the one-point growth of the already
+  capped `buildInstance`; extracting its existing inline-note parser restored
+  the ratchet without accepting a higher ceiling, and `test-compile` then
+  verified the complete ReleaseSafe test binary.
