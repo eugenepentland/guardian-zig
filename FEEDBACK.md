@@ -3873,3 +3873,10 @@ held up through the gate without any cap raises.
   voltage-check representation and the existing instance property mechanism,
   avoiding new oversized unions or parser state. The final commit gate passed
   all 70 blocking checks and the full 2,242-test ReleaseSafe suite.
+
+## 2026-08-07 · codex · eda — preserve bottom-side sub-circuit restamps
+
+- **good:** Guardian linked the new browser restamp regression to its explicit
+  Web Server SPEC behavior, parsed the edited PCB JavaScript through the external
+  syntax gate, and passed all 70 commit checks after the complete 2,244-test
+  ReleaseSafe suite; no snapshot acceptance or unrelated staging was needed.
