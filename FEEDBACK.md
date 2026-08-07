@@ -3937,3 +3937,14 @@ held up through the gate without any cap raises.
   and assembly-renderer assertion both named the new behavior. Consolidating
   ownership under the assembly regression left one precise link, and the final
   gate passed all 70 checks plus the complete 2,252-test ReleaseSafe suite.
+
+## 2026-08-07 · codex · eda — DSL simplification and design migration
+
+- **good:** the SPEC-link, generated-doc, public-API snapshot, and implementation
+  checks kept eight new DSL shorthand families documented and regression-tested;
+  selective `guardian-accept` changed only `pub-api-surface`, and the final gate
+  passed all 70 checks plus the complete 2,268-test ReleaseSafe suite.
+- **friction:** each focused DSL test also emitted the whole-tree report-only
+  advisory inventory (roughly 72,000 output tokens), burying the selected-test
+  result and making iterative failures expensive to inspect even though none of
+  those advisories blocked the run.
