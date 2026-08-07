@@ -3959,3 +3959,16 @@ held up through the gate without any cap raises.
 - **good:** all 70 checks completed with zero blocking findings, after which the
   generated-language documentation check, service restart, and health probes
   passed cleanly.
+
+## 2026-08-07 · codex · eda — generic PCB keepouts and cleaned rendering
+
+- **bug:** the first `zig build test-compile` in the fresh worktree again raced
+  ignored template generation against the WASM compile and failed on four
+  missing `src/serve/templates/*.zig` imports; the identical retry advanced to
+  normal compile diagnostics, costing one failed bootstrap invocation.
+- **good:** `file-size`, `function-size`, `type-size`, guarded float narrowing,
+  boolean-condition, and doc-comment checks steered the implementation toward a
+  separate keepout JSON module and compact nested policy instead of accepting
+  six new structural ratchets. Only the intentional pure-addition public API
+  snapshot needed selective acceptance; the full suite then passed all 70
+  blocking checks.
