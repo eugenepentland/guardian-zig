@@ -3861,3 +3861,15 @@ held up through the gate without any cap raises.
   and the 311-second unfiltered ReleaseSafe suite, refreshed the already-reduced
   `router.zig` file-size snapshot from 10223 to 10219, and committed the engine,
   SPEC, and generated baseline together as `473098a`.
+
+## 2026-08-07 · codex · eda — Barracuda electrical-intent DSL enforcement
+
+- **bug:** a fresh EDA worktree reproduced the ignored-template build-DAG race:
+  the first filtered `zig build test` generated `src/serve/templates/*.zig` while
+  the concurrent WASM compile reported all four files missing. The identical
+  retry passed, costing one failed gate invocation.
+- **good:** the `type-size`, function-parameter, cognitive-complexity, and spec
+  gates steered the implementation toward a grammar alias on the existing
+  voltage-check representation and the existing instance property mechanism,
+  avoiding new oversized unions or parser state. The final commit gate passed
+  all 70 blocking checks and the full 2,242-test ReleaseSafe suite.
