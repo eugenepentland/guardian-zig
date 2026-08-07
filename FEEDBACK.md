@@ -3972,3 +3972,10 @@ held up through the gate without any cap raises.
   six new structural ratchets. Only the intentional pure-addition public API
   snapshot needed selective acceptance; the full suite then passed all 70
   blocking checks.
+
+## 2026-08-07 · codex · eda — remove decorative keepout escape rings
+
+- **good:** the exact SPEC-linked static-asset test made a small renderer-only
+  cleanup explicit by asserting the PCB canvas no longer consumes
+  `keepout_escape_mm`, while the separate WASM DRC tests preserved the rule's
+  electrical semantics; the commit gate passed all 70 checks unchanged.
