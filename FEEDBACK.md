@@ -3926,3 +3926,14 @@ held up through the gate without any cap raises.
   six-test focused result. The gate was useful, but its report-only warnings
   buried the leak diagnostic and made a filtered iteration much noisier than
   the subsequent 2,251-test full-suite handoff evidence.
+
+## 2026-08-07 · codex · eda — assembly rendering for perimeter fencing
+
+- **bug:** the first filtered test in a fresh worktree again raced generation
+  of all four ignored `src/serve/templates/*.zig` files against the WASM and
+  native compiles, producing four `FileNotFound` errors; `test-compile` followed
+  by the identical filtered command passed, costing one failed invocation.
+- **good:** the spec gate rejected duplicate links when the PCB-blob assertion
+  and assembly-renderer assertion both named the new behavior. Consolidating
+  ownership under the assembly regression left one precise link, and the final
+  gate passed all 70 checks plus the complete 2,252-test ReleaseSafe suite.
