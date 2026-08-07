@@ -3806,3 +3806,16 @@ held up through the gate without any cap raises.
   ~4.5-minute gated build. A `guardian-check accept pub-api-surface .` that only
   re-records (the `accept` verb the output itself suggests for `dead-pub`) would
   turn a five-minute pause into a two-second one.
+
+## 2026-08-07 · codex · eda — selected copper drag priority
+
+- **bug:** in a fresh EDA worktree with the ignored generated
+  `src/serve/templates/*.zig` files absent, the first filtered `zig build test`
+  generated those files but concurrently compiled `drc.wasm` soon enough to
+  report four `FileNotFound` errors for them. An immediate identical rerun passed;
+  the build DAG appears not to order that anonymous-import compile behind template
+  generation, costing one failed gate invocation per fresh worktree.
+- **good:** the `spec` check caught that an explanatory comment inserted between
+  an existing `// spec:` tag and its test had disconnected the tag. The diagnostic
+  named both the orphaned tag and unverified SPEC bullet, making the one-line fix
+  obvious before commit.
