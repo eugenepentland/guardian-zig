@@ -3890,3 +3890,15 @@ held up through the gate without any cap raises.
 - **good:** the focused test linked the assembly-only even-odd pour-fill contract
   to an exact Web Server SPEC behavior, and the whole-tree 70-check commit gate
   passed without snapshot acceptance or unrelated staging.
+
+## 2026-08-07 · codex · eda — build latest Netlisp for Barracuda schematic verification
+
+- **bug:** a fresh EDA worktree's first `zig build -Doptimize=ReleaseSafe`
+  generated the ignored `src/serve/templates/*.zig` files concurrently with the
+  WASM compile, which failed with four `FileNotFound` imports. Running
+  `zig build test-compile -Dtest-opt=ReleaseSafe` first generated the templates;
+  the subsequent identical ReleaseSafe build passed all 70 Guardian checks.
+  This cost one failed full build plus a manual bootstrap and retry.
+- **good:** after the template bootstrap, Guardian completed with zero blocking
+  findings while building a clean, current Netlisp binary for independent EDA
+  schematic validation.
