@@ -3914,3 +3914,15 @@ held up through the gate without any cap raises.
   capped `buildInstance`; extracting its existing inline-note parser restored
   the ratchet without accepting a higher ceiling, and `test-compile` then
   verified the complete ReleaseSafe test binary.
+
+## 2026-08-07 · codex · eda — board-perimeter via fencing
+
+- **good:** the spec gate rejected untested behavioral bullets until the
+  perimeter geometry, Gerber mask opening, and KiCad mask-segment contracts had
+  exact linked tests; the Guardian test runner then caught two allocator-owned
+  temporary polygon leaks even though all focused assertions passed.
+- **friction:** `zig build test -Dtest-filter=perimeter` still ran and printed
+  the whole 70-check advisory report, producing roughly 72,000 tokens before a
+  six-test focused result. The gate was useful, but its report-only warnings
+  buried the leak diagnostic and made a filtered iteration much noisier than
+  the subsequent 2,251-test full-suite handoff evidence.
