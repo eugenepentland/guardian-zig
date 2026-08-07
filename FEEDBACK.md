@@ -3819,3 +3819,20 @@ held up through the gate without any cap raises.
   an existing `// spec:` tag and its test had disconnected the tag. The diagnostic
   named both the orphaned tag and unverified SPEC bullet, making the one-line fix
   obvious before commit.
+
+## 2026-08-07 · codex · eda — decoupling DSL enforcement
+
+- **bug:** a fresh feature worktree again reproduced the ignored-template race:
+  the first filtered `zig build test -Dtest-filter=decoupling` generated
+  `src/serve/templates/*.zig` but the concurrent `drc.wasm` compile reported all
+  four files missing. The identical rerun passed, costing one failed build and
+  confirming the earlier EDA report is not task-specific.
+- **friction:** `zig build guardian -- commit` failed only after starting because
+  `--intent` is mandatory. The diagnostic was clear and the retry cost was about
+  two seconds; advertising the required argument in `zig build --help` would avoid
+  the throwaway invocation.
+- **good:** diff-scoped `spec`, `completeness`, and boolean-condition checks caught
+  every new metadata/complexity obligation during filtered tests. The final
+  `guardian-check commit --intent` ran the whole-tree 70-check gate, reused the
+  test cache, pruned exactly two resolved completeness-baseline rows, staged only
+  the eight intended paths, and created the commit automatically.
