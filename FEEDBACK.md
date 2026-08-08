@@ -4006,3 +4006,15 @@ held up through the gate without any cap raises.
 - **friction:** `guardian-check commit .` now requires `--intent`, but the
   missing-intent diagnostic was only discovered after invocation; including the
   flag in the standard handoff hint would avoid one failed command per task.
+
+## 2026-08-08 · codex · eda — Barracuda schematic verification
+
+- **friction:** a fresh EDA worktree's first
+  `zig build -Doptimize=ReleaseSafe` passed Guardian with zero blocking findings
+  but then failed the WASM compile because four ignored generated
+  `src/serve/templates/*.zig` imports were absent. Recovering required copying
+  the generated templates from the read-only main checkout and repeating the
+  full build.
+- **good:** Guardian clearly reported that this designs-only task had zero EDA
+  source files in diff scope and completed all applicable checks without
+  snapshot acceptance or unrelated metadata changes.
