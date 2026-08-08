@@ -3986,3 +3986,13 @@ held up through the gate without any cap raises.
   conflict, the combined tree passed all 70 checks, generated-doc consistency,
   and the complete 2,279-test ReleaseSafe suite; the post-merge deployment then
   rebuilt `b82ac93`, restarted the service, and passed every health probe.
+
+## 2026-08-08 · codex · eda — flip selected PCB groups across board sides
+
+- **bug:** the first `zig build test` in a fresh worktree again raced generation
+  of the four ignored `src/serve/templates/*.zig` files against the WASM
+  compile, yielding four `FileNotFound` imports plus a false `pub-api-surface`
+  failure; retrying after generation passed, costing one failed full-suite run.
+- **good:** the exact SPEC-linked browser-contract test, diff-scoped 70-check
+  runs, and whole-tree commit gate all passed without baseline changes; the
+  complete ReleaseSafe suite then passed 2,257 tests.
