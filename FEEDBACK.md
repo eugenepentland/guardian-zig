@@ -4018,3 +4018,12 @@ held up through the gate without any cap raises.
 - **good:** Guardian clearly reported that this designs-only task had zero EDA
   source files in diff scope and completed all applicable checks without
   snapshot acceptance or unrelated metadata changes.
+
+## 2026-08-08 · codex · eda — Ctrl-click PCB multi-selection
+
+- **bug:** the first focused test in a fresh worktree again raced the four
+  ignored generated `src/serve/templates/*.zig` files against the WASM compile;
+  all four imports failed before generation completed, costing one failed run.
+- **good:** the exact SPEC-linked browser contract, JavaScript syntax check,
+  diff-scoped gate, and whole-tree commit gate passed without ratchet changes;
+  the complete ReleaseSafe suite passed 2,282 tests.
