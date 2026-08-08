@@ -3996,3 +3996,13 @@ held up through the gate without any cap raises.
 - **good:** the exact SPEC-linked browser-contract test, diff-scoped 70-check
   runs, and whole-tree commit gate all passed without baseline changes; the
   complete ReleaseSafe suite then passed 2,257 tests.
+
+## 2026-08-08 · codex · eda — exact pad-centre autorouter terminations
+
+- **good:** the diff-scoped gate caught both an unnecessary public callback API
+  and growth in the frozen router module during iteration, steering the change
+  into the existing cleanup seam; the whole-tree commit gate then passed all 70
+  blocking checks and the complete 2,281-test ReleaseSafe suite.
+- **friction:** `guardian-check commit .` now requires `--intent`, but the
+  missing-intent diagnostic was only discovered after invocation; including the
+  flag in the standard handoff hint would avoid one failed command per task.
