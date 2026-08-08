@@ -3979,3 +3979,10 @@ held up through the gate without any cap raises.
   cleanup explicit by asserting the PCB canvas no longer consumes
   `keepout_escape_mm`, while the separate WASM DRC tests preserved the rule's
   electrical semantics; the commit gate passed all 70 checks unchanged.
+
+## 2026-08-08 · codex · eda — merge DSL simplifications onto current main
+
+- **good:** after resolving the DSL and perimeter-keepout SPEC insertion
+  conflict, the combined tree passed all 70 checks, generated-doc consistency,
+  and the complete 2,279-test ReleaseSafe suite; the post-merge deployment then
+  rebuilt `b82ac93`, restarted the service, and passed every health probe.
