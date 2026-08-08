@@ -4027,3 +4027,12 @@ held up through the gate without any cap raises.
 - **good:** the exact SPEC-linked browser contract, JavaScript syntax check,
   diff-scoped gate, and whole-tree commit gate passed without ratchet changes;
   the complete ReleaseSafe suite passed 2,282 tests.
+
+## 2026-08-08 · codex · eda — rigid PCB group side flips
+
+- **bug:** the first focused test in a fresh worktree again raced generation of
+  the four ignored `src/serve/templates/*.zig` files against the WASM compile;
+  retrying after they appeared passed, costing one failed bootstrap run.
+- **good:** an exact SPEC-linked browser contract plus an executable numeric
+  fixture verified anchor-relative positions, mirrored rotations, and exact
+  double-flip restoration; the whole-tree gate and all 2,282 tests passed.
