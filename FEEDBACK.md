@@ -4050,3 +4050,14 @@ held up through the gate without any cap raises.
   would have avoided one failed focused-test attempt.
 - **good:** the whole-tree commit gate passed all 70 blocking checks and the full
   ReleaseSafe suite in 295.6 seconds without baseline changes.
+
+## 2026-08-09 · codex · eda — PCB editor drag-performance improvements
+
+- **bug:** the first `zig build test-compile` in the fresh feature worktree
+  again raced generation of the four ignored `src/serve/templates/*.zig` files
+  against their imports; the generated files appeared during the failed run and
+  the identical retry passed, costing one bootstrap attempt.
+- **good:** the exact SPEC-linked source regression test caught an initially
+  unlinked PCB performance contract, and both the diff-scoped suite and
+  whole-tree commit gate then passed all 70 blocking checks without Guardian
+  metadata changes.
