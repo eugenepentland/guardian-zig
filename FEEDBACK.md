@@ -4095,3 +4095,15 @@ held up through the gate without any cap raises.
   in the first iteration; after those were corrected, the whole-tree commit
   gate passed all 70 blocking checks and the full suite in 296.1 seconds with
   no Guardian metadata changes.
+
+## 2026-08-09 · codex · eda — PCB inspection visibility defaults
+
+- **bug:** the first focused `zig build test` in a fresh EDA worktree again
+  raced generation of the four ignored `src/serve/templates/*.zig` files
+  against their WASM imports, producing four `FileNotFound` errors and a
+  transient false `pub-api-surface` report; the identical retry passed after
+  generation, costing one bootstrap run.
+- **good:** the diff-scoped `spec` check caught a duplicated exact contract tag
+  across two regression-test files before commit; after consolidating it, the
+  whole-tree commit gate passed all 70 blocking checks without baseline or
+  Guardian metadata changes.
