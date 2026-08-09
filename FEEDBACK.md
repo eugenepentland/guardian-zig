@@ -4209,3 +4209,12 @@ held up through the gate without any cap raises.
 - **good:** selective `pub-api-surface` acceptance previewed and recorded only
   the eight intentional impedance-analysis additions, while the final
   whole-tree gate stayed green across all 70 checks.
+
+## 2026-08-09 · codex · eda — retired placement APIs and flat-ref cleanup
+
+- **good:** `pub-api-surface` presented exactly the 16 removed declarations and
+  three changed flattener signatures; selective acceptance refreshed only that
+  snapshot, and the final whole-tree run stayed green across all 70 checks.
+- **friction:** the first sandboxed `zig build test` could not create Zig's
+  compiler cache (`manifest_create Unexpected`), so the otherwise-valid gate
+  needed one permission-enabled retry before compilation could begin.
