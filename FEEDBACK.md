@@ -4198,3 +4198,14 @@ held up through the gate without any cap raises.
   optimizer's stale entry. The final whole-tree gate passed all 70 checks, and
   the exact-commit release hook passed all 2,300 tests plus ReleaseSafe build in
   a 343-second concurrent wall.
+
+## 2026-08-09 · codex · eda — layer-aware differential impedance
+
+- **good:** `guardian-check commit` refused to commit after all 2,315 assertions
+  passed because Zig's allocator reported one leaked temporary string in the new
+  differential `impedance_mismatch` message path. The focused test confirmed the
+  ownership fix, and the rerun passed leak-free; this caught a real defect that
+  assertion-only reporting would have called green.
+- **good:** selective `pub-api-surface` acceptance previewed and recorded only
+  the eight intentional impedance-analysis additions, while the final
+  whole-tree gate stayed green across all 70 checks.
