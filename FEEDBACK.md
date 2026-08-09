@@ -4130,3 +4130,14 @@ held up through the gate without any cap raises.
   tests were indexed but not collected by the root test binary; adding the
   direct test import raised the verified full suite from 2,292 to 2,295 tests,
   and the whole-tree commit gate passed all 70 blocking checks unchanged.
+
+## 2026-08-09 · codex · eda — autorouter routing-wave scope dropdown
+
+- **bug:** the first focused build in a fresh EDA worktree raced generation of
+  the four ignored `src/serve/templates/*.zig` files against their WASM imports,
+  producing four transient `FileNotFound` failures; the identical retry passed
+  after generation completed, costing one bootstrap run.
+- **good:** the `file-size` ratchet blocked further growth of the already-frozen
+  PCB layout page and led to extracting the new dropdown markup and styles into
+  dedicated assets; `test-no-conditional` also caught a two-loop contract test
+  before the whole-tree commit gate passed all 70 blocking checks.
