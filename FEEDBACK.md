@@ -4147,3 +4147,20 @@ held up through the gate without any cap raises.
 - **good:** diff-scoped focused runs and the whole-tree commit gate both passed
   all 70 checks, while the full 2,297-test suite verified the transactional RF
   finish guard against current main without requiring a Guardian ratchet change.
+
+## 2026-08-09 · codex · eda — concurrent release verification and deterministic templates
+
+- **good:** Guardian's new concise default reduced the EDA whole-tree green
+  gate to the scope line, six advisory counts, and one verdict; during the red
+  implementation passes it grouped blocking findings by check with a three-item
+  sample and remainder count, so the actionable `spec`, `allocator-hygiene`,
+  and `ban-fs` failures were immediately visible without interleaved output.
+- **good:** the build-helper `Options.prerequisites` hook let EDA order zt
+  generation and formatting before every compiler and Guardian consumer. With
+  the generated outputs committed as well, a brand-new worktree's first focused
+  build passed and stayed clean instead of paying the repeated four-file
+  `FileNotFound` plus false `pub-api-surface` bootstrap failure logged above.
+- **good:** the whole-tree 70-check gate stayed blocking and green while EDA ran
+  its full 2,300-plus-test suite and ReleaseSafe production build concurrently;
+  the jobs took 329 s and 310 s but completed in a 334 s wall, preserving the
+  release boundary while removing roughly five minutes of sequential wait.
