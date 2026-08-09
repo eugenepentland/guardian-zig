@@ -4164,3 +4164,15 @@ held up through the gate without any cap raises.
   its full 2,300-plus-test suite and ReleaseSafe production build concurrently;
   the jobs took 329 s and 310 s but completed in a 334 s wall, preserving the
   release boundary while removing roughly five minutes of sequential wait.
+
+## 2026-08-09 · codex · eda — Barracuda outer-pour impedance references
+
+- **friction:** `guardian-check commit` completed the whole-tree 70-check gate,
+  then its spawned `zig build test` failed immediately because the managed
+  workspace made the shared global Zig cache read-only (`manifest_create
+  Unexpected` / `ReadOnlyFileSystem`). Re-running the exact commit gate with
+  cache permission was green; the environment-only failure cost one retry.
+- **good:** the commit flow passed all 70 blocking checks and the full suite in
+  324.6 seconds, linked the new outer-pour impedance behavior to its exact SPEC
+  test, and automatically removed the now-satisfied completeness waiver before
+  committing the three-file change.
