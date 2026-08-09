@@ -4036,3 +4036,17 @@ held up through the gate without any cap raises.
 - **good:** an exact SPEC-linked browser contract plus an executable numeric
   fixture verified anchor-relative positions, mirrored rotations, and exact
   double-flip restoration; the whole-tree gate and all 2,282 tests passed.
+
+## 2026-08-08 · codex · eda — auto-numbered schematic deletion
+
+- **bug:** the first build in a fresh worktree again raced the four ignored
+  generated `src/serve/templates/*.zig` files against the WASM compile, producing
+  four `FileNotFound` imports and a transient false `pub-api-surface` failure;
+  the identical retry passed after codegen, costing one failed build.
+- **friction:** `zig build test -Dtest-filter='sidebar delete carries source
+  identity'` selected no named tests because the changed standalone asset-test
+  module is not reachable from `src/main.zig`; Guardian correctly rejected the
+  zero-match run, but deriving or reporting the nearest reachable test target
+  would have avoided one failed focused-test attempt.
+- **good:** the whole-tree commit gate passed all 70 blocking checks and the full
+  ReleaseSafe suite in 295.6 seconds without baseline changes.
