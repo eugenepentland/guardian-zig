@@ -61,10 +61,10 @@ pub const RunCtx = struct {
     /// `--intent "<message>"`: the commit subject for the `commit` command.
     /// Null for every other command; `commit` errors when it is null or blank.
     intent: ?[]const u8 = null,
-    /// `--summary`: `all` prints its verdict line plus every blocking check's
-    /// detail, collapsing each advisory check to a one-line count. The mode for
-    /// an agent that re-runs the gate many times and acts only on the verdict.
-    summary: bool = false,
+    /// Concise mode (the default, and the explicit `--summary` spelling): `all`
+    /// hides passes, collapses advisory checks to counts, and groups a bounded
+    /// sample of each blocking check. `--verbose` restores every captured line.
+    summary: bool = true,
     /// `--verbose`: `all` replays every check's output in full, opting out of
     /// the scope-collapse (and of `--summary`, which it overrides). The escape
     /// hatch when a collapsed count is the thing you need to expand.

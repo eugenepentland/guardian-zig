@@ -597,7 +597,7 @@ pub fn summaryFor(name: []const u8) ?[]const u8 {
 pub fn printHelp() void {
     const print = std.debug.print;
     const row = "  {s: <14} {s}\n";
-    print("Usage: guardian-check <command> [project-dir] [--quiet|--summary|--verbose]\n\n", .{});
+    print("Usage: guardian-check <command> [project-dir] [--quiet|--summary(default)|--verbose]\n\n", .{});
     print("Commands:\n", .{});
     for (all) |cmd| print(row, .{ cmd.name, cmd.summary });
     print("\nMeta commands (composed / informational):\n", .{});

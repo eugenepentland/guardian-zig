@@ -159,8 +159,8 @@ const ParsedArgs = struct {
     skip: ?[]const u8 = null,
     /// `--intent "<message>"` value for the `commit` command; null when absent.
     intent: ?[]const u8 = null,
-    /// `--summary`: verdict line plus blocking detail only.
-    summary: bool = false,
+    /// Concise output is the default; `--summary` is its explicit spelling.
+    summary: bool = true,
     /// `--verbose`: replay every check's output in full (overrides --summary).
     verbose: bool = false,
     json: bool = false,
@@ -686,14 +686,14 @@ test "parseArgs reads --summary and --verbose" {
     const parsed = parseArgs(args);
     try std.testing.expect(parsed.summary);
     try std.testing.expect(!parsed.verbose);
-    // --verbose is the opposite escape hatch, and neither is on by default.
+    // --verbose is the full-detail escape hatch; concise mode is the default.
     const verbose = try a.alloc([:0]u8, 2);
     verbose[0] = try a.dupeZ(u8, "all");
     verbose[1] = try a.dupeZ(u8, "--verbose");
     try std.testing.expect(parseArgs(verbose).verbose);
     const plain = try a.alloc([:0]u8, 1);
     plain[0] = try a.dupeZ(u8, "all");
-    try std.testing.expect(!parseArgs(plain).summary);
+    try std.testing.expect(parseArgs(plain).summary);
 }
 
 // spec: Configuration - Parses the intent flag for the commit command

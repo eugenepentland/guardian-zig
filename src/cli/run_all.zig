@@ -186,10 +186,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // (shown even under --quiet, via the always-visible failure channel).
     const names = joinNames(ctx.allocator, acc.failed_checks.items);
     printVerdict(ctx, .{ .ran = ran, .failed = failed, .reported = tally.reported, .names = names });
-    // Repeat each failing check's first finding here, at the end of the log,
-    // where the summary is read: file:line + the offending item + its metric,
-    // so a shape/ratchet failure no longer needs a trip through last-run.jsonl.
-    echoOffenders(ctx, &acc);
+    // Concise output groups a bounded sample under each failing check. Verbose
+    // output already replayed every check in full, so it keeps the historical
+    // one-line offender echo instead of duplicating the grouped sample.
+    if (verbosityOf(ctx) == .summary)
+        printFailureGroups(ctx, &acc)
+    else
+        echoOffenders(ctx, &acc);
 
     // A run that found violations restores metadata when a transaction is active
     // (a writable/refresh run) — half-written snapshots/baselines from the
@@ -375,6 +378,70 @@ fn echoOffenders(ctx: *types.RunCtx, acc: *const Sink) void {
         else
             reporter.detail("  {s}: {s}{s}\n", .{ name, line, more });
     }
+}
+
+/// Maximum findings printed inside one concise failure group. The full set is
+/// retained in last-run.jsonl and returns under `--verbose`.
+const failure_sample_limit: usize = 3;
+
+/// Heading for one concise failure group.
+fn failureGroupLine(arena: std.mem.Allocator, check: []const u8, findings: usize) std.mem.Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(arena, "{s} ({d} finding{s})", .{
+        check,
+        findings,
+        if (findings == 1) "" else "s",
+    });
+}
+
+/// Tail following the sampled findings in a concise failure group.
+fn omittedLine(arena: std.mem.Allocator, total: usize, shown: usize) std.mem.Allocator.Error!?[]const u8 {
+    if (shown >= total) return null;
+    return try std.fmt.allocPrint(arena, "+{d} more — use --verbose for full detail", .{total - shown});
+}
+
+/// Prints blocking failures as compact per-check groups. At most three
+/// findings from each check are shown; the machine-readable sink retains the
+/// complete set and `--verbose` replays the check's original output. A failed
+/// check without structured records still gets a visible group and recovery
+/// hint, so concise mode can never hide a blocker.
+fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
+    reporter.detail(
+        reporter.prefix ++ "failures grouped by check ({d}):\n",
+        .{acc.failed_checks.items.len},
+    );
+    for (acc.failed_checks.items) |name| {
+        const total = countRecordsFor(acc.records.items, name);
+        const heading = failureGroupLine(ctx.allocator, name, total) catch name;
+        reporter.detail("  {s}\n", .{heading});
+        var shown: usize = 0;
+        for (acc.records.items) |v| {
+            if (!std.mem.eql(u8, v.check, name)) continue;
+            if (shown == failure_sample_limit) break;
+            const line = reporter.flatLine(ctx.allocator, v) catch continue;
+            reporter.detail("    - {s}\n", .{line});
+            shown += 1;
+        }
+        if (total == 0) {
+            reporter.detail("    - no structured detail; use --verbose for the captured check output\n", .{});
+        } else if (omittedLine(ctx.allocator, total, shown) catch null) |line| {
+            reporter.detail("    - {s}\n", .{line});
+        }
+    }
+}
+
+// spec: Run Summary - Groups blocking failures by check with a bounded sample
+
+test "failure groups name counts and bound their visible sample" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings("spec (1 finding)", try failureGroupLine(a, "spec", 1));
+    try std.testing.expectEqualStrings("pub-api-surface (5 findings)", try failureGroupLine(a, "pub-api-surface", 5));
+    try std.testing.expect((try omittedLine(a, 3, 3)) == null);
+    try std.testing.expectEqualStrings(
+        "+7 more — use --verbose for full detail",
+        (try omittedLine(a, 10, failure_sample_limit)).?,
+    );
 }
 
 /// How many findings `check` recorded this run — the number behind the echoed
@@ -1262,8 +1329,8 @@ test "verbosityOf reads the output flags with verbose winning" {
         .cfg = &cfg,
         .quiet = true,
     };
-    // No flags: the default full-but-scope-aware mode.
-    try std.testing.expectEqual(run_view.Verbosity.normal, verbosityOf(&base));
+    // No flags: the default concise grouped mode.
+    try std.testing.expectEqual(run_view.Verbosity.summary, verbosityOf(&base));
     var summary = base;
     summary.summary = true;
     try std.testing.expectEqual(run_view.Verbosity.summary, verbosityOf(&summary));

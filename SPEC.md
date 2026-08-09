@@ -187,7 +187,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Names the finding count and scope in a collapsed check line
 - Counts a finding as in scope when its file changed or it has no file
 - Counts a check's findings and their diff-scope overlap
-- Prints only the verdict and blocking detail in summary mode
+- Uses concise grouped output by default
+- Groups blocking failures by check with a bounded sample
 - Keeps every check's full output under the verbose flag
 - Parses the summary and verbose output flags
 - Resolves the verbose flag ahead of the summary flag
@@ -596,6 +597,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Points a consumer test binary at the runner file that ships with Guardian
 - Registers the compile-only whole-suite probe under a stable step name
+- Orders caller prerequisites before every gate invocation
 
 ## Prebuilt Binary
 
@@ -695,7 +697,7 @@ without an explained `--force`.
 - Defaults an omitted direction to the undirected info metric
 - Requires an explanatory note when forcing a recording
 - Refuses a gated metric's regression unless the recording is forced
-- Surfaces every recorded metric on each gate run without blocking it
+- Summarizes recorded metrics by default and expands them under verbose output
 
 ## Complexity Bounds
 

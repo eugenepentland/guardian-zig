@@ -67,6 +67,10 @@ pub const all_check_names: []const []const u8 = blk: {
 /// Tunables for addAllChecks.
 pub const Options = struct {
     quiet: bool = true,
+    /// Input-producing steps that must finish before Guardian scans the tree.
+    /// Consumers with generated source use this to keep a fresh worktree from
+    /// racing code generation against the gate.
+    prerequisites: []const *std.Build.Step = &.{},
     /// Optional working directory for each check invocation. Null means
     /// the build's current working directory.
     cwd: ?std.Build.LazyPath = null,
@@ -217,6 +221,7 @@ const Wiring = struct {
         };
         run.addArgs(args);
         if (w.opts.cwd) |cwd| run.setCwd(cwd);
+        for (w.opts.prerequisites) |prerequisite| run.step.dependOn(prerequisite);
         // Fail closed: nothing a prebuilt binary reports counts until it has
         // proved it was built from the source it claims to speak for.
         if (w.guard) |guard| run.step.dependOn(guard);
@@ -553,6 +558,14 @@ test "compile probe step name and description stay stable" {
     // probe would answer a question nobody asked.
     try std.testing.expect(@hasField(CompileProbeOptions, "root_module"));
     try std.testing.expect(!@hasField(CompileProbeOptions, "filters"));
+}
+
+// spec: Build Helper - Orders caller prerequisites before every gate invocation
+
+test "gate prerequisites are explicit and empty by default" {
+    const opts: Options = .{};
+    try std.testing.expectEqual(@as(usize, 0), opts.prerequisites.len);
+    try std.testing.expect(@hasField(Options, "prerequisites"));
 }
 
 // spec: Maintenance - Gates artifact copies without delaying generators that prepare analysis inputs

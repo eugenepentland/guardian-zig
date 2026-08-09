@@ -12,8 +12,8 @@
 //!
 //! 1. Every exit path — green, failing, cache-skipped — ends in one grep-stable
 //!    `run-all:` line, printed on the always-visible channel.
-//! 2. Blocking detail is replayed BEFORE advisory detail, so the reader reaches
-//!    a failure without wading through report-only output.
+//! 2. Default output groups a bounded sample beneath each blocking check;
+//!    `--verbose` restores the original blocking-first replay.
 //! 3. A non-blocking check whose findings all fall outside a diff-scoped run's
 //!    changed files collapses to a single counted line; the detail stays in
 //!    `.guardian/cache/last-run.jsonl` and returns under `--verbose`.
@@ -31,11 +31,11 @@ pub const verdict_prefix = "run-all: ";
 const cached_verdict = verdict_prefix ++
     "cached — 0 blocking (inputs unchanged since last green run)";
 
-/// How much of a run's output the caller asked for. `normal` is the default:
-/// full detail except what a diff-scoped run proves irrelevant. `summary`
-/// (`--summary`) prints the verdict plus blocking detail only — the mode an
-/// agent re-running the gate a dozen times per task actually reads. `verbose`
-/// (`--verbose`) restores every line, including the ones scoping would collapse.
+/// How much of a run's output the caller asked for. `summary` is the default:
+/// passing checks disappear, advisory checks collapse to counts, and blocking
+/// findings move into a compact per-check group. `normal` preserves the former
+/// scope-aware behavior for internal callers. `verbose` (`--verbose`) restores
+/// every captured line.
 pub const Verbosity = enum { summary, normal, verbose };
 
 /// How one check's captured output is replayed: in full, as a single counted
@@ -57,15 +57,15 @@ pub const Outcome = struct {
 
 /// How much of `o`'s check output to replay under verbosity `v`.
 ///
-/// A blocking failure is always shown in full: no verbosity setting and no
-/// scoping argument may hide the thing that fails the build. `--verbose` shows
-/// everything else in full too. Otherwise a check with findings collapses when
-/// the caller asked for a summary, or when a diff-scoped run proves none of
-/// those findings touch a changed file.
+/// `--verbose` shows everything in full. Summary mode suppresses a blocking
+/// check's raw capture because the runner prints its bounded group afterward;
+/// advisory checks collapse to counts and passes disappear. Normal mode keeps
+/// the historical scope-aware behavior.
 pub fn renderFor(v: Verbosity, o: Outcome) Render {
-    if (o.blocking or v == .verbose) return .full;
-    if (o.findings == 0) return if (v == .summary) .hidden else .full;
-    if (v == .summary) return .collapsed;
+    if (v == .verbose) return .full;
+    if (v == .summary) return if (o.findings == 0 or o.blocking) .hidden else .collapsed;
+    if (o.blocking) return .full;
+    if (o.findings == 0) return .full;
     return if (o.in_scope == 0) .collapsed else .full;
 }
 
@@ -282,16 +282,16 @@ test "renderFor collapses a non-blocking check whose findings miss the diff" {
     try testing.expectEqual(Render.full, renderFor(.normal, .{}));
 }
 
-// spec: Run Summary - Prints only the verdict and blocking detail in summary mode
+// spec: Run Summary - Uses concise grouped output by default
 
-test "summary mode hides passing checks and collapses advisory ones" {
+test "summary mode hides captured blocking output and collapses advisory checks" {
     // Passing checks vanish: the verdict line already says they passed.
     try testing.expectEqual(Render.hidden, renderFor(.summary, .{}));
     // Advisory findings shrink to their count, in scope or not.
     try testing.expectEqual(Render.collapsed, renderFor(.summary, .{ .findings = 5, .in_scope = 5 }));
     try testing.expectEqual(Render.collapsed, renderFor(.summary, .{ .findings = 5, .in_scope = 0 }));
-    // The one thing summary mode never touches is a blocking check's detail.
-    try testing.expectEqual(Render.full, renderFor(.summary, .{ .blocking = true, .findings = 1 }));
+    // Blocking output is rendered later as a bounded, grouped summary.
+    try testing.expectEqual(Render.hidden, renderFor(.summary, .{ .blocking = true, .findings = 1 }));
 }
 
 // spec: Run Summary - Keeps every check's full output under the verbose flag

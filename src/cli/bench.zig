@@ -53,10 +53,9 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     return error.CheckFailed;
 }
 
-/// Prints every recorded metric as one compact line. Called at the start of
-/// every `all` run so the numbers an agent already paid for are visible on
-/// every gate run; a missing ledger prints nothing and a corrupt one is
-/// reported without ever failing the run (the ledger is report-only).
+/// Summarizes the recorded ledger on a concise `all` run and prints every
+/// metric under `--verbose`. A missing ledger prints nothing and a corrupt one
+/// is reported without ever failing the run (the ledger is report-only).
 pub fn report(ctx: *types.RunCtx) Allocator.Error!void {
     const path = try ledgerPath(ctx);
     const records = benchmark.read(ctx.allocator, path) catch |e| switch (e) {
@@ -66,6 +65,13 @@ pub fn report(ctx: *types.RunCtx) Allocator.Error!void {
             return;
         },
     };
+    if (!ctx.verbose and records.len > 0) {
+        reporter.detail(
+            reporter.prefix ++ "bench: {d} recorded metric(s) — use --verbose for detail\n",
+            .{records.len},
+        );
+        return;
+    }
     for (records) |rec| {
         reporter.detail(reporter.prefix ++ "{s}\n", .{try benchmark.summaryLine(ctx.allocator, rec)});
     }
@@ -311,9 +317,9 @@ test "refuseRegression blocks a worsening gated metric and yields to an explaine
     try testing.expect(!try refuseRegression(&ctx, &recorded, ungated));
 }
 
-// spec: Benchmark Ledger - Surfaces every recorded metric on each gate run without blocking it
+// spec: Benchmark Ledger - Summarizes recorded metrics by default and expands them under verbose output
 
-test "report prints one line per recorded metric and tolerates a missing ledger" {
+test "report is concise by default and verbose on request" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -336,6 +342,12 @@ test "report prints one line per recorded metric and tolerates a missing ledger"
         .{ .name = "close_open_nets_wall_s", .value = 531, .unit = "s", .direction = .min, .note = "fixture B" },
     };
     try benchmark.write(a, try ledgerPath(&ctx), &records);
+    try report(&ctx);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "bench: 1 recorded metric(s)") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "fixture B") == null);
+
+    cap.buf.clearRetainingCapacity();
+    ctx.verbose = true;
     try report(&ctx);
     try testing.expect(std.mem.indexOf(u8, cap.buf.items, "bench close_open_nets_wall_s = 531 s (min,") != null);
     try testing.expect(std.mem.indexOf(u8, cap.buf.items, "fixture B") != null);
