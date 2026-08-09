@@ -4141,3 +4141,9 @@ held up through the gate without any cap raises.
   PCB layout page and led to extracting the new dropdown markup and styles into
   dedicated assets; `test-no-conditional` also caught a two-loop contract test
   before the whole-tree commit gate passed all 70 blocking checks.
+
+## 2026-08-09 · codex · eda — preserve RF bend radius through route finishing
+
+- **good:** diff-scoped focused runs and the whole-tree commit gate both passed
+  all 70 checks, while the full 2,297-test suite verified the transactional RF
+  finish guard against current main without requiring a Guardian ratchet change.
