@@ -4061,3 +4061,13 @@ held up through the gate without any cap raises.
   unlinked PCB performance contract, and both the diff-scoped suite and
   whole-tree commit gate then passed all 70 blocking checks without Guardian
   metadata changes.
+
+## 2026-08-09 · codex · eda — retained PCB keepout rendering
+
+- **bug:** the first `zig build test-compile` in another fresh EDA worktree
+  again raced generation of the four ignored `src/serve/templates/*.zig` files
+  against the WASM imports; the files appeared during the failed run and the
+  identical retry passed, costing one bootstrap attempt.
+- **good:** the new SPEC-linked browser contract, benchmark operation-count
+  threshold, full 2,284-test suite, and whole-tree commit gate all passed; all
+  70 blocking checks stayed green without baseline or Guardian metadata edits.
