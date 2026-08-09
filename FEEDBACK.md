@@ -4119,3 +4119,14 @@ held up through the gate without any cap raises.
   terminal resolution into `pad_exit.zig`; the whole-tree commit flow then
   auto-pruned that lowered baseline and passed all 70 blocking checks plus the
   full 2,292-test suite.
+
+## 2026-08-09 · codex · eda — mobile layouts across primary web pages
+
+- **bug:** the first focused build in a fresh worktree raced generation of the
+  four ignored `src/serve/templates/*.zig` files against WASM imports and
+  temporarily reported 49 false `pub-api-surface` violations alongside the
+  missing imports, costing one noisy bootstrap run.
+- **good:** the fail-closed test-filter runner exposed that `serve/pages.zig`
+  tests were indexed but not collected by the root test binary; adding the
+  direct test import raised the verified full suite from 2,292 to 2,295 tests,
+  and the whole-tree commit gate passed all 70 blocking checks unchanged.
