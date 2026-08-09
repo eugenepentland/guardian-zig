@@ -4071,3 +4071,14 @@ held up through the gate without any cap raises.
 - **good:** the new SPEC-linked browser contract, benchmark operation-count
   threshold, full 2,284-test suite, and whole-tree commit gate all passed; all
   70 blocking checks stayed green without baseline or Guardian metadata edits.
+
+## 2026-08-09 · codex · eda — mobile PCB inspection view
+
+- **bug:** the first focused `zig build test` in a fresh worktree again raced
+  generation of the four ignored `src/serve/templates/*.zig` files against
+  their WASM imports and also produced a transient false `pub-api-surface`
+  failure; the identical retry passed after generation, costing one failed run.
+- **good:** `file-size` caught growth past the frozen
+  `pcb_layout_page.zig` ceiling and cleanly guided the new mobile styles into
+  a dedicated CSS asset; after linking the exact SPEC contract, the focused and
+  full suites passed all 70 blocking checks with no baseline changes.
