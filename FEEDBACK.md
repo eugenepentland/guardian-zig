@@ -4176,3 +4176,16 @@ held up through the gate without any cap raises.
   324.6 seconds, linked the new outer-pour impedance behavior to its exact SPEC
   test, and automatically removed the now-satisfied completeness waiver before
   committing the three-file change.
+
+## 2026-08-09 · codex · eda — grounded-coplanar impedance and pour gap
+
+- **friction:** the first sandboxed full test run compiled and passed all 2,310
+  selected assertions, then an existing localhost HTTP endpoint test panicked on
+  `PermissionDenied`; rerunning outside the socket-restricted sandbox completed
+  cleanly, so the environment-only failure cost one full test invocation.
+- **good:** `file-size` blocked seven new lines in the already-frozen 10,002-line
+  optimizer and one line in the 10,092-line PCB page. Consolidating scalar
+  profile-rank bookkeeping brought the optimizer below 10,000 lines, and a
+  tighter serialization layout kept the page at its ceiling; the final
+  whole-tree gate passed all 70 checks and the release hook reused the exact
+  prepared commit for a health-checked deploy.
