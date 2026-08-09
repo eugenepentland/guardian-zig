@@ -4107,3 +4107,15 @@ held up through the gate without any cap raises.
   across two regression-test files before commit; after consolidating it, the
   whole-tree commit gate passed all 70 blocking checks without baseline or
   Guardian metadata changes.
+
+## 2026-08-09 · codex · eda — axis-aligned autorouter pad escapes
+
+- **bug:** the first ReleaseSafe benchmark build in a fresh A/B worktree again
+  raced generation of the four ignored `src/serve/templates/*.zig` files
+  against the WASM compile, producing four `FileNotFound` imports; the files
+  appeared during the failed run and the identical retry passed, costing one
+  failed baseline build.
+- **good:** the `file-size` ratchet caught the initial router growth and guided
+  terminal resolution into `pad_exit.zig`; the whole-tree commit flow then
+  auto-pruned that lowered baseline and passed all 70 blocking checks plus the
+  full 2,292-test suite.
