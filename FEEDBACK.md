@@ -4189,3 +4189,12 @@ held up through the gate without any cap raises.
   tighter serialization layout kept the page at its ceiling; the final
   whole-tree gate passed all 70 checks and the release hook reused the exact
   prepared commit for a health-checked deploy.
+
+## 2026-08-09 · codex · eda — seeded subcircuit copper and DRC-safe autorouting
+
+- **good:** After a concurrent `main` merge tightened the active ratchet,
+  `file-size` isolated the router's 31 new soundness-critical clearance-probe
+  lines; selective acceptance recorded exactly 10,199 → 10,230 and pruned the
+  optimizer's stale entry. The final whole-tree gate passed all 70 checks, and
+  the exact-commit release hook passed all 2,300 tests plus ReleaseSafe build in
+  a 343-second concurrent wall.
