@@ -4082,3 +4082,16 @@ held up through the gate without any cap raises.
   `pcb_layout_page.zig` ceiling and cleanly guided the new mobile styles into
   a dedicated CSS asset; after linking the exact SPEC contract, the focused and
   full suites passed all 70 blocking checks with no baseline changes.
+
+## 2026-08-09 · codex · eda — RF bend-radius selection and persisted-copper DRC
+
+- **bug:** the first focused `zig build test` in a fresh EDA worktree again
+  raced generation of the four ignored `src/serve/templates/*.zig` files
+  against their WASM imports, producing four `FileNotFound` errors and a
+  transient false `pub-api-surface` report; the retry passed after generation,
+  costing one bootstrap run.
+- **good:** the diff-scoped gate caught the missing SPEC link, a nesting-depth
+  regression in the radius-refinement search, and conditional test assertions
+  in the first iteration; after those were corrected, the whole-tree commit
+  gate passed all 70 blocking checks and the full suite in 296.1 seconds with
+  no Guardian metadata changes.
