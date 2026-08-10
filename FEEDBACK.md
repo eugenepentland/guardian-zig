@@ -4568,3 +4568,17 @@ let the suite run to completion and then fail the run naming the offenders.
 - **good:** `commit` timing was honest about where the time goes — `gate 2.6s ·
   tests 355.2s`. Knowing the gate itself is ~3 s made me stop batching
   "run the gate later" and just run it after every structural edit.
+
+## 2026-08-10 · codex · eda — differential-pair and copper-topology DRC
+
+- **good:** `bool-ops-per-condition` caught a new five-operator pour-entry
+  predicate in `fab_readiness.uniteUserZones` during a focused test run. One
+  helper extraction made the priority-clipped geometry readable, and the next
+  run passed all 70 checks; cost was one build iteration.
+- **good:** The public-API snapshot isolated the intended additions for the new
+  copper-topology oracle and pour-aware DRC entry points, while the final
+  whole-tree release gate stayed at 0 blockers before the 2,364-test run.
+- **friction:** The prebuilt Guardian source changed twice while the EDA task
+  was in progress, producing a stale-green warning and requiring a fresh gate.
+  The warning was accurate, but externally replacing the gate during a long
+  board-validation session makes otherwise unchanged results harder to compare.
