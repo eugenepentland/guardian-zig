@@ -4467,3 +4467,65 @@ held up through the gate without any cap raises.
   would have saved the round trip.
 - **good:** `scripts/gate.sh`'s machine-wide flock did its job — the gate
   queued instead of fighting the other sessions building on this box.
+
+## 2026-08-10 · claude · guardian-zig — slow-test guard in the test runner
+
+Added to `src/test_timing.zig` / `src/test_runner.zig`: an always-on `SLOW`
+warning line streamed the moment a test's own wall time reaches 5 s, plus two
+opt-in caps (`GUARDIAN_TEST_MAX_TEST_SECS`, `GUARDIAN_TEST_MAX_WALL_SECS`) that
+let the suite run to completion and then fail the run naming the offenders.
+
+- **bug:** `unsafe-ops-budget`'s `undefined_reassign` counter miscounts a
+  DOC-COMMENTED global declaration as a re-assignment. `StmtState.advance` in
+  `src/checks/unsafe_ops_budget.zig` decides `is_decl` from the first token of a
+  statement, and a `///` doc comment IS a token (`.doc_comment`) while a plain
+  `//` comment is not — so `/// text` immediately followed by
+  `var x: [N]T = undefined;` sets `is_decl = false` and the declaration-init
+  exemption never applies. Repro: add those two lines at file scope in any
+  non-test file; the check reports `undefined_reassign: 1 found, 0 budgeted`.
+  It cost one full gate cycle plus a bisect, because the finding carries no
+  file/line — `--verbose --full` prints only the totals line, so there is
+  nothing to grep for. Two fixes, both cheap: skip `.doc_comment` /
+  `.container_doc_comment` in `advance` (they are never the start of a
+  statement), and give the finding a file:line like every other check. I worked
+  around it by writing the comment as `//`, which is what the surrounding
+  globals block already did — meaning the check silently rewards the *less*
+  documented spelling.
+- **friction:** `[gate] test_command` is argv-split and executed with no shell
+  (`splitCommand` in `src/cli/commit.zig` says so in its doc comment, and
+  `spawnTests` passes the vector straight to `std.process.Child.run`). So the
+  natural way to set a variable for the gate's own test run —
+  `test_command = "GUARDIAN_TEST_MAX_WALL_SECS=120 zig build test"` — fails with
+  `commit: could not run tests (FileNotFound) — nothing committed`, which names
+  the errno but not the cause, and reads like a missing `zig`. The working
+  spelling is `env GUARDIAN_TEST_MAX_WALL_SECS=120 zig build test`. Wish: when
+  `argv[0]` contains an `=`, say so — "test_command is argv-split, not run
+  through a shell; prefix with `env` to set variables". I hit this while
+  answering exactly that question for eda, so a consumer will hit it too.
+- **friction (fixed in this change, flagging the class):** that `env …` spelling
+  then made `testTier` classify the command as `custom`, which prints the
+  "a green run here does NOT prove the whole test suite still compiles"
+  advisory on every single commit — a permanent false warning about a command
+  that is byte-for-byte the whole default suite. I taught `testTier` to strip a
+  leading `env NAME=VALUE …` prefix. The general lesson: the tier classifier
+  matches the command string, so any legitimate wrapper (`env`, `nice`,
+  `timeout`) reads as unclassifiable.
+- **good:** `guardian-check size src/cli/commit.zig .` answered "do I have
+  headroom to grow this file?" in one command, before writing anything —
+  608/1000 code lines, no ratchet ceiling. That is exactly the question an agent
+  has before touching a big file, and it is the only cheap way to ask it.
+- **good:** `pub-api-surface`'s delta line led with
+  `16 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept` and
+  the exact accept command. Adding 16 pub decls was a one-command, zero-thought
+  acceptance because the check had already done the risk classification.
+- **good:** the self-gate was otherwise silent — the whole change (2 source
+  files, SPEC.md, CLAUDE.md) passed 70 checks with only the two findings above,
+  gate 0.2 s and tests 2.6 s at commit.
+- **wish (cosmetic, std's build runner not Guardian):** when the runner exits
+  non-zero at the protocol's `.exit` message, `zig build` attributes it to
+  whichever test it last tracked — `error: while executing test
+  'config_value.test.strict config values …'` — even though every test passed
+  and the failure is the run-level cap. Harmless here because the
+  `guardian/test: FAILED:` lines print directly above it, but if Guardian ever
+  grows more run-level verdicts it is worth knowing the build system will
+  misname them.
