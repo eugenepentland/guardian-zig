@@ -302,7 +302,6 @@ good: JS-asset-only change (pcb_board.js); `guardian-check commit --intent` gate
 
 ## 2026-07-19 · codex · eda — bound Route Lab multi-terminal tree growth
 - **good:** The new exact SPEC/tag, allocator, complexity, and function-size ratchets all passed without metadata churn, and `guardian-check commit` staged exactly the four intended paths after the 1,312-test gate.
-- **wish:** The prior implementation passed the unit gate while a real Barracuda `RF1_VCO` request repeatedly admitted non-progressing tree branches until the server reached 40 GB RSS. A design-scale bounded-work check that asserts terminal connectivity grows monotonically, or that representative API requests finish below a memory/time ceiling, would catch this class before manual end-to-end routing.
 
 ## 2026-07-19 · codex · eda — assembly outside-board and Escape clearing
 - **good:** Two consecutive EDA gates passed the exact Web Server SPEC/tag contract and all project checks without Guardian metadata churn while the browser behavior was verified separately.
@@ -1660,7 +1659,6 @@ bullets with 10 tagged tests, plus registration edits in `mcp_tools.zig` /
 ## 2026-07-29 · claude · eda — route_pcb segfault: vendored httpz + UAF backports
 
 good: the gate handled a 13k-line vendored third-party tree (vendor/httpz) cleanly end-to-end — the src/-scoped file walk kept foreign code out of shape checks and baselines entirely, `commit` staged all 38 paths (the untracked vendor tree was pre-`git add`ed so the untracked-path secret/artifact skip couldn't drop it), and the green-run digest priced the commit-time gate at 1.4s + 10.4s tests after the full suite had just run.
-wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedResult)` with no assertion location; finding which `expect` fired took a re-run with std.debug.print. Capturing/echoing the failing test's stderr (or suggesting `zig build test -Dtest-filter=<name>` + direct binary run) in the gate output would save a cycle.
 
 ## 2026-07-29 · claude · eda — saved-layout pose-identity corruption fix
 
@@ -1905,7 +1903,6 @@ wish: a failing test under `zig build test` reports only `FAIL (TestUnexpectedRe
 - friction: `test-no-conditional`'s "more than one top-level loop" is right in principle but its message doesn't say *why* two loops are worse than one, so my first instinct was to hide the second loop in a helper (which would satisfy the check and defeat it). The real fix — merging the two loops into one multi-sequence `for (want, links.items, out.files[1..])`, which also made the test assert the two lists agree *pairwise* rather than separately — was better, but I only found it by re-reading `explain`. Suggest the finding text name it: "a second loop usually means two independent assertions that should be one".
 - friction (fifth data point on the same quiet spot): `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` again printed nothing about accepting the snapshot; `git status` was the only confirmation. Four previous sessions have now reported this.
 - good: gate 1.5 s on both commits. The tests step was 9.5 s on the first commit and 250 s on the second — same tree, same suite; the second run was a cold `.zig-cache` after `GUARDIAN_UPDATE_SNAPSHOT` re-ran the build. Worth knowing that a snapshot refresh can cost the next commit a cold test compile.
-- wish: `stack-escape` did **not** catch `return &[_]UnitPads{.{ .title = "", .pads = pads }};` — a slice of a function-local temporary holding runtime values. It compiled, passed every unit test (the arena kept the freed page mapped), and crashed only on the first real 200-part design, as a general-protection fault three frames away in `pin_roles.isSupplyFn`. The pattern is syntactically distinctive (`return &[_]T{…}` / `return &.{…}` where an element is not comptime-known) and is a classic Zig footgun; if `stack-escape` can be taught it, it would have turned a 20-minute stack-trace hunt into a compile-time finding.
 
 ## 2026-08-02 · claude · eda — kicad_sch vendor symbol passthrough (Phase 3)
 
@@ -2701,12 +2698,6 @@ in the same commit); nothing to fight.
   check is diff-scoped for blocking purposes, the report-only output could say
   which findings fall on lines the diff actually touched — e.g. "8 findings, 0
   on changed lines" — instead of listing them all as if new.
-- **wish:** `guardian.toml [[external]]` runs `node --check` on
-  `pcb_board.js` and `pcb_model_sprites.js` but not on the other browser assets
-  (`assembly_debug.js` here, ~1000 lines and embedded into Zig tests via
-  `@embedFile`). A syntax error in it compiles and tests fine and only fails in
-  the browser; I had to run `node --check` by hand. An `inputs`-globbed external
-  (`src/serve/assets/*.js`) would close that by default.
 
 ## 2026-08-04 · claude · eda — Tier-1 agent-loop fixes (route_experiment / diagnose_net / trials)
 - **good:** the three blocking checks fired on the *first* filtered run and each
@@ -3036,17 +3027,6 @@ in the same commit); nothing to fight.
   design constraint. I had tagged two different tests with one SPEC bullet;
   being forced to split it made me articulate the raster rule and the wiring as
   two separate claims, which is what they are.
-- **wish:** nothing in the gate caught the real defect in my first working
-  version — a **3x wall-time regression** (barracuda-base 97 s -> >480 s) from
-  eagerly computing a geometry midpoint in a hot inner loop. Every check was
-  green; only a hand-run `bench-route` A/B found it. The `.guardian/benchmarks.txt`
-  ledger already holds `barracuda_route_wall_s` and `barracuda_oneshot_wall_s`
-  ratchets, and they were *printed* during `guardian-check commit` — but purely
-  informationally, never measured against the tree being committed. A tier that
-  actually re-runs one cheap recorded benchmark on a changed hot path (even
-  opt-in, e.g. `bench_on_paths = ["src/placement/"]`) would have caught this
-  where 70 static checks could not. As it stands the benchmark ledger is a
-  display of history, not a gate.
 
 ## 2026-08-04 · claude · eda — 7-branch autorouter fix-wave integration
 - good: seven concurrent per-fix worktrees each gated with `guardian-check commit` independently, then merged; the counting test runner + diff-scoped run-all made each integration checkpoint cheap (test-compile 10s, filtered runs honest about selection counts).
@@ -3063,7 +3043,6 @@ in the same commit); nothing to fight.
 - **good:** `type-size` caught `topo_plan.Params` growing to 8 fields the moment I added two tuning knobs, and the "reduce, never accept" reflex made me put `background_frames` where it belongs (inside the `flow` sub-struct, next to `background_demand`) instead of on the flat bag. The check turned a lazy edit into a better-organised type in about 60 seconds. Same check ALSO stopped me adding an 11th field to `bench_route.BoardResult` (frozen at 10), which pushed the new `open[]` list onto the `Nets` sub-struct where it actually belongs beside `routed`/`total`. Two for two on real cohesion improvements.
 - **good:** `debug-print-ban` + `ban-time` are exactly the right pair for this workflow. The task was a perf investigation, so I deliberately instrumented `std.debug.print` + `std.time.nanoTimestamp` through three build/measure cycles; both checks stayed loudly red the whole time (listed on every `zig build`), which made "did I actually delete the scaffolding?" a zero-effort question at commit time rather than something to remember.
 - **friction:** a build failure was invisible because I piped `zig build -Doptimize=ReleaseSafe` through `grep -E "error|warning: "` — the ~40 report-only `guardian: warning: <file>: N code lines (recommended: 1000)` lines dominated the output, my grep matched them, and the ONE real `error: name shadows primitive 'i0'` scrolled past. I then ran a 12-minute benchmark against a stale binary before noticing the mtime hadn't moved. The file-size *warnings* are pure noise on a repo where 20 files are permanently over the recommendation and the ratchet is what's actually enforced; printing them once as a count (`guardian: file-size: 20 file(s) over recommendation, 0 over hard limit`) with the list behind `--verbose` would make build output greppable again.
-- **wish (repeat of the 2026-08-04 entry, now with a number):** this task's whole deliverable was a **37x wall-time reduction** (561 s -> 15 s of planner time on barracuda) and the gate had no opinion about it whatsoever — 70 checks green before and after. Every measurement came from hand-run `bench-route` + throwaway `std.debug.print` timers, and the numbers that justify the change live only in doc comments and a report. `.guardian/benchmarks.txt` already holds `barracuda_route_wall_s`; a tier that re-ran one recorded benchmark when a listed hot path changed would have turned "I believe this is faster" into a gated fact.
 - **wish:** `guardian-check commit` has no way to scope a commit to a path subset. I had two logically separate landings (a planner restructure and a bench-harness field) and the instruction I was working under preferred two commits, but the only way to split them was to `git stash` half the tree — which would have separated a new SPEC bullet from its tagged test and tripped the `spec` check mid-split. A `guardian-check commit --paths <a> <b>` that gates the whole tree but stages only those paths would make split commits safe.
 
 ## 2026-08-05 · claude-fable · eda — topology-planner orchestration (M0-M3a)
@@ -3551,14 +3530,6 @@ held up through the gate without any cap raises.
   export), printing "refresh with GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig
   build" under it would close the loop. Cost was ~11 min across two commits,
   almost all of it a re-run of the 5-min gated build.
-- friction: a failing test inside `zig build test` reports only
-  `failed: guardian/test: N test(s) selected by filter …` with no assertion
-  detail — the counting runner's banner appears to replace the failure message.
-  Running the cached test binary directly gave `FAIL (TestUnexpectedResult)` and
-  still no location, so I had to convert `testing.expect(x)` into
-  `testing.expectEqual([4]bool{…}, [4]bool{…})` purely to learn WHICH assertion
-  fired. Two extra 5-min build/run cycles. Passing the failing test's own
-  stderr through would have made that one cycle.
 - good: `zig build test-compile` (10 s) again earned its place — after moving
   `escalatePair`/`isPairMember` out of `router.zig` into `diff_couple.zig` and
   making five router internals `pub`, it type-checked the whole tree before I
@@ -3601,13 +3572,6 @@ held up through the gate without any cap raises.
   tighten. Consider auto-lowering shrinking ratchets on a green gate (or at
   least printing "file-size: router.zig improved 10333 -> 10227, run
   GUARDIAN_UPDATE_SNAPSHOT=file-size to lock it in").
-- friction: same failing-test-stderr gap as the previous entry. A test failed
-  with bare `FAIL (TestUnexpectedResult)` and no assertion detail through
-  `zig build test`, and running the cached test binary directly
-  (`./.zig-cache/o/<hash>/test --guardian-filter=…`) printed nothing more. I had
-  to add a temporary `std.debug.print` and pay another build cycle to learn the
-  failing assertion was a non-vacuity `tracks.len > 5` against an actual 4.
-  Surfacing the failing expectation's own message would have saved ~5 min.
 - good: `-Dtest-filter` + the counting runner made the inner loop cheap and
   honest — every filtered run printed "N test(s) selected by filter … M match by
   name", so I could see my new tests were actually being run rather than
@@ -3708,14 +3672,6 @@ held up through the gate without any cap raises.
   offered for crossing a hard limit, which is the one case where accepting is
   probably the wrong move. Suggest the hard-limit case lead with "reduce" and
   mention accept second.
-- **wish:** guardian caught a genuine dangling-pointer bug for me only
-  indirectly — I wrote `const groups = &[_]Group{.{ .tolerance_mm = tol, … }};`
-  in a test helper taking a *runtime* `tol`, which makes the array a stack
-  temporary, and returned a struct pointing at it. Three tests failed with
-  nonsense values rather than a crash. There is a `stack-escape` check in the
-  baseline list; it did not fire here. The signature is narrow and mechanical:
-  `&[_]T{…}` with any non-comptime field, whose address outlives the function.
-  Worth a look — this idiom is everywhere in Zig test fixtures and fails silently.
 
 ## 2026-08-06 · Claude (Opus 5) · eda — router lane reservations + close_open_nets rung adoption
 
@@ -4221,12 +4177,6 @@ held up through the gate without any cap raises.
 
 ## 2026-08-10 · codex · eda — legacy KiCad sync compatibility cleanup
 
-- **bug:** `guardian-check accept completeness .` previewed the single expected
-  new `serve/sync` concurrent-access debt line, wrote it, then reported the
-  completeness check failed with zero structured findings and restored the
-  baseline. Running the same check after adding that exact previewed line made
-  `guardian-check completeness . --verbose` pass with "baseline matches"; the
-  accept/verify rollback cost two retries and required a reviewed manual append.
 - **good:** selective `change-classification` acceptance and the final
   whole-tree run behaved cleanly; all 70 checks passed before the exact-commit
   release hook ran 2,313 tests and the ReleaseSafe build concurrently.
@@ -4270,3 +4220,8 @@ held up through the gate without any cap raises.
   that rejected Guardian's already-existing `[[ban]]` table as an unknown
   section. A ReleaseSafe install plus the hook's documented `GUARDIAN_CHECK`
   override fixed it, but stale config-parser selection cost one commit attempt.
+
+## 2026-08-10 · codex · guardian-zig — resolved feedback pruning
+
+- **good:** Pruning ten feedback items resolved by the priority-fix release was
+  a documentation-only change, and the whole-tree self-gate passed all 70 checks.
