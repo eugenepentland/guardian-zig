@@ -4218,3 +4218,15 @@ held up through the gate without any cap raises.
 - **friction:** the first sandboxed `zig build test` could not create Zig's
   compiler cache (`manifest_create Unexpected`), so the otherwise-valid gate
   needed one permission-enabled retry before compilation could begin.
+
+## 2026-08-10 · codex · eda — legacy KiCad sync compatibility cleanup
+
+- **bug:** `guardian-check accept completeness .` previewed the single expected
+  new `serve/sync` concurrent-access debt line, wrote it, then reported the
+  completeness check failed with zero structured findings and restored the
+  baseline. Running the same check after adding that exact previewed line made
+  `guardian-check completeness . --verbose` pass with "baseline matches"; the
+  accept/verify rollback cost two retries and required a reviewed manual append.
+- **good:** selective `change-classification` acceptance and the final
+  whole-tree run behaved cleanly; all 70 checks passed before the exact-commit
+  release hook ran 2,313 tests and the ReleaseSafe build concurrently.
