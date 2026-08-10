@@ -4303,3 +4303,19 @@ held up through the gate without any cap raises.
   and failed instead of exiting green — which is how I discovered that
   `src/serve/style_score.zig` was never imported by `src/main.zig`'s test
   block, so its six existing tests had never run at all.
+
+## 2026-08-10 · codex · eda — Barracuda control-bus autorouter endgame
+
+- **friction:** `file-size` reported `router.zig` growing 10230 → 10332 code
+  lines and recommended a cohesive split. I moved four existing public-seam
+  regression tests (roughly 230 physical lines) into two rooted test modules,
+  but the measured file fell only to 10296 because test bodies do not count
+  toward this metric; only their file-scope helpers did. That exclusion is not
+  stated in the finding, and existing EDA test-module comments claim moving
+  tests helps the hard cap, so the attempted remediation cost an edit/compile
+  cycle without materially clearing the ratchet.
+- **good:** After the reviewed file-size refresh, inherited stack-escape
+  baseline, and four deny-growth completeness waivers were resolved, the
+  exact-commit release flow ran all 70 whole-tree checks with zero blockers,
+  then completed the full tests and ReleaseSafe build concurrently and
+  published the verified candidate for commit `bd786b2`.
