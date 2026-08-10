@@ -4256,3 +4256,17 @@ held up through the gate without any cap raises.
 - **good:** The final whole-tree gate passed all 70 checks, and
   `prepare-release.sh` ran the full tests and ReleaseSafe build concurrently in
   336 seconds before the exact verified candidate deployed with healthy probes.
+
+## 2026-08-10 · codex · guardian-zig — priority feedback fixes
+
+- **good:** Guardian's self-gate caught a false positive introduced while
+  expanding `stack-escape`: a test fixture returned nested constant composite
+  aliases that Zig can promote to static storage, but the first implementation
+  classified every non-comptime local name as runtime. Refining const dataflow
+  cleared the finding while retaining the two new runtime-temporary regressions;
+  the final whole-tree gate passed all 70 checks and all 861 tests passed.
+- **friction:** The first `git commit` failed before writing a commit because
+  the shared pre-commit hook selected a stale installed/baked `guardian-check`
+  that rejected Guardian's already-existing `[[ban]]` table as an unknown
+  section. A ReleaseSafe install plus the hook's documented `GUARDIAN_CHECK`
+  override fixed it, but stale config-parser selection cost one commit attempt.
