@@ -4582,3 +4582,33 @@ let the suite run to completion and then fail the run naming the offenders.
   was in progress, producing a stale-green warning and requiring a fresh gate.
   The warning was accurate, but externally replacing the gate during a long
   board-validation session makes otherwise unchanged results harder to compare.
+
+## 2026-08-10 · claude · eda — tree-keyed release-candidate reuse
+
+- **good:** `guardian-check commit --intent "..." .` was the whole commit flow
+  for a change spanning a shell script, `SPEC.md`, `CLAUDE.md` and
+  `src/test_root.zig`, and it staged exactly those paths plus `.guardian/`.
+  Two runs, both green first try: `gate 2.7s · tests 330.1s` and
+  `gate 2.7s · tests 332.1s` (5 m 33 s / 5 m 35 s wall each). The gate itself
+  being ~3 s is what makes it reasonable to run per commit rather than batch.
+- **good:** `deny_growth = ["spec", "completeness"]` did its job on a change
+  whose "tests" are structural assertions over a *shell script*'s text. Three
+  new SPEC bullets forced three `// spec:` tagged tests in the same commit, and
+  writing them made me assert marker ORDER (adoption must sit after the
+  exact-commit early-exit and before the Guardian-gate line) rather than mere
+  presence — a stronger test than I would have written unprompted.
+- **friction (~2 min, self-inflicted but avoidable):** the counting test runner
+  prints `N test(s) selected by filter: ... — 3 match by name, 15 unnamed test
+  block(s) run regardless`. Excellent line. What bit me is one tier up: `zig
+  build test -Dtest-filter=…` failed the *formatting* check (a line `zig fmt`
+  wanted rewrapped) before any test ran, so the filtered loop cost a full
+  21 s round trip to learn about whitespace. A `--fix`-style hint in the
+  failure ("run `zig fmt <file>`" is printed by guardian's accept text, but the
+  build-side `zig fmt --check failure` above it is bare) would have been one
+  line cheaper to act on.
+- **wish:** a `guardian-check commit --dry-run`-ish tier that runs the gate and
+  the FORMAT check only, skipping the test wall, for changes whose tests are
+  known-cheap. On this task the two 5.5-minute commits were ~660 s of test wall
+  to protect ~140 lines of shell + assertions that run in 0.00 s. `test-compile`
+  covers the type-check half but not the "will the gate let me commit" half, so
+  I still paid the full suite twice to land two commits.
