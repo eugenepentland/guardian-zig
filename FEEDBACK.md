@@ -4239,3 +4239,23 @@ held up through the gate without any cap raises.
   recorded-green Guardian reports zero blockers on the same feature tree. This
   version drift cost two gate runs, required a documented `--no-verify` feature
   commit, and prevented the verified renderer fix from being merged or deployed.
+
+## 2026-08-10 · claude · eda — build/test speed audit
+
+- **good:** The `bench` ledger (`test_full_wall_s`, `test_compile_wall_s`)
+  gave the audit trustworthy 2026-08-04 baselines to diff against — the
+  suite's run-time regression since then was only visible because those
+  numbers existed.
+- **wish:** Per-test timing in the counting test runner. The eda suite's run
+  wall grew from ~10 s to minutes in one week (382 tests added) and there is
+  no way to name the slow tests short of hand-instrumenting: a
+  `GUARDIAN_TEST_TIMINGS=1` (or always-on top-10-slowest report after the
+  count line) would have answered it in one run.
+- **wish:** `guardian.testRunner`/`announceFilters` could pin or strip the
+  `--seed=0x…` argument Zig's `enableTestRunnerMode` injects into the test
+  run step. The seed is random per `zig build` invocation and hashed into the
+  run-step cache manifest, so an UNCHANGED tree re-runs the entire suite
+  every `zig build test` — on eda today that is ~4 min of pure waste per
+  no-op gate, verified 3.2 s with `--seed` pinned. Guardian's helper already
+  owns the run step and is the natural place to make test runs
+  cache-honest.
