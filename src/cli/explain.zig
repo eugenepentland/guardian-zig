@@ -664,8 +664,11 @@ const entries = [_]Entry{
     .{ .name = "external-gates", .text = "Why: Zig projects often ship JavaScript, generated assets, schemas, or\n" ++
         "other files Guardian cannot understand natively; those checks still need\n" ++
         "to participate in the same cached, hard-blocking build contract.\n" ++
-        "Fix: add `[[external]]` with a name, argv-style command array, and exact\n" ++
-        "input file paths. Guardian runs it without a shell from the project root.\n" ++
+        "Fix: add `[[external]]` with a name, argv-style command array, and exact or\n" ++
+        "`*`-globbed input paths. An exact `{input}` argv token runs once per matched\n" ++
+        "file. Guardian performs no shell interpolation and runs from the project root.\n" ++
+        "For an expensive gate, `paths` scopes it to changed hot paths; `benchmark` +\n" ++
+        "`max_regression_pct`, `timeout_secs`, and `max_rss_mib` enforce resource budgets.\n" ++
         "Exempt: remove the entry or set `external-gates` to report-only in [policy]." },
     .{
         .name = "policy-drift",

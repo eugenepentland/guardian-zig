@@ -190,6 +190,7 @@ zero-match filter is evidence of nothing. Wire it in two lines:
 
 ```zig
 const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
+guardian.enableTestDiagnostics(test_mod);              // keep assertion source lines in ReleaseSafe
 const unit_tests = b.addTest(.{
     .root_module = test_mod,
     .filters = filters,
@@ -215,6 +216,12 @@ and fails. The runner runs in `.server` mode, so the build system keeps its own
 progress display, per-test failure attribution, and `--fuzz` support. Set
 `GUARDIAN_TEST_ALLOW_EMPTY=1` for the one legitimate empty case — a project that
 genuinely has no tests yet.
+
+`enableTestDiagnostics` sets Zig's error-return tracing on the test module. It
+is what keeps the assertion source location behind a plain `testing.expect`
+when tests use ReleaseSafe/ReleaseFast; without it the compiler discards that
+trace and no runner can reconstruct the missing call site. Calling
+`addTestCompileProbe` with the same module enables this automatically.
 
 **2. `guardian.addTestCompileProbe(b, …)` — the compile-only middle tier.**
 Between "filtered run" (seconds, proves little) and "the gate" (minutes) sits the
@@ -1118,6 +1125,21 @@ name = "browser-smoke"
 command = ["node", "tools/browser-smoke.mjs"]
 inputs = ["tools/browser-smoke.mjs", "src/serve/assets/app.js", "src/serve/assets/app.css"]
 
+# Expensive performance gates can run only when a hot path changes. This one
+# compares elapsed seconds with a positive, min-direction record named
+# barracuda_route_wall_s in .guardian/benchmarks.txt. The tighter of the
+# benchmark + headroom and timeout_secs stops the process group; peak RSS is
+# checked after the command. Omit all five fields for an ordinary external gate.
+[[external]]
+name = "barracuda-route-budget"
+command = ["zig-out/bin/netlisp", "bench-route", "barracuda"]
+inputs = ["projects/designs/barracuda.netlisp"]
+paths = ["src/placement/*", "src/route/*"]
+benchmark = "barracuda_route_wall_s"
+max_regression_pct = 25
+timeout_secs = 180
+max_rss_mib = 4096
+
 [[boundary]]
 module = "src/core/*"
 forbidden = ["utils"]
@@ -1244,7 +1266,7 @@ arrays may span lines and include comments and trailing commas.
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
-| `[[external]]` | `name`, `command`, `inputs` |
+| `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
 | `[policy]` | `profile`, `block`, `ratchet`, `report`, `lock_enabled`, `lock_against`, `protected_paths` |

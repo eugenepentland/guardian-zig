@@ -177,6 +177,7 @@ spec_init_step.dependOn(&spec_init_run.step);
 // 1. The counting runner: prints `guardian/test: N test(s) selected` and
 //    fails a run that selected none (GUARDIAN_TEST_ALLOW_EMPTY=1 opts out).
 const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
+guardian.enableTestDiagnostics(test_mod); // retained assertion locations in optimized test builds
 const unit_tests = b.addTest(.{
     .root_module = test_mod,
     .filters = filters,

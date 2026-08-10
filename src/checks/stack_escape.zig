@@ -1,7 +1,8 @@
-//! stack-escape check: reject returning the address of a stack local — `&local`,
-//! a slice of a stack array, `&local.field`, or a const alias bound to such an
-//! address — i.e. a dangling pointer. Addresses derived from parameters,
-//! function-call results, comptime locals, or already-pointer locals are safe.
+//! stack-escape check: reject returning the address of stack storage — `&local`,
+//! a slice of a stack array, `&local.field`, a const alias bound to such an
+//! address, or a runtime-valued temporary composite such as `&[_]T{runtime}` —
+//! i.e. a dangling pointer. Addresses derived from parameters, function-call
+//! results, comptime locals, or already-pointer locals are safe.
 
 const std = @import("std");
 const Ast = std.zig.Ast;
@@ -41,7 +42,12 @@ const Local = struct {
     /// For a `const p = &other_local;` alias: the name of the referenced local,
     /// so `return p;` can be traced back one hop. Null for ordinary locals.
     alias_of: ?[]const u8,
+    /// `const p = &[_]T{runtime_value};` — the pointer itself is local and its
+    /// pointee is a temporary composite whose storage dies with this frame.
+    temporary_address: bool,
 };
+
+const temporary_subject = "runtime-valued temporary composite";
 
 /// One flagged return: enough to render the violation message.
 const Escape = struct {
@@ -123,14 +129,15 @@ fn scanFn(
     // their spans so we can skip anything that belongs to them.
     const frame: Frame = .{ .tree = tree, .span = span, .nested = try nestedFnSpans(arena, tree, fn_decl, span) };
 
-    const locals = try collectLocals(arena, frame);
+    const runtime_names = try collectRuntimeNames(arena, frame, fn_decl);
+    const locals = try collectLocals(arena, frame, runtime_names);
     var escapes: std.ArrayList(Escape) = .empty;
-    try collectEscapes(arena, frame, locals, fn_name, &escapes);
+    try collectEscapes(arena, frame, locals, runtime_names, fn_name, &escapes);
 
     for (escapes.items) |e| {
         const msg = try std.fmt.allocPrint(
             sink.alloc,
-            "{s}:{d}: fn {s}: returns address of stack local '{s}' — " ++
+            "{s}:{d}: fn {s}: returns address backed by stack storage '{s}' — " ++
                 "memory is invalid after return; allocate it or have the caller pass a buffer",
             .{ sink.rel_path, e.line, e.fn_name, e.var_name },
         );
@@ -190,7 +197,11 @@ fn nestedFnSpans(
 }
 
 /// Every stack-local declaration statement directly in this frame.
-fn collectLocals(arena: Allocator, frame: Frame) Allocator.Error![]const Local {
+fn collectLocals(
+    arena: Allocator,
+    frame: Frame,
+    runtime_names: []const []const u8,
+) Allocator.Error![]const Local {
     const tree = frame.tree;
     var locals: std.ArrayList(Local) = .empty;
     var i: u32 = 0;
@@ -203,16 +214,22 @@ fn collectLocals(arena: Allocator, frame: Frame) Allocator.Error![]const Local {
 
         const name = tree.tokenSlice(var_decl.ast.mut_token + 1);
 
-        // A local typed as a pointer/slice holds an address whose pointee may be
-        // heap — returning it is never a certain escape.
+        const init_node = var_decl.ast.init_node.unwrap();
+        const temporary_address = if (init_node) |n|
+            addressOfRuntimeComposite(tree, n, runtime_names)
+        else
+            false;
+
+        // A local typed as a pointer/slice normally holds an address whose
+        // pointee may be heap. The exception is a pointer Guardian can prove was
+        // just made from a runtime-valued temporary composite in this frame.
         const type_kind = typeKind(tree, var_decl.ast.type_node);
-        if (type_kind == .pointer_or_slice) continue;
+        if (type_kind == .pointer_or_slice and !temporary_address) continue;
 
         // If the initializer involves any call, the value may be heap memory —
         // stay silent (allocator.alloc / dupe / toOwnedSlice / a factory fn).
-        const init_node = var_decl.ast.init_node.unwrap();
         if (init_node) |n| {
-            if (exprContainsCall(tree, n)) continue;
+            if (!temporary_address and exprContainsCall(tree, n)) continue;
         }
 
         // Alias: `const p = &local;` binds p to a local's address.
@@ -221,9 +238,68 @@ fn collectLocals(arena: Allocator, frame: Frame) Allocator.Error![]const Local {
         const is_array = type_kind == .array or
             (init_node != null and initIsArrayLiteral(tree, init_node.?));
 
-        try locals.append(arena, .{ .name = name, .is_array = is_array, .alias_of = alias_of });
+        try locals.append(arena, .{
+            .name = name,
+            .is_array = is_array,
+            .alias_of = alias_of,
+            .temporary_address = temporary_address,
+        });
     }
     return locals.toOwnedSlice(arena);
+}
+
+/// Runtime parameter and local names in this function frame. A composite
+/// literal that refers to one of these cannot be promoted to static storage.
+/// Mutable locals are always runtime; a const local is runtime only when its
+/// initializer calls code or refers to a runtime name. This distinction keeps
+/// aliases of constant composite literals eligible for static promotion.
+fn collectRuntimeNames(
+    arena: Allocator,
+    frame: Frame,
+    fn_decl: Ast.Node.Index,
+) Allocator.Error![]const []const u8 {
+    const tree = frame.tree;
+    var names: std.ArrayList([]const u8) = .empty;
+
+    var proto_buf: [1]Ast.Node.Index = undefined;
+    var proto = tree.fullFnProto(&proto_buf, fn_decl) orelse return &.{};
+    var params = proto.iterate(tree);
+    while (params.next()) |param| {
+        const name_tok = param.name_token orelse continue;
+        if (param.comptime_noalias) |tok| {
+            if (tree.tokenTag(tok) == .keyword_comptime) continue;
+        }
+        try names.append(arena, tree.tokenSlice(name_tok));
+    }
+
+    var i: u32 = 0;
+    const count: u32 = @intCast(tree.nodes.len);
+    while (i < count) : (i += 1) {
+        const node: Ast.Node.Index = @enumFromInt(i);
+        const var_decl = tree.fullVarDecl(node) orelse continue;
+        if (!frameOwns(frame, node) or var_decl.comptime_token != null) continue;
+        const mutable = tree.tokenTag(var_decl.ast.mut_token) == .keyword_var;
+        const init = var_decl.ast.init_node.unwrap();
+        if (!mutable) {
+            const value = init orelse continue;
+            if (!exprIsRuntime(tree, value, names.items)) continue;
+        }
+        try names.append(arena, tree.tokenSlice(var_decl.ast.mut_token + 1));
+    }
+    return names.toOwnedSlice(arena);
+}
+
+fn exprIsRuntime(tree: *const Ast, expr: Ast.Node.Index, runtime_names: []const []const u8) bool {
+    if (exprContainsCall(tree, expr)) return true;
+    const span = nodeSpan(tree, expr);
+    var i: u32 = 0;
+    const count: u32 = @intCast(tree.nodes.len);
+    while (i < count) : (i += 1) {
+        const node: Ast.Node.Index = @enumFromInt(i);
+        if (tree.nodeTag(node) != .identifier or !nodeInSpan(tree, span, node)) continue;
+        if (nameInList(runtime_names, tree.tokenSlice(tree.nodeMainToken(node)))) return true;
+    }
+    return false;
 }
 
 /// True when `node` sits in this frame's body and not inside a nested fn.
@@ -237,6 +313,7 @@ fn collectEscapes(
     arena: Allocator,
     frame: Frame,
     locals: []const Local,
+    runtime_names: []const []const u8,
     fn_name: []const u8,
     out: *std.ArrayList(Escape),
 ) Allocator.Error!void {
@@ -249,7 +326,7 @@ fn collectEscapes(
         if (!frameOwns(frame, node)) continue;
 
         const ret_expr = tree.nodeData(node).opt_node.unwrap() orelse continue;
-        const escaped = escapedLocal(tree, ret_expr, locals) orelse continue;
+        const escaped = escapedLocal(tree, ret_expr, locals, runtime_names) orelse continue;
         try out.append(arena, .{
             .line = tokenLine(tree, tree.nodeMainToken(node)),
             .fn_name = fn_name,
@@ -261,19 +338,38 @@ fn collectEscapes(
 /// Classifies a returned expression and, when it is a certain stack-local
 /// address, returns the offending local's name. Null when nothing escapes.
 /// Each case is a small helper so this dispatcher stays under the returns cap.
-fn escapedLocal(tree: *const Ast, expr: Ast.Node.Index, locals: []const Local) ?[]const u8 {
+fn escapedLocal(
+    tree: *const Ast,
+    expr: Ast.Node.Index,
+    locals: []const Local,
+    runtime_names: []const []const u8,
+) ?[]const u8 {
     return switch (tree.nodeTag(expr)) {
-        .address_of => escapedByAddressOf(tree, expr, locals),
+        .address_of => escapedByAddressOf(tree, expr, locals, runtime_names),
         .slice_open, .slice, .slice_sentinel => escapedBySlice(tree, expr, locals),
         .identifier => escapedByAlias(tree, expr, locals),
-        else => null,
+        .@"try", .@"nosuspend", .grouped_expression => if (firstChildNode(tree, expr)) |child|
+            escapedLocal(tree, child, locals, runtime_names)
+        else
+            null,
+        else => escapedFromComposite(tree, expr, locals, runtime_names),
     };
 }
 
-/// `return &x` / `return &x.field` — escapes when the root is a stack local.
-fn escapedByAddressOf(tree: *const Ast, expr: Ast.Node.Index, locals: []const Local) ?[]const u8 {
-    const base = baseIdentName(tree, tree.nodeData(expr).node) orelse return null;
-    return if (findLocal(locals, base) != null) base else null;
+/// `return &x` / `return &x.field` escapes when the root is a stack local.
+/// `return &[_]T{runtime}` escapes because the runtime value prevents the
+/// literal from living in static storage.
+fn escapedByAddressOf(
+    tree: *const Ast,
+    expr: Ast.Node.Index,
+    locals: []const Local,
+    runtime_names: []const []const u8,
+) ?[]const u8 {
+    const child = tree.nodeData(expr).node;
+    if (baseIdentName(tree, child)) |base| {
+        if (findLocal(locals, base) != null) return base;
+    }
+    return if (runtimeComposite(tree, child, runtime_names)) temporary_subject else null;
 }
 
 /// `return x[a..]` / `return x[a..b]` — escapes only when `x` is directly an
@@ -291,8 +387,74 @@ fn escapedBySlice(tree: *const Ast, expr: Ast.Node.Index, locals: []const Local)
 fn escapedByAlias(tree: *const Ast, expr: Ast.Node.Index, locals: []const Local) ?[]const u8 {
     const name = tree.tokenSlice(tree.nodeMainToken(expr));
     const loc = findLocal(locals, name) orelse return null;
+    if (loc.temporary_address) return name;
     const target = loc.alias_of orelse return null;
     return if (findLocal(locals, target) != null) target else null;
+}
+
+/// A returned struct/array value may retain a pointer to temporary stack
+/// storage in one of its fields. Follow only composite elements and the narrow
+/// escape forms above; arbitrary calls and operators remain outside this
+/// zero-false-positive check.
+fn escapedFromComposite(
+    tree: *const Ast,
+    expr: Ast.Node.Index,
+    locals: []const Local,
+    runtime_names: []const []const u8,
+) ?[]const u8 {
+    var buf: [2]Ast.Node.Index = undefined;
+    if (tree.fullStructInit(&buf, expr)) |init| {
+        for (init.ast.fields) |field| {
+            if (escapedLocal(tree, field, locals, runtime_names)) |name| return name;
+        }
+        return null;
+    }
+    if (tree.fullArrayInit(&buf, expr)) |init| {
+        for (init.ast.elements) |element| {
+            if (escapedLocal(tree, element, locals, runtime_names)) |name| return name;
+        }
+    }
+    return null;
+}
+
+/// True for `&<composite>` when that composite contains a reference to a
+/// runtime parameter/local in this frame.
+fn addressOfRuntimeComposite(
+    tree: *const Ast,
+    expr: Ast.Node.Index,
+    runtime_names: []const []const u8,
+) bool {
+    var cur = expr;
+    while (tree.nodeTag(cur) == .grouped_expression) {
+        cur = tree.nodeData(cur).node_and_token[0];
+    }
+    if (tree.nodeTag(cur) != .address_of) return false;
+    return runtimeComposite(tree, tree.nodeData(cur).node, runtime_names);
+}
+
+fn runtimeComposite(
+    tree: *const Ast,
+    expr: Ast.Node.Index,
+    runtime_names: []const []const u8,
+) bool {
+    var buf: [2]Ast.Node.Index = undefined;
+    if (tree.fullArrayInit(&buf, expr) == null and tree.fullStructInit(&buf, expr) == null) return false;
+    const span = nodeSpan(tree, expr);
+    var i: u32 = 0;
+    const count: u32 = @intCast(tree.nodes.len);
+    while (i < count) : (i += 1) {
+        const node: Ast.Node.Index = @enumFromInt(i);
+        if (tree.nodeTag(node) != .identifier or !nodeInSpan(tree, span, node)) continue;
+        if (nameInList(runtime_names, tree.tokenSlice(tree.nodeMainToken(node)))) return true;
+    }
+    return false;
+}
+
+fn nameInList(names: []const []const u8, name: []const u8) bool {
+    for (names) |candidate| {
+        if (std.mem.eql(u8, candidate, name)) return true;
+    }
+    return false;
 }
 
 fn findLocal(locals: []const Local, name: []const u8) ?Local {
@@ -557,6 +719,50 @@ test "flags returning a const alias of a stack local address" {
         \\    var x: i32 = 0;
         \\    const p = &x;
         \\    return p;
+        \\}
+    ));
+}
+
+// spec: Stack Escape - Flags returning the address of a runtime-valued temporary composite
+test "flags a returned runtime-valued temporary composite" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try testing.expectEqual(@as(usize, 1), try countFlags(a,
+        \\pub fn f(pads: []const u8) []const UnitPads {
+        \\    return &[_]UnitPads{.{ .title = "", .pads = pads }};
+        \\}
+    ));
+    try testing.expectEqual(@as(usize, 0), try countFlags(a,
+        \\pub fn static() []const u8 {
+        \\    return &[_]u8{ 1, 2, 3 };
+        \\}
+    ));
+    // Const aliases whose initializers are themselves fully constant remain
+    // promotable; merely naming them in an outer literal does not make it
+    // runtime-valued.
+    try testing.expectEqual(@as(usize, 0), try countFlags(a,
+        \\pub fn nestedStatic() []const Section {
+        \\    const items = &[_]Item{.{ .name = "constant" }};
+        \\    return &[_]Section{.{ .items = items }};
+        \\}
+    ));
+}
+
+// spec: Stack Escape - Flags a returned composite retaining a runtime-valued temporary pointer
+test "flags a returned struct retaining a temporary pointer" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try testing.expectEqual(@as(usize, 1), try countFlags(a,
+        \\pub fn f(tol: f64) Result {
+        \\    const groups = &[_]Group{.{ .tolerance_mm = tol }};
+        \\    return .{ .groups = groups };
+        \\}
+    ));
+    try testing.expectEqual(@as(usize, 1), try countFlags(a,
+        \\pub fn direct(tol: f64) Result {
+        \\    return .{ .groups = &[_]Group{.{ .tolerance_mm = tol }} };
         \\}
     ));
 }

@@ -77,6 +77,10 @@ const max_stored_filters = 16;
 /// Filters quoted individually before the report summarizes the rest.
 const max_named_filters = 3;
 
+const missing_error_trace =
+    "guardian/test: assertion location unavailable because this optimized test module disabled error-return tracing\n" ++
+    "guardian/test: fix: call guardian.enableTestDiagnostics(test_mod), or use guardian.addTestCompileProbe with that module\n";
+
 // Process-lifetime state. A test runner is an entry point: the log counter, the
 // argv arena, the protocol buffers, and the fuzz flag are all singletons of the
 // process, exactly as they are in the stock runner (see the ban-globals
@@ -384,7 +388,7 @@ fn serveOneTest(server: *std.zig.Server, index: u32) !void {
         error.SkipZigTest => skip = true,
         else => {
             fail = true;
-            if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+            dumpFailureTrace();
         },
     };
     const leak = testing.allocator_instance.deinit() == .leak;
@@ -477,10 +481,22 @@ fn runOneTest(test_fn: std.builtin.TestFn, index: usize, tally: *Tally) void {
             test_fn.name,
             @errorName(err),
         }) catch "");
-        if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+        dumpFailureTrace();
         return;
     };
     tally.ok += 1;
+}
+
+/// Prints the assertion's error-return trace, or an actionable explanation for
+/// optimized consumer test modules that compiled tracing out. The latter used
+/// to leave only `FAIL (TestUnexpectedResult)`, with no source location and no
+/// indication that the build configuration had discarded it.
+fn dumpFailureTrace() void {
+    if (@errorReturnTrace()) |trace| {
+        std.debug.dumpStackTrace(trace.*);
+        return;
+    }
+    writeErr(missing_error_trace);
 }
 
 /// Prints the closing counts, matching the stock runner's wording.
@@ -602,6 +618,12 @@ test "the pre-run report states how many tests were selected" {
     const rendered = report(&buf, .{ .count = 412 }, false);
     try testing.expectEqualStrings("guardian/test: 412 test(s) selected\n", rendered.text);
     try testing.expect(!rendered.fatal);
+}
+
+// spec: Test Runner - Explains how to restore assertion locations when an optimized test module disables error tracing
+test "missing error trace diagnostic names the build-helper fix" {
+    try testing.expect(std.mem.indexOf(u8, missing_error_trace, "assertion location unavailable") != null);
+    try testing.expect(std.mem.indexOf(u8, missing_error_trace, "enableTestDiagnostics") != null);
 }
 
 // spec: Test Runner - Names the filters that selected the tests and summarizes any beyond the first few

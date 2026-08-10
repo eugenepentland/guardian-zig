@@ -30,6 +30,7 @@ const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
+const external_inputs = @import("../external_inputs.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -139,7 +140,7 @@ fn isGateInput(path: []const u8, spec_file: []const u8, externals: []const confi
     if (std.mem.startsWith(u8, path, "src/") or std.mem.startsWith(u8, path, "test/")) return true;
     if (underDir(path, ".guardian") and !isGuardianCache(path)) return true;
     for (externals) |gate| {
-        for (gate.inputs) |input| if (std.mem.eql(u8, path, input)) return true;
+        for (gate.inputs) |input| if (external_inputs.matches(path, input)) return true;
     }
     return false;
 }
@@ -557,6 +558,13 @@ test "anyGateInput separates checkable inputs from a docs-and-scripts change" {
     // A declared [[external]] gate input counts as a gate input.
     const externals = [_]config.ExternalGate{.{ .name = "js", .command = &.{}, .inputs = &.{"assets/app.js"} }};
     try std.testing.expect(isGateInput("assets/app.js", "SPEC.md", &externals));
+}
+
+// spec: Commit - Treats paths matched by external input globs as gate inputs
+test "a globbed external input makes its matching changed path checkable" {
+    const externals = [_]config.ExternalGate{.{ .name = "js", .command = &.{}, .inputs = &.{"assets/*.js"} }};
+    try std.testing.expect(isGateInput("assets/app.js", "SPEC.md", &externals));
+    try std.testing.expect(!isGateInput("assets/app.css", "SPEC.md", &externals));
 }
 
 // spec: Commit - Requires a non-empty intent message

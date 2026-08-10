@@ -11,6 +11,7 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 const walk = @import("walk.zig");
 const config = @import("config.zig");
 const git = @import("git.zig");
+const external_inputs = @import("external_inputs.zig");
 
 /// SHA-256 digest of guardian's input set.
 pub const Digest = [Sha256.digest_length]u8;
@@ -27,7 +28,7 @@ pub const Error = walk.WalkError ||
 
 // Bump when the hashed input set below changes, so a stale cache written by
 // an older guardian can never produce a wrong skip.
-const cache_version = "guardian-cache-v3";
+const cache_version = "guardian-cache-v4";
 // Version tag for the mutation suite digest (see `suiteDigest`). Distinct from
 // cache_version so the two digests can never collide even over an identical item set.
 const suite_version = "guardian-mutation-suite-v1";
@@ -205,7 +206,8 @@ fn digestWithBinaryId(
     try readSingle(arena, &items, project_dir, spec_file);
     try readSingle(arena, &items, project_dir, "guardian.toml");
     for (external_gates) |gate| {
-        for (gate.inputs) |input| try readSingle(arena, &items, project_dir, input);
+        const inputs = try external_inputs.expand(arena, project_dir, gate.inputs);
+        for (inputs) |input| try readSingle(arena, &items, project_dir, input);
     }
 
     std.mem.sort(Item, items.items, {}, lessThan);
@@ -463,6 +465,29 @@ test "a changed external gate input invalidates the digest" {
     try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 1;\n" });
     const d1 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
     try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 2;\n" });
+    const d2 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
+    try std.testing.expect(!eql(d1, d2));
+}
+
+// spec: Skip Cache - Includes every file matched by a declared external input glob in the green-run digest
+test "a changed globbed external gate input invalidates the digest" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/external-glob-digest-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir ++ "/assets");
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("external glob digest cleanup: {s}", .{@errorName(e)});
+
+    const gates = &[_]config.ExternalGate{.{
+        .name = "asset-syntax",
+        .command = &.{ "node", "--check", external_inputs.placeholder },
+        .inputs = &.{"assets/*.js"},
+    }};
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/a.js", .data = "const a = 1;\n" });
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "const b = 1;\n" });
+    const d1 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
+    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "const b = 2;\n" });
     const d2 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
     try std.testing.expect(!eql(d1, d2));
 }

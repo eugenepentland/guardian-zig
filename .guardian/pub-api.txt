@@ -88,12 +88,16 @@ src/benchmark.zig::validNote | fn validNote(text: []const u8) bool
 src/benchmark.zig::validToken | fn validToken(text: []const u8) bool
 src/benchmark.zig::without | fn without(arena: Allocator, records: []const Record, name: []const u8) Allocator.Error!?[]const Record
 src/benchmark.zig::write | fn write(arena: Allocator, path: []const u8, records: []const Record) snapshot.WriteError!void
+src/budget_runner.zig::Result struct_
+src/budget_runner.zig::RunError value
+src/budget_runner.zig::run | fn run( allocator: Allocator, argv: []const []const u8, cwd: []const u8, timeout_ns: u64, ) RunError!Result
 src/build_helper.zig::CompileProbeOptions struct_
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
 src/build_helper.zig::addTestCompileProbe | fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step
 src/build_helper.zig::all_check_names value
 src/build_helper.zig::announceFilters | fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) void
+src/build_helper.zig::enableTestDiagnostics | fn enableTestDiagnostics(test_module: *std.Build.Module) void
 src/build_helper.zig::testRunner | fn testRunner(dep: *std.Build.Dependency) std.Build.Step.Compile.TestRunner
 src/cache.zig::Digest value
 src/cache.zig::Error value
@@ -402,6 +406,13 @@ src/dora.zig::elapsedMs | fn elapsedMs(self: *Stopwatch) u64
 src/dora.zig::recordRun | fn recordRun( arena: Allocator, project_dir: []const u8, cfg: config_mod.DoraCfg, outcome: Outcome, failed_checks: []const []const u8, duration_ms: u64, ) void
 src/dora.zig::renderRecord | fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8
 src/dora.zig::startStopwatch | fn startStopwatch() Stopwatch
+src/external_inputs.zig::ExpandError value
+src/external_inputs.zig::argvForInput | fn argvForInput( arena: Allocator, command: []const []const u8, input: []const u8, ) Allocator.Error![]const []const u8
+src/external_inputs.zig::expand | fn expand( arena: Allocator, project_dir: []const u8, patterns: []const []const u8, ) ExpandError![]const []const u8
+src/external_inputs.zig::matches | fn matches(path: []const u8, pattern: []const u8) bool
+src/external_inputs.zig::placeholder value
+src/external_inputs.zig::unmatched | fn unmatched( arena: Allocator, patterns: []const []const u8, paths: []const []const u8, ) Allocator.Error![]const []const u8
+src/external_inputs.zig::usesPlaceholder | fn usesPlaceholder(command: []const []const u8) bool
 src/fakes/clock.zig::FakeClock struct_
 src/fakes/clock.zig::advance | fn advance(self: *FakeClock, delta_nanos: i128) void
 src/fakes/clock.zig::init | fn init(start_nanos: i128) FakeClock

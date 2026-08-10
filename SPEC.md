@@ -150,6 +150,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Mixes the guardian binary identity into the digest so an upgrade invalidates the cache
 - Reflects a rewritten .guardian baseline in a fresh input digest
 - Includes declared external gate input files in the green-run digest
+- Includes every file matched by a declared external input glob in the green-run digest
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
 - Records the guardian binary identity in the green stamp for a drift hint
@@ -230,6 +231,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Never stages the git-ignored guardian cache directory
 - Reports a gate and test timing split
 - Reports up front when the change set contains no gate inputs
+- Treats paths matched by external input globs as gate inputs
 
 ## Commit Hygiene
 
@@ -284,6 +286,10 @@ blocking correctness checks and advisory maintainability guidance.
 ## External Gates
 
 - Runs configured argv commands without a shell and blocks on nonzero exit
+- Runs an input-placeholder command once for every file matched by an input glob
+- Fails when a declared external input pattern matches no file
+- Runs opt-in external performance gates only when configured hot paths change
+- Fails external performance gates that exceed a recorded wall-time regression, timeout, or peak-RSS ceiling
 
 ## Versioning
 
@@ -412,6 +418,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Flags returning a slice of a stack array local
 - Flags returning the address of a field of a stack local
 - Flags returning a const alias bound directly to a stack local address
+- Flags returning the address of a runtime-valued temporary composite
+- Flags a returned composite retaining a runtime-valued temporary pointer
 - Allows returning the address of a parameter owned by the caller
 - Allows returning a pointer derived from a parameter field
 - Allows returning a local whose initializer calls a function
@@ -467,6 +475,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Wraps a single check run with capture, diff, and outcome reporting
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
+- Keeps the deny_growth policy reason visible in concise acceptance output
 - Prefers structured records over scraped text when present
 - Leaves a matched baseline untouched when only line numbers shifted
 - Records no baseline file for a check with nothing to record
@@ -592,10 +601,12 @@ blocking correctness checks and advisory maintainability guidance.
 - Permits an empty run only when the empty-suite opt-out is set
 - Treats an empty or zero-valued opt-out variable as unset
 - Counts a logged error so a test that only logs one still fails
+- Explains how to restore assertion locations when an optimized test module disables error tracing
 
 ## Build Helper
 
 - Points a consumer test binary at the runner file that ships with Guardian
+- Enables error-return tracing on optimized consumer test modules
 - Registers the compile-only whole-suite probe under a stable step name
 - Orders caller prerequisites before every gate invocation
 
@@ -723,6 +734,7 @@ without an explained `--force`.
 - Fails when SPEC.md is missing while enabled instead of skipping
 - Fails a feature section that omits a required completeness category
 - Passes a section whose bullets address every completeness category
+- Matches completeness keywords only as standalone words or phrases
 - Accepts a completeness-waiver bullet that gives a reason
 - Rejects a completeness-waiver bullet that omits its reason
 - Skips sections listed in the exempt_sections config

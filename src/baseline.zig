@@ -759,6 +759,7 @@ fn ratchetDenyGrowthGuard(
             "fix the regressions or remove {s} from deny_growth",
         .{ check_name, check_name },
     );
+    emitDenyGrowthDetail(check_name);
     return error.CheckFailed;
 }
 
@@ -971,7 +972,21 @@ fn denyGrowthGuard(
             "fix the new violations or remove {s} from deny_growth",
         .{ check_name, old_count.?, new_count, check_name },
     );
+    emitDenyGrowthDetail(check_name);
     return error.CheckFailed;
+}
+
+/// A structured, allocation-free copy of the policy reason. `run-all` keeps
+/// structured records in concise mode, so an `accept` refusal can never
+/// collapse to "zero findings / no structured detail" while its useful prose
+/// is hidden behind `--verbose`.
+fn emitDenyGrowthDetail(check_name: []const u8) void {
+    reporter.emit(.{
+        .check = check_name,
+        .message = "acceptance refused because the configured deny_growth policy would grow recorded debt",
+        .fix_hint = "fix the new violations, or deliberately remove this check from [baseline] deny_growth",
+        .identity = "deny-growth-refusal",
+    });
 }
 
 /// Pure decision for denyGrowthGuard: a refresh of a deny_growth check with an
@@ -1895,6 +1910,20 @@ test "growthDenied blocks refresh growth only for a listed check with a prior ba
     try std.testing.expect(!growthDenied(deny, "spec", 3, 5, false));
     // No prior baseline (null) — initial creation is never "growth".
     try std.testing.expect(!growthDenied(deny, "spec", null, 5, true));
+}
+
+// spec: Baseline Mode - Keeps the deny_growth policy reason visible in concise acceptance output
+test "deny-growth refusal emits structured diagnostic detail" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    emitDenyGrowthDetail("completeness");
+    try std.testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    try std.testing.expectEqualStrings("completeness", cap.records.items[0].check);
+    try std.testing.expect(std.mem.indexOf(u8, cap.records.items[0].message, "deny_growth") != null);
 }
 
 test "lifecycle force_refresh rewrites the baseline" {

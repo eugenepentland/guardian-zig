@@ -517,6 +517,8 @@ test {
     _ = @import("ast/index.zig");
     _ = @import("ast/import_graph.zig");
     _ = @import("cache.zig");
+    _ = @import("external_inputs.zig");
+    _ = @import("budget_runner.zig");
     _ = @import("measurement.zig");
     _ = @import("snapshot.zig");
     _ = @import("snapshot_helper.zig");

@@ -30,6 +30,10 @@ sibling checkout.
 - Add strict/agent/safety policy profiles with block, ratchet, and report modes.
 - Add optional policy-file drift protection for trusted CI review flows.
 - Add shell-free external command gates with declared cache inputs.
+- Expand external input globs safely through an exact `{input}` argv token; add
+  path-scoped external wall-time, benchmark-regression, and peak-RSS budgets;
+  retain assertion locations in optimized consumer test modules; and explain
+  when a legacy integration compiled those locations out.
 - Add stable spec IDs and repeatable `spec-case` links for additional tests.
 - Make assert-density reporting opt-in and cache warning thresholds configurable.
 - Remember accepts for the working session: an accepted ratchet check may keep

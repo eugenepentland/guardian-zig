@@ -42,15 +42,15 @@ pub const Category = struct {
 pub const categories = [_]Category{
     .{
         .name = "empty inputs",
-        .keywords = &.{ "empty", "no input", "zero-length", "zero length", "blank" },
+        .keywords = &.{ "empty", "no input", "no inputs", "zero-length", "zero length", "blank" },
     },
     .{
         .name = "large inputs",
-        .keywords = &.{ "large input", "very large", "huge", "oversized", "bulk", "many items" },
+        .keywords = &.{ "large input", "large inputs", "very large", "huge", "oversized", "bulk", "many items" },
     },
     .{
         .name = "unauthorized access",
-        .keywords = &.{ "unauthorized", "unauthorised", "permission", "forbidden", "access control", "not allowed" },
+        .keywords = &.{ "unauthorized", "unauthorised", "permission", "permissions", "forbidden", "access control", "not allowed" },
     },
     .{
         .name = "i/o failure",
@@ -62,11 +62,14 @@ pub const categories = [_]Category{
     },
     .{
         .name = "malformed encoding",
-        .keywords = &.{ "malformed", "invalid encoding", "invalid utf", "corrupt", "bad encoding", "garbage input" },
+        .keywords = &.{ "malformed", "invalid encoding", "invalid utf", "corrupt", "corrupted", "corruption", "bad encoding", "garbage input" },
     },
     .{
         .name = "integer overflow",
-        .keywords = &.{ "overflow", "underflow", "saturat", "wraparound", "wrap-around" },
+        .keywords = &.{
+            "overflow", "overflows", "overflowing", "underflow",  "underflows", "underflowing",
+            "saturate", "saturated", "saturating",  "saturation", "wraparound", "wrap-around",
+        },
     },
     .{
         .name = "panic-free",
@@ -302,16 +305,35 @@ fn waiverFor(waivers: []const Waiver, cat_name: []const u8) ?Waiver {
 }
 
 /// The first non-waiver bullet whose prose contains any of the category's
-/// keywords (case-insensitive), or null when none does. Returning the bullet
-/// rather than a bool is what lets the section report show its evidence.
+/// keywords as a complete ASCII word/phrase (case-insensitive), or null when
+/// none does. Token boundaries keep `race` from matching `traces` and `empty`
+/// from matching `nonempty`. Returning the bullet rather than a bool is what
+/// lets the section report show its evidence.
 fn bulletMentioning(bullets: []const []const u8, cat: Category) ?[]const u8 {
     for (bullets) |b| {
         if (isWaiver(b)) continue;
         for (cat.keywords) |kw| {
-            if (std.ascii.indexOfIgnoreCase(b, kw) != null) return b;
+            if (mentionsKeyword(b, kw)) return b;
         }
     }
     return null;
+}
+
+fn mentionsKeyword(text: []const u8, keyword: []const u8) bool {
+    if (keyword.len == 0 or keyword.len > text.len) return false;
+    var start: usize = 0;
+    while (start + keyword.len <= text.len) : (start += 1) {
+        if (!std.ascii.eqlIgnoreCase(text[start .. start + keyword.len], keyword)) continue;
+        const before_ok = start == 0 or !wordByte(text[start - 1]);
+        const end = start + keyword.len;
+        const after_ok = end == text.len or !wordByte(text[end]);
+        if (before_ok and after_ok) return true;
+    }
+    return false;
+}
+
+fn wordByte(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 fn inList(list: []const []const u8, name: []const u8) bool {
@@ -427,6 +449,15 @@ test "analyze passes a section that addresses all categories via keywords" {
     const sections = try parseFeatureSections(a, spec);
     const out = try analyze(a, sections, &.{});
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Completeness Checklist - Matches completeness keywords only as standalone words or phrases
+test "keyword matching does not satisfy categories from incidental substrings" {
+    try std.testing.expect(!mentionsKeyword("writeGeomBlockProtoJson traces a polygon", "race"));
+    try std.testing.expect(!mentionsKeyword("accepts nonempty data", "empty"));
+    try std.testing.expect(mentionsKeyword("avoids a RACE between writers", "race"));
+    try std.testing.expect(mentionsKeyword("handles large inputs", "large inputs"));
+    try std.testing.expect(mentionsKeyword("uses saturated arithmetic", "saturated"));
 }
 
 // spec: Completeness Checklist - Accepts a completeness-waiver bullet that gives a reason

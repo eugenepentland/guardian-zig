@@ -8,6 +8,7 @@ pub const addAllChecks = guardian_helper.addAllChecks;
 pub const all_check_names = guardian_helper.all_check_names;
 pub const Options = guardian_helper.Options;
 pub const testRunner = guardian_helper.testRunner;
+pub const enableTestDiagnostics = guardian_helper.enableTestDiagnostics;
 pub const announceFilters = guardian_helper.announceFilters;
 pub const addTestCompileProbe = guardian_helper.addTestCompileProbe;
 pub const CompileProbeOptions = guardian_helper.CompileProbeOptions;

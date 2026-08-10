@@ -39,13 +39,24 @@ pub const BanRule = struct {
 };
 
 /// One project-defined command that participates in Guardian's `all` gate.
-/// `command` is an argv array (no shell interpolation); `inputs` are exact
-/// project-relative files mixed into the green-run cache digest so a changed
-/// non-Zig asset can never be hidden by a stale Guardian cache stamp.
+/// `command` is an argv array (no shell interpolation); `inputs` are exact or
+/// `*`-globbed project-relative files mixed into the green-run cache digest so
+/// a changed non-Zig asset can never be hidden by a stale Guardian cache stamp.
+/// An exact `{input}` argv token runs the command once per expanded input.
+///
+/// Expensive gates may opt into performance budgets. `paths` restricts them to
+/// diffs touching a named hot path; `benchmark` compares elapsed seconds with a
+/// lower-is-better record in `.guardian/benchmarks.txt`; timeout and peak RSS
+/// are independent hard ceilings. Zero ceilings disable their respective rule.
 pub const ExternalGate = struct {
     name: []const u8,
     command: []const []const u8,
     inputs: []const []const u8 = &.{},
+    paths: []const []const u8 = &.{},
+    benchmark: ?[]const u8 = null,
+    max_regression_pct: u32 = 25,
+    timeout_secs: u32 = 0,
+    max_rss_mib: u32 = 0,
 };
 
 /// Built-in severity presets. `strict` preserves Guardian's historical

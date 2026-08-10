@@ -411,6 +411,18 @@ pub fn testRunner(dep: *std.Build.Dependency) std.Build.Step.Compile.TestRunner 
     return .{ .path = dep.path(test_runner_rel_path), .mode = .server };
 }
 
+/// Keeps source locations in assertion failures even when a consumer compiles
+/// its tests in ReleaseSafe/ReleaseFast. Without Zig's `-ferror-tracing`, a
+/// plain `testing.expect` failure contains only `TestUnexpectedResult`; the
+/// custom runner cannot reconstruct a call site the compiler discarded.
+pub fn enableTestDiagnostics(test_module: *std.Build.Module) void {
+    enableErrorTracing(&test_module.error_tracing);
+}
+
+fn enableErrorTracing(flag: *?bool) void {
+    flag.* = true;
+}
+
 /// Forwards the active `--test-filter` texts to the runner so its count line
 /// can name them. Zig never tells a test runner what the filter was, so this is
 /// the only way the report can say more than the bare number. Optional: without
@@ -445,6 +457,10 @@ pub const CompileProbeOptions = struct {
 /// is type-checked, nothing is linked or executed. Returns the step so a caller
 /// can attach it elsewhere; idempotent on the step name.
 pub fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step {
+    // The probe is always handed the consumer's test module. Configure that
+    // shared module once so the real test artifact retains assertion locations
+    // too, even when it was declared before this helper is called.
+    enableTestDiagnostics(opts.root_module);
     if (b.top_level_steps.get(opts.name)) |existing| return &existing.step;
     // No `.filters`: the probe is whole-suite by construction, so a
     // `-Dtest-filter` narrowing the run can never narrow the probe with it.
@@ -546,6 +562,16 @@ test "the packaged runner path names a file that ships with guardian" {
     try std.testing.expectEqualStrings("src/test_runner.zig", test_runner_rel_path);
     // The runner is only worth pointing at because it prints the count.
     try std.testing.expect(std.mem.indexOf(u8, runner_src, "test(s) selected") != null);
+}
+
+// spec: Build Helper - Enables error-return tracing on optimized consumer test modules
+test "test diagnostics force error tracing on" {
+    // The public build-module wrapper is the consumer API; the pure helper is
+    // what this unit test can exercise without constructing std.Build.
+    _ = &enableTestDiagnostics;
+    var flag: ?bool = null;
+    enableErrorTracing(&flag);
+    try std.testing.expectEqual(true, flag.?);
 }
 
 // spec: Build Helper - Registers the compile-only whole-suite probe under a stable step name

@@ -76,6 +76,7 @@ const hard_max_len_key = "hard_max_len";
 const required_inputs_key = "required_inputs";
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
+const benchmark_key = "benchmark";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
 
@@ -174,6 +175,11 @@ const ParseState = struct {
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
+    cur_external_paths: std.ArrayList([]const u8) = .empty,
+    cur_benchmark: ?[]const u8 = null,
+    cur_max_regression_pct: u32 = 25,
+    cur_external_timeout_secs: u32 = 0,
+    cur_max_rss_mib: u32 = 0,
     external_gates: std.ArrayList(ExternalGate) = .empty,
     array_line: u32 = 0,
     mutation_lines: MutationLines = .{},
@@ -262,6 +268,11 @@ const ParseState = struct {
                     .name = name,
                     .command = try self.cur_command.toOwnedSlice(allocator),
                     .inputs = try self.cur_inputs.toOwnedSlice(allocator),
+                    .paths = try self.cur_external_paths.toOwnedSlice(allocator),
+                    .benchmark = self.cur_benchmark,
+                    .max_regression_pct = self.cur_max_regression_pct,
+                    .timeout_secs = self.cur_external_timeout_secs,
+                    .max_rss_mib = self.cur_max_rss_mib,
                 });
             },
             .none => {},
@@ -310,6 +321,11 @@ const ParseState = struct {
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
+        self.cur_external_paths = .empty;
+        self.cur_benchmark = null;
+        self.cur_max_regression_pct = 25;
+        self.cur_external_timeout_secs = 0;
+        self.cur_max_rss_mib = 0;
         self.boundary_forbidden_set = false;
         self.allow_paths_set = false;
         self.external_command_set = false;
@@ -371,6 +387,16 @@ const ParseState = struct {
             self.external_command_set = true;
         } else if (std.mem.eql(u8, kv.key, "inputs")) {
             self.cur_inputs = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "paths")) {
+            self.cur_external_paths = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, benchmark_key)) {
+            self.cur_benchmark = parseString(kv.val);
+        } else if (std.mem.eql(u8, kv.key, "max_regression_pct")) {
+            self.cur_max_regression_pct = parseU32(kv.val, self.cur_max_regression_pct);
+        } else if (std.mem.eql(u8, kv.key, timeout_secs_key)) {
+            self.cur_external_timeout_secs = parseU32(kv.val, self.cur_external_timeout_secs);
+        } else if (std.mem.eql(u8, kv.key, "max_rss_mib")) {
+            self.cur_max_rss_mib = parseU32(kv.val, self.cur_max_rss_mib);
         }
     }
 };
@@ -551,7 +577,12 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .allow => if (key[0] == 'c') .string else .string_array,
         // chain / paths / allow are arrays; only `reason` is prose.
         .ban => if (key[0] == 'r') .string else .string_array,
-        .external => if (key[0] == 'n') .string else .string_array,
+        .external => if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, benchmark_key))
+            .string
+        else if (std.mem.eql(u8, key, "command") or std.mem.eql(u8, key, "inputs") or std.mem.eql(u8, key, "paths"))
+            .string_array
+        else
+            .unsigned,
         .none => .string_array,
     };
     return switch (st.section) {
@@ -833,7 +864,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         .boundary => &.{ "module", "forbidden" },
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
-        .external => &.{ "name", "command", "inputs" },
+        .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
 }
@@ -922,7 +953,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
-        .{ "benchmark", Section.benchmark },
+        .{ benchmark_key, Section.benchmark },
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
@@ -1230,6 +1261,11 @@ test "parse policy doctor and external gate settings" {
         \\name = "javascript-syntax"
         \\command = ["node", "--check", "src/app.js"]
         \\inputs = ["src/app.js"]
+        \\paths = ["web/*.js"]
+        \\benchmark = "javascript_syntax_wall_s"
+        \\max_regression_pct = 30
+        \\timeout_secs = 20
+        \\max_rss_mib = 256
     );
     try std.testing.expect(cfg.policy.profile == .agent);
     try std.testing.expect(cfg.policy.lock_enabled);
@@ -1238,6 +1274,11 @@ test "parse policy doctor and external gate settings" {
     try std.testing.expectEqual(@as(usize, 1), cfg.external_gates.len);
     try std.testing.expectEqualStrings("node", cfg.external_gates[0].command[0]);
     try std.testing.expectEqualStrings("src/app.js", cfg.external_gates[0].inputs[0]);
+    try std.testing.expectEqualStrings("web/*.js", cfg.external_gates[0].paths[0]);
+    try std.testing.expectEqualStrings("javascript_syntax_wall_s", cfg.external_gates[0].benchmark.?);
+    try std.testing.expectEqual(@as(u32, 30), cfg.external_gates[0].max_regression_pct);
+    try std.testing.expectEqual(@as(u32, 20), cfg.external_gates[0].timeout_secs);
+    try std.testing.expectEqual(@as(u32, 256), cfg.external_gates[0].max_rss_mib);
 }
 
 // spec: Benchmark Ledger - Parses the opt-in list of gated benchmark metrics
