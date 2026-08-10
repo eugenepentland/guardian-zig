@@ -4242,3 +4242,17 @@ held up through the gate without any cap raises.
   build, adding another roughly five-minute release cycle. A candidate attested
   by both commit and tree hash could reuse identical merge trees without
   weakening the exact-source guarantee.
+
+## 2026-08-10 · codex · eda — PCB pour and keepout selection filters
+
+- **friction:** The first sandboxed focused `zig build test` could not create
+  Zig's shared compiler-cache manifest (`manifest_create Unexpected`), so the
+  otherwise-valid test needed one permission-enabled retry before compilation.
+- **friction:** Adding six CSS source lines to the already-ratcheted
+  `pcb_layout_page.zig` made `file-size` report `1/70 failed` but showed zero
+  structured findings in the normal output. Moving the small styles into the
+  client-generated controls restored the ratchet; identifying the offending
+  file required comparing the changed Zig files and cost one gate retry.
+- **good:** The final whole-tree gate passed all 70 checks, and
+  `prepare-release.sh` ran the full tests and ReleaseSafe build concurrently in
+  336 seconds before the exact verified candidate deployed with healthy probes.
