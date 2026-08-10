@@ -4259,3 +4259,47 @@ held up through the gate without any cap raises.
   no-op gate, verified 3.2 s with `--seed` pinned. Guardian's helper already
   owns the run step and is the natural place to make test runs
   cache-honest.
+
+## 2026-08-10 · claude · eda — rough-placement engine: chain-aware pin targets
+
+- **friction:** `file-size` fired only *after* the feature was written. Adding
+  ~350 lines to `src/placement/optimizer.zig` pushed it from just under to
+  10209 of a 10000 hard limit, and the fix — extracting the `(net-class …)`
+  resolution block into a new `src/placement/net_rules.zig` — was a 600-line
+  file move done under time pressure at the end of the task, not a design
+  decision made up front. Two things would have helped: the file-size *warning*
+  lines (`recommended: 1000`) are so numerous (45 findings, all report-only)
+  that the one file about to cross the hard limit is invisible in them, and
+  `guardian-check debt .` reports totals rather than "these files are within N
+  lines of a hard cap". A "closest to the hard limit" line in `debt` would turn
+  this into a decision made before the code is written.
+- **friction:** `HEAD does not pass its own gate`. On a fresh worktree branched
+  from the eda main branch, `guardian-check commit` failed on **15
+  `stack-escape` findings and 4 `completeness` findings that all reproduce at
+  HEAD** (verified by running the same checks in a throwaway worktree at the
+  base commit). Neither was caused by my change, but both had to be dealt with
+  before unrelated work could land: `accept` for stack-escape (a new check whose
+  baseline predates it, so freezing 15 pre-existing findings), and four
+  hand-written `completeness-waiver:` bullets for SPEC sections I had not
+  touched (`Web Server`, `pdf`, `placement/pour`, `serve/digikey`) — because
+  `deny_growth = ["completeness"]` correctly refuses an accept there. Cost:
+  ~30 min and a set of edits that muddy the commit. A `guardian-check
+  debt --check --against <base>` that says "these findings already exist at your
+  merge base, they are not yours" would let an agent tell inherited debt from
+  its own, and a first-run mode that auto-baselines a *newly introduced check*
+  would stop a guardian upgrade from blocking every project's next commit.
+- **good:** `guardian-check explain completeness --section "<name>" .` is
+  excellent — it printed the per-category standing and a paste-ready waiver
+  skeleton for each section, which is the only reason the completeness fix took
+  minutes rather than a build-guess loop.
+- **good:** The `function-size` (parameter-count) ratchet caught four new
+  helpers at 7-8 params and pushed me into two small context structs
+  (`PinCtx`, `OwnerScope`) that made every call site in the pass readable and
+  *lowered* four pre-existing offenders as a side effect. The per-item ratchet
+  turning "you added a param" into "bundle these" is the check working exactly
+  as advertised.
+- **good:** The counting test runner's zero-match failure earned its keep: my
+  first filtered run (`-Dtest-filter=styleScore`) reported "0 match by name"
+  and failed instead of exiting green — which is how I discovered that
+  `src/serve/style_score.zig` was never imported by `src/main.zig`'s test
+  block, so its six existing tests had never run at all.
