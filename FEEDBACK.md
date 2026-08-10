@@ -4230,3 +4230,15 @@ held up through the gate without any cap raises.
 - **good:** selective `change-classification` acceptance and the final
   whole-tree run behaved cleanly; all 70 checks passed before the exact-commit
   release hook ran 2,313 tests and the ReleaseSafe build concurrently.
+
+## 2026-08-10 · codex · eda — Barracuda full-route DRC closure and merge
+
+- **good:** Guardian's whole-tree release gate passed all 70 checks with zero
+  blockers after the perimeter-fence DRC regression fix; the same preparation
+  completed the full suite and ReleaseSafe build concurrently in 315 seconds.
+- **friction:** the prepared feature commit and the required `--no-ff` merge
+  commit had identical trees but different hashes, so the deploy gate could not
+  reuse the verified candidate and repeated the full tests plus ReleaseSafe
+  build, adding another roughly five-minute release cycle. A candidate attested
+  by both commit and tree hash could reuse identical merge trees without
+  weakening the exact-source guarantee.
