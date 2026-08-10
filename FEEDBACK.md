@@ -4612,3 +4612,22 @@ let the suite run to completion and then fail the run naming the offenders.
   to protect ~140 lines of shell + assertions that run in 0.00 s. `test-compile`
   covers the type-check half but not the "will the gate let me commit" half, so
   I still paid the full suite twice to land two commits.
+
+## 2026-08-10 · codex · eda — merge copper-topology routing under current main gates
+
+- **good:** `GUARDIAN_TEST_MAX_WALL_SECS=120` caught a real integration cost:
+  all 2,381 tests passed, but the runner still failed at 154.90 s and named the
+  two rollback fixtures consuming 81.18 s and 58.93 s. Replacing repeated
+  impossible-board ladders with one real transaction per invariant brought the
+  full suite to 37.66 s without changing production effort.
+- **good:** `file-size` caught the integrated `router.zig` at 10,296 lines
+  against current main's newly lowered 10,227 ceiling. Moving topology tests to
+  their regression module kept test code out of the router; the remaining
+  10,292 production lines were an intentional exact-terminal rescue already
+  accepted at 10,296 on the prepared branch, so the combined snapshot was
+  reviewed rather than accepted blindly.
+- **friction:** EDA `main` advanced twice during exact-commit release
+  preparation, requiring two main-integration commits and two additional
+  candidate builds before fast-forwarding. The new tree-keyed candidate reuse
+  is the right fix for future identical-tree merges, but its own source change
+  necessarily invalidated the candidate prepared immediately before it landed.
