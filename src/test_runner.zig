@@ -20,8 +20,8 @@
 //! "Nothing the caller asked for" is not the same as "no tests": an unnamed
 //! `test { }` block has no name for a filter to match, so it compiles into
 //! every filtered binary and would otherwise pad a zero-match run to a
-//! comfortable-looking count (Guardian's own suite has two, and a nonsense
-//! filter reports `2 test(s) selected` without them being noticed). When the
+//! comfortable-looking count (Guardian's own suite has three, and a nonsense
+//! filter reports `3 test(s) selected` without them being noticed). When the
 //! build forwards the filters, the runner therefore also counts how many
 //! selected tests a filter actually names, and judges emptiness on that.
 //!
@@ -45,18 +45,23 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const timing = @import("test_timing.zig");
 
 /// Root options. The stock runner fails a test that only *logged* an error;
 /// keeping its `logFn` keeps that verdict identical.
 pub const std_options: std.Options = .{ .logFn = log };
 
 /// Prefix on every line this runner prints, so its output is greppable and
-/// obviously not part of a test's own output.
-const prefix = "guardian/test: ";
+/// obviously not part of a test's own output. One spelling, owned by the
+/// timing module, shared here.
+const prefix = timing.prefix;
 
 /// Set to a non-empty value other than "0" (the spelling every other GUARDIAN_*
 /// flag uses) to permit a run that selected no tests at all.
 const allow_empty_env = "GUARDIAN_TEST_ALLOW_EMPTY";
+/// Same spelling: widens the closing slow-test report (lower floor, higher
+/// cap) when set. The report itself always prints — see `reportTimings`.
+const timings_env = "GUARDIAN_TEST_TIMINGS";
 
 const listen_flag = "--listen=-";
 const seed_flag = "--seed=";
@@ -92,6 +97,14 @@ var stdin_buffer: [io_buffer_bytes]u8 = undefined;
 var stdout_buffer: [io_buffer_bytes]u8 = undefined;
 var is_fuzz_test: bool = undefined;
 var filter_storage: [max_stored_filters][]const u8 = undefined;
+// Timing state, accumulated per finished test (a per-test array is impossible:
+// `builtin.test_functions.len` is not comptime-known under --test-runner).
+// `slow_list[0..slow_len]` holds the most expensive tests, descending.
+var slow_list: [timing.max_capacity]timing.Slow = undefined;
+var slow_len: usize = 0;
+var total_test_ns: u64 = 0;
+/// Floor + cap for the closing slow-test report, set once in `main`.
+var timing_limits: timing.Limits = .{};
 
 /// Command line as this runner reads it. `stored` counts the filters captured
 /// into `filter_storage`; `filters` counts how many were passed.
@@ -150,6 +163,9 @@ pub fn main() void {
     var args: Args = .{};
     parseArgs(argv[1..], &args);
     announce(args);
+    timing_limits = timing.Limits.forDetail(
+        if (optOutActive(readEnv(timings_env))) .wide else .standard,
+    );
     fba.reset();
 
     if (builtin.fuzz) {
@@ -195,7 +211,7 @@ fn announce(args: Args) void {
         .matched = matchedCount(args),
         .named = args.namedFilters(),
         .filters = args.filters,
-    }, optOutActive(readOptOut()));
+    }, optOutActive(readEnv(allow_empty_env)));
     writeErr(rendered.text);
     if (rendered.fatal) std.process.exit(1);
 }
@@ -297,10 +313,10 @@ fn optOutActive(value: ?[]const u8) bool {
     return !std.mem.eql(u8, text, "0");
 }
 
-/// Reads the opt-out variable from the environment. Runs before `fba.reset()`,
-/// so the returned text lives in the argv arena.
-fn readOptOut() ?[]const u8 {
-    return std.process.getEnvVarOwned(fba.allocator(), allow_empty_env) catch null;
+/// Reads one GUARDIAN_* variable from the environment. Runs before
+/// `fba.reset()`, so the returned text lives in the argv arena.
+fn readEnv(name: []const u8) ?[]const u8 {
+    return std.process.getEnvVarOwned(fba.allocator(), name) catch null;
 }
 
 /// Writes to stderr, dropping the message if the handle is unusable — a failed
@@ -335,7 +351,10 @@ fn mainServer() !void {
     while (true) {
         const hdr = try server.receiveMessage();
         switch (hdr.tag) {
-            .exit => return std.process.exit(0),
+            .exit => {
+                reportTimings();
+                return std.process.exit(0);
+            },
             .query_test_metadata => try serveMetadata(&server),
             .run_test => try serveOneTest(&server, try server.receiveBody_u32()),
             .start_fuzzing => try startFuzzing(&server, try server.receiveBody_u32()),
@@ -384,6 +403,7 @@ fn serveOneTest(server: *std.zig.Server, index: u32) !void {
 
     var fail = false;
     var skip = false;
+    var timer: ?std.time.Timer = std.time.Timer.start() catch null;
     builtin.test_functions[index].func() catch |err| switch (err) {
         error.SkipZigTest => skip = true,
         else => {
@@ -392,6 +412,7 @@ fn serveOneTest(server: *std.zig.Server, index: u32) !void {
         },
     };
     const leak = testing.allocator_instance.deinit() == .leak;
+    if (timer) |*t| recordDuration(builtin.test_functions[index].name, t.read());
 
     try server.serveTestResults(.{
         .index = index,
@@ -456,12 +477,15 @@ fn mainTerminal() void {
         testing.log_level = .warn;
         is_fuzz_test = false;
         const node = root_node.start(test_fn.name, 0);
+        var timer: ?std.time.Timer = std.time.Timer.start() catch null;
         runOneTest(test_fn, i, &tally);
         if (testing.allocator_instance.deinit() == .leak) tally.leak += 1;
+        if (timer) |*t| recordDuration(test_fn.name, t.read());
         node.end();
     }
     root_node.end();
     writeSummary(tally, tests.len);
+    reportTimings();
     if (tally.failed()) std.process.exit(1);
 }
 
@@ -516,6 +540,28 @@ fn writeSummary(tally: Tally, total: usize) void {
     }
     if (tally.leak != 0) {
         writeErr(std.fmt.bufPrint(&buf, "{d} tests leaked memory.\n", .{tally.leak}) catch "");
+    }
+}
+
+/// Folds one finished test into the timing tally: its time joins the total,
+/// and it joins the slow list when it clears the reporting floor.
+fn recordDuration(name: []const u8, ns: u64) void {
+    @disableInstrumentation();
+    total_test_ns +|= ns;
+    if (ns < timing_limits.floor_ns) return;
+    timing.insertSlow(&slow_list, &slow_len, timing_limits.max_lines, .{ .ns = ns, .name = name });
+}
+
+/// Prints the run's total test wall and its slowest tests, most expensive
+/// first — the data that names a suite's run-time hogs (see test_timing.zig
+/// for why). Runs after the last test in both modes; a run that dies early
+/// skips it, because a diagnostic must never displace the failure itself.
+fn reportTimings() void {
+    @disableInstrumentation();
+    var buf: [report_buffer_bytes]u8 = undefined;
+    writeErr(timing.renderWall(&buf, total_test_ns, slow_len, timing_limits.floor_ns));
+    for (slow_list[0..slow_len]) |entry| {
+        writeErr(timing.renderSlowLine(&buf, entry));
     }
 }
 
@@ -610,6 +656,11 @@ pub fn fuzz(
 // compiler takes tests from the module under test), and the same file cannot
 // belong to both modules. So these run from their own compilation, on the stock
 // runner, wired into `zig build test` by build.zig.
+
+// Collect the timing module's tests into that same compilation.
+test {
+    _ = timing;
+}
 
 // spec: Test Runner - Prints the number of selected tests before any test runs
 

@@ -602,6 +602,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Treats an empty or zero-valued opt-out variable as unset
 - Counts a logged error so a test that only logs one still fails
 - Explains how to restore assertion locations when an optimized test module disables error tracing
+- Reports the run's total test wall time after the last test
+- Lists the slowest tests over the reporting floor, most expensive first
+- Raises the slow-test detail cap when the timing verbosity flag is set
 
 ## Build Helper
 

@@ -101,11 +101,15 @@ check = "ban-fs"
 paths = ["src/cli/selfcheck*", "src/walk*", "src/cache*", "src/external_inputs.zig", "src/snapshot*", "src/config*", "src/required_inputs*", "src/missing_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*"]
 
 # Delivery telemetry, benchmark recording, and supervised external performance
-# gates legitimately read time for durations/deadlines. This repo-local allow
-# does not propagate to consumers.
+# gates legitimately read time for durations/deadlines. The test runner joins
+# them for its per-test wall timings: it is a self-contained process entry
+# point (std + builtin only), so a clock port cannot be injected — the timer
+# read IS its feature, and the render/order logic it feeds is the pure,
+# clock-free part (test_timing.zig). This repo-local allow does not propagate
+# to consumers.
 [[allow]]
 check = "ban-time"
-paths = ["src/dora*", "src/cli/bench*", "src/budget_runner.zig"]
+paths = ["src/dora*", "src/cli/bench*", "src/budget_runner.zig", "src/test_runner.zig"]
 
 [int_from_float]
 guard_fns = ["secondsToNs"]
