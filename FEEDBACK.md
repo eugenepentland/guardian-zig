@@ -4529,3 +4529,42 @@ let the suite run to completion and then fail the run naming the offenders.
   `guardian/test: FAILED:` lines print directly above it, but if Guardian ever
   grows more run-level verdicts it is worth knowing the build system will
   misname them.
+
+## 2026-08-10 · Claude · eda — viewer "Route plan": route the shown rough seed and show the copper
+
+- **good:** `guardian-check size <file>` is now the first command I run before
+  touching a big file, and it paid off twice in one session. `file-size` blocked
+  with `10757 vs ceiling 10693 — OVER by 64`: an exact number, so I could ask
+  "what is 64+ lines of this file that does not belong here?" instead of
+  guessing. The answer was a 466-line inline CSS multiline string sitting three
+  lines below two `@embedFile("assets/*.css")` siblings — the check found a real
+  cohesion defect that had nothing to do with my change. Same command printed
+  `RoutePrep — 8 fields, no ratchet ceiling recorded`, which is how I knew the
+  type-size finding was a NEW offender to fix rather than inherited debt.
+- **good:** the ratchet's framing ("improve the code; the improvement
+  auto-lowers the ceiling") is what stopped me reaching for an accept. Shedding
+  the CSS took ~10 minutes and left the file 403 lines under its ceiling, so the
+  next agent has room. An accept would have taken 10 seconds and left the file
+  worse. The economics only work because the finding names an exact deficit.
+- **good:** `pub-api-surface` again did the risk classification for me —
+  `2 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept`. That
+  made me look at the two rather than accept both: one (`ScopeEcho`) had every
+  construction site inside its own file, so I dropped `pub` and the delta fell
+  to the single symbol that genuinely needed to cross a module boundary. The
+  per-symbol listing is what made that triage possible; a bare count would have
+  been accepted wholesale.
+- **friction (small):** `guardian-check run-all . --json` printed the
+  human-readable report to stdout and nothing JSON, so my parse died with
+  `JSONDecodeError: Expecting value: line 1 column 1`. `--json` is advertised on
+  `debt`, not `run-all`, so this is arguably my misread — but an unknown-flag
+  warning would have been cheaper than a stack trace. Cost: one wasted 90 s
+  whole-tree run before I fell back to `--only <check> --verbose`.
+- **friction (naming, ~2 min):** `guardian-check run-all . --verbose` and
+  `guardian-check all .` are different commands, and `run-all` with a `--only`
+  filter printed the whole command help rather than the filtered findings. I
+  burned two invocations discovering that `all` is the meta-command that takes
+  `--only`. The help text lists both under different headings but does not say
+  what `run-all` does differently.
+- **good:** `commit` timing was honest about where the time goes — `gate 2.6s ·
+  tests 355.2s`. Knowing the gate itself is ~3 s made me stop batching
+  "run the gate later" and just run it after every structural edit.
