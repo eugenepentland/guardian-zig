@@ -4333,3 +4333,37 @@ held up through the gate without any cap raises.
   actual above-baseline violations respectively; the extra remediation rows
   read like findings in the summary. Distinguishing finding count from hint
   count there would make the cleanup scope immediately clear.
+
+## 2026-08-10 · claude · eda — flock wrapper to serialize heavy gates across sessions
+
+- **good:** `guardian-check commit` did exactly what its four phases promise on a
+  five-file change (new `scripts/gate.sh`, `.githooks/prepare-release.sh`,
+  `SPEC.md`, `src/test_root.zig`, `CLAUDE.md`): whole-tree gate in **2.6 s** with
+  70 checks / 0 blocking, `zig build test` in 339 s, then a path-scoped stage and
+  commit. It also auto-shrank six per-item baselines (`file-size`,
+  `function-size`, `type-size`, `cognitive-complexity`, `debug-print-ban`,
+  `change-classification`) and rode them in the same commit — no manual
+  bookkeeping, and the new file's 100755 mode survived the staging.
+- **friction:** A diff-scoped run on a branch whose base was ONE commit stale
+  reported `completeness` as "1 check(s) would block commit" with six findings in
+  spec sections my diff never touched (`Web Server: missing … 'concurrent
+  access'`, `pdf: missing … 'integer overflow'`, `placement/pour: …`). Those were
+  pre-existing at my merge-base and already fixed on main by a commit that landed
+  while I worked. Nothing in the output distinguishes "debt you inherited" from
+  "debt you just added", so I spent a detour creating a throwaway worktree at
+  main HEAD and running `guardian-check completeness .` there to prove the
+  findings were not mine before daring to rebase. Cost: ~2 extra commands plus
+  the doubt about whether my SPEC.md edit had caused it.
+- **wish:** In a diff-scoped run, mark whole-tree findings that are also present
+  at the merge-base — e.g. `(present at merge-base, not introduced by this
+  diff)`, or a one-line summary "6 of 6 blocking findings pre-date your branch;
+  rebase onto <sha>". The information is one extra check-run at the base commit,
+  and it converts a scary blocker into an obvious "rebase first".
+- **wish:** Guardian could serialize its own expensive phase. This task existed
+  because concurrent agent sessions running `zig build test` contend badly on one
+  machine (measured ~4.5 min solo vs ~9.5 min with 2-3 sessions; the eda release
+  ledger shows the same test job at 527 s vs 320 s). I solved it outside Guardian
+  with an flock wrapper, but `guardian-check commit`'s phase 2 is precisely the
+  job worth queueing — an opt-in `[gate] serialize_lock = "/tmp/…"` that takes an
+  exclusive flock around the test phase would give every Guardian project the fix
+  for free, and Guardian already knows which phase is the expensive one.
