@@ -4319,3 +4319,17 @@ held up through the gate without any cap raises.
   exact-commit release flow ran all 70 whole-tree checks with zero blockers,
   then completed the full tests and ReleaseSafe build concurrently and
   published the verified candidate for commit `bd786b2`.
+
+## 2026-08-10 · codex · eda — production deploy gate remediation
+
+- **good:** The expanded `stack-escape` check identified fifteen test-fixture
+  helpers whose returned parts, placements, or design blocks retained pointers
+  to function-local backing arrays. Moving immutable backing data to file scope
+  and making the one mutable fixture caller-owned cleared the check to zero
+  without accepting lifetime debt; the exact-commit flow then passed all 70
+  checks and all 2,318 tests.
+- **friction:** The normal grouped failure said `stack-escape (17 findings)` and
+  `completeness (6 findings)`, while verbose mode identified fifteen and four
+  actual above-baseline violations respectively; the extra remediation rows
+  read like findings in the summary. Distinguishing finding count from hint
+  count there would make the cleanup scope immediately clear.
