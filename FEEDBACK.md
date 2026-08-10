@@ -4441,3 +4441,29 @@ held up through the gate without any cap raises.
   is the consumer test's job, not the runner's; noted here only as the
   pattern: fixture walks should assert an expected-order-of-magnitude count,
   not just `count > 0`.
+
+## 2026-08-10 · claude · eda — round-trip corpus-count bound
+
+- **good:** Two checks together forced a strictly better shape than my first
+  draft. I replaced `try std.testing.expect(count > 0)` in
+  `src/sexpr/printer.zig`'s corpus-walk test with an order-of-magnitude bound
+  that prints the actual count and a directional hint. Draft 1 put the
+  `if (out of range) { print; return error }` inline in the test body →
+  **test-no-conditional** ("if at top level of test body"). Draft 2 lifted the
+  whole thing into a helper fn → **debug-print-ban** ("std.debug.print outside
+  main/test"), because the print moved out of the test with it. The shape that
+  passes both is the right one: a pure `corpusDriftHint(count) []const u8`
+  helper holding the branch, and an `errdefer std.debug.print(...)` immediately
+  before a plain `try std.testing.expect(lo <= n and n <= hi)` in the test — the
+  assertion is one unconditional expect, and the diagnostic only prints on
+  failure. Both `explain` texts were accurate and I did not have to guess; the
+  cost was ~2 extra filtered builds.
+- **wish:** The two checks are individually right but jointly steer you through
+  a dead end, and neither explain text mentions the other. `test-no-conditional`
+  says "restructure the test" and `debug-print-ban` says "route through your
+  reporter" — for a test-only diagnostic, the reconciling idiom is
+  `errdefer std.debug.print(...)` + a branch-free helper. One sentence naming
+  that pattern in either explain text (or a shared "diagnostics in tests" note)
+  would have saved the round trip.
+- **good:** `scripts/gate.sh`'s machine-wide flock did its job — the gate
+  queued instead of fighting the other sessions building on this box.
