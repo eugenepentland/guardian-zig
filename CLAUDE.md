@@ -65,6 +65,33 @@ prove the suite compiles. `zig build test-compile` is that missing tier —
 whole-suite, no filter, `-fno-emit-bin`, so it type-checks everything and runs
 nothing. It is deliberately not a dependency of `test`.
 
+**The runner also guards what the suite COSTS.** After the last test it prints
+`guardian/test: test wall <t>s` plus the slowest tests over a floor
+(`GUARDIAN_TEST_TIMINGS` widens both). On top of that, a test whose own wall
+time reaches **5 s** gets a `guardian/test: SLOW  <t>s  <name>` line the moment
+it finishes — always on, streamed, so a creeping hog is named on every run
+rather than only in a table at the end. Two **opt-in** caps turn that into a
+failure: `GUARDIAN_TEST_MAX_TEST_SECS` (per test) and
+`GUARDIAN_TEST_MAX_WALL_SECS` (whole-run total of test time), unsigned seconds,
+where absent/empty/unparseable/`0` all mean unset. A broken cap never cuts the
+run short — every test runs and reports, then the run prints which test(s) blew
+the per-test cap (and/or the wall total against its cap) and exits non-zero.
+They are **opt-in** because wall time on a shared box is not deterministic
+(measured 2026-08-10: the same suite 2x slower under concurrent builds), which
+is also why the always-on tier only warns. **A cap is not a watchdog** — it is
+read off a test that finished, so a hung test still hangs; caps catch cost
+regressions, not deadlocks. To put one in a project's gate, note that
+`[gate] test_command` is **argv-split and run with no shell**, so a bare
+`VAR=1 zig build test` fails with `FileNotFound`; use `env(1)`:
+
+```toml
+[gate]
+test_command = "env GUARDIAN_TEST_MAX_WALL_SECS=120 zig build test"
+```
+
+`testTier` strips a leading `env NAME=VALUE …` before classifying, so that
+still counts as the whole default suite and draws no advisory.
+
 **The installed `guardian-check` is ReleaseSafe by default** — a plain
 `zig build` (no `-Doptimize`) builds `zig-out/bin/guardian-check` optimized,
 because consumer projects (eda) run it as their commit gate and a Debug build

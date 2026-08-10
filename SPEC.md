@@ -605,6 +605,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports the run's total test wall time after the last test
 - Lists the slowest tests over the reporting floor, most expensive first
 - Raises the slow-test detail cap when the timing verbosity flag is set
+- Warns on its own marked line as soon as a test reaches the slow floor
+- Fails the run after every test has finished when one exceeded the opt-in per-test cap
+- Fails the run when the total test time exceeds the opt-in wall cap
+- Leaves both caps disabled when their variables are absent, empty, or zero
 
 ## Build Helper
 

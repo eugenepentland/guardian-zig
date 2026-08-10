@@ -199,14 +199,39 @@ const TestTier = enum { whole_suite, filtered, custom };
 /// default is the whole suite; a filter flag or a fast/smoke/quick token marks a
 /// narrowed tier; every other command is unclassifiable (`custom`).
 fn testTier(cmd: []const u8) TestTier {
-    if (tokensEqual(cmd, default_test_command)) return .whole_suite;
-    var it = std.mem.tokenizeAny(u8, cmd, " \t\r\n");
+    const effective = withoutEnvPrefix(cmd);
+    if (tokensEqual(effective, default_test_command)) return .whole_suite;
+    var it = std.mem.tokenizeAny(u8, effective, " \t\r\n");
     while (it.next()) |tok| {
         for (narrowing_tokens) |n| {
             if (std.ascii.indexOfIgnoreCase(tok, n) != null) return .filtered;
         }
     }
     return .custom;
+}
+
+/// The command with a leading `env NAME=VALUE …` prefix stripped, so the tier
+/// is judged on what `env` actually execs.
+///
+/// This argv never reaches a shell (see `splitCommand`), so `env(1)` is the way
+/// a project sets a variable for the gate's own test run — eda's gate uses it
+/// for the runner's `GUARDIAN_TEST_MAX_WALL_SECS` cap. The variables say
+/// nothing about how much of the suite runs, so without this every such gate
+/// would be advised as `custom` — a permanent false "this is not the whole
+/// suite" on a command that is exactly the whole suite.
+fn withoutEnvPrefix(cmd: []const u8) []const u8 {
+    var it = std.mem.tokenizeAny(u8, cmd, " \t\r\n");
+    const first = it.next() orelse return cmd;
+    if (!std.mem.eql(u8, first, "env")) return cmd;
+    // Only leading NAME=VALUE tokens belong to env; the first token without an
+    // `=` starts the real command. Anything else (a flag like `-u`) is left in
+    // place, so an unrecognized env invocation stays conservatively advised.
+    var rest = it.rest();
+    while (it.next()) |tok| {
+        if (std.mem.indexOfScalar(u8, tok, '=') == null) return rest;
+        rest = it.rest();
+    }
+    return rest;
 }
 
 /// True when two commands tokenize to the same argv (whitespace-insensitive).
@@ -656,6 +681,21 @@ test "testTier classifies the default suite, filtered tiers, and custom commands
     // Anything else is unclassifiable — still advised, since guardian cannot
     // tell whether it covers the suite.
     try testing.expectEqual(TestTier.custom, testTier("make check"));
+    // An `env NAME=VALUE …` prefix is how a project sets a variable for the
+    // gate's run (this argv never reaches a shell), so it must not turn the
+    // default suite into a `custom` command advised on every commit.
+    try testing.expectEqual(TestTier.whole_suite, testTier("env GUARDIAN_TEST_MAX_WALL_SECS=120 zig build test"));
+    try testing.expectEqual(TestTier.whole_suite, testTier("env A=1 B=2 zig build test"));
+    // What env execs is still classified on its own merits.
+    try testing.expectEqual(TestTier.filtered, testTier("env A=1 zig build test-fast"));
+    try testing.expectEqual(TestTier.custom, testTier("env A=1 make check"));
+    // A variable whose NAME contains a narrowing word is not a narrowed tier.
+    try testing.expectEqual(TestTier.whole_suite, testTier("env RUN_FAST=1 zig build test"));
+    // Only a leading literal `env` is a prefix, and only NAME=VALUE tokens
+    // belong to it — anything else stays conservatively unclassifiable.
+    try testing.expectEqual(TestTier.custom, testTier("envy zig build test"));
+    try testing.expectEqual(TestTier.custom, testTier("env -u HOME zig build test"));
+    try testing.expectEqual(TestTier.custom, testTier("env"));
     // The advisory names the command and the probe that closes the gap.
     var cap: reporter.Capture = .{ .allocator = arena.allocator() };
     defer cap.deinit();

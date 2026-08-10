@@ -34,6 +34,13 @@
 //! therefore compiles it a second time as its own test root; `zig build test`
 //! depends on that binary too.
 //!
+//! It also reports what the run COST and guards that cost: a test that reaches
+//! the slow floor is warned about on its own line the moment it finishes, and
+//! the opt-in `GUARDIAN_TEST_MAX_TEST_SECS` / `GUARDIAN_TEST_MAX_WALL_SECS`
+//! caps fail the run — after every test has run and reported. See
+//! `test_timing.zig` for the reasoning, including why the caps are opt-in and
+//! why none of them is a watchdog.
+//!
 //! Protocol parity with the stock runner: it speaks `std.zig.Server` over stdio
 //! when the build system passes `--listen=-`, and reports to the terminal when
 //! run directly. Deviations: the exotic-backend paths (SPIR-V, the `mainSimple`
@@ -105,6 +112,13 @@ var slow_len: usize = 0;
 var total_test_ns: u64 = 0;
 /// Floor + cap for the closing slow-test report, set once in `main`.
 var timing_limits: timing.Limits = .{};
+/// The opt-in hard caps, read once in `main`; the default value is "no cap".
+var timing_caps: timing.Caps = .{};
+// Cap offenders, same fixed-capacity shape and for the same reason:
+// `over_list[0..over.stored]` names the tests that broke the per-test cap, and
+// `over.count` is how many there were — which can be larger than the list.
+var over_list: [timing.max_offenders]timing.Slow = undefined;
+var over: timing.Over = .{};
 
 /// Command line as this runner reads it. `stored` counts the filters captured
 /// into `filter_storage`; `filters` counts how many were passed.
@@ -165,6 +179,11 @@ pub fn main() void {
     announce(args);
     timing_limits = timing.Limits.forDetail(
         if (optOutActive(readEnv(timings_env))) .wide else .standard,
+    );
+    // Caps hold only integers, so they outlive the arena the values came from.
+    timing_caps = timing.Caps.fromSeconds(
+        timing.parseSeconds(readEnv(timing.max_test_env)),
+        timing.parseSeconds(readEnv(timing.max_wall_env)),
     );
     fba.reset();
 
@@ -353,7 +372,9 @@ fn mainServer() !void {
         switch (hdr.tag) {
             .exit => {
                 reportTimings();
-                return std.process.exit(0);
+                // The build system has already collected every test's result;
+                // a broken cap fails the run here, after all of them reported.
+                return std.process.exit(if (capsFailed()) 1 else 0);
             },
             .query_test_metadata => try serveMetadata(&server),
             .run_test => try serveOneTest(&server, try server.receiveBody_u32()),
@@ -486,7 +507,7 @@ fn mainTerminal() void {
     root_node.end();
     writeSummary(tally, tests.len);
     reportTimings();
-    if (tally.failed()) std.process.exit(1);
+    if (tally.failed() or capsFailed()) std.process.exit(1);
 }
 
 /// Runs one test, printing a line for anything that is not a plain pass.
@@ -543,13 +564,28 @@ fn writeSummary(tally: Tally, total: usize) void {
     }
 }
 
-/// Folds one finished test into the timing tally: its time joins the total,
-/// and it joins the slow list when it clears the reporting floor.
+/// Folds one finished test into the timing tally: its time joins the total, it
+/// is warned about if it is slow, it is held as an offender if it broke the
+/// opt-in per-test cap, and it joins the slow list when it clears the reporting
+/// floor. `name` points at `builtin.test_functions`, which outlives the run.
 fn recordDuration(name: []const u8, ns: u64) void {
     @disableInstrumentation();
     total_test_ns +|= ns;
+    const entry: timing.Slow = .{ .ns = ns, .name = name };
+    warnIfSlow(entry);
+    if (timing_caps.overPerTest(ns)) timing.recordOffender(&over_list, &over, entry);
     if (ns < timing_limits.floor_ns) return;
-    timing.insertSlow(&slow_list, &slow_len, timing_limits.max_lines, .{ .ns = ns, .name = name });
+    timing.insertSlow(&slow_list, &slow_len, timing_limits.max_lines, entry);
+}
+
+/// Streams the always-on slow warning the moment a test finishes, rather than
+/// only in the closing table — a creeping hog is then named on every run,
+/// including one whose output nobody reads to the end.
+fn warnIfSlow(entry: timing.Slow) void {
+    @disableInstrumentation();
+    if (!timing.isSlow(entry.ns)) return;
+    var buf: [report_buffer_bytes]u8 = undefined;
+    writeErr(timing.renderSlowWarning(&buf, entry));
 }
 
 /// Prints the run's total test wall and its slowest tests, most expensive
@@ -563,6 +599,34 @@ fn reportTimings() void {
     for (slow_list[0..slow_len]) |entry| {
         writeErr(timing.renderSlowLine(&buf, entry));
     }
+    reportCaps();
+}
+
+/// Prints the opt-in caps' verdict, after every test has run and everything
+/// else has been reported. Breaking a cap never cuts the run short: a suite
+/// that stops at the first slow test hides the others, and the point is to see
+/// the whole cost. The exit code is `capsFailed`.
+///
+/// A cap is not a watchdog — it is read off a test that FINISHED, so a hung
+/// test still hangs and nothing here fires. These catch cost regressions.
+fn reportCaps() void {
+    @disableInstrumentation();
+    var buf: [report_buffer_bytes]u8 = undefined;
+    if (over.count != 0) {
+        writeErr(timing.renderTestCapFailure(&buf, over, timing_caps.per_test_ns));
+        for (over_list[0..over.stored]) |entry| writeErr(timing.renderSlowLine(&buf, entry));
+    }
+    if (timing_caps.overWall(total_test_ns)) {
+        writeErr(timing.renderWallCapFailure(&buf, total_test_ns, timing_caps.wall_ns));
+    }
+}
+
+/// True when either opt-in cap was broken, in which case the run fails even
+/// though every test passed. Both caps are unset by default, so this is false
+/// for every run that did not ask for them.
+fn capsFailed() bool {
+    @disableInstrumentation();
+    return over.count != 0 or timing_caps.overWall(total_test_ns);
 }
 
 /// Counts logged errors so a test that only logs one still fails, and echoes
