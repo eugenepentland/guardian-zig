@@ -4367,3 +4367,20 @@ held up through the gate without any cap raises.
   job worth queueing — an opt-in `[gate] serialize_lock = "/tmp/…"` that takes an
   exclusive flock around the test phase would give every Guardian project the fix
   for free, and Guardian already knows which phase is the expensive one.
+
+## 2026-08-10 · claude · eda — pin test-runner --seed so unchanged-tree `zig build test` caches
+- **good:** the whole change (spec bullet + tagged test + build.zig) went through
+  `guardian-check commit` first try, and the commit's own phase-2 test run was the
+  proof of the fix: gate 2.8 s · tests 1.9 s, where every prior commit re-paid the
+  full ~4-min suite because std's enableTestRunnerMode injects a per-invocation
+  random `--seed=0x…` into the run step's cached argv. Guardian's counting runner
+  (`N test(s) selected by filter`) also made the filtered verification honest.
+- **friction:** `completeness` reported "1 check(s) would block commit" with 4
+  above-baseline findings in sections my diff never touched (Web Server, pdf,
+  placement/pour, serve/digikey). Cause: my worktree branched from 8396732 and
+  main's 90b31e9 had since *fixed* that debt + baseline; the diff-scoped run
+  surfaced the stale branch's debt as if my SPEC.md edit created it. Cost ~10 min
+  of stash-and-compare to prove innocence; rebasing onto main dissolved it. A hint
+  in the failure output — "baseline differs from <default branch>'s; you may be
+  behind" (cheap: compare .guardian/baselines blob hashes vs origin/main) — would
+  have turned the diagnosis into one line.
