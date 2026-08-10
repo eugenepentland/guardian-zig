@@ -4427,3 +4427,17 @@ held up through the gate without any cap raises.
   that does not exist in the tree — on every run in a fresh worktree
   ("interrupted run left applied" / "NOT reverting; inspect it"). Harmless but
   alarming wording for a file the checkout never contained.
+
+## 2026-08-10 · claude · eda — round-trip corpus fix (timing feature payoff)
+
+- **good:** The new per-test timing report earned its keep on its FIRST run:
+  it named one test carrying 202 s of a 217 s suite wall (the .sexp round-trip
+  walker descending into designs' own worktrees — 48k files, 47k duplicates,
+  every allocation trace-captured by std.testing.allocator). Fix verified at
+  0.25 s with oracles unchanged; the week-long "suite got slow" mystery closed
+  in one look at the slowest-tests table. Gate + commit flow clean.
+- **wish:** A per-run corpus/file-count line for tests that walk the
+  filesystem would have caught the 48k-file blowup months earlier — but that
+  is the consumer test's job, not the runner's; noted here only as the
+  pattern: fixture walks should assert an expected-order-of-magnitude count,
+  not just `count > 0`.
