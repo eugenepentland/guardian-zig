@@ -4631,3 +4631,40 @@ let the suite run to completion and then fail the run naming the offenders.
   candidate builds before fast-forwarding. The new tree-keyed candidate reuse
   is the right fix for future identical-tree merges, but its own source change
   necessarily invalidated the candidate prepared immediately before it landed.
+
+## 2026-08-10 · claude · eda — 45° corner dress + single-point pad entry in the autorouter
+
+- **good:** `file-size`'s frozen per-file ratchet did exactly its job. Adding a
+  6-line call site to `src/placement/router.zig` pushed it 10227 → 10235 against
+  a frozen ceiling of 10227, and the failure line named the file, both numbers
+  and the ceiling. That forced the right change — moving `ownPadBox` /
+  `padExitPoint` into `placement/pad_exit.zig`, where the router's own comment
+  already said the geometry belonged — instead of letting the monolith grow by
+  another feature. Net result: router.zig ended at 10223 and the new pass got
+  its own file.
+- **friction:** finding *which* file `file-size` was complaining about took
+  three commands. `zig build test` printed only `file-size (0 findings) — no
+  structured detail; use --verbose for the captured check output`, and
+  `guardian-check run --verbose .` / `guardian-check . --verbose` both print the
+  CLI help instead of running (the working spelling is `guardian-check all
+  --verbose .`, which is not the one the failure message suggests). The count
+  being 0 while the check fails is the confusing part — the ratchet breach is
+  reported as a *key* that grew, not as a finding, so the summary reads as "it
+  failed with nothing wrong". A one-line breach summary in the non-verbose
+  output (`file-size: src/placement/router.zig 10235 > frozen 10227`) would have
+  saved the round trips.
+- **good:** `guardian-check size <file>` is the right tool for this and answered
+  instantly, including "10223 vs ceiling 10227 — 4 of headroom". It just isn't
+  mentioned anywhere in the failure path; the accept hint is, and accepting was
+  the *wrong* move here.
+- **friction:** `test-no-conditional` fired on a test whose only sin was two
+  `for` loops summing two polyline lengths, at `pad_entry.zig:469: more than one
+  top-level loop`. The fix (hoist a `polyLen` helper) is genuinely better, and
+  the message named the file, the line and the rule — but the rule bites hardest
+  in geometry code, where "compute a scalar from a slice, twice" is the natural
+  assertion shape. A canned suggestion ("hoist the loop into a helper beside the
+  test, as `expectCopperIdentical` does") would make the fix obvious first time.
+- **good:** `pub-api-surface` listed all five genuinely new pub items with full
+  signatures, so reviewing the accept was a 10-second read of a 5-line diff, and
+  it caught two items (`Pad`, `trimHead`) that only tests used and should never
+  have been pub — I unpublished them rather than accepting them.
