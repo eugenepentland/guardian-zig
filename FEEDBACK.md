@@ -4411,3 +4411,19 @@ held up through the gate without any cap raises.
 - **friction:** the `spec` check reports "unlinked tag: <section> - <behavior>" for a NEW file's tags, which reads as if the tag is malformed rather than "SPEC.md has no such section yet". With 13 of them (7 for the new module, 6 for two existing sections) the output looked like a formatting problem for a minute before I realised it was simply "write the SPEC section". Wish: distinguish "tag names a section that does not exist" from "tag names a section that exists but has no matching bullet" — the first is a one-line fix, the second needs the bullet drafted.
 - **friction:** a unit test failure surfaced as a bare stack frame inside `std.mem.Allocator.free` with no message, and the real cause was upstream (my code produced an empty blockers list, so a later assertion tripped in a way that unwound through a `defer freeFindings`). Two `std.debug.print` round-trips (≈2 min of rebuild each) to localise it. Not a Guardian bug — but a `guardian/test` mode that prints the failing `expectEqual`/`expect` line before the unwind trace would have saved both.
 - **good:** `zig build test -Dtest-filter=<substr>` (≈45 s incl. the diff-scoped gate) really is the right iteration tier and the counting runner made it trustworthy — "16 test(s) selected, 1 match by name" told me my new test was actually running each time. The 5-minute `zig build -Doptimize=ReleaseSafe` was needed only twice, for measurement.
+
+## 2026-08-10 · claude · guardian-zig — test-runner per-test wall timings
+
+- **good:** The self-gate shaped the feature before a human review would have:
+  first draft tripped boolean-param-ban (a `forVerbosity(bool)`),
+  catch-discipline (two `catch {}` around diagnostic writes),
+  repeated-string-literal (the `guardian/test: ` prefix duplicated into the
+  new file), and pub-api-surface (13 additions, cleanly accepted). Each fix
+  made the design better — enum detail levels, truncate-don't-drop renderers,
+  one owned prefix. ban-time's explain text pointed straight at the
+  `[[allow]]` mechanism for the one legitimate wall-clock read (the runner IS
+  a timer), with the pure render/order logic kept clock-free and unit-tested.
+- **friction:** A stale mutation journal warned about `src/z.zig` — a file
+  that does not exist in the tree — on every run in a fresh worktree
+  ("interrupted run left applied" / "NOT reverting; inspect it"). Harmless but
+  alarming wording for a file the checkout never contained.
