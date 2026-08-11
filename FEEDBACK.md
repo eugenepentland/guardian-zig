@@ -5039,3 +5039,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The diff-scoped gate immediately caught an attempted four-field expansion of frozen `FlatInstance` plus the `pcb_layout_page.zig` file-size and cognitive-complexity ratchets, steering exact schematic-source provenance into a focused module; the final 71-check whole-tree gate passed.
 - **friction:** The intentional three-function internal helper module required `pub-api-surface` acceptance, but the suggested bare `guardian-check accept pub-api-surface .` command was not on `PATH`; invoking the repository-built binary explicitly resolved it after one failed command.
+
+## 2026-08-11 · codex · eda — SVG passive accounting and RF pull-up ownership
+
+- **good:** The full 2,502-test commit phase caught three cross-surface regressions that the five focused SVG tests missed: a shared `RenderCtx` adjacency change duplicated a passive in `render_json`, and an over-broad junction filter removed labels from the svg2pdf/PDF fixtures. Moving the supplemental attachment to the SVG setup seam and narrowing the filter made all three focused regressions pass without snapshot acceptance.
+- **friction:** `guardian-check commit` spent 471 seconds compiling/running the aggregate ReleaseSafe suite before reporting those three failures, even though the task was intentionally left uncommitted and unmerged for image review. A verify-only whole-suite mode with the same gate/test behavior but no commit phase would make this intent clearer and avoid accidentally starting commit-oriented work during a visual-review iteration.
