@@ -312,6 +312,29 @@ pub fn detail(comptime fmt: []const u8, args: anytype) void {
     default.detail(fmt, args);
 }
 
+/// Buffer size for one machine-payload write. The payload is written in a
+/// single `print`, so this bounds the syscall, never the payload length.
+const machine_buf_len = 4096;
+
+/// Writes a machine-readable payload to STDOUT — the one output in this module
+/// that does not go to stderr. The split is by ROLE, not verbosity: a `--json`
+/// report on stderr is invisible to `… | jq` (which is what `debt --json`
+/// shipped as, silently producing nothing), and human prose on stdout would
+/// corrupt the payload. So prose stays on stderr and the machine payload gets
+/// stdout to itself.
+pub fn machine(text: []const u8) std.Io.Writer.Error!void {
+    var buf: [machine_buf_len]u8 = undefined;
+    var out = std.fs.File.stdout().writer(&buf);
+    return writeMachine(&out.interface, text);
+}
+
+/// The stream-agnostic half of `machine`: exactly `text` plus one newline,
+/// flushed. Split out so the framing is provable without a real stdout.
+fn writeMachine(w: *std.Io.Writer, text: []const u8) std.Io.Writer.Error!void {
+    try w.print("{s}\n", .{text});
+    try w.flush();
+}
+
 /// Format and print a Violation record.
 pub fn emit(v: Violation) void {
     default.emit(v);
@@ -401,6 +424,17 @@ test "a demoted check's status line says REPORT and never FAILED" {
 
     // A message with no verb in it is passed through untouched.
     try std.testing.expectEqualStrings("no verb here", comptime demotedFmt("no verb here"));
+}
+
+// spec: Reporter - Writes a machine payload and one trailing newline to the stream a caller pipes
+
+test "writeMachine emits the payload verbatim with a single trailing newline" {
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeMachine(&w, "{\"rows\":[]}");
+    // Verbatim, one newline, and nothing else: a caller pipes this straight
+    // into a JSON parser, so a stray prefix or a second line would break it.
+    try std.testing.expectEqualStrings("{\"rows\":[]}\n", w.buffered());
 }
 
 // spec: Reporter - Keeps advisory warnings separate from blocking violation records

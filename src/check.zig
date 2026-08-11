@@ -175,7 +175,8 @@ const ParsedArgs = struct {
     explain_name: ?[]const u8 = null,
     /// `--section <name>`: the SPEC.md section `explain completeness` reports on.
     section: ?[]const u8 = null,
-    /// `--current`: `debt` measures each ratcheted item's value now.
+    /// `--current` (spelled `--live` as well): `debt` measures each ratcheted
+    /// item's value now, and lists what is nearest a blocking limit.
     current: bool = false,
     prune_stale: bool = false,
     confirm: bool = false,
@@ -259,7 +260,10 @@ fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
         parsed.confirm = true;
     } else if (std.mem.eql(u8, arg, "--assert-density")) {
         parsed.assert_density = true;
-    } else if (std.mem.eql(u8, arg, "--current")) {
+    } else if (std.mem.eql(u8, arg, "--current") or std.mem.eql(u8, arg, "--live")) {
+        // `--live` is the same switch under the name the report points at: what
+        // separates it from a plain `debt` is that the tree is measured NOW
+        // rather than read back out of `.guardian/`.
         parsed.current = true;
     } else if (std.mem.eql(u8, arg, "--args")) {
         parsed.args_only = true;
@@ -766,6 +770,13 @@ test "parseArgs reads the size target before the project dir and the debt --curr
     try std.testing.expect(debt_parsed.current);
     try std.testing.expect(debt_parsed.target_path == null);
     try std.testing.expectEqualStrings("../project", debt_parsed.project_dir);
+
+    // `--live` is the same switch: the report points at that name, so the name
+    // has to work.
+    const live_args = try a.alloc([:0]u8, 2);
+    live_args[0] = try a.dupeZ(u8, "debt");
+    live_args[1] = try a.dupeZ(u8, "--live");
+    try std.testing.expect(parseArgs(live_args).current);
 }
 
 // spec: Maintenance - Parses named accept checks before the optional project directory

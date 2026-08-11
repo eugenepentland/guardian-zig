@@ -4,6 +4,17 @@
 //! committed `.guardian/` state when inside a git repo. Makes debt growth a
 //! visible decision instead of a side effect.
 //!
+//! Three properties make the report decidable rather than merely printed.
+//! Rows are SPLIT BY WHAT THEY MEASURE: violation debt (lower is better) is not
+//! listed beside an API-surface inventory or a mutation SCORE (higher is
+//! better), because one sorted column put a 2830-symbol inventory on top of a
+//! debt report and read as the worst debt in the tree. The worst-offender
+//! column is LABELLED AS THE STORED BASELINE, since it reads like a live
+//! measurement and is not — one consumer appended 300 lines to a file and
+//! watched the number never move. And `--live` (the `--current` flag under the
+//! name the report points at) measures the tree for the pre-flight question the
+//! stored numbers cannot answer: what is nearest a limit that would block it.
+//!
 //! Like spec-init and mutate it is registered but never a gate: run_all's SKIP
 //! list and build_helper exclude it from every `all` / build run, so it only
 //! executes when invoked directly (`guardian-check debt [dir]`).
@@ -43,29 +54,143 @@ const Kind = enum {
     mutation,
 };
 
-/// One report line: a source label, its current total, the change vs the
-/// committed state (null when git can't supply it), and an optional note (the
-/// worst offender for a per-item ratchet file).
+/// What a row's number MEASURES. A single sorted column cannot be read: an
+/// inventory and a score are not debt, and mixing them means the top line of a
+/// "debt report" is whichever number happens to be biggest.
+const RowKind = enum {
+    /// Accepted violations — the debt the gate froze. Paying it down is work.
+    violation,
+    /// A tracked total that is not debt (the public API surface). It moves with
+    /// the design, and a bigger number is not a worse one.
+    inventory,
+    /// A measured quality score, where higher is the good direction.
+    score,
+};
+
+/// Which way is better for a row's number, carried explicitly so a machine
+/// reader never has to infer it from the label text.
+const Direction = enum { lower_better, higher_better, neutral };
+
+/// The row label of the mutation score. Named because the `--check mutate`
+/// filter has to map the command name onto it.
+const mutation_label = "mutation";
+
+/// The worst entry of a per-item ratchet, split into its parts instead of a
+/// preformatted string: `metric` is the frozen value, `file` the source file,
+/// and `item` the function or type within it (null for a file-level metric).
+/// This is the STORED ceiling, never a live measurement — see `worstText`.
+const Worst = struct {
+    metric: u64,
+    file: []const u8,
+    item: ?[]const u8,
+};
+
+/// One report line: a source label, what its number measures and which
+/// direction is better, the unit it counts in, its current total, the change vs
+/// the committed state (null when git can't supply it), and the ratchet's worst
+/// stored offender when the source is a per-item ratchet.
 const Row = struct {
     label: []const u8,
+    kind: RowKind,
+    direction: Direction,
+    unit: []const u8,
     count: u64,
     delta: ?i64,
-    note: ?[]const u8 = null,
+    worst: ?Worst = null,
 };
 
-/// A recognized snapshot file: its leaf name, report label, and summary kind.
-const SnapshotSpec = struct { leaf: []const u8, label: []const u8, kind: Kind };
+/// A recognized snapshot file: its leaf name, report label, how its total is
+/// summarized, what that total measures, and the unit it is counted in.
+const SnapshotSpec = struct {
+    leaf: []const u8,
+    label: []const u8,
+    kind: Kind,
+    row: RowKind,
+    unit: []const u8,
+};
+
+/// The unit of a baselined violation count — the implicit unit of every
+/// `.guardian/baselines/` file.
+const violation_unit = "violations";
+
+/// The unit of a budget snapshot: how many times the counted construct appears.
+const occurrence_unit = "occurrences";
+
+/// The unit of the pub-api snapshot. It is an inventory of what the API
+/// exposes, which is why it is not a debt row however large it gets.
+const symbol_unit = "tracked symbols";
+
+/// The unit of the mutation snapshot: a percentage of mutants killed.
+const score_unit = "% killed";
 
 const snapshot_specs = [_]SnapshotSpec{
-    .{ .leaf = "pub-api.txt", .label = "pub-api-surface", .kind = .lines },
-    .{ .leaf = "panic-budget.txt", .label = "panic-budget", .kind = .counts },
-    .{ .leaf = "int-from-float-budget.txt", .label = "int-from-float-budget", .kind = .counts },
-    .{ .leaf = "unsafe-ops-budget.txt", .label = "unsafe-ops-budget", .kind = .counts },
-    .{ .leaf = "mutation.txt", .label = "mutation (score %)", .kind = .mutation },
+    // An inventory, not debt: a 2830-symbol API surface used to head the debt
+    // table purely for being the largest number in it.
+    .{
+        .leaf = "pub-api.txt",
+        .label = "pub-api-surface",
+        .kind = .lines,
+        .row = .inventory,
+        .unit = symbol_unit,
+    },
+    .{
+        .leaf = "panic-budget.txt",
+        .label = "panic-budget",
+        .kind = .counts,
+        .row = .violation,
+        .unit = occurrence_unit,
+    },
+    .{
+        .leaf = "int-from-float-budget.txt",
+        .label = "int-from-float-budget",
+        .kind = .counts,
+        .row = .violation,
+        .unit = occurrence_unit,
+    },
+    .{
+        .leaf = "unsafe-ops-budget.txt",
+        .label = "unsafe-ops-budget",
+        .kind = .counts,
+        .row = .violation,
+        .unit = occurrence_unit,
+    },
+    // The one row where higher is better; it sat unmarked among lower-is-better
+    // counts, so 32 read as small debt rather than a poor kill score.
+    .{
+        .leaf = "mutation.txt",
+        .label = mutation_label,
+        .kind = .mutation,
+        .row = .score,
+        .unit = score_unit,
+    },
 };
 
-/// A `.guardian/` file routed to its report label and summary kind.
-const Classified = struct { label: []const u8, kind: Kind };
+/// A `.guardian/` file routed to its report label, summary kind, row kind and
+/// unit.
+const Classified = struct {
+    label: []const u8,
+    kind: Kind,
+    row: RowKind,
+    unit: []const u8,
+};
+
+/// Everything one invocation gathered, in one value so the human report and the
+/// JSON payload cannot describe different things.
+const Gathered = struct {
+    rows: []const Row,
+    density: []const DensityRow,
+    current: debt_current.Report,
+};
+
+/// Which way is better for each kind of number. One mapping, so a row can never
+/// be printed under a section header that contradicts its JSON direction.
+fn directionOf(kind: RowKind) Direction {
+    return switch (kind) {
+        .violation => .lower_better,
+        .score => .higher_better,
+        .inventory => .neutral,
+    };
+}
 
 /// Entry point for the debt command: gathers baseline + snapshot rows, sorts
 /// them by count descending, and prints the report. `--assert-density` adds the
@@ -94,30 +219,39 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         try debt_current.collect(ctx)
     else
         .{ .summaries = &.{}, .rows = &.{} };
-    if (ctx.json) {
-        const json = try std.json.Stringify.valueAlloc(ctx.allocator, JsonReport{
-            .project_dir = ctx.project_dir,
-            .rows = rows,
-            .assert_density = density,
-            .ratchet_ceilings = current.rows,
-        }, .{});
-        print("{s}\n", .{json});
-    } else {
-        printReport(ctx.allocator, ctx.project_dir, rows);
-        try reportFileSizes(ctx);
-        reportCurrent(ctx, current);
-        if (ctx.assert_density) printDensityReport(density);
-    }
+    const gathered: Gathered = .{ .rows = rows, .density = density, .current = current };
+    // The JSON payload goes to STDOUT and the human report to stderr, because
+    // they are different audiences on purpose: `debt --json | jq` used to
+    // receive nothing at all, the payload having been printed to stderr with
+    // the prose.
+    if (ctx.json) return reporter.machine(try renderJson(ctx.allocator, ctx.project_dir, gathered));
+    printReport(ctx.allocator, ctx.project_dir, gathered.rows);
+    try reportFileSizes(ctx);
+    reportCurrent(ctx, gathered.current);
+    if (ctx.assert_density) printDensityReport(gathered.density);
 }
 
-/// Prints the current-vs-ceiling section, or the one-line pointer to it. The
-/// pointer matters: without it a reader sees frozen ceilings with no way to
-/// tell which of them still has room, which is the state that cost one
-/// consumer six gate runs to resolve by hand.
+/// Serializes the whole gathered report. Pure: the caller owns the stream, so
+/// the payload's shape is provable without one.
+fn renderJson(arena: Allocator, project_dir: []const u8, gathered: Gathered) Allocator.Error![]const u8 {
+    return std.json.Stringify.valueAlloc(arena, JsonReport{
+        .project_dir = project_dir,
+        .rows = gathered.rows,
+        .assert_density = gathered.density,
+        .ratchet_ceilings = gathered.current.rows,
+        .headroom = gathered.current.headroom,
+    }, .{});
+}
+
+/// Prints the measured sections, or the one-line pointer to them. The pointer
+/// matters: without it a reader sees frozen ceilings with no way to tell which
+/// of them still has room, which is the state that cost one consumer six gate
+/// runs to resolve by hand.
 fn reportCurrent(ctx: *types.RunCtx, current: debt_current.Report) void {
     if (ctx.current) return debt_current.printReport(ctx.allocator, current);
-    print("  add --current to measure each ratcheted item against its frozen ceiling " ++
-        "(re-parses src/ and test/), or `guardian-check size <file>` for one file\n", .{});
+    print("  add --live (or --current) to measure the tree now: every ratcheted item against its\n", .{});
+    print("  frozen ceiling, plus what is nearest a blocking limit. `guardian-check size <file>`\n", .{});
+    print("  answers the same for one file.\n", .{});
 }
 
 /// Prints the file-size section: every source file over the recommended line
@@ -135,9 +269,13 @@ const JsonReport = struct {
     project_dir: []const u8,
     rows: []const Row,
     assert_density: []const DensityRow,
-    /// Present (non-empty) only under `--current`: one entry per ratcheted key
-    /// with no headroom left, each with its measured value and frozen ceiling.
+    /// Present (non-empty) only under `--live`/`--current`: one entry per
+    /// ratcheted key with no headroom left, each with its measured value and
+    /// frozen ceiling.
     ratchet_ceilings: []const debt_current.Row,
+    /// Present (non-empty) only under `--live`/`--current`: the measured items
+    /// nearest a limit that would block them, least room first.
+    headroom: []const debt_current.HeadroomRow = &.{},
 };
 
 fn filterRows(allocator: Allocator, rows: []const Row, filter: ?[]const u8) Allocator.Error![]const Row {
@@ -149,7 +287,8 @@ fn filterRows(allocator: Allocator, rows: []const Row, filter: ?[]const u8) Allo
 
 fn rowMatches(row: Row, check_name: []const u8) bool {
     if (std.mem.eql(u8, row.label, check_name)) return true;
-    return std.mem.eql(u8, check_name, "mutate") and std.mem.eql(u8, row.label, "mutation (score %)");
+    // `mutate` is the command name; the row is labelled after the metric.
+    return std.mem.eql(u8, check_name, "mutate") and std.mem.eql(u8, row.label, mutation_label);
 }
 
 /// Lists obsolete per-check baseline files, deleting them only when the user
@@ -246,22 +385,34 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     if (reportable(current, delta)) {
         try ctx.rows.append(ctx.arena, .{
             .label = c.label,
+            .kind = c.row,
+            .direction = directionOf(c.row),
+            .unit = c.unit,
             .count = current,
             .delta = delta,
-            .note = ratchetNote(ctx.arena, entry.rel_path, entry.content),
+            .worst = ratchetWorst(ctx.arena, entry.rel_path, entry.content),
         });
     }
 }
 
-/// A `worst: <value> <key>` note for a per-item ratchet (v2) baseline, or null
-/// for any other file. The count column already reads the key count (one line
-/// per key); this adds the single highest-value offender for context.
-fn ratchetNote(arena: Allocator, rel_path: []const u8, content: []const u8) ?[]const u8 {
+/// The worst stored entry of a per-item ratchet (v2) baseline, or null for any
+/// other file. The count column already reads the key count (one line per key);
+/// this adds the single highest-value offender for context.
+fn ratchetWorst(arena: Allocator, rel_path: []const u8, content: []const u8) ?Worst {
     if (std.mem.indexOf(u8, rel_path, baselines_marker) == null) return null;
     if (!std.mem.startsWith(u8, content, ratchet_header)) return null;
     const entries = ratchet.parse(arena, content) catch return null;
     const worst = ratchet.maxEntry(entries) orelse return null;
-    return std.fmt.allocPrint(arena, "  worst: {d} {s}", .{ worst.value, worst.key }) catch null;
+    return splitRatchetKey(worst.key, worst.value);
+}
+
+/// Splits a ratchet key into its parts. A per-subject key is `<file>|<name>`; a
+/// file-level metric has no `|` and therefore no item. Reporting the halves
+/// separately is what lets a caller open the file without parsing prose.
+fn splitRatchetKey(key: []const u8, metric: u64) Worst {
+    const bar = std.mem.indexOfScalar(u8, key, '|') orelse
+        return .{ .metric = metric, .file = key, .item = null };
+    return .{ .metric = metric, .file = key[0..bar], .item = key[bar + 1 ..] };
 }
 
 /// True when a source is worth listing: it carries debt now, or its committed
@@ -277,10 +428,17 @@ fn reportable(count: u64, delta: ?i64) bool {
 fn classify(arena: Allocator, rel_path: []const u8) Allocator.Error!?Classified {
     const base = baseName(rel_path);
     if (std.mem.indexOf(u8, rel_path, baselines_marker) != null) {
-        return .{ .label = try arena.dupe(u8, stripTxt(base)), .kind = .lines };
+        return .{
+            .label = try arena.dupe(u8, stripTxt(base)),
+            .kind = .lines,
+            .row = .violation,
+            .unit = violation_unit,
+        };
     }
     for (snapshot_specs) |s| {
-        if (std.mem.eql(u8, base, s.leaf)) return .{ .label = s.label, .kind = s.kind };
+        if (std.mem.eql(u8, base, s.leaf)) {
+            return .{ .label = s.label, .kind = s.kind, .row = s.row, .unit = s.unit };
+        }
     }
     return null;
 }
@@ -382,16 +540,60 @@ fn moreThan(_: void, a: Row, b: Row) bool {
     return std.mem.order(u8, a.label, b.label) == .lt;
 }
 
-/// Prints the sorted report, or a friendly note when nothing is recorded.
+/// Prints the report in one section per kind, or a friendly note when nothing
+/// is recorded. Sectioning is the whole point: a single count-sorted table put
+/// the API-surface inventory and the mutation score in among the violation
+/// counts, where the biggest number reads as the worst debt regardless of
+/// whether it is debt at all, or whether big is even the bad direction.
 fn printReport(allocator: Allocator, project_dir: []const u8, rows: []const Row) void {
     if (rows.len == 0) {
         reporter.ok("debt: nothing recorded under {s}/.guardian", .{project_dir});
         return;
     }
-    reporter.ok("debt report — {d} tracked source(s), sorted by count (delta vs HEAD)", .{rows.len});
+    printSection(allocator, rows, .violation, "debt — baselined violations, LOWER is better (delta vs HEAD)");
+    printSection(allocator, rows, .inventory, "inventory — tracked totals, NOT debt (delta vs HEAD)");
+    printSection(allocator, rows, .score, "scores — HIGHER is better (delta vs HEAD)");
+}
+
+/// Prints one kind's rows under its header, or nothing when that kind has none.
+fn printSection(allocator: Allocator, rows: []const Row, kind: RowKind, header: []const u8) void {
+    if (countOfKind(rows, kind) == 0) return;
+    reporter.ok("{s}", .{header});
     for (rows) |r| {
-        print("  {s:<28} {d:>6}{s}{s}\n", .{ r.label, r.count, deltaText(allocator, r.delta), r.note orelse "" });
+        if (r.kind == kind) printRow(allocator, r);
     }
+}
+
+/// How many rows belong to `kind` — the empty-section test, kept apart so a
+/// header is never printed above nothing.
+fn countOfKind(rows: []const Row, kind: RowKind) usize {
+    var n: usize = 0;
+    for (rows) |r| n += @intFromBool(r.kind == kind);
+    return n;
+}
+
+/// Prints one row: label, count with its unit, the committed-state delta, and
+/// the ratchet's worst stored offender when there is one.
+fn printRow(allocator: Allocator, r: Row) void {
+    print("  {s:<24} {d:>6} {s:<16}{s}{s}\n", .{
+        r.label,
+        r.count,
+        r.unit,
+        deltaText(allocator, r.delta),
+        worstText(allocator, r.worst),
+    });
+}
+
+/// Renders the worst stored offender, labelled `worst (baselined)`. The label
+/// is the point: the number reads like a live measurement and is not one — a
+/// consumer appended 300 lines to the named file and watched it never move,
+/// then wrote a three-line script to recover the live value. `--live` is where
+/// the measured number lives.
+fn worstText(allocator: Allocator, worst: ?Worst) []const u8 {
+    const w = worst orelse return "";
+    const item = w.item orelse
+        return std.fmt.allocPrint(allocator, "  worst (baselined): {d} {s}", .{ w.metric, w.file }) catch "";
+    return std.fmt.allocPrint(allocator, "  worst (baselined): {d} {s}|{s}", .{ w.metric, w.file, item }) catch "";
 }
 
 /// Renders a delta suffix: `(+N vs HEAD)` / `(-N vs HEAD)`, `(unchanged)` at
@@ -593,6 +795,18 @@ fn printDensityReport(rows: []const DensityRow) void {
 
 const testing = std.testing;
 
+/// A baselined-violation row, the shape most assertions below need.
+fn violationRow(label: []const u8, count: u64) Row {
+    return .{
+        .label = label,
+        .kind = .violation,
+        .direction = directionOf(.violation),
+        .unit = violation_unit,
+        .count = count,
+        .delta = null,
+    };
+}
+
 // spec: Debt - Counts non-header lines for baseline and pub-api debt
 
 test "countLines ignores the header and blank lines" {
@@ -633,12 +847,18 @@ test "classify labels baselines by check name and snapshots by spec" {
     const base = (try classify(a, ".guardian/baselines/spec.txt")).?;
     try testing.expectEqualStrings("spec", base.label);
     try testing.expect(base.kind == .lines);
+    try testing.expect(base.row == .violation);
 
     const snap = (try classify(a, ".guardian/pub-api.txt")).?;
     try testing.expectEqualStrings("pub-api-surface", snap.label);
+    // The API surface is an inventory, not debt — that is what kept it off the
+    // top of the debt table.
+    try testing.expect(snap.row == .inventory);
+    try testing.expectEqualStrings("tracked symbols", snap.unit);
 
     const counts = (try classify(a, ".guardian/panic-budget.txt")).?;
     try testing.expect(counts.kind == .counts);
+    try testing.expect(counts.row == .violation);
 
     // An unrecognized file is dropped.
     try testing.expect((try classify(a, ".guardian/notes.md")) == null);
@@ -648,9 +868,9 @@ test "classify labels baselines by check name and snapshots by spec" {
 
 test "sortByCountDesc orders by count then label" {
     var rows = [_]Row{
-        .{ .label = "b", .count = 5, .delta = null },
-        .{ .label = "a", .count = 130, .delta = null },
-        .{ .label = "c", .count = 130, .delta = null },
+        violationRow("b", 5),
+        violationRow("a", 130),
+        violationRow("c", 130),
     };
     sortByCountDesc(&rows);
     try testing.expectEqualStrings("a", rows[0].label); // 130, label a first
@@ -660,19 +880,25 @@ test "sortByCountDesc orders by count then label" {
 
 // spec: Debt - Notes a per-item ratchet's worst offender
 
-test "ratchetNote reports the worst offender of a v2 baseline only" {
+test "ratchetWorst reports the worst offender of a v2 baseline as split parts" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const v2 = "# guardian-snapshot v2\n95 src/a.zig|f\n130 src/b.zig|g\n";
-    try testing.expectEqualStrings(
-        "  worst: 130 src/b.zig|g",
-        ratchetNote(a, ".guardian/baselines/function-length.txt", v2).?,
-    );
-    // A v1 text baseline is not a ratchet — no note.
-    try testing.expect(ratchetNote(a, ".guardian/baselines/spec.txt", "# guardian-snapshot v1\nfoo\n") == null);
+    const worst = ratchetWorst(a, ".guardian/baselines/function-length.txt", v2).?;
+    // Structured, not a preformatted string: a consumer opens the file without
+    // parsing prose (the old note carried its own padding, "  worst: 130 …").
+    try testing.expectEqual(@as(u64, 130), worst.metric);
+    try testing.expectEqualStrings("src/b.zig", worst.file);
+    try testing.expectEqualStrings("g", worst.item.?);
+    // A file-level metric has no item within the file.
+    const file_level = splitRatchetKey("src/big.zig", 10_223);
+    try testing.expectEqualStrings("src/big.zig", file_level.file);
+    try testing.expect(file_level.item == null);
+    // A v1 text baseline is not a ratchet — no worst entry.
+    try testing.expect(ratchetWorst(a, ".guardian/baselines/spec.txt", "# guardian-snapshot v1\nfoo\n") == null);
     // A non-baseline file (a snapshot) is not a ratchet either.
-    try testing.expect(ratchetNote(a, ".guardian/pub-api.txt", v2) == null);
+    try testing.expect(ratchetWorst(a, ".guardian/pub-api.txt", v2) == null);
 }
 
 // spec: Debt - Formats a committed-state delta and omits it when unchanged or absent
@@ -700,9 +926,9 @@ test "reportable keeps debt and paid-down sources but drops always-clean ones" {
 // spec: Maintenance - Debt emits JSON and filters by check
 
 test "debt check filter matches check labels and the mutation command name" {
-    try testing.expect(rowMatches(.{ .label = "spec", .count = 1, .delta = null }, "spec"));
-    try testing.expect(rowMatches(.{ .label = "mutation (score %)", .count = 80, .delta = null }, "mutate"));
-    try testing.expect(!rowMatches(.{ .label = "spec", .count = 1, .delta = null }, "file-size"));
+    try testing.expect(rowMatches(violationRow("spec", 1), "spec"));
+    try testing.expect(rowMatches(violationRow(mutation_label, 80), "mutate"));
+    try testing.expect(!rowMatches(violationRow("spec", 1), "file-size"));
 }
 
 // spec: Maintenance - Debt previews stale baseline pruning before explicit confirmation
@@ -711,6 +937,128 @@ test "stale pruning requires both prune request and explicit confirmation" {
     try testing.expect(!mutationConfirmed(true, false));
     try testing.expect(!mutationConfirmed(false, true));
     try testing.expect(mutationConfirmed(true, true));
+}
+
+/// The three rows every sectioning assertion below shares: one of each kind.
+fn mixedRows() [3]Row {
+    return .{
+        .{
+            .label = "pub-api-surface",
+            .kind = .inventory,
+            .direction = directionOf(.inventory),
+            .unit = symbol_unit,
+            .count = 2830,
+            .delta = 0,
+        },
+        .{
+            .label = mutation_label,
+            .kind = .score,
+            .direction = directionOf(.score),
+            .unit = score_unit,
+            .count = 32,
+            .delta = null,
+        },
+        .{
+            .label = "file-size",
+            .kind = .violation,
+            .direction = directionOf(.violation),
+            .unit = violation_unit,
+            .count = 12,
+            .delta = 1,
+            .worst = .{ .metric = 10_223, .file = "src/placement/router.zig", .item = null },
+        },
+    };
+}
+
+// spec: Debt - Separates violation debt from inventories and scores into labelled sections
+
+test "printReport sections each kind under its own direction-bearing header" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const rows = mixedRows();
+    printReport(a, ".", &rows);
+    const out = cap.buf.items;
+    // The 2830-symbol inventory is the biggest number in the report and must
+    // NOT head it: each kind gets its own header naming its direction.
+    const debt_at = std.mem.indexOf(u8, out, "debt — baselined violations, LOWER is better").?;
+    const inventory_at = std.mem.indexOf(u8, out, "inventory — tracked totals, NOT debt").?;
+    const score_at = std.mem.indexOf(u8, out, "scores — HIGHER is better").?;
+    try testing.expect(debt_at < inventory_at);
+    try testing.expect(inventory_at < score_at);
+    // Every row sits under its own header, with its unit spelled out.
+    try testing.expect(std.mem.indexOf(u8, out, "file-size").? < inventory_at);
+    try testing.expect(std.mem.indexOf(u8, out, "2830 tracked symbols").? > inventory_at);
+    try testing.expect(std.mem.indexOf(u8, out, "32 % killed").? > score_at);
+    // A kind with no rows prints no header at all.
+    cap.buf.clearRetainingCapacity();
+    printReport(a, ".", &.{violationRow("spec", 3)});
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "inventory —") == null);
+}
+
+// spec: Debt - Labels the worst offender as the stored baseline rather than a live measurement
+
+test "worstText marks the ratchet's worst entry as baselined" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // "(baselined)" is load-bearing: the unlabelled number reads as a live
+    // measurement, and a consumer appended 300 lines to this very file and
+    // watched it never move before working out that it is the frozen value.
+    try testing.expectEqualStrings(
+        "  worst (baselined): 10223 src/placement/router.zig",
+        worstText(a, .{ .metric = 10_223, .file = "src/placement/router.zig", .item = null }),
+    );
+    try testing.expectEqualStrings(
+        "  worst (baselined): 12 src/placement/optimizer.zig|assignSides",
+        worstText(a, .{ .metric = 12, .file = "src/placement/optimizer.zig", .item = "assignSides" }),
+    );
+    // A source with no ratchet contributes no column at all.
+    try testing.expectEqualStrings("", worstText(a, null));
+}
+
+// spec: Debt - Renders JSON rows carrying a kind, a direction, and a structured worst offender
+
+test "renderJson emits typed rows and the measured headroom list" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rows = mixedRows();
+    const json = try renderJson(a, "/repo", .{
+        .rows = &rows,
+        .density = &.{},
+        .current = .{
+            .summaries = &.{},
+            .rows = &.{},
+            .headroom = &.{.{
+                .check = "file-size",
+                .key = "src/placement/router.zig",
+                .value = 10_223,
+                .limit = 10_227,
+                .limit_kind = .ceiling,
+            }},
+        },
+    });
+    // The top-level shape consumers already parse is unchanged.
+    try testing.expect(std.mem.indexOf(u8, json, "\"project_dir\":\"/repo\"") != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"rows\":[") != null);
+    // A machine reader gets the kind and direction as fields, never inferred
+    // from label text.
+    try testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"inventory\",\"direction\":\"neutral\"") != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"score\",\"direction\":\"higher_better\"") != null);
+    // The worst offender is structured, not a padded string.
+    try testing.expect(std.mem.indexOf(
+        u8,
+        json,
+        "\"worst\":{\"metric\":10223,\"file\":\"src/placement/router.zig\",\"item\":null}",
+    ) != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"headroom\":[{\"check\":\"file-size\"") != null);
+    try testing.expect(std.mem.indexOf(u8, json, "\"limit_kind\":\"ceiling\"") != null);
 }
 
 // spec: Debt - Reports source files over the recommended size against both limits

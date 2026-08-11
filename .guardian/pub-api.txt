@@ -267,6 +267,8 @@ src/cli/commit.zig::command_name value
 src/cli/commit.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/debt.zig::command_name value
 src/cli/debt.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/debt_current.zig::HeadroomRow struct_
+src/cli/debt_current.zig::LimitKind enum_
 src/cli/debt_current.zig::Report struct_
 src/cli/debt_current.zig::Row struct_
 src/cli/debt_current.zig::Summary struct_
@@ -579,6 +581,7 @@ src/reporter.zig::flatLine | fn flatLine(arena: Allocator, v: Violation) Allocat
 src/reporter.zig::flatLines | fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![]const []const u8
 src/reporter.zig::green value
 src/reporter.zig::init | fn init(quiet: bool) void
+src/reporter.zig::machine | fn machine(text: []const u8) std.Io.Writer.Error!void
 src/reporter.zig::measure | fn measure(m: Measured) void
 src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: anytype) void

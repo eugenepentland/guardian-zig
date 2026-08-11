@@ -259,6 +259,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Omits a clean source with zero debt and no committed change
 - Reports source files over the recommended size against both limits
 - Reports assert-call density per top-level src module sorted ascending
+- Separates violation debt from inventories and scores into labelled sections
+- Labels the worst offender as the stored baseline rather than a live measurement
+- Renders JSON rows carrying a kind, a direction, and a structured worst offender
 
 ## Maintenance
 
@@ -535,6 +538,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Reporter
 
 - Renders a Violation to the same indented line the emitter prints
+- Writes a machine payload and one trailing newline to the stream a caller pipes
 - Keeps advisory warnings separate from blocking violation records
 - Prints a report-only verb instead of FAILED for a policy-demoted check
 
@@ -882,6 +886,9 @@ without an explained `--force`.
 - Reports no ceiling section for a project that has accepted no debt
 - Summarizes each ratchet as keys with headroom, at ceiling, and over
 - Prints each ratchet's headroom split and its stuck keys
+- Picks the limit that would block an item and bands it by room left
+- Lists the items nearest a blocking limit with the least room first
+- Keeps two checks' measurements of the same subject apart
 - Renders a ratcheted key's current value against its ceiling
 - Warns that accepting a grown ratchet key raises a frozen ceiling
 - Parses the size target path and the debt current flag

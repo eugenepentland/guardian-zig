@@ -156,10 +156,7 @@ fn reportJson(ctx: *types.RunCtx, plan: scope.Plan, d: test_filter.Derivation, a
 /// An empty derivation writes an empty line, which interpolates to no arguments
 /// at all — the caller then runs its whole suite, never zero tests.
 fn writeArgs(args: []const u8) types.RunError!void {
-    var buf: [4096]u8 = undefined;
-    var out = std.fs.File.stdout().writer(&buf);
-    try out.interface.print("{s}\n", .{args});
-    try out.interface.flush();
+    return reporter.machine(args);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

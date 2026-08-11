@@ -979,14 +979,49 @@ guardian: refusing to refresh file-size: ratchet would raise a value or add a ke
 **See where the debt is.** `guardian-check debt [dir]` prints a non-gating
 report of every baseline/snapshot total, sorted high-to-low, with the change vs
 the committed `.guardian/` state. Add `--assert-density` when you also want the
-informational `assert()`-per-KLOC table. A per-item ratchet shows its worst
-offender:
+informational `assert()`-per-KLOC table.
+
+Rows are grouped by **what the number measures**, because one count-sorted
+table cannot be read: an API-surface inventory is not debt however large it
+gets, and a mutation score is the one row where higher is better. A per-item
+ratchet also shows its worst offender — labelled `worst (baselined)`, because
+it is the STORED ceiling and does not move when you edit the file:
 
 ```
-debt report — 2 tracked source(s), sorted by count (delta vs HEAD)
-  file-size               25  (+25 vs HEAD)  worst: 11482 src/placement/optimizer.zig
-  function-length          8   (unchanged)  worst:   246 src/router.zig|route
+debt — baselined violations, LOWER is better (delta vs HEAD)
+  file-size                 25 violations       (+25 vs HEAD)  worst (baselined): 11482 src/placement/optimizer.zig
+  function-length            8 violations       (unchanged)    worst (baselined): 246 src/router.zig|route
+inventory — tracked totals, NOT debt (delta vs HEAD)
+  pub-api-surface         2830 tracked symbols  (unchanged)
+scores — HIGHER is better (delta vs HEAD)
+  mutation                  32 % killed         (unchanged)
 ```
+
+`--json` writes the same report to **stdout** (the human report stays on
+stderr, so `debt --json | jq` receives the payload and nothing else). Each row
+carries `kind` (`violation` / `inventory` / `score`), `direction`
+(`lower_better` / `higher_better` / `neutral`) and `unit` as fields, so a
+machine reader never infers them from label text, and `worst` is structured
+`{metric, file, item}` (`item` null for a file-level metric) rather than a
+preformatted string.
+
+**Ask what is about to block.** `guardian-check debt [dir] --live` (spelled
+`--current` as well) measures the tree and adds two sections: every ratcheted
+key against its frozen ceiling, and a **headroom** list of the items within 10%
+of the limit that would block them, least room first. That is the pre-flight
+question — "can this grow?" — which the stored numbers cannot answer, and it
+names which limit binds, since a frozen ceiling can sit either side of the
+check's hard cap:
+
+```
+headroom — within 90% of the limit that blocks them, least room first (measured now)
+  file-size        src/serve/pcb_layout_page.zig     10296 of 10296 frozen ceiling — 0 left
+  file-size        src/placement/optimizer.zig        9988 of 10000 hard cap — 12 left
+```
+
+It is opt-in because it re-reads and re-parses `src/` and `test/`; a plain
+metadata-only debt report should not pay for a source walk (measured on a
+1000-file consumer: 1.2 s with it, 0.1 s without).
 
 **Ask what a number is right now.** A ratchet freezes each item at the value
 Guardian measured, and neither the checks nor `debt` report that value back
@@ -1003,10 +1038,10 @@ size — src/placement/optimizer.zig (measured now; no gate, no writes)
   not measured here (metric lives inside the check's scan): nesting-depth, cognitive-complexity, …
 ```
 
-`guardian-check debt . --current` does the same comparison tree-wide: per
+`guardian-check debt . --live` does the same comparison tree-wide: per
 ratcheted check, how many keys have headroom, how many sit exactly on their
-ceiling, and how many are already over — plus a line for each of the last two.
-It is opt-in because it re-reads and re-parses `src/` and `test/`.
+ceiling, and how many are already over — plus a line for each of the last two,
+and the headroom list shown above.
 
 ### Tier-by-tier rollout
 
@@ -1410,8 +1445,9 @@ guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, the
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
 guardian-check size src/parser.zig . # One file's current measurements vs its caps and ratchet ceilings
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
-guardian-check debt . --current      # Also measure every ratcheted key against its frozen ceiling
-guardian-check debt . --json         # Machine-readable debt report
+guardian-check debt . --live         # Measure now: every ratcheted key vs its ceiling, + what is nearest a blocking limit
+guardian-check debt . --current      # The same switch under its original name
+guardian-check debt . --json         # Machine-readable debt report, on stdout
 guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
 guardian-check debt . --check spec   # Restrict the debt report to one check
 guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry run)

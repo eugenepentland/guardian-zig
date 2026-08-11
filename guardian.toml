@@ -188,7 +188,10 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # classify/refreshIncludes cores are tested), config validation shell
 # (validateSelectiveConfig — validateDenyGrowth is tested), the ban-family
 # orchestration shell (scan), baseline orchestration (runWithBaseline),
-# reporter output (fail, detail, emit) and the noreturn fatal path (fatal —
+# reporter output (fail, detail, emit, and machine — the stdout half of the
+# machine-payload writer; its framing is tested through writeMachine against a
+# caller-supplied stream, and only the stdout binding is exempt) and the
+# noreturn fatal path (fatal —
 # it exits the process, so it cannot be called from a test), and the
 # git/mutation process shells (diffAgainst, untrackedFiles, fileAtHead, runOne,
 # parentCount, changedPaths, addPaths, commit, headHash, currentBranch — their
@@ -205,4 +208,4 @@ paths = ["src/checks/*", "src/ast/*", "src/spec/*", "src/snapshot.zig", "src/sna
 # module — std calls it, no Guardian code can.
 [test_coverage]
 enabled = true
-exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "measure", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "hooksDir", "measureBaseline", "install", "trackChild", "testRunner", "announceFilters", "addTestCompileProbe", "fuzz"]
+exempt_names = ["main", "printHelp", "addAllChecks", "runWithBaseline", "shouldUpdate", "shouldUpdateFor", "refreshTargets", "validateSelectiveConfig", "parseFile", "scanDir", "collectModules", "scan", "fail", "detail", "emit", "measure", "machine", "fatal", "diffAgainst", "untrackedFiles", "fileAtHead", "runOne", "parentCount", "changedPaths", "addPaths", "commit", "headHash", "currentBranch", "hooksDir", "measureBaseline", "install", "trackChild", "testRunner", "announceFilters", "addTestCompileProbe", "fuzz"]

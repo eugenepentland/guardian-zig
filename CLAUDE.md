@@ -155,8 +155,9 @@ guardian-check all . --verbose       # replay every check in full (overrides --s
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
 guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps + frozen ratchet ceilings
-guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating)
-guardian-check debt . --current      # + each ratcheted key's current value vs its ceiling (re-parses the tree)
+guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating); --json goes to stdout
+guardian-check debt . --live         # + each ratcheted key vs its ceiling AND what is nearest a blocking limit
+guardian-check debt . --current      # the same switch under its original name (re-parses the tree)
 guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
@@ -328,9 +329,16 @@ signature that reappeared under a different file prints as
 `moved: <fileA> -> <fileB> :: <name>` and counts as neither new nor removed
 (still drift — the snapshot must be accepted), and an additions-only delta
 carries the accept commands on the line under the summary. The non-gating `guardian-check debt [dir]` (`zig build
-debt`) reports every baseline/snapshot total, sorted by count, with the delta
-vs the committed `.guardian/` state, then an informational assert-density table
-(assert() calls per KLOC per top-level src module, ascending).
+debt`) reports every baseline/snapshot total with the delta vs the committed
+`.guardian/` state, **grouped by what the number measures** — violation debt
+(lower is better), inventories that are not debt at all (the pub-api surface),
+and scores (higher is better) — plus, on request, an informational
+assert-density table (assert() calls per KLOC per top-level src module,
+ascending). A ratchet's worst offender is labelled `worst (baselined)` because
+it is the stored ceiling, not a live measurement; `--live` measures the tree and
+adds the ratchet-ceiling table and the headroom list (items within 10% of the
+limit that would block them). `--json` writes to **stdout**, with `kind`,
+`direction` and `unit` per row and a structured `worst {metric, file, item}`.
 
 **Report vs block (`[gate]`).** By default (`on_build = "report"`) a build-wired
 `all` run prints every finding but exits 0 and appends `guardian: N check(s)
