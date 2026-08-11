@@ -4783,3 +4783,6 @@ result. Three gated commits, ~1100 lines across 105 files.
   result, so "15/16 passed, 1 failed" scrolls past and a fully green run prints no
   explicit "tests ok" at all. `guardian: gate N blocking; tests 16/16 passed` as the
   last line would save a `| tail -12` and a squint on every iteration.
+
+## 2026-08-10 · codex · eda — Black Canyon PCB placement and routing
+- **good:** The ReleaseSafe EDA build completed with Guardian reporting zero blocking findings; diff-scoped checks correctly saw no tooling-source changes while the file-size and repeated-string findings remained report-only, so the PCB-design-only workflow incurred no unrelated snapshot churn.
