@@ -4668,3 +4668,84 @@ let the suite run to completion and then fail the run naming the offenders.
   signatures, so reviewing the accept was a 10-second read of a 5-line diff, and
   it caught two items (`Pad`, `trimHead`) that only tests used and should never
   have been pub — I unpublished them rather than accepting them.
+
+## 2026-08-10 · claude · eda — build split phase 1 (core/placement named modules)
+
+Context: restructured `src/` into two named Zig modules (`core`, `placement`) to
+try to give the placement solver its own optimize mode. The premise turned out to
+be wrong (Zig runs one LLVM pipeline per *compilation*, chosen by the root
+module), so the change landed as a module boundary plus a recorded negative
+result. Three gated commits, ~1100 lines across 105 files.
+
+- **friction (blocked a commit, cost one gate cycle + diagnosis):**
+  `test-reachability` resolves its root from a hardcoded heuristic
+  (`src/main.zig`, `src/root.zig`, `test/*.zig`) when `[test_reachability] roots`
+  is unset. eda's aggregate `test { _ = @import(...) }` list happened to live in
+  `src/main.zig`, so the default worked by accident. This refactor *had* to move
+  that list out: in Zig an `@import("x.zig")` inside a `test` block claims x for
+  the enclosing module even in a non-test build (verified — "file exists in
+  modules 'root' and 'sub'"), so leaving it in main.zig collided the executable's
+  root module with the new modules that own those files. The moment it moved to
+  `src/test_root.zig`, the check reported **283 findings** ("N test block(s) never
+  compile — no test root imports this file") for essentially every file in the
+  tree. One config line fixed it and `explain` names that line, so the cost was
+  small — but the presentation is alarming out of proportion: a root-not-found
+  condition reads as "the whole suite is dead". `resolveRoots` already skips when
+  NO root resolves; consider also warning when the resolved root reaches, say,
+  under 20% of test-bearing files: "root src/main.zig reaches 3/286 test-bearing
+  files — is `[test_reachability] roots` pointing at the real test root?". That
+  one line would replace a list of 283.
+- **friction (~10 min, and this one I think is a real gap):**
+  `change-classification` blocked a pure-mechanical rebase fixup — three upstream
+  test files whose `@import("../export_kicad.zig")` had to become
+  `@import("core").export_kicad` to stay legal under the new module ownership.
+  Three changed lines, all inside files that ARE regression tests, counted as
+  "behavioral line(s) added" with no accompanying test. `explain` is admirably
+  clear that this is not an accept ("there is no snapshot to ratify"), and the
+  documented escape is `--against` / `GUARDIAN_AGAINST`, which worked
+  (`GUARDIAN_AGAINST=main` sees the branch's spec bullets + tagged tests and
+  passes). Two notes: (1) an import-only edit — the changed line is entirely
+  `@import(...)` — seems like a defensible thing to classify as non-behavioral,
+  the same way a comment is; (2) the failure text names the check and the files
+  but not the escape hatch, so I had to run `explain` to find `--against`. Putting
+  "scope the diff with --against <ref> when the tests are in earlier commits of
+  this branch" in the failure itself would have saved the round trip.
+- **good:** `deny_growth = ["spec", "completeness"]` forced better tests than I
+  would have written, twice. Three new SPEC bullets meant three tagged tests, and
+  since build.zig is the artifact under change they became structural assertions
+  over build.zig's own text (every non-test compilation gets its own module pair;
+  the core<->placement cycle is wired in BOTH directions; the module surfaces are
+  mirrored into the test root). Better still: when the experiment failed, the
+  same discipline made me convert the "hybrid build" bullet into a bullet that
+  encodes the *negative* result — "compiles every module of one artifact at the
+  same optimize mode, because Zig runs one LLVM pipeline per compilation" — with
+  a test asserting no `-Dhybrid`-style flag comes back and that the measurement
+  table stays in build.zig. Without the 1:1 rule I would have deleted the bullet
+  and left the finding in a commit message nobody reads.
+- **good:** `pub-api-surface` behaved exactly right on a refactor that is almost
+  entirely new public surface (two module-root files re-exporting 62 namespaces
+  plus a mirrored copy in the test root = 128 additions). The listing made it
+  obvious the delta was pure addition, and
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` ratified that one snapshot
+  and nothing else.
+- **friction (minor, ~2 min, net positive):** `test-no-conditional` fired on a
+  test whose body had two `inline for` loops over `@typeInfo(...).decls` — a
+  comptime assertion, not control flow over data. Hoisting them into a
+  `fn requireMirrored(comptime Module: type, ...)` helper called twice satisfied
+  the check and genuinely read better. Worth noting only as a class the check may
+  see more of: comptime reflection tests look like loops but are assertions.
+- **wish (repeat, sharper case):** a commit tier that skips the test wall. This
+  change is ~1100 lines of mechanical import rewriting where the compiler is the
+  real oracle — `zig build test-compile` proves every file still type-checks in
+  its new module in 12 s. I paid 334 s + 351 s + 365 s of ReleaseSafe suite for
+  three commits of it. `test-compile` covers the type-check half but not the
+  "will the gate let me commit" half.
+- **prototyping:** this session is the case for it. The whole experiment was
+  "does per-module optimize partition LLVM cost?", answerable with two throwaway
+  builds and a bench run — but every intermediate state still had to satisfy
+  spec/pub-api/shape checks before I could commit anything, and the answer (no)
+  meant most of what I wrote was deleted the same session. A mode that lets an
+  explicitly-marked exploratory branch defer spec + pub-api + shape ratchets, and
+  demands them only at the point the branch asks to become mergeable, would move
+  the tax to the boundary where it earns its keep — the ship half — without
+  weakening it there at all.
