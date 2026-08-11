@@ -440,6 +440,18 @@ git-ignored, digest-excluded `.guardian/cache/`: `last-run.jsonl` (structured
 violations + summary) and `dora.jsonl` (per-run delivery metrics); `mutate`
 adds `last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
 
+A `last-run.jsonl` row is meant to be actionable on its own: `file`/`line` are
+filled even for a check that only prints prose (its `<file>:<line>: ` prefix is
+lifted into the record's own fields), and `fix_hint` carries the remedy — set
+per finding by a check that emits records, scraped from a prose check's single
+trailing `fix:` line, and, for a ratchet regression, naming the ceiling that
+broke plus the `accept` command. Baseline mode forwards what it *reported* —
+new violations, or keys past their ratchet ceiling — through `reporter.sink`
+with the check's own file/line/metric, because the baseline layer otherwise
+consumes those records under its nested capture (which is why a `file-size`
+failure used to reach the log as fileless prose, or not at all). Frozen
+baseline debt is never forwarded: a row means "this run reported it".
+
 ## Project Structure
 
 ```

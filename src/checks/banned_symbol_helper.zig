@@ -278,11 +278,24 @@ fn recordViolation(ctx: *Ctx, z: []const u8, start_byte: usize, rule: Rule) Allo
         .file = file,
         .line = line,
         .message = msg,
+        // The remedy rides on the record, not only on the trailing `fix:` line
+        // this family prints once per run: the JSONL sink reads records, so a
+        // hint printed after the list never reached an agent's fix loop.
+        .fix_hint = try renderFixHint(a, rule, ctx.opts.fix_hint),
         // What was flagged: this banned symbol in this file. Repeated hits in one
         // file share the identity, and the baseline's multiset diff keeps their
         // count, so removing one of three still registers as an improvement.
         .identity = try std.fmt.allocPrint(a, "{s}|{s}", .{ file, rule.display }),
     });
+}
+
+/// Per-hit remedy. A rule that names a modern spelling gets the mechanical
+/// rename; everything else gets the check's own architectural hint (inject a
+/// port, route through the logger, use the alternative the `[[ban]]` reason
+/// names), which is the same text the run prints once beneath the list.
+fn renderFixHint(a: Allocator, rule: Rule, check_hint: []const u8) Allocator.Error![]const u8 {
+    if (rule.replacement) |repl| return std.fmt.allocPrint(a, "rename to {s}", .{repl});
+    return check_hint;
 }
 
 /// Renders a hit's message: the replacement rename when the rule names one, the

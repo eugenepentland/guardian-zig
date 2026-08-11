@@ -46,7 +46,10 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
             .file = entry.rel_path,
             .line = f.start_line,
             .message = message,
-            .fix_hint = if (is_hard) null else "consider extracting a focused helper when the function next changes",
+            .fix_hint = if (is_hard)
+                "extract the function's phases into focused helpers"
+            else
+                "consider extracting a focused helper when the function next changes",
             .ratchet_key = try std.fmt.allocPrint(a, "{s}|{s}", .{ entry.rel_path, f.name }),
             .metric = f.line_count,
         });

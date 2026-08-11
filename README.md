@@ -740,7 +740,8 @@ so an agent's fix loop, an editor integration, or the `debt` report can consume
 structured findings instead of re-parsing terminal prose.
 
 ```jsonl
-{"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (cap 200)","fix_hint":null,"ratchet_key":"src/foo.zig|parse","metric":246}
+{"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (hard limit 200)","fix_hint":"extract the function's phases into focused helpers","ratchet_key":"src/foo.zig|parse","metric":246}
+{"type":"violation","check":"catch-discipline","file":"src/foo.zig","line":16,"message":"catch block is empty (silently swallows the error)","fix_hint":"handle the error explicitly with a switch or named return","ratchet_key":null,"metric":null}
 {"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Auth - Validates tokens","fix_hint":null,"ratchet_key":null,"metric":null}
 {"type":"summary","passed":58,"failed":2,"skipped":3,"filtered":false}
 ```
@@ -754,6 +755,25 @@ structured findings instead of re-parsing terminal prose.
   bool-ops, line-length) emit a **`ratchet_key`** (stable per-subject identity —
   `file|fn`, `file|Type`, or `file`) and a **`metric`** (the measured value).
   Other checks contribute at least `check` + `message` (the rest `null`).
+- **`file` / `line` are filled for a prose-reporting check too.** A check that
+  prints `src/x.zig:16: <message>` rather than emitting a structured record has
+  that prefix lifted into the row's own fields, so every row is addressable
+  without re-parsing the message. Only the two canonical spellings are split
+  (`<file>:<line>: msg` and `<file>: msg`); anything else keeps its message
+  verbatim, and a finding with no file at all (a SPEC.md behavior) still has
+  `file: null`.
+- **`fix_hint` carries the remedy.** A check that emits records sets it per
+  finding (`formatting` → `zig fmt src/x.zig`; `deprecated-alias` → the modern
+  spelling; the ban family → the port to inject). A prose check's single
+  trailing `fix:` line — the one printed once beneath its findings — is attached
+  to each of its rows. A ratchet regression's hint names the ceiling it broke,
+  by how much, and the `guardian-check accept` command. It is `null` where no
+  hint exists, never filled with filler.
+- **Baseline mode reports through the same records.** A baselined check's
+  findings are consumed by the baseline layer, so what it *reported* — the
+  violations above the baseline, or the keys that regressed past their ratchet
+  ceiling — is forwarded to the sink with the check's own file/line/metric.
+  Grandfathered debt is not forwarded: a row means "this run reported it".
 - Written under `cache/` on purpose: that subdir is git-ignored and excluded from
   the skip-cache input digest, so the log is rewritten every run without churning
   git or invalidating the build cache. No timestamps (std.time is banned).

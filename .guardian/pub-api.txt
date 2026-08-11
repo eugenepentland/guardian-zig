@@ -56,6 +56,7 @@ src/ast/parser.zig::pubFnsFromTree | fn pubFnsFromTree(arena: Allocator, tree_pt
 src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
+src/baseline.zig::firstFixHint | fn firstFixHint(captured: []const u8) ?[]const u8
 src/baseline.zig::legacy_version value
 src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: []const Keyed, force_refresh: bool, write_allowed: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
@@ -585,6 +586,8 @@ src/reporter.zig::ok | fn ok(self: Reporter, comptime fmt: []const u8, args: any
 src/reporter.zig::prefix value
 src/reporter.zig::red value
 src/reporter.zig::reset value
+src/reporter.zig::sink | fn sink(v: Violation) void
+src/reporter.zig::sinkOnly | fn sinkOnly(self: Reporter, v: Violation) void
 src/reporter.zig::warn | fn warn(v: Violation) void
 src/reporter.zig::write | fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void
 src/required_inputs.zig::validate | fn validate(ctx: *types.RunCtx) types.RunError!void
@@ -599,8 +602,11 @@ src/scope.zig::plan | fn plan(self: Decision) ?Plan
 src/scope.zig::resolve | fn resolve( allocator: Allocator, project_dir: []const u8, against: ?[]const u8, posture: Posture, ) Allocator.Error!Decision
 src/scope.zig::wholeTree | fn wholeTree(self: Decision) ?[]const u8
 src/scope.zig::wholeTreeReason | fn wholeTreeReason(posture: Posture) ?[]const u8
+src/sink.zig::Location struct_
 src/sink.zig::Summary struct_
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
+src/sink.zig::scrapedRecord | fn scrapedRecord(check: []const u8, text: []const u8, fix_line: ?[]const u8) reporter.Violation
+src/sink.zig::splitLocation | fn splitLocation(text: []const u8) Location
 src/sink.zig::summaryJson | fn summaryJson(arena: Allocator, s: Summary) Allocator.Error![]u8
 src/sink.zig::violationJson | fn violationJson(arena: Allocator, v: reporter.Violation) Allocator.Error![]u8
 src/sink.zig::write | fn write(arena: Allocator, project_dir: []const u8, records: []const reporter.Violation, summary: Summary) void

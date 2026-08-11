@@ -486,6 +486,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Stops scraping violations at every trailing prose label
 - Preserves the count of same-key violations across a stored baseline
 - Skips findings whose file is missing and gitignored instead of counting them
+- Forwards a newly reported violation to the sink with its location and fix hint
 
 ## Violation Identity
 
@@ -518,6 +519,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
 - Names the offending file line and metric in the regression status line
+- Sends each regressed key to the sink with its record and the ceiling it broke
 
 ## Measurement Mode
 
@@ -537,6 +539,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Renders a Violation to the same indented line the emitter prints
 - Keeps advisory warnings separate from blocking violation records
 - Prints a report-only verb instead of FAILED for a policy-demoted check
+- Records a violation for the sink without printing it
 
 ## Machine-Readable Sink
 
@@ -544,6 +547,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Appends a run summary record with pass fail skip counts
 - Writes the last-run log under the git-ignored guardian cache dir
 - Writes a summary-only log when the run passes with no violations
+- Lifts a scraped line's file and line number into the record's own fields
+- Attaches a prose check's own fix line to every row it scrapes
 
 ## Delivery Metrics
 

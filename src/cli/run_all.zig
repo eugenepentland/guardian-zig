@@ -1136,10 +1136,17 @@ fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckR
         return;
     }
     // Unmigrated check: scrape indented violation lines (baseline.extract shares
-    // the same indentation rules), tagging each with the check name.
+    // the same indentation rules), tagging each with the check name. The line's
+    // own `<file>[:<line>]: ` prefix is lifted into the record's fields and the
+    // check's single trailing `fix:` line becomes every row's hint, so a prose
+    // check's rows carry the same actionable detail a migrated check's do.
     const lines = baseline.extract(ctx.allocator, r.output) catch return;
-    for (lines) |line| acc.records.append(ctx.allocator, .{ .check = check_name, .message = line }) catch |e|
-        std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
+    const hint = baseline.firstFixHint(r.output);
+    for (lines) |line| {
+        const v = sink.scrapedRecord(check_name, line, hint);
+        acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
+            std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
+    }
 }
 
 /// Gathers a check's measurement-deferred findings into the run accumulator,

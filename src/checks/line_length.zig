@@ -75,7 +75,10 @@ fn scanLines(
                 .file = rel_path,
                 .line = line_num,
                 .message = message,
-                .fix_hint = if (is_hard) null else "split the expression when doing so improves readability",
+                .fix_hint = if (is_hard)
+                    "wrap the line, or hoist part of the expression into a named const"
+                else
+                    "split the expression when doing so improves readability",
                 .ratchet_key = try allocator.dupe(u8, rel_path),
                 .metric = codepoint_len,
             });

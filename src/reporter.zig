@@ -220,6 +220,12 @@ pub const Reporter = struct {
         emitDirect(v);
     }
 
+    /// Records a Violation for the machine-readable sink WITHOUT printing it.
+    /// See the module-level `sink`.
+    pub fn sinkOnly(self: Reporter, v: Violation) void {
+        if (self.capture) |c| c.record(v);
+    }
+
     /// Emits a finding deferred by a live `[measurement]` exemption. It is
     /// listed under the check's MEASURE header and recorded separately from
     /// blocking violations, so nothing downstream can mistake it for one.
@@ -322,6 +328,17 @@ pub fn warn(v: Violation) void {
     default.warn(v);
 }
 
+/// Records a structured Violation for the machine-readable sink WITHOUT
+/// printing it. The seam exists for a layer that renders its own human output
+/// but must not lose the check's detail on the way to `last-run.jsonl`: the
+/// baseline/ratchet reporter consumes a check's records under its own nested
+/// capture and prints a summary instead, which previously left the sink to
+/// scrape that summary's prose (no file, no line, no metric, no fix hint). A
+/// no-op when nothing is capturing — a live run has no sink to feed.
+pub fn sink(v: Violation) void {
+    default.sinkOnly(v);
+}
+
 /// Format and print a finding deferred by a live `[measurement]` exemption.
 pub fn measure(m: Measured) void {
     default.measure(m);
@@ -401,6 +418,31 @@ test "a demoted check's status line says REPORT and never FAILED" {
 
     // A message with no verb in it is passed through untouched.
     try std.testing.expectEqualStrings("no verb here", comptime demotedFmt("no verb here"));
+}
+
+// spec: Reporter - Records a violation for the sink without printing it
+
+test "sinkOnly stores a record and writes no text" {
+    var cap: Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const r: Reporter = .{ .capture = &cap };
+    r.sinkOnly(.{ .check = "file-size", .file = "src/x.zig", .message = "10 code lines (hard limit: 5)", .metric = 10 });
+    // The record reaches the sink with its detail intact...
+    try std.testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    try std.testing.expectEqualStrings("src/x.zig", cap.records.items[0].file.?);
+    try std.testing.expectEqual(@as(?u64, 10), cap.records.items[0].metric);
+    // ...and nothing is printed: the caller (the baseline reporter) already
+    // rendered its own human line for this finding.
+    try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
+
+    // The module-level spelling routes through the running thread's reporter,
+    // which is how the baseline layer reaches the `all` runner's capture.
+    const prior = default;
+    defer default = prior;
+    default = .{ .capture = &cap };
+    sink(.{ .check = "file-size", .message = "second" });
+    try std.testing.expectEqual(@as(usize, 2), cap.records.items.len);
+    try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
 }
 
 // spec: Reporter - Keeps advisory warnings separate from blocking violation records
