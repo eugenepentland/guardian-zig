@@ -4948,3 +4948,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-11 · codex · eda — browser CSE import auto-commit
 
 - **good:** `change-classification` required the browser CSE mutation seam to gain a behavioral test, and `spec` then required that test to link an exact Web Server contract; the resulting combined footprint/datasheet auto-commit behavior is explicit, tested, and passed all 71 checks without snapshot acceptance.
+
+## 2026-08-11 · codex · eda — newest-edited saved-layout ordering
+
+- **good:** Diff-scoped `spec` immediately identified two accidental unlinked test tags, and `file-size` caught a five-line breach of the frozen `pcb_layout_page.zig` ceiling; relocating the browser contract test to `static_assets.zig` preserved coverage and cleared all 71 checks without ratchet acceptance.
+- **friction:** Exact-commit preparation took 488 seconds (481-second tests, 401-second ReleaseSafe build) for a three-file ordering change while concurrent Zig worktrees saturated the host; the gate was correct, but release latency dominated the implementation.
