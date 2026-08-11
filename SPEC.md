@@ -263,6 +263,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Renders the merged file with its header and regenerate marker
 - Names the refreshing check for the file being merged
 - Locates an unresolved or regenerate-marked metadata file
+- Locates the conflicted file when a snapshot read aborts
 - Passes metadata that carries neither marker
 - Scans the metadata directories a repository actually commits
 - Fails the gate while metadata carries a merge marker

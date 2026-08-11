@@ -72,7 +72,13 @@ fn alreadyNamed(earlier: []const scan.Finding, check: []const u8) bool {
 /// snapshot read aborts on conflict markers, so the operator sees WHICH file and
 /// line rather than a bare error name.
 pub fn reportUnresolved(ctx: *types.RunCtx) void {
-    const found = scan.findings(ctx.allocator, ctx.project_dir) catch return;
+    printUnresolved(ctx, scan.findings(ctx.allocator, ctx.project_dir) catch return);
+}
+
+/// The report body. Silence when there is nothing to report: the CLI calls this
+/// on every failed snapshot read, and a header with no findings under it would
+/// be worse than saying nothing at all.
+fn printUnresolved(ctx: *types.RunCtx, found: []const scan.Finding) void {
     if (found.len == 0) return;
     reporter.fail("a .guardian metadata file is still mid-merge:", .{});
     for (found) |f| reporter.detail("  {s}:{d}: {s}\n", .{ f.path, f.line, scan.describe(f.trouble) });
@@ -136,4 +142,32 @@ test "printFix names every distinct check exactly once" {
 /// Registry stand-in for a metadata file no check owns.
 fn noCheckExists(_: []const u8) bool {
     return false;
+}
+
+// spec: Merge - Locates the conflicted file when a snapshot read aborts
+
+test "reportUnresolved names the file and line, and says nothing when clean" {
+    var cap: reporter.Capture = .{ .allocator = testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const config = @import("../config.zig");
+    const cfg: config.Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = testing.allocator, .project_dir = ".", .cfg = &cfg, .quiet = true };
+    const found = [_]scan.Finding{
+        .{ .path = ".guardian/pub-api.txt", .line = 2, .trouble = .unresolved, .text = "<<<<<<<", .check = "pub-api-surface" },
+    };
+    printUnresolved(&ctx, &found);
+    // This diagnostic replaced a bare `error.ConflictMarkers`, so it has to
+    // carry the location the error name itself cannot.
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, ".guardian/pub-api.txt:2") != null);
+
+    // Nothing wrong, nothing said — not even a header.
+    cap.buf.clearRetainingCapacity();
+    printUnresolved(&ctx, &.{});
+    try testing.expectEqual(@as(usize, 0), cap.buf.items.len);
+    // The public entry point stays wired to this body.
+    _ = &reportUnresolved;
 }
