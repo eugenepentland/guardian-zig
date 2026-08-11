@@ -4910,3 +4910,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `spec` named both unlinked component-edge test tags verbatim, and selective `pub-api-surface` acceptance added exactly the intentional `EdgeRules` declaration. The filtered rerun selected the new checks plus the one router fixture whose aggregate DRC count legitimately changed, then the 71-check whole-tree gate passed with zero blockers.
 - **friction:** The first full 2,437-test run spent five minutes compiling before exposing that one synthetic router fixture expected the old total warning count; after the focused fix, mandatory exact-commit preparation still took 444 seconds wall time (438-second tests, 362-second ReleaseSafe build). Correct results, but the two cold full-suite costs dominated this small DRC addition.
+
+## 2026-08-11 · codex · eda — LMX2595 functional schematic spacing and routing
+
+- **good:** `function-size`, `type-size`, `pub-api-surface`, and `cognitive-complexity` jointly rejected a first attempt that widened three renderer APIs and enlarged `RenderCtx`; collecting branch terminals through a private scratch bundle and extracting one helper preserved every public signature and passed all 71 checks without snapshot acceptance.
+- **friction:** Prefixing a new regression comment with `spec:` launched the full build before the `spec` check reported it as an unlinked tag. The diagnostic was exact, but running Guardian as a hard prerequisite rather than concurrently with the expensive compile would have avoided starting work that could not pass the gate.
+- **friction:** Exact-commit preparation waited behind another repository release lock and then took 449 seconds itself (438-second tests, 362-second ReleaseSafe build), after a separate green 2,439-test run; correct serialization, but release latency dominated this SVG-only change.
