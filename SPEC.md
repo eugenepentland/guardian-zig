@@ -873,6 +873,7 @@ without an explained `--force`.
 - Defaults the roots to src/main.zig, src/root.zig, and each .zig directly under test/
 - Uses the configured roots and drops any that name no graphed file
 - Skips the scan when no test root resolves
+- Labels the unconfigured-roots notice so it is not scraped as a violation
 
 ## size introspection
 
