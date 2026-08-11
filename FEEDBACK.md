@@ -4864,3 +4864,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `bool-ops-per-condition` caught a dense semantic-layout write guard, and the zero-match test-filter safeguard exposed that the new CLI tests compiled but were not rooted; after adding the explicit test-root import, the same filter selected all three intended tests. Selective `pub-api-surface` acceptance contained the API snapshot to exactly five intentional additions, and the final 70-check exact-commit release gate passed with zero blockers.
 - **friction:** Exact-commit preparation took 384 seconds wall time (tests 378 seconds, ReleaseSafe build 309 seconds) after an already-green full suite, so the mandatory handoff dominated the turnaround despite correct caching and concurrent jobs.
+
+## 2026-08-11 · codex · eda — exclude supply pull-ups from feedback-loop routing
+
+- **good:** The `spec` check rejected the new supply-pull-up regression test until its exact behavior was linked in `SPEC.md`; after linking it, the diff-scoped and whole-tree gates both passed with zero blockers.
+- **friction:** The first mandatory `prepare-release` waited behind the machine-wide gate lock, then stopped immediately because Guardian's source had advanced past its prebuilt checker. Refreshing `guardian-check` in the Guardian repo and rerunning resolved it, but a cheap selfcheck before queueing—or automatic prebuilt refresh—would have avoided the delayed retry.
