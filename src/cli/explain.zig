@@ -97,8 +97,16 @@ const entries = [_]Entry{
     .{ .name = "file-size", .text = 
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.
+    \\Metric: a CODE line is a non-blank, non-comment line outside `test { ... }`
+    \\blocks. Comments and blanks were counted once, which made deleting doc
+    \\comments the cheapest way to buy headroom — a gate that rewards removing
+    \\explanation. They no longer count, so only moving code moves the number
+    \\(`guardian-check size <file> .` reads it back without a gate run).
     \\Finding: files above `max_file_lines` warn; only files above
-    \\`hard_max_file_lines` block. Split along a cohesive module seam.
+    \\`hard_max_file_lines` block. Split along a cohesive module seam. At 95% of
+    \\the hard limit the file also draws one NEAR HARD CAP line, printed even
+    \\when the run collapses the advisory tier to a count — the last warning
+    \\before a crossing lands mid-feature on whoever adds the next line.
     \\Exempt: adjust either limit, list a glob in `file_size_exclude`, or disable
     \\via the top-level `disabled` list.
     },
@@ -338,7 +346,9 @@ const entries = [_]Entry{
     \\Why: an ever-longer function is where agents append logic rather than
     \\factor it — the hardest place to review a change safely.
     \\Finding: functions above `max_lines` warn; only those above
-    \\`hard_max_lines` block. Extract cohesive blocks into named helpers.
+    \\`hard_max_lines` block. Extract cohesive blocks into named helpers. At 95%
+    \\of the hard limit the function draws one NEAR HARD CAP line, printed even
+    \\when the run collapses the advisory tier to a count.
     \\Exempt: adjust either `[function_length]` limit, or disable the check.
     },
     .{ .name = "nesting-depth", .text = 
@@ -801,8 +811,9 @@ const entries = [_]Entry{
     \\reported that value back — the checks print a number only once an item is
     \\already over its cap, and `debt` lists ceilings without the current value
     \\beside them. Reading the number back cost one consumer six ~90s gate runs for
-    \\a single file trim, with a 170-line disagreement against `grep -c` (guardian
-    \\excludes `test { ... }` blocks from the file-size metric; grep does not).
+    \\a single file trim, with a 170-line disagreement against `grep -c` (a
+    \\file-size code line is a non-blank, non-comment line outside
+    \\`test { ... }` blocks; grep counts all three).
     \\Fix: n/a — run `guardian-check size <path> [dir]`. It prints the file's code
     \\lines, per-fn length and runtime params, per-type field counts, and the count
     \\of over-long lines, each against the check's caps and its frozen ceiling with

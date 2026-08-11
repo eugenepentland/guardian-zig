@@ -326,10 +326,10 @@ discoverable only by reading the check's source.
 ### Structural
 | Check | Blocks on |
 |---|---|
-| **file-size** | Warn above `max_file_lines` (default 1000); fail above `hard_max_file_lines` (default 10000) |
+| **file-size** | Warn above `max_file_lines` (default 1000); fail above `hard_max_file_lines` (default 10000). A **code line** is a non-blank, non-comment line outside `test { ... }` blocks — deleting doc comments buys no headroom. At ≥95% of the hard limit the file also draws one `NEAR HARD CAP` line that survives `--summary` and diff-scope collapsing |
 | **module-doc-header** | Any src file over `[module_doc_header] min_lines` lines (default 200) that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); lower `min_lines` to require headers on smaller files; exempt paths via `[[allow]]` |
 | **function-size** | Any function with more than `max_params` runtime parameters (default 6); `comptime` specialization inputs do not consume the budget |
-| **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400) |
+| **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400); at ≥95% of the hard limit the function draws the same un-collapsible `NEAR HARD CAP` line |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
 | **imports** | Cycles in the `@import` graph |
@@ -1070,9 +1070,16 @@ check's hard cap:
 
 ```
 headroom — within 90% of the limit that blocks them, least room first (measured now)
-  file-size        src/serve/pcb_layout_page.zig     10296 of 10296 frozen ceiling — 0 left
-  file-size        src/placement/optimizer.zig        9988 of 10000 hard cap — 12 left
+  file-size        src/serve/pcb_layout_page.zig     10296 of 10296 frozen ceiling (100%) — 0 left
+  file-size        src/placement/optimizer.zig        9988 of 10000 hard cap (99%) — 12 left
 ```
+
+An **un-ratcheted** file counts here as soon as it nears the hard cap — that is
+the "17 lines from a blocking crossing, no ratchet entry, nothing said so" case
+— and the percentage is what makes a 10000-line limit and a 7-field one
+comparable at a glance. Under `--json` each of these rows carries `kind`
+(`measurement` — a live value, not accepted debt), `direction`, `unit` and
+`pct` alongside `value`/`limit`/`limit_kind`.
 
 It is opt-in because it re-reads and re-parses `src/` and `test/`; a plain
 metadata-only debt report should not pay for a source walk (measured on a
@@ -1084,7 +1091,8 @@ until something already fails — so trimming a file toward its ceiling used to
 mean re-running the whole gate to read the number. `guardian-check size <path>
 [dir]` answers it in one command, using the checks' own measurement functions
 (so it agrees with the gate byte for byte — a hand-rolled `grep -c` does not,
-because the file-size metric excludes `test { ... }` blocks):
+because a file-size code line is a non-blank, non-comment line outside
+`test { ... }` blocks):
 
 ```
 size — src/placement/optimizer.zig (measured now; no gate, no writes)
@@ -1120,6 +1128,14 @@ limits; keep the recommendation useful for guidance and move the hard limit
 only when a project has a legitimate extreme case.
 
 ### Extracting a module?
+
+**First, what will and will not move the number.** A file-size code line is a
+non-blank, non-comment line outside `test { ... }` blocks, so deleting doc
+comments, collapsing blank lines and merging readable statements buy exactly
+nothing — the metric was changed to count this way precisely because four
+recorded sessions in one week spent their trim budget on explanation. Only
+moving or deleting *code* moves it. `guardian-check size <file> .` prints the
+current number in one command, without a gate run.
 
 Splitting a file — usually to get it back under the `file-size` ratchet — reliably
 trips three *other* checks at once, because moving code duplicates the small

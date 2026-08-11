@@ -280,6 +280,7 @@ src/cli/debt_current.zig::Report struct_
 src/cli/debt_current.zig::Row struct_
 src/cli/debt_current.zig::Summary struct_
 src/cli/debt_current.zig::collect | fn collect(ctx: *types.RunCtx) types.RunError!Report
+src/cli/debt_current.zig::pctOfLimit | fn pctOfLimit(row: HeadroomRow) u64
 src/cli/debt_current.zig::printReport | fn printReport(arena: Allocator, report: Report) void
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/explain.zig::Query struct_
@@ -329,6 +330,7 @@ src/cli/run_view.zig::collapseLine | fn collapseLine(arena: Allocator, check: []
 src/cli/run_view.zig::inScope | fn inScope(changed: []const []const u8, records: []const reporter.Violation) usize
 src/cli/run_view.zig::moreSuffix | fn moreSuffix(arena: Allocator, findings: usize) []const u8
 src/cli/run_view.zig::renderFor | fn renderFor(v: Verbosity, o: Outcome) Render
+src/cli/run_view.zig::showsAlerts | fn showsAlerts(r: Render) bool
 src/cli/run_view.zig::verdictLine | fn verdictLine(arena: Allocator, v: Verdict, scope_suffix: []const u8) []const u8
 src/cli/run_view.zig::verdict_prefix value
 src/cli/selfcheck.zig::command_name value
@@ -596,6 +598,10 @@ src/mutation/runner.zig::ratchetDecision | fn ratchetDecision(old_pct: ?u32, new
 src/mutation/runner.zig::runOne | fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outcome
 src/mutation/runner.zig::spliced | fn spliced(allocator: Allocator, original: []const u8, m: gen.Mutant) SpliceError![]const u8
 src/mutation/runner.zig::viable | fn viable(self: Score) u32
+src/near_cap.zig::Measurement struct_
+src/near_cap.zig::alertMessage | fn alertMessage(arena: Allocator, m: Measurement) Allocator.Error![]const u8
+src/near_cap.zig::isNearHardCap | fn isNearHardCap(value: u64, hard_cap: u64) bool
+src/near_cap.zig::pctOf | fn pctOf(value: u64, limit: u64) u64
 src/ratchet.zig::AggMode enum_
 src/ratchet.zig::Entry struct_
 src/ratchet.zig::GrownKey struct_

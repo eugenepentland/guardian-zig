@@ -80,6 +80,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns above a configurable recommended line limit and fails above a generous hard limit
 - Respects file_size_exclude patterns
 - Excludes test-block lines from the line count
+- Excludes blank and comment-only lines from the code-line metric
+- Warns prominently when a file has reached 95% of the hard limit
 
 ## Required Inputs
 
@@ -185,6 +187,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Separates blocking failures from report-only findings in the summary
 - Replays blocking check output before advisory output
 - Collapses an out-of-scope report-only check to one counted line
+- Replays an alert finding when a check's own output is collapsed or hidden
 - Names the finding count and scope in a collapsed check line
 - Counts a finding as in scope when its file changed or it has no file
 - Counts a check's findings and their diff-scope overlap
@@ -296,6 +299,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Separates violation debt from inventories and scores into labelled sections
 - Labels the worst offender as the stored baseline rather than a live measurement
 - Renders JSON rows carrying a kind, a direction, and a structured worst offender
+- Renders JSON headroom rows carrying a kind, a direction, and a unit
 
 ## History
 
@@ -470,6 +474,12 @@ lives in a fixed-size buffer.
 ## Function Length
 
 - Warns on long functions and fails only above a configurable hard line limit
+- Warns prominently when a function has reached 95% of the hard line limit
+
+## Near Hard Cap
+
+- Flags a measurement that has reached 95% of its hard cap without crossing it
+- Renders one alert line naming the value, the cap, the share, and the remedy
 
 ## Nesting Depth
 
@@ -602,6 +612,7 @@ lives in a fixed-size buffer.
 - Renders a Violation to the same indented line the emitter prints
 - Writes a machine payload and one trailing newline to the stream a caller pipes
 - Keeps advisory warnings separate from blocking violation records
+- Marks an advisory finding that must survive a collapsed run summary
 - Prints a report-only verb instead of FAILED for a policy-demoted check
 - Records a violation for the sink without printing it
 - Prints a finding without the fix hint it keeps for the sink
@@ -960,6 +971,7 @@ without an explained `--force`.
 - Prints each ratchet's headroom split and its stuck keys
 - Picks the limit that would block an item and bands it by room left
 - Lists the items nearest a blocking limit with the least room first
+- Names the share of its blocking limit each headroom item has consumed
 - Keeps two checks' measurements of the same subject apart
 - Renders a ratcheted key's current value against its ceiling
 - Warns that accepting a grown ratchet key raises a frozen ceiling

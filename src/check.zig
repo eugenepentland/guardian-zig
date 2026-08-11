@@ -528,6 +528,7 @@ test {
     _ = @import("cli/selfcheck.zig");
     _ = @import("source_digest.zig");
     _ = @import("file_metrics.zig");
+    _ = @import("near_cap.zig");
     _ = @import("cli/doctor.zig");
     _ = @import("cli/spec_sync.zig");
     _ = @import("cli/accept.zig");

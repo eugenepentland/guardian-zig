@@ -447,6 +447,22 @@ refresh that would raise their count (or add a key) fails instead.
 File size, function length, and line length only emit ratchet records beyond
 their generous hard limits; their recommended-limit warnings never need acceptance.
 
+**The file-size metric counts code, and the last warning before a crossing is
+un-collapsible.** A *code line* is a **non-blank, non-comment line outside
+`test { ... }` blocks** — one function (`file_size.codeLines`) measures it for
+the gate, `guardian-check size`, and `debt`, so they cannot drift. Comments and
+blanks used to count, which made deleting doc comments the cheapest way to buy
+headroom at a frozen ceiling: the gate rewarded removing explanation. It no
+longer does, and no ratchet migration is needed — values that drop under the new
+metric classify as `improved` and auto-lower on the next write-allowed run. On
+top of that, a file (or function) at **≥95% of its hard cap** emits one
+`NEAR HARD CAP` line flagged `alert` on the Violation: `run_view.showsAlerts`
+replays it even when the check's own output is collapsed to
+`N finding(s) — report-only`, so `--summary`, `--quiet` and diff-scope collapsing
+can no longer bury the one file that is a line away from blocking. An alert is a
+warning, never a violation: no baseline, ratchet or snapshot records it, and it
+carries no `ratchet_key` of its own.
+
 Every `all`/`nightly` run also drops machine-readable JSONL under the
 git-ignored, digest-excluded `.guardian/cache/`: `last-run.jsonl` (structured
 violations + summary) and `dora.jsonl` (per-run delivery metrics); `mutate`

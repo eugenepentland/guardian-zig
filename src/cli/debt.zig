@@ -65,6 +65,11 @@ const RowKind = enum {
     inventory,
     /// A measured quality score, where higher is the good direction.
     score,
+    /// A value measured from the tree right now against the limit that would
+    /// block it (the `--live` headroom rows). Not accepted debt at all — most
+    /// of these items are green — so it is never printed in the debt table;
+    /// it exists so a machine reader of the JSON can tell the two apart.
+    measurement,
 };
 
 /// Which way is better for a row's number, carried explicitly so a machine
@@ -186,7 +191,9 @@ const Gathered = struct {
 /// be printed under a section header that contradicts its JSON direction.
 fn directionOf(kind: RowKind) Direction {
     return switch (kind) {
-        .violation => .lower_better,
+        // Every threshold metric a headroom row measures counts something a cap
+        // limits, so less of it is the good direction — the same as debt.
+        .violation, .measurement => .lower_better,
         .score => .higher_better,
         .inventory => .neutral,
     };
@@ -239,8 +246,45 @@ fn renderJson(arena: Allocator, project_dir: []const u8, gathered: Gathered) All
         .rows = gathered.rows,
         .assert_density = gathered.density,
         .ratchet_ceilings = gathered.current.rows,
-        .headroom = gathered.current.headroom,
+        .headroom = try headroomJson(arena, gathered.current.headroom),
     }, .{});
+}
+
+/// One measured headroom row as a machine reader gets it: the measurement plus
+/// the three fields every other row in this report carries — what the number
+/// measures, which way is better, and the unit it counts in — and the share of
+/// the limit already consumed. Without them a caller has to infer "9983 of
+/// 10000" from a check name, which is exactly the guessing `kind`/`direction`
+/// were added to the debt rows to end.
+const JsonHeadroomRow = struct {
+    check: []const u8,
+    key: []const u8,
+    value: u64,
+    limit: u64,
+    limit_kind: debt_current.LimitKind,
+    pct: u64,
+    kind: RowKind,
+    direction: Direction,
+    unit: []const u8,
+};
+
+/// Types every headroom row for the JSON payload, taking each unit from the
+/// ratchet registry so the JSON and the gate's own diagnostics name the metric
+/// identically ("code lines", "params", "fields").
+fn headroomJson(arena: Allocator, rows: []const debt_current.HeadroomRow) Allocator.Error![]const JsonHeadroomRow {
+    const out = try arena.alloc(JsonHeadroomRow, rows.len);
+    for (rows, out) |row, *slot| slot.* = .{
+        .check = row.check,
+        .key = row.key,
+        .value = row.value,
+        .limit = row.limit,
+        .limit_kind = row.limit_kind,
+        .pct = debt_current.pctOfLimit(row),
+        .kind = .measurement,
+        .direction = directionOf(.measurement),
+        .unit = ratchet.unitLabel(row.check),
+    };
+    return out;
 }
 
 /// Prints the measured sections, or the one-line pointer to them. The pointer
@@ -275,7 +319,7 @@ const JsonReport = struct {
     ratchet_ceilings: []const debt_current.Row,
     /// Present (non-empty) only under `--live`/`--current`: the measured items
     /// nearest a limit that would block them, least room first.
-    headroom: []const debt_current.HeadroomRow = &.{},
+    headroom: []const JsonHeadroomRow = &.{},
 };
 
 fn filterRows(allocator: Allocator, rows: []const Row, filter: ?[]const u8) Allocator.Error![]const Row {
@@ -1059,6 +1103,42 @@ test "renderJson emits typed rows and the measured headroom list" {
     ) != null);
     try testing.expect(std.mem.indexOf(u8, json, "\"headroom\":[{\"check\":\"file-size\"") != null);
     try testing.expect(std.mem.indexOf(u8, json, "\"limit_kind\":\"ceiling\"") != null);
+}
+
+// spec: Debt - Renders JSON headroom rows carrying a kind, a direction, and a unit
+
+test "headroomJson types each measured row with its kind, direction, unit and share" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The audit case: an un-ratcheted file 17 lines under the 10000 hard cap.
+    // It was already in the headroom list; what a machine reader could not get
+    // from it was what the number measures, which way is better, and its unit.
+    const rows = try headroomJson(a, &.{.{
+        .check = "file-size",
+        .key = "src/placement/optimizer.zig",
+        .value = 9983,
+        .limit = 10_000,
+        .limit_kind = .hard_cap,
+    }});
+    try testing.expectEqual(@as(usize, 1), rows.len);
+    try testing.expectEqual(@as(u64, 99), rows[0].pct);
+    try testing.expectEqualStrings("code lines", rows[0].unit);
+    // A live measurement is NOT accepted debt — most rows here are green files —
+    // so it carries its own kind rather than being filed under violations.
+    try testing.expect(rows[0].kind == .measurement);
+    try testing.expect(rows[0].direction == .lower_better);
+    // The unit comes from the ratchet registry, so it matches what the gate
+    // calls the metric for every check that can appear here.
+    const params = try headroomJson(a, &.{.{
+        .check = "function-size",
+        .key = "src/x.zig|f",
+        .value = 6,
+        .limit = 6,
+        .limit_kind = .hard_cap,
+    }});
+    try testing.expectEqualStrings("params", params[0].unit);
+    try testing.expectEqual(@as(u64, 100), params[0].pct);
 }
 
 // spec: Debt - Reports source files over the recommended size against both limits

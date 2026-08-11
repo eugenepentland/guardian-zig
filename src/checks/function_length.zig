@@ -8,10 +8,14 @@ const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
 const ast_index = @import("../ast/index.zig");
 const config_mod = @import("../config.zig");
+const near_cap = @import("../near_cap.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
+
+/// What the alert line tells a function to do about its remaining runway.
+const extract_remedy = "extract a focused helper now";
 
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
@@ -26,6 +30,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 
     const fns = if (entry.tree) |t| try ast.fnDeclInfosFromTree(a, t) else try ast.fnDeclInfos(a, entry.content);
     for (fns) |f| {
+        try noteNearHardCap(ctx, entry.rel_path, f);
         if (f.line_count <= ctx.cfg.max_lines) continue;
         const is_hard = f.line_count > ctx.cfg.hard_max_lines;
         const destination = if (is_hard) ctx.violations else ctx.warnings;
@@ -51,6 +56,27 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
             .metric = f.line_count,
         });
     }
+}
+
+/// Appends the pre-trip alert for a function that has reached 95% of the hard
+/// line limit. A SECOND advisory finding beside the ordinary recommended-limit
+/// warning, carrying no ratchet key — that warning owns this function's
+/// advisory entry, and an alert must never add or preserve one.
+fn noteNearHardCap(ctx: *ScanCtx, rel_path: []const u8, f: ast.FnDeclInfo) std.mem.Allocator.Error!void {
+    if (!near_cap.isNearHardCap(f.line_count, ctx.cfg.hard_max_lines)) return;
+    try ctx.warnings.append(ctx.allocator, .{
+        .check = "function-length",
+        .file = rel_path,
+        .line = f.start_line,
+        .alert = true,
+        .message = try near_cap.alertMessage(ctx.allocator, .{
+            .value = f.line_count,
+            .hard_cap = ctx.cfg.hard_max_lines,
+            .unit = "lines",
+            .remedy = extract_remedy,
+            .subject = try std.fmt.allocPrint(ctx.allocator, "fn {s}", .{f.name}),
+        }),
+    });
 }
 
 /// Pure-function entry: scans `content` and returns violation lines
@@ -113,6 +139,41 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 }
 
 // spec: Function Length - Warns on long functions and fails only above a configurable hard line limit
+// spec: Function Length - Warns prominently when a function has reached 95% of the hard line limit
+
+test "a fn at 95% of the hard limit draws one un-collapsible alert" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var warnings: std.ArrayList(reporter.Violation) = .empty;
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{
+        .allocator = a,
+        .warnings = &warnings,
+        .violations = &violations,
+        .cfg = .{ .enabled = true, .max_lines = 2, .hard_max_lines = 5 },
+    };
+    // 5 of 5 lines: green, with zero room left — the state the ordinary warning
+    // buries among every other function over the recommended limit.
+    const content =
+        \\pub fn long() void {
+        \\    var x: i32 = 0;
+        \\    x += 1;
+        \\    _ = x;
+        \\}
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    try std.testing.expectEqual(@as(usize, 2), warnings.items.len);
+    const alert = warnings.items[0];
+    try std.testing.expect(alert.alert);
+    try std.testing.expectEqual(@as(u32, 1), alert.line.?);
+    try std.testing.expectEqualStrings(
+        "NEAR HARD CAP  fn long  5 of 5 lines (100%) — crossing blocks the gate; " ++ extract_remedy,
+        alert.message,
+    );
+    try std.testing.expect(alert.ratchet_key == null);
+}
 
 test "visit flags fn over the cap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

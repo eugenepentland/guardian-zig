@@ -1115,14 +1115,20 @@ fn emitPass(ctx: *types.RunCtx, results: []const CheckResult, pass: Pass) void {
 /// The preflight (`emitted`) already printed live, so only its heartbeat is due.
 fn emitCheck(ctx: *types.RunCtx, name: []const u8, r: CheckResult) void {
     const outcome = outcomeOf(ctx, r);
-    if (!r.emitted) switch (run_view.renderFor(verbosityOf(ctx), outcome)) {
-        .hidden => {},
-        .collapsed => printCollapsed(ctx, name, outcome),
-        .full => {
-            if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
-            if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{name});
-        },
-    };
+    const render = run_view.renderFor(verbosityOf(ctx), outcome);
+    if (!r.emitted) {
+        switch (render) {
+            .hidden => {},
+            .collapsed => printCollapsed(ctx, name, outcome),
+            .full => {
+                if (shouldEmit(ctx.quiet, r)) print("{s}", .{r.output});
+                if (r.reported) reporter.ok("{s}: report-only finding (policy did not block)", .{name});
+            },
+        }
+        // A collapsed or hidden check has had its output dropped; its alerts
+        // must not go with it.
+        if (run_view.showsAlerts(render)) printAlerts(ctx, name, r);
+    }
     // Heartbeat: a check over the threshold is named with its wall time, so a
     // long run reads as alive and its slowest check is obvious. Routed through
     // the always-visible detail channel so it shows even under --quiet.
@@ -1138,6 +1144,58 @@ fn emitCheck(ctx: *types.RunCtx, name: []const u8, r: CheckResult) void {
 fn printCollapsed(ctx: *types.RunCtx, name: []const u8, outcome: run_view.Outcome) void {
     const line = run_view.collapseLine(ctx.allocator, name, outcome) catch return;
     reporter.detail(prefixed_line, .{ reporter.prefix, line });
+}
+
+/// Replays the `alert` findings of a check this run collapsed or hid — the
+/// pre-trip warnings that something is one edit from a blocking limit. Twice
+/// recorded, a file crossed the 10000-line hard cap from one line under it
+/// while its warning sat in a 45-finding advisory pile; a count-only line is the
+/// same failure. Routed through the always-visible detail channel, named with
+/// its check, and printed exactly once (a `.full` render already showed it).
+fn printAlerts(ctx: *types.RunCtx, name: []const u8, r: CheckResult) void {
+    for (r.warnings) |w| {
+        if (!w.alert) continue;
+        const line = reporter.flatLine(ctx.allocator, w) catch continue;
+        reporter.detail("{s}{s}: {s}\n", .{ reporter.prefix, name, line });
+    }
+}
+
+// spec: Run Summary - Replays an alert finding when a check's own output is collapsed or hidden
+
+test "an alert survives the collapse that hides the rest of its check" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // Only `.full` replays the check's own output, so only `.full` needs no
+    // separate alert line — the other two would otherwise drop it.
+    try std.testing.expect(!run_view.showsAlerts(.full));
+    try std.testing.expect(run_view.showsAlerts(.collapsed));
+    try std.testing.expect(run_view.showsAlerts(.hidden));
+
+    const cfg: config.Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+    const warnings = [_]reporter.Violation{
+        .{ .check = "file-size", .file = "src/mid.zig", .message = "1200 code lines (recommended: 1000)" },
+        .{
+            .check = "file-size",
+            .file = "src/router.zig",
+            .message = "NEAR HARD CAP  9612 of 10000 code lines (96%)",
+            .alert = true,
+        },
+    };
+    printAlerts(&ctx, "file-size", .{ .ran = true, .warnings = &warnings });
+    // The one line that matters is named, attributed, and complete...
+    try std.testing.expectEqualStrings(
+        "guardian: file-size: src/router.zig: NEAR HARD CAP  9612 of 10000 code lines (96%)\n",
+        cap.buf.items,
+    );
+    // ...and the 44 ordinary advisory findings it was buried in stay collapsed.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "src/mid.zig") == null);
 }
 
 /// How much output this run was asked for. `--verbose` wins over `--summary`:
@@ -1228,6 +1286,7 @@ fn dupViolation(a: std.mem.Allocator, v: reporter.Violation) reporter.Violation 
         .identity = dupOpt(a, v.identity),
         .ratchet_key = dupOpt(a, v.ratchet_key),
         .metric = v.metric,
+        .alert = v.alert,
     };
 }
 

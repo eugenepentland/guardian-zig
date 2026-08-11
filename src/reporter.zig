@@ -29,6 +29,14 @@ pub const prefix = "guardian: ";
 /// baseline. Set it on any check whose message embeds churn-prone context
 /// (counts, file lists, measured values); leave it null to fall back to the
 /// message skeleton.
+///
+/// `alert` marks an advisory finding that must survive being summarized away.
+/// Warnings collapse to a bare count under `--summary` and on a diff-scoped run
+/// whose changed files they miss — correct for the bulk advisory tier, fatal for
+/// the one finding that says a file is about to cross a BLOCKING limit (see
+/// `near_cap.zig`). The run summary replays an alert whatever the collapse
+/// decision was. It changes nothing else: an alert is still a warning, so no
+/// baseline, ratchet or snapshot ever records it.
 pub const Violation = struct {
     check: []const u8 = "",
     file: ?[]const u8 = null,
@@ -38,6 +46,7 @@ pub const Violation = struct {
     identity: ?[]const u8 = null,
     ratchet_key: ?[]const u8 = null,
     metric: ?u64 = null,
+    alert: bool = false,
 };
 
 /// One finding routed to the non-blocking measurement channel: the check that
@@ -549,4 +558,28 @@ test "warning capture is visible but excluded from violation records" {
     try std.testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
     try std.testing.expectEqual(@as(usize, 0), cap.records.items.len);
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: warning: src/x.zig:3") != null);
+}
+
+// spec: Reporter - Marks an advisory finding that must survive a collapsed run summary
+
+test "an alert warning is captured as a warning and carries its flag" {
+    var cap: Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const r: Reporter = .{ .capture = &cap };
+    r.warn(.{
+        .check = "file-size",
+        .file = "src/big.zig",
+        .message = "NEAR HARD CAP  9612 of 10000 code lines (96%)",
+        .alert = true,
+    });
+    // Still a warning in every respect that matters to metadata: it is captured
+    // apart from the blocking records, so no baseline or ratchet can see it.
+    try std.testing.expectEqual(@as(usize, 0), cap.records.items.len);
+    try std.testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    // The flag rides the record, which is what lets the run summary replay this
+    // one finding after collapsing the rest of the check's output to a count.
+    try std.testing.expect(cap.warnings.items[0].alert);
+    // An ordinary warning is not an alert, so nothing is promoted by accident.
+    r.warn(.{ .check = "file-size", .file = "src/mid.zig", .message = "1200 code lines" });
+    try std.testing.expect(!cap.warnings.items[1].alert);
 }

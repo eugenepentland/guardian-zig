@@ -6,6 +6,20 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Stop counting comments and blank lines in the `file-size` metric: a code line
+  is now a non-blank, non-comment line outside `test { ... }` blocks. At a frozen
+  ceiling, deleting doc comments was the cheapest way to buy headroom, so the
+  gate rewarded removing explanation. One function measures it for the gate,
+  `size` and `debt`, and no ratchet migration is needed — values that drop
+  classify as `improved` and auto-lower on the next write-allowed run.
+- Add an un-collapsible pre-trip warning: a file (or function) at ≥95% of its
+  HARD cap emits one `NEAR HARD CAP` line, replayed by the run summary even when
+  the check's own output is collapsed to `N finding(s) — report-only` by
+  `--summary`, `--quiet`, or diff scoping. It is a warning, never a violation:
+  no baseline, ratchet or snapshot records it.
+- Report distance to a blocking limit as a percentage in `debt --live`'s
+  headroom list, and type its `--json` rows with `kind` (`measurement`),
+  `direction`, `unit` and `pct`.
 - Make `debt` decision-ready: send `--json` to stdout instead of stderr (so
   `debt --json | jq` receives it), group rows into violation-debt, inventory
   and score sections carrying explicit `kind`/`direction`/`unit` fields, replace

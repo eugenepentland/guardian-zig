@@ -19,6 +19,7 @@ const walk = @import("../walk.zig");
 const ratchet = @import("../ratchet.zig");
 const file_metrics = @import("../file_metrics.zig");
 const config_mod = @import("../config.zig");
+const near_cap = @import("../near_cap.zig");
 
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
@@ -301,6 +302,15 @@ fn roomLeft(row: HeadroomRow) u64 {
     return if (row.value >= row.limit) 0 else row.limit - row.value;
 }
 
+/// The share of its blocking limit this item has consumed, as a whole percent.
+/// Printed because "9983 of 10000" and "6 of 7" are the same standing and do
+/// not read as one: the percentage is the column a reader can scan for the file
+/// that is about to cross, which is the question this whole section answers.
+/// Shared with the gate's own near-hard-cap alert so both report one number.
+pub fn pctOfLimit(row: HeadroomRow) u64 {
+    return near_cap.pctOf(row.value, row.limit);
+}
+
 /// Orders headroom rows by least room left, breaking ties with the larger
 /// measured value (so an overage leads its own zero-room group) and then the
 /// check and key, which keeps the list stable across runs.
@@ -364,8 +374,14 @@ fn printHeadroomFor(arena: Allocator, rows: []const HeadroomRow, check_name: []c
             skipped += 1;
             continue;
         }
-        print("  {s:<16} {s:<44} {d:>6} of {d} {s} — {s}\n", .{
-            row.check, row.key, row.value, row.limit, limitLabel(row.limit_kind), roomText(arena, row),
+        print("  {s:<16} {s:<44} {d:>6} of {d} {s} ({d}%) — {s}\n", .{
+            row.check,
+            row.key,
+            row.value,
+            row.limit,
+            limitLabel(row.limit_kind),
+            pctOfLimit(row),
+            roomText(arena, row),
         });
         shown += 1;
     }
@@ -608,8 +624,38 @@ test "printHeadroom orders by room left and names which limit binds" {
     // ceiling is what stops it — not the 10000 hard cap.
     const tight = std.mem.indexOf(u8, out, "src/tight.zig").?;
     try testing.expect(tight < std.mem.indexOf(u8, out, "src/roomy.zig").?);
-    try testing.expect(std.mem.indexOf(u8, out, "10223 of 10227 frozen ceiling — 4 left") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "9200 of 10000 hard cap — 800 left") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "10223 of 10227 frozen ceiling (99%) — 4 left") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "9200 of 10000 hard cap (92%) — 800 left") != null);
+}
+
+// spec: size introspection - Names the share of its blocking limit each headroom item has consumed
+
+test "pctOfLimit reports how much of the blocking limit an item has consumed" {
+    // The audit case: an un-ratcheted file 17 lines from the 10000 hard cap. It
+    // was in this list all along, but "9983 of 10000" reads like slack next to
+    // "6 of 7" — the percentage is what makes the two comparable at a glance.
+    try testing.expectEqual(@as(u64, 99), pctOfLimit(.{
+        .check = "file-size",
+        .key = "src/placement/optimizer.zig",
+        .value = 9983,
+        .limit = 10_000,
+        .limit_kind = .hard_cap,
+    }));
+    // A row already over its limit reads past 100% rather than wrapping.
+    try testing.expectEqual(@as(u64, 100), pctOfLimit(.{
+        .check = "type-size",
+        .key = "src/x.zig|Wide",
+        .value = 7,
+        .limit = 7,
+        .limit_kind = .hard_cap,
+    }));
+    try testing.expectEqual(@as(u64, 105), pctOfLimit(.{
+        .check = "file-size",
+        .key = "src/over.zig",
+        .value = 10_500,
+        .limit = 10_000,
+        .limit_kind = .ceiling,
+    }));
 }
 
 // spec: size introspection - Renders a ratcheted key's current value against its ceiling
