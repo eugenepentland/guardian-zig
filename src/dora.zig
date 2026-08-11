@@ -24,6 +24,10 @@ const git = @import("git.zig");
 /// Outcome of a gate run: every check passed, or at least one failed.
 pub const Outcome = enum { green, red };
 
+/// Discriminator every run record carries in `type`. A reader ignores any line
+/// spelling something else, so the stream stays extensible.
+const run_type = "run";
+
 /// The fields of one run record, resolved by `recordRun` before rendering.
 pub const RunRecord = struct {
     branch: ?[]const u8 = null,
@@ -34,14 +38,16 @@ pub const RunRecord = struct {
 };
 
 /// Wire form of a run record. Private DTO: the field order here is the emitted
-/// JSON key order, and `type` discriminates it in a mixed stream.
+/// JSON key order, and `type` discriminates it in a mixed stream. Every field
+/// carries a default so `parseRecord` accepts a record written by an older or
+/// newer sink — a reader of an append-only log meets both.
 const RunLine = struct {
-    type: []const u8 = "run",
-    branch: ?[]const u8,
-    commit: ?[]const u8,
-    outcome: []const u8,
-    failed_checks: []const []const u8,
-    duration_ms: u64,
+    type: []const u8 = run_type,
+    branch: ?[]const u8 = null,
+    commit: ?[]const u8 = null,
+    outcome: []const u8 = "",
+    failed_checks: []const []const u8 = &.{},
+    duration_ms: u64 = 0,
 };
 
 /// A wall-clock stopwatch for run duration. `inner` is null on a platform with
@@ -91,6 +97,31 @@ pub fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8 {
     return std.json.Stringify.valueAlloc(arena, line, .{});
 }
 
+/// Parses one stored line back into a run record, or null when the line is not
+/// one: blank, malformed JSON, a future record `type`, or an outcome this
+/// version does not know. The inverse of `renderRecord`, and the reason the
+/// `history` reader never re-implements the wire format.
+///
+/// Every returned slice is owned by `arena` (`alloc_always`), so a caller
+/// streaming a file may reuse its line buffer immediately.
+pub fn parseRecord(arena: Allocator, line: []const u8) ?RunRecord {
+    const text = std.mem.trim(u8, line, &std.ascii.whitespace);
+    if (text.len == 0) return null;
+    const parsed = std.json.parseFromSliceLeaky(RunLine, arena, text, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    }) catch return null;
+    if (!std.mem.eql(u8, parsed.type, run_type)) return null;
+    const outcome = std.meta.stringToEnum(Outcome, parsed.outcome) orelse return null;
+    return .{
+        .branch = parsed.branch,
+        .commit = parsed.commit,
+        .outcome = outcome,
+        .failed_checks = parsed.failed_checks,
+        .duration_ms = parsed.duration_ms,
+    };
+}
+
 /// Records one gate run to the configured sink. No-op when `[dora] enabled =
 /// false`. Resolves branch/commit via git (null outside a repo), renders, and
 /// appends. Best-effort: any I/O failure is logged and swallowed so the sink
@@ -124,7 +155,9 @@ fn recordInner(arena: Allocator, project_dir: []const u8, sink_path: []const u8,
 }
 
 /// Resolves `sink_path` against `project_dir` (absolute paths pass through).
-fn resolvePath(arena: Allocator, project_dir: []const u8, sink_path: []const u8) Allocator.Error![]const u8 {
+/// Public because the writer and the `history` reader must agree on which file
+/// is the sink; two spellings of this rule would silently read a different one.
+pub fn resolvePath(arena: Allocator, project_dir: []const u8, sink_path: []const u8) Allocator.Error![]const u8 {
     if (sink_path.len > 0 and sink_path[0] == '/') return arena.dupe(u8, sink_path);
     return std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, sink_path });
 }
@@ -220,6 +253,61 @@ test "recordRun is a no-op when disabled" {
         error.FileNotFound,
         std.fs.cwd().access(dir ++ "/.guardian/cache/dora.jsonl", .{}),
     );
+}
+
+// spec: Delivery Metrics - Parses a stored run line back into a run record
+
+test "parseRecord round-trips a rendered record" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rendered = try renderRecord(a, .{
+        .branch = "main",
+        .commit = "abc123",
+        .outcome = .red,
+        .failed_checks = &.{ "spec", "file-size" },
+        .duration_ms = 42,
+    });
+    const back = parseRecord(a, rendered).?;
+    try std.testing.expectEqualStrings("main", back.branch.?);
+    try std.testing.expectEqualStrings("abc123", back.commit.?);
+    try std.testing.expect(back.outcome == .red);
+    try std.testing.expectEqual(@as(usize, 2), back.failed_checks.len);
+    try std.testing.expectEqualStrings("file-size", back.failed_checks[1]);
+    try std.testing.expectEqual(@as(u64, 42), back.duration_ms);
+    // A record written without branch/commit still parses (both are optional).
+    const bare = parseRecord(a, try renderRecord(a, .{ .outcome = .green })).?;
+    try std.testing.expect(bare.commit == null);
+    try std.testing.expect(bare.outcome == .green);
+}
+
+// spec: Delivery Metrics - Rejects a line that is not a known run record
+
+test "parseRecord skips blank, malformed, foreign-type and unknown-outcome lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expect(parseRecord(a, "") == null);
+    try std.testing.expect(parseRecord(a, "   \t ") == null);
+    try std.testing.expect(parseRecord(a, "{not json") == null);
+    try std.testing.expect(parseRecord(a, "{\"type\":\"deploy\",\"outcome\":\"green\"}") == null);
+    try std.testing.expect(parseRecord(a, "{\"type\":\"run\",\"outcome\":\"amber\"}") == null);
+    // A future sink field is ignored rather than rejecting the whole record.
+    const forward = parseRecord(a, "{\"type\":\"run\",\"outcome\":\"green\",\"tier\":\"nightly\"}").?;
+    try std.testing.expect(forward.outcome == .green);
+}
+
+// spec: Delivery Metrics - Resolves the sink path against the project directory
+
+test "resolvePath joins a relative sink and passes an absolute one through" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqualStrings(
+        "proj/.guardian/cache/dora.jsonl",
+        try resolvePath(a, "proj", ".guardian/cache/dora.jsonl"),
+    );
+    try std.testing.expectEqualStrings("/var/log/dora.jsonl", try resolvePath(a, "proj", "/var/log/dora.jsonl"));
 }
 
 // spec: Delivery Metrics - Converts elapsed nanoseconds to whole milliseconds

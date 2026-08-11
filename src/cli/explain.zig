@@ -83,6 +83,17 @@ const entries = [_]Entry{
     \\the delta column shows the change vs the committed `.guardian/` state.
     \\Exempt: n/a — run `guardian-check debt [dir]`; never part of `all`.
     },
+    .{ .name = "history", .text = 
+    \\Why: not a gate — the read surface over the append-only DORA run log
+    \\(`.guardian/cache/dora.jsonl`), which guardian has written one record per
+    \\gated run into since the sink landed and which nothing read back. It
+    \\answers how often the gate is green, what a run costs, which checks
+    \\actually block, and how long the current red patch has lasted.
+    \\Fix: nothing to fix — it always exits 0 unless the log exists and cannot be
+    \\read. `--check <name>` narrows it to one check's failure history; `--json`
+    \\writes the whole report to stdout as one object.
+    \\Exempt: n/a — run `guardian-check history [dir]`; never part of `all`.
+    },
     .{ .name = "file-size", .text = 
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.

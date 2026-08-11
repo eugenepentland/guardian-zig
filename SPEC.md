@@ -260,10 +260,36 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports source files over the recommended size against both limits
 - Reports assert-call density per top-level src module sorted ascending
 
+## History
+
+The read surface over the append-only DORA run log (`.guardian/cache/dora.jsonl`).
+Guardian has written one record per gated run since the sink landed; `history`
+is what reads them back, so the outcome rate, the run cost, and the checks that
+actually block are answers rather than guesses. It gates nothing and writes
+nothing, and it streams — the log grows without bound, so every figure it keeps
+lives in a fixed-size buffer.
+
+- Streams the run log and reports green, red, and the pass rate
+- Reports the current and the longest red streak with what failed
+- Reports duration median and upper percentile over the recent window
+- Bounds the duration window so an unbounded log costs bounded memory
+- Compares the newest runs' duration against the runs before them
+- Ranks the checks that fail most often
+- Counts failures beyond the tracked names as overflow
+- Lists the most recent red runs with their commit, branch, and checks
+- Skips lines that are not run records and reports how many
+- Reports an absent run log as no runs recorded rather than an error
+- Narrows the report to one named check's failure history
+- Renders the whole report as one JSON object
+- Reports a run log it cannot read instead of an empty history
+
 ## Maintenance
 
 - Doctor distinguishes advisory warnings from integrity failures
 - Doctor reports a stale gating binary
+- Doctor ages every pending accept and warns about an expired one
+- Doctor reports a mutation journal for an absent file as an inert leftover
+- Lists every recorded session note including expired ones
 - Gates artifact copies without delaying generators that prepare analysis inputs
 - Spec sync suggests missing bullets without editing SPEC.md
 - Debt emits JSON and filters by check
@@ -550,6 +576,9 @@ blocking correctness checks and advisory maintainability guidance.
 - Renders a run record as one JSON line with outcome and failed checks
 - Includes the git branch and commit or null when absent
 - Appends a run record to the sink without overwriting
+- Parses a stored run line back into a run record
+- Rejects a line that is not a known run record
+- Resolves the sink path against the project directory
 - Writes nothing when the dora sink is disabled
 - Converts elapsed nanoseconds to whole milliseconds
 - Reads zero elapsed for an unavailable stopwatch and a non-decreasing value otherwise
@@ -566,6 +595,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Classifies a not-a-git-repository failure as a skip, not a hard error
 - Hard-fails a diff-scoped git command that fails for any other reason
 - Resolves the merge base with a branch and reports null when it cannot
+- Ages a commit as its distance behind HEAD and reports null when it is not an ancestor
 
 ## Diff Scoping
 
@@ -668,6 +698,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Derives a per-mutant timeout from the clean-suite baseline and a floor
 - Kills the whole child process group when a mutant run exceeds its deadline
 - Recovers an interrupted run by reverting the journaled in-flight mutant
+- Reports a journal naming an absent file as an inert leftover
 - Fails a run whose score drops below the configured minimum
 - Gates on the kill percentage only at or above the min_mutants floor
 - Ratchets the full-run mutation score against a snapshot

@@ -1,6 +1,9 @@
 # guardian-snapshot v2
+src/accept_session.zig::Entry struct_
 src/accept_session.zig::isPending | fn isPending(a: Allocator, project_dir: []const u8, check: []const u8) bool
+src/accept_session.zig::leaf value
 src/accept_session.zig::record | fn record(a: Allocator, project_dir: []const u8, checks: []const []const u8) void
+src/accept_session.zig::recorded | fn recorded(a: Allocator, project_dir: []const u8) Allocator.Error![]const Entry
 src/accept_session.zig::version value
 src/ast/containers.zig::FnDeclInfo struct_
 src/ast/containers.zig::PubConst struct_
@@ -275,6 +278,8 @@ src/cli/debt_current.zig::printReport | fn printReport(arena: Allocator, report:
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/explain.zig::Query struct_
 src/cli/explain.zig::run | fn run(allocator: std.mem.Allocator, query: Query) bool
+src/cli/history.zig::command_name value
+src/cli/history.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
@@ -403,8 +408,10 @@ src/dora.zig::Outcome enum_
 src/dora.zig::RunRecord struct_
 src/dora.zig::Stopwatch struct_
 src/dora.zig::elapsedMs | fn elapsedMs(self: *Stopwatch) u64
+src/dora.zig::parseRecord | fn parseRecord(arena: Allocator, line: []const u8) ?RunRecord
 src/dora.zig::recordRun | fn recordRun( arena: Allocator, project_dir: []const u8, cfg: config_mod.DoraCfg, outcome: Outcome, failed_checks: []const []const u8, duration_ms: u64, ) void
 src/dora.zig::renderRecord | fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8
+src/dora.zig::resolvePath | fn resolvePath(arena: Allocator, project_dir: []const u8, sink_path: []const u8) Allocator.Error![]const u8
 src/dora.zig::startStopwatch | fn startStopwatch() Stopwatch
 src/external_inputs.zig::ExpandError value
 src/external_inputs.zig::argvForInput | fn argvForInput( arena: Allocator, command: []const []const u8, input: []const u8, ) Allocator.Error![]const []const u8
@@ -459,6 +466,7 @@ src/git.zig::PathDiffResult union_
 src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool
 src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
+src/git.zig::commitsBehindHead | fn commitsBehindHead(allocator: Allocator, project_dir: []const u8, rev: []const u8) ?u32
 src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
 src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult
@@ -510,9 +518,12 @@ src/mutation/gen.zig::identityHash | fn identityHash(m: Mutant) u64
 src/mutation/gen.zig::sample | fn sample(allocator: Allocator, mutants: []const Mutant, max: u32) Allocator.Error![]const Mutant
 src/mutation/gen.zig::waivedInSpans | fn waivedInSpans(waived_lines: []const u32, spans: []const git.LineSpan) u32
 src/mutation/journal.zig::Entry struct_
+src/mutation/journal.zig::Leftover struct_
 src/mutation/journal.zig::begin | fn begin(arena: Allocator, project_dir: []const u8, entry: Entry) void
 src/mutation/journal.zig::finish | fn finish(arena: Allocator, project_dir: []const u8) void
 src/mutation/journal.zig::install | fn install() void
+src/mutation/journal.zig::leaf value
+src/mutation/journal.zig::leftover | fn leftover(arena: Allocator, project_dir: []const u8) Allocator.Error!?Leftover
 src/mutation/journal.zig::recover | fn recover(arena: Allocator, project_dir: []const u8) void
 src/mutation/journal.zig::trackChild | fn trackChild(pgid: i32) void
 src/mutation/report.zig::Summary struct_

@@ -18,6 +18,7 @@ const registry = @import("cli/registry.zig");
 const generator_name = "spec-init"; // generator, not a gate
 const mutate_name = "mutate"; // explicit step, not a gate
 const debt_name = "debt"; // non-gating debt report, invoked directly
+const history_name = "history"; // non-gating read of the run log, invoked directly
 const doctor_name = "doctor";
 const spec_sync_name = "spec-sync";
 const accept_name = "accept";
@@ -45,8 +46,8 @@ const registry_eval_quota: u32 = 20000;
 /// Registered gates that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
 /// here automatically. The generator (`spec-init`), the explicit `mutate`
-/// step, the non-gating `debt` report, and the composed `nightly`/`commit`/
-/// `all` commands are never gates and are excluded (the last three defensively —
+/// step, the non-gating `debt` and `history` reports, and the composed
+/// `nightly`/`commit`/`all` commands are never gates and are excluded (the last three defensively —
 /// they are dispatched specially and don't appear in the registry, mirroring
 /// the existing `all` exclusion).
 pub const all_check_names: []const []const u8 = blk: {
@@ -56,6 +57,7 @@ pub const all_check_names: []const []const u8 = blk: {
         if (std.mem.eql(u8, cmd.name, generator_name)) continue;
         if (std.mem.eql(u8, cmd.name, mutate_name)) continue;
         if (std.mem.eql(u8, cmd.name, debt_name)) continue;
+        if (std.mem.eql(u8, cmd.name, history_name)) continue;
         if (std.mem.eql(u8, cmd.name, nightly_name)) continue;
         if (std.mem.eql(u8, cmd.name, commit_name)) continue;
         if (std.mem.eql(u8, cmd.name, run_all_name)) continue;

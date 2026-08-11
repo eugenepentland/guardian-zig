@@ -26,7 +26,8 @@ const reporter = @import("../reporter.zig");
 const Allocator = std.mem.Allocator;
 
 /// Cache-relative path of the in-flight journal a crash/kill leaves behind.
-const journal_leaf = ".guardian/cache/mutant-in-flight.json";
+/// Public so `doctor` can name the file to delete without respelling it.
+pub const leaf = ".guardian/cache/mutant-in-flight.json";
 /// Read cap for a source file during recovery (mirrors the runner's cap).
 const max_src_bytes: usize = 10 * 1024 * 1024;
 /// Seed for the whole-file drift hash — any fixed value; this is drift
@@ -115,6 +116,42 @@ pub fn recover(arena: Allocator, project_dir: []const u8) void {
         std.log.warn("guardian mutate recovery failed: {s}", .{@errorName(e)});
 }
 
+/// A journal found on disk: the file it names, and whether this checkout
+/// actually contains that file. `false` is the "left by an interrupted run in
+/// another checkout" case — nothing here is at risk, and the journal is inert
+/// until the next `mutate` drops it.
+pub const Leftover = struct {
+    rel_path: []const u8,
+    file_present: bool,
+};
+
+/// Reports a journal a previous run left behind, or null when there is none
+/// (the normal case) or it cannot be parsed. Read-only: unlike `recover` it
+/// never reverts anything and never deletes the journal, so `doctor` can
+/// describe the state without changing it.
+pub fn leftover(arena: Allocator, project_dir: []const u8) Allocator.Error!?Leftover {
+    const jpath = try journalPath(arena, project_dir);
+    const content = std.fs.cwd().readFileAlloc(arena, jpath, max_src_bytes) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    const rec = std.json.parseFromSliceLeaky(Record, arena, content, .{
+        .ignore_unknown_fields = true,
+    }) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    const abs = try std.fs.path.join(arena, &.{ project_dir, rec.rel_path });
+    return .{ .rel_path = rec.rel_path, .file_present = fileExists(abs) };
+}
+
+/// Whether `abs` names an existing file. Split out so `leftover` reads as one
+/// statement per fact it gathers.
+fn fileExists(abs: []const u8) bool {
+    std.fs.cwd().access(abs, .{}) catch return false;
+    return true;
+}
+
 // ── Signal-handler side (async-signal-safe: no alloc, no locks) ─────────────
 
 /// SIGINT/SIGTERM handler: kill any running child group (it's in its own group,
@@ -187,11 +224,18 @@ fn recoverInner(arena: Allocator, project_dir: []const u8) !void {
 /// Given a parsed journal, revert the file when it still matches the mutated
 /// bytes; drop the journal silently when it is already original; refuse and
 /// warn loudly when it has drifted to some third state.
+///
+/// The wording matters. A journal naming a file this checkout never contained
+/// is inert — an interrupted run in *another* checkout wrote it, nothing here
+/// is at risk — so it reports as a calm note and not as an alarm about a file
+/// the reader cannot even find. Only the drift case, where real bytes on disk
+/// may be part guardian's and part yours, asks the reader to look.
 fn restoreFromJournal(arena: Allocator, project_dir: []const u8, rec: Record) !void {
     const abs = try std.fs.path.join(arena, &.{ project_dir, rec.rel_path });
     const on_disk = std.fs.cwd().readFileAlloc(arena, abs, max_src_bytes) catch {
-        reporter.fail(
-            "mutate: interrupted-run journal names {s}, but that file is gone — not reverting",
+        reporter.ok(
+            "mutate: dropped a stale journal from an interrupted run — it names {s}, " ++
+                "which this checkout does not contain, so there is nothing to revert",
             .{rec.rel_path},
         );
         removeJournal(arena, project_dir);
@@ -209,8 +253,8 @@ fn restoreFromJournal(arena: Allocator, project_dir: []const u8, rec: Record) !v
         return;
     }
     reporter.fail(
-        "mutate: {s} has changed since an interrupted run mutated it — NOT reverting; " ++
-            "inspect it (e.g. `git diff -- {s}`)",
+        "mutate: leaving {s} as it is — it changed after an interrupted run mutated it, so " ++
+            "guardian cannot tell its bytes from yours; compare with `git diff -- {s}`",
         .{ rec.rel_path, rec.rel_path },
     );
     removeJournal(arena, project_dir);
@@ -237,7 +281,7 @@ fn removeJournal(arena: Allocator, project_dir: []const u8) void {
 
 /// The journal file path: `<project_dir>/.guardian/cache/mutant-in-flight.json`.
 fn journalPath(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, journal_leaf });
+    return std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, leaf });
 }
 
 /// Lowercase hex of the whole-file drift hash.
@@ -266,6 +310,14 @@ test "recover reverts a journaled mutant and refuses when the file changed" {
     std.fs.cwd().deleteTree(dir) catch {};
     defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("journal test cleanup: {s}", .{@errorName(e)});
     try std.fs.cwd().makePath(dir ++ "/src");
+    // Capture the recovery messages: this test deliberately drives the drift
+    // path, and an uncaptured warning about a fixture file no checkout contains
+    // is what made every `zig build test` look like it had found real trouble.
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default;
+    defer reporter.default = prior;
+    reporter.default = .{ .capture = &cap };
 
     const rel = "src/z.zig";
     const abs = try std.fs.path.join(a, &.{ dir, rel });
@@ -297,10 +349,58 @@ test "recover reverts a journaled mutant and refuses when the file changed" {
     try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = edited });
     recover(a, dir);
     try testing.expectEqualStrings(edited, try std.fs.cwd().readFileAlloc(a, abs, max_src_bytes));
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "leaving src/z.zig as it is") != null);
 
     // (3) Normal completion: finish() clears an active journal.
     begin(a, dir, entry);
     try testing.expect(journalPresent(a, dir));
     finish(a, dir);
     try testing.expect(!journalPresent(a, dir));
+}
+
+// spec: Mutation Testing - Reports a journal naming an absent file as an inert leftover
+
+test "leftover names the journaled file and whether this checkout has it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/journal-leftover-proj";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("journal test cleanup: {s}", .{@errorName(e)});
+    try std.fs.cwd().makePath(dir ++ "/src");
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default;
+    defer reporter.default = prior;
+    reporter.default = .{ .capture = &cap };
+
+    // No journal is the normal state, and reads as nothing to report.
+    try testing.expect(try leftover(a, dir) == null);
+
+    const rel = "src/z.zig";
+    const abs = try std.fs.path.join(a, &.{ dir, rel });
+    const entry: Entry = .{
+        .rel_path = rel,
+        .abs_path = abs,
+        .original = "return a < b;\n",
+        .mutated = "return a <= b;\n",
+        .start = 9,
+        .end = 10,
+    };
+    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = entry.mutated });
+    begin(a, dir, entry);
+    const present = (try leftover(a, dir)).?;
+    try testing.expectEqualStrings(rel, present.rel_path);
+    try testing.expect(present.file_present);
+
+    // The other checkout's journal: the named file is not here, so nothing is
+    // at risk — and reading it leaves the journal exactly where it was.
+    try std.fs.cwd().deleteFile(abs);
+    const absent = (try leftover(a, dir)).?;
+    try testing.expect(!absent.file_present);
+    try testing.expect(journalPresent(a, dir));
+    // Recovery says so calmly rather than warning about a file nobody can find.
+    recover(a, dir);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "dropped a stale journal") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "NOT reverting") == null);
 }

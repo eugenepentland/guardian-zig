@@ -33,12 +33,13 @@ const prefixed_line = "{s}{s}\n";
 
 pub const command_name = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
-// mutant; debt is a non-gating report; nightly composes `all` + `mutate --full`;
-// commit gates then auto-commits. None is a build gate. (nightly and commit are
-// dispatched specially and never appear in the registry, so their entries here
-// are defensive — mirroring the long-standing `all` exclusion in build_helper —
-// and guarantee they can never be run as a check.)
-const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
+// mutant; debt is a non-gating report and history reads the run log back;
+// nightly composes `all` + `mutate --full`; commit gates then auto-commits.
+// None is a build gate. (nightly and commit are dispatched specially and never
+// appear in the registry, so their entries here are defensive — mirroring the
+// long-standing `all` exclusion in build_helper — and guarantee they can never
+// be run as a check.)
+const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "history", "nightly", "commit" };
 
 /// Runs every registered gate in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the

@@ -494,6 +494,7 @@ test {
     _ = @import("cli/bench.zig");
     _ = @import("benchmark.zig");
     _ = @import("cli/debt.zig");
+    _ = @import("cli/history.zig");
     _ = @import("cli/debt_current.zig");
     _ = @import("cli/size.zig");
     _ = @import("cli/selfcheck.zig");

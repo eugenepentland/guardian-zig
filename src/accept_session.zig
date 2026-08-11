@@ -23,8 +23,12 @@ const reporter = @import("reporter.zig");
 /// Pending-accepts file format version.
 pub const version: u32 = 1;
 
+/// Project-relative path of the note file, named here so `doctor` can tell a
+/// reader which file to delete without a second spelling of it.
+pub const leaf = ".guardian/cache/pending-accepts.txt";
+
 fn pathFor(a: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(a, "{s}/.guardian/cache/pending-accepts.txt", .{project_dir});
+    return std.fmt.allocPrint(a, "{s}/{s}", .{ project_dir, leaf });
 }
 
 /// Records `checks` as pending at the current HEAD. Entries recorded at any
@@ -79,7 +83,27 @@ fn isPendingAtHead(a: Allocator, project_dir: []const u8, head: []const u8, chec
 }
 
 /// One pending note: the HEAD it was accepted at and the accepted check.
-const Entry = struct { head: []const u8, check: []const u8 };
+pub const Entry = struct { head: []const u8, check: []const u8 };
+
+/// Every recorded note, in file order. Empty when the note file is absent,
+/// unreadable, or holds no decodable line — this is a read surface for
+/// `doctor`, so an unusable note reads as "nothing pending" rather than an
+/// error. Entries recorded at some other HEAD have already expired and suppress
+/// nothing; they are still returned, because a leftover nothing else mentions
+/// is exactly what a health audit exists to surface.
+pub fn recorded(a: Allocator, project_dir: []const u8) Allocator.Error![]const Entry {
+    const path = try pathFor(a, project_dir);
+    const snap = snapshot.read(a, path, version) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return &.{},
+    };
+    var out: std.ArrayList(Entry) = .empty;
+    for (snap.lines) |line| {
+        const e = decodeLine(line) orelse continue;
+        try out.append(a, e);
+    }
+    return out.items;
+}
 
 /// Parses a stored `<head> <check>` line, or null when blank / malformed.
 fn decodeLine(line: []const u8) ?Entry {
@@ -120,6 +144,27 @@ test "a recorded session note is pending at its head and expires at another" {
     try testing.expect(isPendingAtHead(a, dir, "bbbb2222", "file-size"));
     try testing.expect(!isPendingAtHead(a, dir, "bbbb2222", "type-size"));
     try testing.expect(!isPendingAtHead(a, dir, "aaaa1111", "file-size"));
+}
+
+// spec: Maintenance - Lists every recorded session note including expired ones
+
+test "recorded lists notes from both heads and is empty without a note file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-accept-session-list";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+
+    try testing.expectEqual(@as(usize, 0), (try recorded(a, dir)).len);
+    try recordAtHead(a, dir, "aaaa1111", &.{ "file-size", "type-size" });
+    const entries = try recorded(a, dir);
+    try testing.expectEqual(@as(usize, 2), entries.len);
+    try testing.expectEqualStrings("aaaa1111", entries[0].head);
+    try testing.expectEqualStrings("file-size", entries[0].check);
+    // An entry recorded at another head suppresses nothing, but stays visible.
+    try testing.expect(!isPendingAtHead(a, dir, "bbbb2222", "file-size"));
+    try testing.expectEqual(@as(usize, 2), (try recorded(a, dir)).len);
 }
 
 test "decodeLine parses head and check, rejecting malformed lines" {

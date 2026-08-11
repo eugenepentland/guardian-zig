@@ -346,6 +346,27 @@ pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
     return std.mem.trim(u8, out, &std.ascii.whitespace);
 }
 
+/// How far back `rev` sits from HEAD: 0 when it IS HEAD, N when it is an
+/// ancestor N commits back. Null when `rev` is not an ancestor of HEAD — an
+/// unknown sha, a commit on another branch, a rewritten history — or when git
+/// is unavailable. Best-effort by design: `doctor` uses it to age a recorded
+/// session note, where "cannot tell" is itself a reportable answer.
+pub fn commitsBehindHead(allocator: Allocator, project_dir: []const u8, rev: []const u8) ?u32 {
+    const ancestry = [_][]const u8{ "git", "merge-base", "--is-ancestor", rev, "HEAD" };
+    if (runGit(allocator, project_dir, &ancestry) == null) return null;
+    // `HEAD --not <rev>` is `<rev>..HEAD` without composing a string, so this
+    // best-effort path has no allocation whose failure it would have to drop.
+    const argv = [_][]const u8{ "git", "rev-list", "--count", "HEAD", "--not", rev };
+    return parseCount(runGit(allocator, project_dir, &argv) orelse return null);
+}
+
+/// The single decimal count on a `git rev-list --count` line, or null when the
+/// output is not one. Pure, so the parse is unit-tested without git.
+fn parseCount(output: []const u8) ?u32 {
+    const text = std.mem.trim(u8, output, &std.ascii.whitespace);
+    return std.fmt.parseInt(u32, text, 10) catch null;
+}
+
 /// The merge base of HEAD and `ref` — the commit this branch diverged from —
 /// or null when it cannot be resolved (no such branch, an empty repository, a
 /// detached history with no common ancestor, or no git at all). Best-effort by
@@ -648,6 +669,24 @@ test "mergeBase degrades to null for an unresolvable branch" {
     // ref yields a non-empty sha.
     const self_base = mergeBase(a, ".", "HEAD");
     try testing.expect(self_base == null or self_base.?.len > 0);
+}
+
+// spec: Git Diff - Ages a commit as its distance behind HEAD and reports null when it is not an ancestor
+
+test "commitsBehindHead is zero for HEAD and null for a commit it cannot reach" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Pure half first, so the parse is covered with or without a repository.
+    try testing.expectEqual(@as(?u32, 0), parseCount("0\n"));
+    try testing.expectEqual(@as(?u32, 12), parseCount(" 12 "));
+    try testing.expect(parseCount("") == null);
+    try testing.expect(parseCount("not-a-count") == null);
+    // A sha that cannot exist is never an ancestor, in a repo or out of one.
+    try testing.expect(commitsBehindHead(a, ".", "0000000000000000000000000000000000000000") == null);
+    // HEAD is zero commits behind itself; outside a repo git answers nothing.
+    const self_distance = commitsBehindHead(a, ".", "HEAD");
+    try testing.expect(self_distance == null or self_distance.? == 0);
 }
 
 // spec-case: Policy Protection - Blocks protected Guardian metadata drift unless trusted CI approves it

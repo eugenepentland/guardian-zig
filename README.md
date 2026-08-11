@@ -432,7 +432,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **repeated-switch-on-enum** | The same enum prong-set switched in 2+ production files; test blocks are ignored and the diagnostic names every collision file |
 
 Plus `zig fmt --check`, wired as a format gate alongside the checks. The
-`spec-init`, `mutate`, and `debt` steps are non-gating — see [Tools](#tools).
+`spec-init`, `mutate`, `debt`, and `history` steps are non-gating — see [Tools](#tools).
 
 ## Mutation testing (`mutate`)
 
@@ -727,7 +727,7 @@ never churns git or invalidates the build cache, and none carries a timestamp
 | File | Written by | Contents |
 |---|---|---|
 | `last-run.jsonl` | every `all` / `nightly` run | one `violation` record per finding + a final `summary` (detailed below) |
-| `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run (see [Delivery metrics](#delivery-metrics-dora)) |
+| `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run; read back by `guardian-check history` (see [Delivery metrics](#delivery-metrics-dora)) |
 | `last-mutate.jsonl` | every `mutate` run | one `survivor` record per surviving mutant + a `summary` (see [Survivor report](#survivor-report)) |
 | `mutants.jsonl` | every `mutate` run | per-mutant result cache for resume / re-run (see [Result cache](#result-cache-resume--re-run)) |
 
@@ -746,9 +746,9 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 73 registry entries — `skipped` is
-  the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus anything
-  `disabled` or filtered out. A green run writes a summary-only log.
+  `passed` + `failed` + `skipped` sum to the 74 registry entries — `skipped` is
+  the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
+  anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
   function-size, type-size, file-size, struct-method-cap, optional-density,
   bool-ops, line-length) emit a **`ratchet_key`** (stable per-subject identity —
@@ -798,6 +798,40 @@ sink_path = ".guardian/cache/dora.jsonl"  # default; relative paths resolve unde
 Run duration is guardian's one legitimate wall-clock read — the sink module
 carries a `ban-time` `[[allow]]` for `std.time.Timer` that does **not** propagate
 to consumers.
+
+### Reading it back: `guardian-check history`
+
+The sink is only half the loop. **`guardian-check history [dir]`** is the read
+surface over the same file — how often the gate is green, what a run costs,
+which checks actually block, and how long the current red patch has run:
+
+```
+guardian: history: 430 run(s) recorded in .guardian/cache/dora.jsonl
+  outcome    371 green / 59 red — 86.3% pass rate
+  streak     current: 3 red — failing spec, test-coverage
+             longest: 5 red — last failing ban-globals
+  duration   median 2214 ms · p90 2997 ms (last 430 run(s))
+  trend      last 20: 2066 ms · prior 100: 1199 ms — slower than before
+  failures   check                     runs
+             file-size                24
+             function-length          9
+  last red   commit    branch            checks
+             83967325  main              completeness, stack-escape
+```
+
+- **`--check <name>`** narrows the report to one check's failure history: how
+  many runs it failed, its share of them, and the last few with their commit,
+  branch, and what else failed alongside it.
+- **`--json`** writes the whole report to **stdout** as one object
+  (`runs` / `streaks` / `durations` / `top_failures` / `recent_red` / `check`),
+  so a caller can pipe it. The report itself stays on stderr.
+- It **streams**. The log is append-only and unbounded, so it is read one line
+  at a time and every remembered figure lives in a fixed-size buffer; duration
+  statistics cover the most recent 512 runs and the report always names that
+  window. A line that is not a decodable run record is counted and skipped, and
+  an absent log is the ordinary answer "no runs recorded yet".
+- Never a gate: it is a registry entry (so `--only`/`--skip` and `explain` know
+  it) but a built-in non-gate, like `debt`, so `all` never runs it.
 
 ## Benchmark ledger (`bench`)
 
@@ -1416,6 +1450,9 @@ guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
 guardian-check debt . --check spec   # Restrict the debt report to one check
 guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry run)
 guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
+guardian-check history .             # Gate outcomes, durations, and failing checks from the run log
+guardian-check history . --check spec # One check's failure history
+guardian-check history . --json      # The whole report as one JSON object on stdout
 guardian-check doctor .              # Read-only metadata/integration health audit
 guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
 guardian-check test-filter .         # Report the diff-derived test-name filter (never gates)
