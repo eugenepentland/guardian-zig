@@ -5030,3 +5030,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-11 · codex · eda — functional differential-input rendering
 
 - **good:** `size` exposed the existing six-parameter ceiling before editing and kept the new renderer query in an options struct; filtered self-hosted Debug checks stayed at 15–19 seconds, all 71 whole-tree checks passed without snapshot acceptance, and exact preparation overlapped 443-second tests with the 361-second ReleaseSafe build for a 450-second wall.
+
+## 2026-08-11 · codex · eda — Zig 0.16/master incremental-build probe
+
+- **friction:** The full EDA build graph could not reach its application target under Zig 0.16.0 because Guardian's build helper still uses 0.15-era APIs (`Dir.access` without an `Io`, `std.process.getEnvVarOwned`, and `std.fs.Dir`). The same compatibility wall remained on the tested master snapshot, forcing the incremental benchmark onto a separate Guardian-free `bench-layout` harness and preventing an end-to-end server measurement.
