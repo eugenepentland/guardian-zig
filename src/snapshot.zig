@@ -8,6 +8,38 @@ const Allocator = std.mem.Allocator;
 
 pub const magic_prefix = "# guardian-snapshot v";
 
+/// Comment `merge-file` stamps on a merged counter snapshot whose two sides
+/// both moved the same counter: the merge took the larger value, which is a
+/// guess, so the file must be regenerated before it can be trusted. The
+/// `merge-state` check fails the gate while this line is present.
+pub const regen_marker = "# guardian-merge: regenerate";
+
+/// Line prefixes git writes into a file it could not merge. A snapshot holding
+/// one is an unresolved conflict, not data — reading it must name that rather
+/// than diff the marker text as though it were an entry. `=======` is left out
+/// deliberately: alone it is ambiguous, and every real conflict carries the
+/// unambiguous opening/closing markers too.
+const conflict_prefixes = [_][]const u8{ "<<<<<<<", ">>>>>>>", "|||||||" };
+
+/// True when `line` opens, closes, or splits a git conflict region.
+pub fn isConflictMarker(line: []const u8) bool {
+    for (conflict_prefixes) |p| {
+        if (std.mem.startsWith(u8, line, p)) return true;
+    }
+    return false;
+}
+
+/// True when `line` is a comment (the version header, the regenerate marker, or
+/// any other `#` row) rather than a snapshot entry.
+pub fn isComment(line: []const u8) bool {
+    return line.len > 0 and line[0] == '#';
+}
+
+/// True when `content` carries the merge-regenerate marker comment.
+pub fn hasRegenMarker(content: []const u8) bool {
+    return std.mem.indexOf(u8, content, regen_marker) != null;
+}
+
 /// A read snapshot file, parsed into version + sorted lines.
 pub const Snapshot = struct {
     version: u32,
@@ -29,6 +61,7 @@ pub const ReadError = error{
     Missing,
     BadFormat,
     VersionMismatch,
+    ConflictMarkers,
 } || std.mem.Allocator.Error || std.fs.File.OpenError || std.posix.ReadError;
 
 /// Parses the magic header line, validating the prefix and version.
@@ -51,7 +84,8 @@ fn parseVersion(header: ?[]const u8) ReadError!u32 {
 
 /// Reads a snapshot file. Returns Missing if the file does not exist,
 /// BadFormat if the magic header is missing or malformed, VersionMismatch
-/// if the version doesn't match expected_version.
+/// if the version doesn't match expected_version, ConflictMarkers when the
+/// file is an unresolved merge.
 pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot {
     const content = std.fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return error.Missing,
@@ -59,19 +93,31 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
         // so "your snapshot is corrupt" isn't reported for a permission error.
         else => |err| return err,
     };
+    return parse(arena, content, expected_version);
+}
 
+/// Parses snapshot bytes into version + entries — `read` without the file I/O,
+/// so the tolerances below are testable from a string.
+///
+/// Entries are **sorted on load**, and comment rows (`#`) are skipped. Both are
+/// merge tolerances: a union-resolved conflict is unsorted by construction, and
+/// `diff` merges two ordered runs, so an unsorted file used to trip an assert
+/// and abort the process (`reached unreachable`) with no hint that ORDER was the
+/// problem. A file that still holds git's conflict markers is a named error
+/// instead — there is no honest reading of it.
+pub fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadError!Snapshot {
     var lines_iter = std.mem.splitScalar(u8, content, '\n');
     const version = try parseHeader(lines_iter.next(), expected_version);
 
     var lines: std.ArrayList([]const u8) = .empty;
     while (lines_iter.next()) |line| {
-        if (line.len == 0) continue;
+        if (line.len == 0 or isComment(line)) continue;
+        if (isConflictMarker(line)) return error.ConflictMarkers;
         try lines.append(arena, line);
     }
-    return .{
-        .version = version,
-        .lines = try lines.toOwnedSlice(arena),
-    };
+    const owned = try lines.toOwnedSlice(arena);
+    std.mem.sort([]const u8, owned, {}, lessThan);
+    return .{ .version = version, .lines = owned };
 }
 
 /// Errors that an atomic snapshot replacement may propagate.
@@ -144,27 +190,31 @@ fn onDiskEquals(arena: Allocator, path: []const u8, bytes: []const u8) bool {
     return std.mem.eql(u8, existing, bytes);
 }
 
-/// Compute added/removed sets between sorted snapshot lines and a new sorted slice.
-/// Asserts both `old.lines` and `new_lines` are sorted ascending — the linear
-/// merge below is only correct on ordered inputs (`old` is read from a
-/// sort-on-write snapshot; `new_lines` is sorted by the caller before diffing).
+/// Compute added/removed sets between snapshot lines and a new sorted slice.
+///
+/// The linear merge below is only correct on ordered inputs. `new_lines` is the
+/// caller's freshly measured state, sorted immediately before the call, so that
+/// side stays an assert. `old.lines` comes off DISK, where a hand-resolved merge
+/// can leave any order at all, so it is sorted defensively instead: a file must
+/// never be able to abort the process. `parse` already sorts, making the copy
+/// below a no-op on every read snapshot; it exists for a hand-built `Snapshot`.
 pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff {
-    std.debug.assert(std.sort.isSorted([]const u8, old.lines, {}, lessThan));
     std.debug.assert(std.sort.isSorted([]const u8, new_lines, {}, lessThan));
+    const old_lines = try sortedCopy(arena, old.lines);
     var added: std.ArrayList([]const u8) = .empty;
     var removed: std.ArrayList([]const u8) = .empty;
 
     var i: usize = 0;
     var j: usize = 0;
-    while (i < old.lines.len and j < new_lines.len) {
-        const cmp = std.mem.order(u8, old.lines[i], new_lines[j]);
+    while (i < old_lines.len and j < new_lines.len) {
+        const cmp = std.mem.order(u8, old_lines[i], new_lines[j]);
         switch (cmp) {
             .eq => {
                 i += 1;
                 j += 1;
             },
             .lt => {
-                try removed.append(arena, old.lines[i]);
+                try removed.append(arena, old_lines[i]);
                 i += 1;
             },
             .gt => {
@@ -173,13 +223,21 @@ pub fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.
             },
         }
     }
-    while (i < old.lines.len) : (i += 1) try removed.append(arena, old.lines[i]);
+    while (i < old_lines.len) : (i += 1) try removed.append(arena, old_lines[i]);
     while (j < new_lines.len) : (j += 1) try added.append(arena, new_lines[j]);
 
     return .{
         .added = try added.toOwnedSlice(arena),
         .removed = try removed.toOwnedSlice(arena),
     };
+}
+
+/// An ascending copy of `lines`, so the caller can merge it without mutating
+/// (or trusting the order of) what it was handed.
+fn sortedCopy(arena: Allocator, lines: []const []const u8) Allocator.Error![][]const u8 {
+    const out = try arena.dupe([]const u8, lines);
+    std.mem.sort([]const u8, out, {}, lessThan);
+    return out;
 }
 
 fn lessThan(_: void, a: []const u8, b: []const u8) bool {
@@ -317,6 +375,51 @@ test "diff over disjoint sorted inputs reports every add and remove" {
     try std.testing.expectEqual(@as(usize, 4), d.added.len);
     try std.testing.expectEqualStrings("alpha", d.added[0]);
     try std.testing.expectEqualStrings("bravo", d.removed[0]);
+}
+
+// spec: Merge - Reads an unsorted snapshot by sorting it on load
+
+test "parse sorts a union-resolved snapshot instead of aborting the run" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Exactly what a hand-unioned conflict leaves behind: well-formed entries in
+    // no particular order. This used to trip diff's isSorted assert.
+    const unioned = "# guardian-snapshot v2\nzebra\napple\nmango\n";
+    const snap = try parse(a, unioned, 2);
+    try std.testing.expectEqualStrings("apple", snap.lines[0]);
+    try std.testing.expectEqualStrings("zebra", snap.lines[2]);
+
+    // ...and diffing it against the same set now reports no drift at all.
+    var current = [_][]const u8{ "apple", "mango", "zebra" };
+    try std.testing.expect((try diff(a, snap, &current)).isEmpty());
+}
+
+// spec: Merge - Names an unresolved conflict instead of reading marker text as entries
+
+test "parse rejects conflict markers and skips comment rows" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const conflicted = "# guardian-snapshot v2\n<<<<<<< HEAD\napple\n=======\nbanana\n>>>>>>> theirs\n";
+    try std.testing.expectError(error.ConflictMarkers, parse(a, conflicted, 2));
+
+    // A merged-but-unregenerated counter file still READS (the gate reports the
+    // marker); the comment is not mistaken for an entry.
+    const marked = "# guardian-snapshot v1\n" ++ regen_marker ++ " (X)\n@alignCast 68\n";
+    const snap = try parse(a, marked, 1);
+    try std.testing.expectEqual(@as(usize, 1), snap.lines.len);
+    try std.testing.expectEqualStrings("@alignCast 68", snap.lines[0]);
+    try std.testing.expect(hasRegenMarker(marked));
+    try std.testing.expect(!hasRegenMarker(conflicted));
+    try std.testing.expect(isComment("# x") and !isComment("x"));
+    // Both ends of a conflict region are markers; the bare `=======` separator
+    // is not, since a snapshot row could legitimately start that way.
+    try std.testing.expect(isConflictMarker("<<<<<<< HEAD"));
+    try std.testing.expect(isConflictMarker(">>>>>>> theirs"));
+    try std.testing.expect(!isConflictMarker("======="));
 }
 
 test "diff identical snapshots returns empty" {

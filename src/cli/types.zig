@@ -112,11 +112,59 @@ pub const RunCtx = struct {
     /// Parsed argv for the `bench` command (subcommand, metric name/value, and
     /// its flags). Empty for every other command.
     bench: benchmark.Args = .{},
+    /// Parsed argv for the `merge-file` command (the three files git hands a
+    /// merge driver, plus its pathname hint). Empty for every other command.
+    merge: MergeInputs = .{},
 
     /// True when the explicit `accept` refresh set contains `check_name`.
     pub fn refreshes(self: RunCtx, check_name: []const u8) bool {
         for (self.refresh) |name| if (std.mem.eql(u8, name, check_name)) return true;
         return false;
+    }
+};
+
+/// The three files a git merge driver is handed, in git's own `%O %A %B`
+/// order — BASE, OURS, THEIRS — plus `%P`, the real pathname. Held here rather
+/// than in `cli/merge_file.zig` so `RunCtx` can carry it without importing the
+/// command that consumes it.
+///
+/// Empty means "not supplied": every slot holds a path, and a path is never the
+/// empty string, so the sentinel needs no optional.
+pub const MergeInputs = struct {
+    /// `%O` — the merge base's version (empty when both branches added the file).
+    base: []const u8 = "",
+    /// `%A` — our version, and the file that receives the merged result.
+    ours: []const u8 = "",
+    /// `%B` — their version.
+    theirs: []const u8 = "",
+    /// `%P` — the repo-relative pathname, a format-detection hint only.
+    path: []const u8 = "",
+
+    /// Fills the next unset positional (base, then ours, then theirs); false
+    /// once all three are set, so a fourth positional is the project directory.
+    pub fn takePositional(self: *MergeInputs, arg: []const u8) bool {
+        const slot = if (self.base.len == 0) &self.base else if (self.ours.len == 0)
+            &self.ours
+        else if (self.theirs.len == 0) &self.theirs else return false;
+        slot.* = arg;
+        return true;
+    }
+
+    /// True once all three merge inputs have been named.
+    pub fn complete(self: MergeInputs) bool {
+        return self.base.len > 0 and self.ours.len > 0 and self.theirs.len > 0;
+    }
+
+    /// The `%P` pathname hint, or null when git supplied none.
+    ///
+    /// Two tolerances, both from how git spells that placeholder: it arrives
+    /// already single-quoted, and a git too old to know `%P` passes the
+    /// placeholder through literally — so surrounding quotes are stripped and a
+    /// leading `%` reads as "no hint" rather than as a file named `%P`.
+    pub fn hint(self: MergeInputs) ?[]const u8 {
+        const raw = std.mem.trim(u8, self.path, "'");
+        if (raw.len == 0 or raw[0] == '%') return null;
+        return raw;
     }
 };
 
@@ -160,6 +208,36 @@ pub const Command = struct {
     scope: CheckScope,
     run: *const fn (ctx: *RunCtx) RunError!void,
 };
+
+// spec: Merge - Takes the three merge inputs in git's base, ours, theirs order
+
+test "MergeInputs fills the positionals in git placeholder order" {
+    var inputs: MergeInputs = .{};
+    try std.testing.expect(!inputs.complete());
+    try std.testing.expect(inputs.takePositional("/tmp/base"));
+    try std.testing.expect(inputs.takePositional("/tmp/ours"));
+    try std.testing.expect(inputs.takePositional("/tmp/theirs"));
+    // `%O %A %B`: the SECOND path is ours, and ours is what receives the merged
+    // result — reading this order backwards would write theirs over the tree.
+    try std.testing.expectEqualStrings("/tmp/base", inputs.base);
+    try std.testing.expectEqualStrings("/tmp/ours", inputs.ours);
+    try std.testing.expectEqualStrings("/tmp/theirs", inputs.theirs);
+    try std.testing.expect(inputs.complete());
+    // A fourth positional belongs to the project dir, and an unset `%P` is a
+    // missing hint rather than an empty path.
+    try std.testing.expect(!inputs.takePositional("."));
+    try std.testing.expect(inputs.hint() == null);
+    // A git that does not know `%P` leaves the placeholder verbatim; that is
+    // still "no hint", not a file named `%P`.
+    inputs.path = "%P";
+    try std.testing.expect(inputs.hint() == null);
+    inputs.path = ".guardian/pub-api.txt";
+    try std.testing.expectEqualStrings(".guardian/pub-api.txt", inputs.hint().?);
+    // git hands `%P` over already single-quoted; the quotes are not part of the
+    // path, and keeping them costs the format hint silently.
+    inputs.path = "'.guardian/baselines/spec.txt'";
+    try std.testing.expectEqualStrings(".guardian/baselines/spec.txt", inputs.hint().?);
+}
 
 // spec: Maintenance - Run context recognizes only explicitly named accept refreshes
 

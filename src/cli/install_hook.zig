@@ -13,6 +13,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const git = @import("../git.zig");
+const merge_driver = @import("merge_driver.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -89,7 +90,10 @@ fn renderScript(allocator: Allocator) Allocator.Error![]const u8 {
 const Outcome = enum { installed, refreshed, foreign, unavailable, io_error };
 
 /// CLI entry: install (or refresh) the blocking pre-commit hook for the project.
+/// The `.guardian/` merge driver rides along, best-effort: both are local git
+/// plumbing a consumer wants together, and neither is worth a second command.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
+    merge_driver.ensure(ctx);
     switch (installInto(ctx.allocator, ctx.project_dir)) {
         .installed => reporter.ok("install-hook: wrote .git/hooks/pre-commit (blocking gate)", .{}),
         .refreshed => reporter.ok("install-hook: refreshed the guardian pre-commit hook", .{}),
@@ -113,6 +117,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// but never fails the commit — a foreign or unwritable hook is only noted, since
 /// the commit's own gate + tests already passed.
 pub fn ensure(ctx: *types.RunCtx) void {
+    merge_driver.ensure(ctx);
     switch (installInto(ctx.allocator, ctx.project_dir)) {
         .installed => reporter.ok("commit: installed the guardian pre-commit hook", .{}),
         .foreign => reporter.ok("commit: left the existing non-guardian pre-commit hook in place", .{}),

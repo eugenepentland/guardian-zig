@@ -208,6 +208,9 @@ src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/magic_number.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/magic_number.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/merge_state.zig::check_name value
+src/checks/merge_state.zig::reportUnresolved | fn reportUnresolved(ctx: *types.RunCtx) void
+src/checks/merge_state.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/checks/module_doc_header.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/nesting_depth.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.NestingDepthCfg, ) std.mem.Allocator.Error![]const []const u8
@@ -279,6 +282,12 @@ src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/cli/install_hook.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/merge_driver.zig::command_name value
+src/cli/merge_driver.zig::ensure | fn ensure(ctx: *types.RunCtx) void
+src/cli/merge_driver.zig::isInstalled | fn isInstalled(allocator: Allocator, project_dir: []const u8) bool
+src/cli/merge_driver.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/merge_file.zig::command_name value
+src/cli/merge_file.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/migrate.zig::command_name value
 src/cli/migrate.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/mutate.zig::command_name value
@@ -289,6 +298,7 @@ src/cli/nightly.zig::command_name value
 src/cli/nightly.zig::mutateContext | fn mutateContext(ctx: *const types.RunCtx) types.RunCtx
 src/cli/nightly.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/registry.zig::Command value
+src/cli/registry.zig::MergeInputs value
 src/cli/registry.zig::NeedsAst value
 src/cli/registry.zig::RunCtx value
 src/cli/registry.zig::all value
@@ -323,11 +333,15 @@ src/cli/test_filter.zig::command_name value
 src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::CheckScope enum_
 src/cli/types.zig::Command struct_
+src/cli/types.zig::MergeInputs struct_
 src/cli/types.zig::NeedsAst enum_
 src/cli/types.zig::RunCtx struct_
 src/cli/types.zig::RunError value
 src/cli/types.zig::ScopedRun struct_
+src/cli/types.zig::complete | fn complete(self: MergeInputs) bool
+src/cli/types.zig::hint | fn hint(self: MergeInputs) ?[]const u8
 src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8) bool
+src/cli/types.zig::takePositional | fn takePositional(self: *MergeInputs, arg: []const u8) bool
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
 src/config.zig::BanRule struct_
@@ -459,11 +473,13 @@ src/git.zig::PathDiffResult union_
 src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool
 src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
+src/git.zig::configValue | fn configValue(allocator: Allocator, project_dir: []const u8, key: []const u8) ?[]const u8
 src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
 src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult
 src/git.zig::diffPathNamesAgainst | fn diffPathNamesAgainst( allocator: Allocator, project_dir: []const u8, ref: []const u8, ) GitError!PathDiffResult
 src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8
+src/git.zig::gitPath | fn gitPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) ?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::hooksDir | fn hooksDir(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::ignoredPaths | fn ignoredPaths( allocator: Allocator, project_dir: []const u8, paths: []const []const u8, ) Allocator.Error![]const []const u8
@@ -471,6 +487,7 @@ src/git.zig::mergeBase | fn mergeBase(allocator: Allocator, project_dir: []const
 src/git.zig::parentCount | fn parentCount(allocator: Allocator, project_dir: []const u8, rev: []const u8) GitError!?u32
 src/git.zig::parseHunkHeader | fn parseHunkHeader(line: []const u8) ?LineSpan
 src/git.zig::parseUnifiedDiff | fn parseUnifiedDiff(allocator: Allocator, text: []const u8) Allocator.Error![]const FileDiff
+src/git.zig::setConfig | fn setConfig(allocator: Allocator, project_dir: []const u8, key: []const u8, value: []const u8) bool
 src/git.zig::untrackedFiles | fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]const []const u8
 src/measurement.zig::Exemption struct_
 src/measurement.zig::RunFacts struct_
@@ -484,6 +501,29 @@ src/measurement.zig::pathCovers | fn pathCovers(pattern: []const u8, rel_path: [
 src/measurement.zig::record | fn record(self: *Exemption, rel_path: []const u8, line: []const u8) Allocator.Error!void
 src/measurement.zig::report | fn report(self: *Exemption) Allocator.Error!void
 src/measurement.zig::standingReminder | fn standingReminder(allocator: Allocator, records: []const reporter.Measured) Allocator.Error!?[]const u8
+src/merge/artifact.zig::File struct_
+src/merge/artifact.zig::Kind enum_
+src/merge/artifact.zig::Parsed union_
+src/merge/artifact.zig::Problem struct_
+src/merge/artifact.zig::ProblemKind enum_
+src/merge/artifact.zig::classify | fn classify(path_hint: ?[]const u8, version: u32, rows: []const []const u8) Kind
+src/merge/artifact.zig::empty value
+src/merge/artifact.zig::failure | fn failure(self: Parsed) ?Problem
+src/merge/artifact.zig::isCounterRow | fn isCounterRow(row: []const u8) bool
+src/merge/artifact.zig::isPubApiRow | fn isPubApiRow(row: []const u8) bool
+src/merge/artifact.zig::isRatchetRow | fn isRatchetRow(row: []const u8) bool
+src/merge/artifact.zig::malformedRows | fn malformedRows(arena: Allocator, content: []const u8, kind: Kind) Allocator.Error![]const Problem
+src/merge/artifact.zig::parse | fn parse(arena: Allocator, content: []const u8) Allocator.Error!Parsed
+src/merge/artifact.zig::value | fn value(self: Parsed) File
+src/merge/scan.zig::Finding struct_
+src/merge/scan.zig::Trouble enum_
+src/merge/scan.zig::describe | fn describe(trouble: Trouble) []const u8
+src/merge/scan.zig::findings | fn findings(arena: Allocator, project_dir: []const u8) Allocator.Error![]const Finding
+src/merge/scan.zig::inspect | fn inspect( arena: Allocator, out: *std.ArrayList(Finding), rel_path: []const u8, content: []const u8, ) Allocator.Error!void
+src/merge/three_way.zig::CounterResult struct_
+src/merge/three_way.zig::mergeCounters | fn mergeCounters( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error!CounterResult
+src/merge/three_way.zig::mergeRatchets | fn mergeRatchets( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error![]const []const u8
+src/merge/three_way.zig::mergeRows | fn mergeRows( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error![]const []const u8
 src/metadata_transaction.zig::RollbackError value
 src/metadata_transaction.zig::Transaction struct_
 src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction
@@ -609,9 +649,14 @@ src/snapshot.zig::ReadError value
 src/snapshot.zig::Snapshot struct_
 src/snapshot.zig::WriteError value
 src/snapshot.zig::diff | fn diff(arena: Allocator, old: Snapshot, new_lines: []const []const u8) std.mem.Allocator.Error!Diff
+src/snapshot.zig::hasRegenMarker | fn hasRegenMarker(content: []const u8) bool
+src/snapshot.zig::isComment | fn isComment(line: []const u8) bool
+src/snapshot.zig::isConflictMarker | fn isConflictMarker(line: []const u8) bool
 src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
 src/snapshot.zig::magic_prefix value
+src/snapshot.zig::parse | fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
+src/snapshot.zig::regen_marker value
 src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
 src/snapshot.zig::writeChecked | fn writeChecked(arena: Allocator, path: []const u8, version: u32, lines: [][]const u8) WriteError!bool
 src/snapshot.zig::writePresorted | fn writePresorted(path: []const u8, version: u32, lines: []const []const u8) WriteError!void

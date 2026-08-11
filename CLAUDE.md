@@ -148,6 +148,8 @@ guardian-check all . --gate          # BLOCK mode: fail on any violation (what t
 guardian-check nightly .             # full suite + whole-tree mutation ratchet (CI/cron tier; always blocks)
 guardian-check commit --intent "..." .  # block-gate, run tests, auto-commit + install hook on green
 guardian-check install-hook .        # write .git/hooks/pre-commit that runs the blocking gate
+guardian-check install-merge-driver . # local git attributes + driver so .guardian/ conflicts auto-resolve
+guardian-check merge-file %O %A %B --path %P  # the driver itself (base, ours, theirs; result lands in ours)
 guardian-check all . --only spec,file-size  # run only these checks (no green cache stamp)
 guardian-check all . --skip line-length     # run every check except these
 guardian-check all . --summary       # verdict line + blocking detail only (advisory collapsed to counts)

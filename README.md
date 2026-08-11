@@ -316,6 +316,7 @@ discoverable only by reading the check's source.
 | **change-classification** | Behavioral lines added to `src/**.zig` (vs `--against` / `GUARDIAN_AGAINST` / `[change_classification] against`, default HEAD) with **no** test-block lines, `// spec:` tags, or an added/modified SPEC.md **behavior bullet** in the same diff — the "quick fix with no regression test" pattern. A spec edit waives the test only when it adds/modifies a `- ` bullet outside a code fence (a prose/typo/header edit no longer counts). When the base is HEAD and the working tree is clean, it gates the **last commit** (`HEAD~1..HEAD`) instead of passing an empty diff — skipping merge/root commits, toggled by `[change_classification] gate_last_commit`. Skips silently outside a git repo. |
 | **policy-drift** *(opt-in)* | Changes, deletions, or renames affecting protected Guardian policy/debt paths without trusted CI approval |
 | **external-gates** *(configured)* | A project-defined argv command exits nonzero or cannot be started; commands never run through a shell |
+| **merge-state** | A `.guardian/` metadata file left mid-merge: git's conflict markers still in it, a counter merge the driver had to guess (`# guardian-merge: regenerate`), or a row that does not parse in its own format. Each of those reads as ordinary debt to every other check, so the tree would otherwise gate green on numbers nobody measured. The fix line names the exact `GUARDIAN_UPDATE_SNAPSHOT=<check> zig build` per file |
 
 ### Formatting (runs first)
 | Check | Blocks on |
@@ -1408,6 +1409,8 @@ guardian-check all . --verbose       # Replay every check and benchmark metric i
 guardian-check nightly .             # Full suite + whole-tree mutation ratchet (always blocks)
 guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, then auto-commit on green
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
+guardian-check install-merge-driver . # Teach this clone's git to merge .guardian/ metadata
+guardian-check merge-file %O %A %B --path %P  # The driver itself (git calls this; base, ours, theirs)
 guardian-check size src/parser.zig . # One file's current measurements vs its caps and ratchet ceilings
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
 guardian-check debt . --current      # Also measure every ratcheted key against its frozen ceiling
@@ -1495,6 +1498,25 @@ guardian-check version               # Print the guardian version + source diges
   hits the blocking gate now that a dev build only reports. The hook resolves a
   binary in order: `$GUARDIAN_CHECK` → `./zig-out/bin/guardian-check` →
   `guardian-check` on PATH. It never overwrites a non-guardian pre-commit hook.
+- **`install-merge-driver`** teaches THIS clone's git to resolve `.guardian/`
+  conflicts: `.guardian/** merge=guardian` goes into `.git/info/attributes`
+  (local, deliberately not the tracked `.gitattributes`) and
+  `merge.guardian.driver` is pointed at `guardian-check merge-file %O %A %B
+  --path %P`. Idempotent, and `install-hook`/`commit` install it too, so a
+  consumer gets it without a second command. `doctor` reports whether it is on.
+- **`merge-file`** is that driver. Arguments are in GIT's order — `%O %A %B` is
+  BASE, OURS, THEIRS — and the merged result is written to `<ours>` (`%A`).
+  Per format: a **v3 identity baseline** and the **pub-api surface** union their
+  entries (with multiplicity) minus anything either side deleted, because a
+  deletion is debt somebody paid; a **v2 per-item ratchet** keeps the TIGHTER
+  ceiling per key, so a merge can never silently ratify growth; a **counter both
+  sides moved** takes the larger value and stamps
+  `# guardian-merge: regenerate`, which `merge-state` then blocks until you
+  refresh it. A format with no safe resolution (the mutation cohort, the
+  benchmark ledger, headers that disagree) is refused without writing, so git
+  records an ordinary conflict. The canonical resolution for anything it refuses
+  is unchanged: resolve provisionally, regenerate on the merged tree with
+  `GUARDIAN_UPDATE_SNAPSHOT=<check> zig build`, review that diff.
 - **`accept`** previews named check failures, refreshes only their recognized
   snapshot/baseline metadata, then verifies those checks without refresh.
 - **`debt`** reports every baseline/snapshot total sorted high-to-low, with the

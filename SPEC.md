@@ -239,6 +239,39 @@ blocking correctness checks and advisory maintainability guidance.
 - Commits an already-staged deletion when no path needs staging
 - Advises when the configured test command is not the whole default suite
 
+## Merge
+
+- Takes the three merge inputs in git's base, ours, theirs order
+- Detects each metadata format from its header, rows, and path
+- Tells the row shapes of the four formats apart
+- Parses a metadata file into version, rows, and merge state
+- Reports a structured row that does not parse as its format
+- Reads an unsorted snapshot by sorting it on load
+- Names an unresolved conflict instead of reading marker text as entries
+- Unions opaque baseline rows and honors either side's deletion
+- Preserves the multiplicity of a repeated baseline entry
+- Resolves a per-item ratchet to the tighter ceiling per key
+- Marks a counter both sides moved for regeneration
+- Leaves an uncontested counter merge unmarked
+- Merges a counter file both sides grew and marks it for regeneration
+- Merges a per-item ratchet from real files
+- Merges identity baselines and the public API surface as sets
+- Merges an unsorted side and writes a canonically sorted result
+- Refuses an input that still holds conflict markers
+- Refuses a format with no safe automatic resolution
+- Refuses a merge whose sides declare different snapshot versions
+- Renders the merged file with its header and regenerate marker
+- Names the refreshing check for the file being merged
+- Locates an unresolved or regenerate-marked metadata file
+- Locates the conflicted file when a snapshot read aborts
+- Passes metadata that carries neither marker
+- Scans the metadata directories a repository actually commits
+- Fails the gate while metadata carries a merge marker
+- Names each affected check's regeneration command once
+- Routes .guardian conflicts at the driver through local git attributes
+- Configures the driver with git's own placeholder order
+- Reports whether the merge driver is installed
+
 ## Install Hook
 
 - Writes a pre-commit hook that runs the blocking gate

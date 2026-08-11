@@ -701,6 +701,44 @@ const entries = [_]Entry{
     \\Exempt: an existing non-guardian pre-commit hook is never overwritten — add
     \\`guardian-check all . --gate` to it by hand, or remove it and re-run.
     },
+    .{ .name = "merge-state", .text = 
+    \\Why: a `.guardian/` file git left mid-merge reads as ordinary debt to every
+    \\other check, so the tree gates GREEN on numbers nobody measured. Three
+    \\states are refused: git's conflict markers still in the file, a counter
+    \\merge the driver had to guess (`# guardian-merge: regenerate`), and a row
+    \\that does not parse in its own format.
+    \\Fix: regenerate the named file on the MERGED tree — the command is printed
+    \\per file (`GUARDIAN_UPDATE_SNAPSHOT=<check> zig build`), then commit
+    \\`.guardian/`. That is the canonical snapshot-merge recipe: resolve
+    \\provisionally, regenerate, review the diff.
+    \\Exempt: none. Install the driver (`guardian-check install-merge-driver`) so
+    \\most of these conflicts never reach you in the first place.
+    },
+    .{ .name = "install-merge-driver", .text = 
+    \\Why: a meta command, not a gate. `.guardian/` files are auto-shrinking
+    \\ratchets and per-item snapshots that every branch touches, so they conflict
+    \\constantly — and the "obvious" hand-union is wrong in ways that are silent
+    \\(a union of a sorted snapshot is unsorted; a union of two grown counters
+    \\keeps only one side's growth).
+    \\Fix: n/a — run `guardian-check install-merge-driver [dir]` (install-hook and
+    \\commit install it too). It writes `.guardian/** merge=guardian` into
+    \\`.git/info/attributes` (local, NOT the tracked .gitattributes) and points
+    \\`merge.guardian.driver` at `guardian-check merge-file %O %A %B --path %P`.
+    \\Exempt: n/a — an existing attributes file is extended, never replaced.
+    },
+    .{ .name = "merge-file", .text = 
+    \\Why: a meta command, not a gate — the driver git runs per conflicted
+    \\`.guardian/` file. Arguments are in GIT's order, `%O %A %B` = base, ours,
+    \\theirs, and the merged result is written to `<ours>` (`%A`).
+    \\Fix: n/a — per format: a v3 identity baseline and the pub-api surface union
+    \\their entries minus anything either side deleted (a deletion is debt paid);
+    \\a v2 per-item ratchet keeps the TIGHTER ceiling per key; a counter both
+    \\sides moved takes the larger value and marks the file for regeneration,
+    \\which `merge-state` then blocks until you refresh it.
+    \\Exempt: a format with no safe resolution (the mutation cohort, the
+    \\benchmark ledger, mismatched headers) is refused, so git records an
+    \\ordinary conflict and you regenerate instead.
+    },
     .{ .name = "doctor", .text = "Why: a read-only maintenance command that catches corrupt recognized\n" ++
         "Guardian metadata before a ratchet can silently lose meaning, while also\n" ++
         "surfacing advisory cleanup/reproducibility issues.\n" ++
@@ -789,8 +827,8 @@ fn listAll() void {
     for (registry.all) |cmd| {
         print("  {s: <26} {s}\n", .{ cmd.name, cmd.summary });
     }
-    print("\nmeta commands: all, nightly, commit, install-hook, doctor, spec-sync,", .{});
-    print(" test-filter, accept, size, version\n", .{});
+    print("\nmeta commands: all, nightly, commit, install-hook, install-merge-driver,", .{});
+    print(" merge-file, doctor, spec-sync, test-filter, accept, size, version\n", .{});
 }
 
 /// What `explain` was asked for. Everything but `name` exists for the

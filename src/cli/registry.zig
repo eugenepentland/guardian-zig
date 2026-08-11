@@ -79,12 +79,14 @@ const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
 const check_module_doc_header = @import("../checks/module_doc_header.zig");
 const check_external_gates = @import("../checks/external_gates.zig");
 const check_policy_drift = @import("../checks/policy_drift.zig");
+const check_merge_state = @import("../checks/merge_state.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
 pub const Command = types.Command;
+pub const MergeInputs = types.MergeInputs;
 
 pub const all: []const Command = &.{
     // First on purpose: the cheapest gate in the suite, and the one whose fix
@@ -553,6 +555,15 @@ pub const all: []const Command = &.{
         .scope = .whole_tree,
         .run = check_policy_drift.run,
     },
+    .{
+        .name = check_merge_state.check_name,
+        .summary = "Reject .guardian metadata left unresolved or marked for regeneration by a merge",
+        // The subject is the whole `.guardian/` tree, not any source file, so a
+        // diff-scoped run must still read all of it: a conflicted baseline is
+        // exactly as dangerous when the diff touches nothing near it.
+        .scope = .whole_tree,
+        .run = check_merge_state.run,
+    },
 };
 
 /// Look up a command by its CLI name; null if not registered.
@@ -572,6 +583,8 @@ const meta_commands = [_]struct { name: []const u8, summary: []const u8 }{
     .{ .name = "nightly", .summary = "Full suite + whole-tree mutation ratchet (scheduled/CI tier)" },
     .{ .name = "commit", .summary = "Gate the tree, then auto-commit the change set with --intent" },
     .{ .name = "install-hook", .summary = "Write a pre-commit hook that runs the blocking gate" },
+    .{ .name = "install-merge-driver", .summary = "Point this clone's git at the .guardian metadata merge driver" },
+    .{ .name = "merge-file", .summary = "Merge one .guardian metadata file (git merge driver: %O %A %B)" },
     .{ .name = "explain", .summary = "Explain a check: why it blocks, how to fix, how to exempt" },
     .{ .name = "doctor", .summary = "Audit Guardian metadata/integration health (read-only)" },
     .{ .name = "spec-sync", .summary = "Suggest missing SPEC.md bullets without editing files" },
@@ -620,6 +633,7 @@ const inherently_whole_tree = [_][]const u8{
     "unsafe-ops-budget",       "test-coverage",         "repeated-string-literal",
     "repeated-switch-on-enum", "change-classification", "fuzz-presence",
     "external-gates",          "policy-drift",          "test-reachability",
+    "merge-state",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered
