@@ -4905,3 +4905,8 @@ result. Three gated commits, ~1100 lines across 105 files.
   unlinked tag plus one orphan bullet with no hint that they are the same
   behavior reworded. A `~` grouping like `pub-api-surface` already prints for a
   changed signature would make an edited bullet obvious at a glance.
+
+## 2026-08-11 · codex · eda — component-to-edge DRC
+
+- **good:** `spec` named both unlinked component-edge test tags verbatim, and selective `pub-api-surface` acceptance added exactly the intentional `EdgeRules` declaration. The filtered rerun selected the new checks plus the one router fixture whose aggregate DRC count legitimately changed, then the 71-check whole-tree gate passed with zero blockers.
+- **friction:** The first full 2,437-test run spent five minutes compiling before exposing that one synthetic router fixture expected the old total warning count; after the focused fix, mandatory exact-commit preparation still took 444 seconds wall time (438-second tests, 362-second ReleaseSafe build). Correct results, but the two cold full-suite costs dominated this small DRC addition.
