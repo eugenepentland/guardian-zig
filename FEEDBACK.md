@@ -4758,3 +4758,28 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - good: the completeness + spec gates caught two silent git-merge casualties in SPEC.md — git treated an identical trailing `panic-free` waiver line as shared suffix (section above lost it) and dropped a bullet whose hunk main won while its tagged test survived. Both surfaced as precise findings (missing category by section name; unlinked tag by file) before anything landed.
 - good: the gate also stayed out of the way of the real semantic conflict (main's copper_topology prune vs a branch test asserting the pruned copper survives) — the full-suite commit gate reported the failing test by name, which is exactly the right surface for a product-decision conflict.
+
+## 2026-08-11 · claude (agent F) · eda — router: pad-terminated joins for multi-pad nets
+
+- friction: `file-size` counts COMMENT lines as "code lines". `src/placement/router.zig`
+  sits exactly on its frozen ceiling (10290), and my change was deliberately
+  line-neutral in statements (+1 import, −1 by folding a two-line fn body into one).
+  It still failed with "grew 10290 -> 10294" because I had added a 4-line `///` doc
+  comment above a PRIVATE fn explaining a subtle new flag. Deleting the explanation
+  was the only way through — the opposite of what the repo's style wants near a
+  subtle call site. Two gate cycles went into bisecting which lines counted (I first
+  assumed `///` counted and `//` did not; both do). Suggestions, either helps:
+  exclude comment-only lines from the metric, or say "code lines (comments included)"
+  in the message so the fix is obvious on the first read.
+- good: the ratchet message names exact before/after numbers, and `guardian-check
+  file-size .` alone runs in ~1 s, so once I knew the rule the line budget was
+  mechanical to hit — I could check a candidate edit without paying a build.
+- good: `deny_growth = ["spec","completeness"]` did exactly its job. The new module
+  landed with its SPEC section, 11 tagged tests and the 8 completeness waivers in one
+  change, and the "unlinked tag: <section> - <behaviour> in <file>" lines named each
+  missing bullet verbatim, so writing the spec was transcription rather than a hunt.
+- wish: a one-line verdict at the very end of a gated `zig build test`. A filtered run
+  prints ~15 lines of check summary (report-only findings included) AFTER the test
+  result, so "15/16 passed, 1 failed" scrolls past and a fully green run prints no
+  explicit "tests ok" at all. `guardian: gate N blocking; tests 16/16 passed` as the
+  last line would save a `| tail -12` and a squint on every iteration.
