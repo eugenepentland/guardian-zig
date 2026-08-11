@@ -4830,3 +4830,32 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `spec` named both unlinked feedback-routing test tags verbatim, and `function-size` caught the first 8-parameter deferred-render helpers; adding the exact SPEC bullets and packing the render geometry into one request made the next gate green. Selective `pub-api-surface` acceptance then recorded exactly the three intended renderer declarations.
 - **friction:** The verified feature commit took 384 seconds to prepare (378-second tests, 306-second build), then concurrent work advanced `main` and forced the post-merge hook to spend another 409 seconds preparing the merge tree. Both gates were correct and green, but the duplicated cold handoff dominated an otherwise small SVG change.
+
+## 2026-08-11 · claude · guardian-zig — artifact-audit implementation wave (4 parallel agents, 4 branches, none merged)
+- **good:** all four agents (`claude/debt-overhaul`, `claude/history-reader`,
+  `claude/fix-hints`, `claude/merge-driver`) shipped gate-green through
+  `guardian-check commit` with zero pre-existing debt accepted — every finding
+  the gate raised against their own code was fixed, not exempted, and selective
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` accepts recorded exactly each
+  branch's own new symbols. The gate demonstrably shaped better code (extracted
+  helpers, OOM propagation, restructured fixtures) in all four sessions.
+- **bug:** (fixed on `claude/debt-overhaul`) `debt --current` keyed its
+  measurement map on the ratchet key alone, so `function-size` params were
+  judged against `function-length` line counts — eda read "116 of 121 keys
+  OVER" on a green tree.
+- **bug:** (fixed on `claude/fix-hints`) `baseline.runWithBaseline` consumed a
+  check's structured records in a nested capture, so baselined checks wrote
+  junk or nothing to last-run.jsonl — the long-reported "file-size has no rows".
+- **bug:** (fixed on `claude/history-reader`) the "NOT reverting … src/z.zig"
+  scare was journal.zig's own recovery TEST printing through an uncaptured
+  reporter on every `zig build test`.
+- **friction:** `snapshot.read` silently drops rows that don't decode — data
+  loss in a debt ledger with no diagnostic. Found while building the merge
+  driver; `merge-state` now reports it for merge artifacts but the read path
+  itself still swallows.
+- **wish:** the `# guardian-snapshot vN` header identifies a VERSION, not a
+  FORMAT — v2 is simultaneously counters, signatures, ratchets, and key=value,
+  and a budget check owns two same-named files of different formats
+  (`.guardian/x-budget.txt` vs `.guardian/baselines/x-budget.txt`), which cost
+  the merge driver a 16-false-finding first cut on eda. A `kind=` field in the
+  header would delete the whole path+row-shape guessing layer.
