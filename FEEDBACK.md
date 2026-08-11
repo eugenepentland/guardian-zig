@@ -4926,3 +4926,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The `spec` check kept the renamed Sequential/Functional behavior bullet and regression tag exact, while the function ratchets accepted the private switch renderer without widening `writeHeader`; all 71 checks passed without snapshot acceptance.
 - **friction:** Exact-commit preparation took 467 seconds (455-second tests, 376-second ReleaseSafe build) after the focused 17-test UI run, so the mandatory release gate again dominated a four-file presentation-only change.
+
+## 2026-08-11 · codex · eda — consistent PCB drill-hole rendering
+
+- **good:** Commit mode linked the exact drilled-bore behavior to its browser contract, passed all 71 checks, ran the full suite, and staged only the four implementation/spec paths, the GPU regression script, and two legitimate ratchet reductions caused by newer `main` code. The explicit staged-path summary made the automatic metadata cleanup easy to audit before release.
+- **friction:** Commit mode's full test took 431 seconds, then `main` advanced and the required exact-tree release preparation repeated the same tests for another 436 seconds. Both passed, but release serialization and duplicated cold compilation dominated a small JavaScript rendering correction.
