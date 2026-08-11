@@ -248,6 +248,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) walk.VisitError!void {
 fn noteHeadroom(measurer: *Measurer, item: file_metrics.Item) Allocator.Error!void {
     const limit = bindingLimit(item, ceilingOf(measurer.ceilings, item));
     if (!isNear(item.value, limit.value)) return;
+    if (coveredByCeilingTable(item.value, limit)) return;
     try measurer.headroom.append(measurer.arena, .{
         .check = item.check,
         .key = item.key,
@@ -275,6 +276,16 @@ fn ceilingOf(all: []const []const ratchet.Entry, item: file_metrics.Item) ?u64 {
         if (std.mem.eql(u8, check_name, item.check)) return file_metrics.ceilingFor(entries, item.key);
     }
     return null;
+}
+
+/// True when the ceiling table above already accounts for this item: a
+/// ratcheted key sitting exactly ON its frozen ceiling. Baseline mode freezes
+/// every offender at its measured value, so on an adopted project that is
+/// EVERY ratcheted key — repeating them here would bury the rows only this
+/// section can show (an unratcheted item nearing its hard cap, or a ratchet
+/// that auto-lowered and still has a few lines of room).
+fn coveredByCeilingTable(value: u64, limit: Limit) bool {
+    return limit.kind == .ceiling and value == limit.value;
 }
 
 /// True when `value` has consumed at least `near_limit_pct` of `limit`.
@@ -329,12 +340,14 @@ fn printCeilings(arena: Allocator, report: Report) void {
 /// the ceiling table above cannot (it lists only items already out of room).
 fn printHeadroom(arena: Allocator, rows: []const HeadroomRow) void {
     if (rows.len == 0) {
-        reporter.ok("headroom — nothing within {d}% of a blocking limit (measured now)", .{near_limit_pct});
+        reporter.ok("headroom — nothing else within {d}% of a blocking limit (measured now)", .{near_limit_pct});
         return;
     }
-    reporter.ok("headroom — within {d}% of the limit that blocks them, least room first (measured now)", .{
-        near_limit_pct,
-    });
+    reporter.ok(
+        "headroom — within {d}% of the limit that blocks them, least room first " ++
+            "(keys already at a frozen ceiling are counted above)",
+        .{near_limit_pct},
+    );
     for (file_metrics.measured_checks) |check_name| printHeadroomFor(arena, rows, check_name);
 }
 
@@ -576,13 +589,18 @@ test "printHeadroom orders by room left and names which limit binds" {
 
     // Nothing near a limit says so out loud: silence would read as "no data".
     printHeadroom(a, &.{});
-    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "nothing within 90%") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "nothing else within 90%") != null);
 
     cap.buf.clearRetainingCapacity();
     var rows = [_]HeadroomRow{
         .{ .check = "file-size", .key = "src/roomy.zig", .value = 9200, .limit = 10_000, .limit_kind = .hard_cap },
         .{ .check = "file-size", .key = "src/tight.zig", .value = 10_223, .limit = 10_227, .limit_kind = .ceiling },
     };
+    // A key sitting exactly on its ceiling is the ceiling table's row, not this
+    // section's — repeated here it would be every ratcheted key on the project.
+    try testing.expect(coveredByCeilingTable(10_227, .{ .value = 10_227, .kind = .ceiling }));
+    try testing.expect(!coveredByCeilingTable(10_223, .{ .value = 10_227, .kind = .ceiling }));
+    try testing.expect(!coveredByCeilingTable(7, .{ .value = 7, .kind = .hard_cap }));
     std.mem.sort(HeadroomRow, &rows, {}, byRoomLeft);
     printHeadroom(a, &rows);
     const out = cap.buf.items;
