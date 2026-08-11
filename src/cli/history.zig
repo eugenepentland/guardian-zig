@@ -761,16 +761,6 @@ fn record(arena: Allocator, outcome: dora.Outcome, checks: []const []const u8, m
     });
 }
 
-/// A log of `count` green runs, each `ms` long.
-fn greenLog(arena: Allocator, count: usize, ms: u64) ![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    for (0..count) |_| {
-        try out.appendSlice(arena, try record(arena, .green, &.{}, ms));
-        try out.append(arena, '\n');
-    }
-    return out.items;
-}
-
 // spec: History - Streams the run log and reports green, red, and the pass rate
 
 test "history counts outcomes over a whole log" {
