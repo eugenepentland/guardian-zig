@@ -5026,3 +5026,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** Three agent commits landed gate-green in sequence (metric fix → relocation transfers → hysteresis core), each verified by the pre-commit hook plus an independent `all . --gate --full`; selective `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` was used three times and never dragged unrelated drift in — the additions-only inline accept made each refresh reviewable in one glance.
 - **good:** Guardian's caps steered its own implementation: adding a sixth positional parameter to `ratchet.lifecycle` would have tripped `function-size`, which pushed the relocation agent into an `Options` struct — the better API, chosen before the gate ever went red. The spec check's 1:1 enforcement also caught every new behavior bullet lacking a tagged test during development, which kept a 20-bullet feature honest.
+
+## 2026-08-11 · codex · eda — functional differential-input rendering
+
+- **good:** `size` exposed the existing six-parameter ceiling before editing and kept the new renderer query in an options struct; filtered self-hosted Debug checks stayed at 15–19 seconds, all 71 whole-tree checks passed without snapshot acceptance, and exact preparation overlapped 443-second tests with the 361-second ReleaseSafe build for a 450-second wall.
