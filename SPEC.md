@@ -190,6 +190,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Counts a check's findings and their diff-scope overlap
 - Uses concise grouped output by default
 - Groups blocking failures by check with a bounded sample
+- Prints one remedy line under a concise failure group
 - Keeps every check's full output under the verbose flag
 - Parses the summary and verbose output flags
 - Resolves the verbose flag ahead of the summary flag

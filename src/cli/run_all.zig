@@ -426,7 +426,47 @@ fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
         } else if (omittedLine(ctx.allocator, total, shown) catch null) |line| {
             reporter.detail("    - {s}\n", .{line});
         }
+        // One remedy per group, from its first finding: concise mode hides the
+        // check's own output, so without this the reader is told what broke and
+        // never what to do about it. A per-finding hint would triple the group.
+        printGroupHint(acc.records.items, name);
     }
+}
+
+/// Prints a failing group's remedy line — the first finding's `fix_hint`, which
+/// for a prose check is its own trailing `fix:` line and for a ratchet
+/// regression names the ceiling and the accept command. Silent when the check
+/// supplied no hint (better an absent line than filler).
+fn printGroupHint(records: []const reporter.Violation, name: []const u8) void {
+    const v = firstRecordFor(records, name) orelse return;
+    const hint = v.fix_hint orelse return;
+    reporter.detail("    fix: {s}\n", .{hint});
+}
+
+// spec: Run Summary - Prints one remedy line under a concise failure group
+
+test "a concise failure group ends in its first finding's fix hint" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const records = [_]reporter.Violation{
+        .{ .check = "catch-discipline", .file = "src/x.zig", .line = 16, .message = "catch block is empty", .fix_hint = "handle the error explicitly with a switch or named return" },
+        .{ .check = "spec", .message = "unverified: Auth - Validates tokens" },
+    };
+    // Concise mode hides the check's own output, so the group repeats its remedy.
+    printGroupHint(&records, "catch-discipline");
+    try std.testing.expectEqualStrings(
+        "    fix: handle the error explicitly with a switch or named return\n",
+        cap.buf.items,
+    );
+
+    // A check with no hint prints no line at all rather than an empty one.
+    cap.buf.clearRetainingCapacity();
+    printGroupHint(&records, "spec");
+    try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
 }
 
 // spec: Run Summary - Groups blocking failures by check with a bounded sample
