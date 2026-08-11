@@ -4939,3 +4939,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 - **friction:** a `// spec:` tag whose behaviour text was accidentally emptied (my sed ate it) surfaced as `spec-sync: 99 missing bullet(s)` plus an `[Ungrouped]` section naming only the file — no `file:line`, no "this tag has no behaviour text". The 99 is pre-existing baseline noise, so the one actionable line was buried in it. Pointing at the tag's own file:line would have made it a five-second fix instead of a grep hunt.
 - **good:** `bool-ops-per-condition` rejected `if (!tracks_removed and !dead_removed and !vias_removed)`; naming the disjunction (`const changed = a or b or c`) reads better than what I wrote, so the cap earned its keep on a real line rather than a synthetic one.
 - **good:** diff-scoped gate runs finished in seconds all afternoon, which is what made a dozen filtered iterations affordable; the whole-tree cost only landed at commit time where it belongs.
+
+## 2026-08-11 · codex · eda — LMX2595 VTUNE functional cleanup
+
+- **good:** `function-size`, `bool-ops-per-condition`, `pub-api-surface`, and `spec` caught an oversized row-map helper, a dense eligibility condition, an unnecessary public helper, and two unlinked behavior tags during the first diff-scoped pass; the final whole-tree gate cleared all 71 checks without snapshot acceptance.
+- **friction:** Visually correcting one SVG subcircuit required two roughly six-minute aggregate `zig build test` compiles before the exact-commit release preparation added another 413 seconds (407-second tests, 336-second ReleaseSafe build). The gates were correct, but a renderer-focused compile/test target would make image-driven iteration much cheaper without changing the merge boundary.
