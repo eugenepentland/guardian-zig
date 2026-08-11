@@ -4990,3 +4990,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The first diff-scoped pass precisely caught the unlinked anchor identity tag, missing public API docs, an over-wide scoring helper, four generic `anytype` parameters, and a one-line breach of `pcb_layout_page.zig`'s frozen ceiling. Addressing those findings split identity/loop logic into focused modules and the final 71-check gate passed with only the intentional public-surface refresh.
 - **friction:** Concurrent worktrees repeatedly made Zig's shared global cache fail with `manifest_create Unexpected` while Guardian itself was green; completing the build required copying the already-installed dependency cache into an isolated `--global-cache-dir`. The gate/release guidance should recommend that recovery explicitly because retrying the shared cache remained nondeterministically red.
+
+## 2026-08-11 · codex · eda — LMX2595 pin-sourced RF pull-ups
+
+- **good:** `cognitive-complexity` caught the direct-terminal router at 26 against its 25-point cap; extracting `renderDirectBodies` isolated the shared-bias rehoming rule and restored the 71-check gate without acceptance.
+- **friction:** One SVG expectation typo required a second six-minute aggregate ReleaseSafe compile even though the native PNG had already proved the geometry; a reliable focused renderer-test target would avoid paying the 2,476-test compile cost for fixture-only corrections.
+- **bug:** The shared Zig cache again failed with `manifest_create Unexpected`; isolated local/global caches were required to build reliably in a concurrent-worktree session.
