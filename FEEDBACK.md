@@ -4874,3 +4874,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `function-size` caught the first implementation threading one extra mode argument through six established renderer functions. Packing route/view into `SchematicOptions` and SVG-context/view into a private page context kept every function at its prior parameter boundary and produced a cleaner interface.
 - **good:** Selective `pub-api-surface` acceptance previewed exactly three new view/options declarations and four intentional signature changes, then verified that snapshot alone before the 71-check gate passed.
+
+## 2026-08-11 · codex · eda — functional schematic pin grouping and ordering
+
+- **good:** `nesting-depth` and `function-size` rejected the first pin-grouping implementation at depth 6 and eight runtime parameters; extracting a small grouping state reduced both without accepting new structural debt. Selective `pub-api-surface` acceptance then recorded exactly the one intentional functional-grouping entry point, and the 71-check whole-tree gate passed.
+- **friction:** Exact-commit preparation took 438 seconds wall time (tests 428 seconds, ReleaseSafe build 353 seconds) even after an already-green 2,435-test local run; concurrent Zig worktree builds again made mandatory release preparation dominate a small SVG-layout change.
