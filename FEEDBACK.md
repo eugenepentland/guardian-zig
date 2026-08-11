@@ -4786,3 +4786,37 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 ## 2026-08-10 · codex · eda — Black Canyon PCB placement and routing
 - **good:** The ReleaseSafe EDA build completed with Guardian reporting zero blocking findings; diff-scoped checks correctly saw no tooling-source changes while the file-size and repeated-string findings remained report-only, so the PCB-design-only workflow incurred no unrelated snapshot churn.
+
+## 2026-08-11 · claude (agent G) · eda — board model: implicit inner supply-rail plane
+
+- good: `type-size` stopped me from doing the lazy thing, and the lazy thing would
+  have been wrong. `BoardRules` was at its frozen 8-field cap; adding a 9th
+  (`implicit_rail`) failed with "reduce or split before adding". That pushed me to
+  look for the cohesion line, and there was an obvious one hiding in plain sight —
+  `planes: []const PlaneAt` became `planes: Planes { declared, implicit_rail }`, which
+  is exactly where the new datum belonged (both members answer "which copper layers
+  pour what", for the two board models). Field count unchanged, the mutual exclusion
+  is now expressible in one doc comment, and ~45 call sites moved mechanically. The
+  check's one-line message ("this item is at its frozen cap; reduce or split before
+  adding") was enough to know the intent without running `explain`.
+- friction: `zig build test-compile` compiles the TEST binary only, so two production
+  call sites that a struct-shape change broke (`kicad_pcb/import_layout_command.zig`,
+  `serve/pcb_layout_sync.zig` — neither reachable from any test) compiled clean
+  through several `test-compile` cycles and only surfaced when a plain `zig build`
+  built the exe. The repo's CLAUDE.md sells `test-compile` as "the tier between a
+  filtered run and the gate … whole test binary, nothing run", which reads as "this
+  proves the tree compiles" — it proves the test binary does. Either name it
+  `test-compile` in the docs' own terms ("compiles every TEST; run `zig build` for
+  production-only paths") or make the step also analyze the exe root. Cost here was
+  ~2 extra cycles; on a wider refactor it would be worse.
+- friction (repeat of agent F's): `file-size` counting comment lines bit again on the
+  same file. `router.zig` sits exactly on its ceiling, and a 5-line doc comment + a
+  1-line import put it +2 over. The fix was to compress prose on a public predicate's
+  doc — again trading explanation for budget on the one file where the explanation is
+  most load-bearing. Agent F's suggestion stands; a second data point.
+- good: `guardian-check size <file>` is the right tool for this and is instant. Being
+  able to ask "where does this file stand against its ratchet" without a build made
+  the line budget a 10-second loop instead of a 5-minute one.
+- good: `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` accepted exactly the new
+  module's surface and nothing else; the diff it printed first (10 `+` lines, no `-`)
+  made it easy to confirm the accept was only additive before taking it.
