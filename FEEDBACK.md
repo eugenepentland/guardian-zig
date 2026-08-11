@@ -4820,3 +4820,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 - good: `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` accepted exactly the new
   module's surface and nothing else; the diff it printed first (10 `+` lines, no `-`)
   made it easy to confirm the accept was only additive before taking it.
+
+## 2026-08-11 · codex · eda — RF via-antipad synthesis
+
+- **good:** The `spec`, `doc-comments`, `type-size`, `bool-ops`, and `pub-api-surface` checks caught three missing SPEC links and pushed the first implementation from an 11-field public result plus dense guards to a documented 7-field API. The final 70-check whole-tree ReleaseSafe gate passed with zero blockers.
+- **friction:** Exact-commit release preparation took 399 seconds wall time (tests 393 seconds, build 325 seconds) after a warm full local test had taken about 26 seconds; concurrent Zig cache contention made the otherwise-correct handoff unusually slow.
