@@ -226,6 +226,22 @@ pub const Reporter = struct {
         if (self.capture) |c| c.record(v);
     }
 
+    /// Emits a Violation whose `fix_hint` is for the sink alone: the printed
+    /// line is the finding by itself. For a check that prints ONE shared `fix:`
+    /// line beneath its whole list — repeating a near-identical remedy under
+    /// every finding is console noise, but the sink has no "beneath the list"
+    /// and needs the remedy on the row.
+    pub fn emitQuiet(self: Reporter, v: Violation) void {
+        var text_only = v;
+        text_only.fix_hint = null;
+        if (self.capture) |c| {
+            c.record(v);
+            emitTo(c, text_only);
+            return;
+        }
+        emitDirect(text_only);
+    }
+
     /// Emits a finding deferred by a live `[measurement]` exemption. It is
     /// listed under the check's MEASURE header and recorded separately from
     /// blocking violations, so nothing downstream can mistake it for one.
@@ -321,6 +337,12 @@ pub fn detail(comptime fmt: []const u8, args: anytype) void {
 /// Format and print a Violation record.
 pub fn emit(v: Violation) void {
     default.emit(v);
+}
+
+/// Print a Violation record, keeping its fix hint for the sink alone.
+/// See `Reporter.emitQuiet`.
+pub fn emitQuiet(v: Violation) void {
+    default.emitQuiet(v);
 }
 
 /// Format and print a non-blocking warning record.
@@ -443,6 +465,44 @@ test "sinkOnly stores a record and writes no text" {
     sink(.{ .check = "file-size", .message = "second" });
     try std.testing.expectEqual(@as(usize, 2), cap.records.items.len);
     try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
+}
+
+// spec: Reporter - Prints a finding without the fix hint it keeps for the sink
+
+test "emitQuiet prints the finding alone and records the hint" {
+    var cap: Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const v: Violation = .{
+        .check = "ban-time",
+        .file = "src/x.zig",
+        .line = 26,
+        .message = "std.time.timestamp reference outside allowed paths",
+        .fix_hint = "inject a Clock port",
+    };
+    const r: Reporter = .{ .capture = &cap };
+    r.emitQuiet(v);
+    // The printed line is the finding only: the check prints one shared `fix:`
+    // line under its whole list, and a copy per finding is noise.
+    try std.testing.expectEqualStrings(
+        "  src/x.zig:26: std.time.timestamp reference outside allowed paths\n",
+        cap.buf.items,
+    );
+    // The sink still gets the remedy, because it has no "under the list".
+    try std.testing.expectEqualStrings("inject a Clock port", cap.records.items[0].fix_hint.?);
+
+    // `emit` is the opposite spelling: it prints the hint under the finding.
+    cap.buf.clearRetainingCapacity();
+    r.emit(v);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "    fix: inject a Clock port\n") != null);
+
+    // The module-level spelling routes through the running thread's reporter.
+    cap.buf.clearRetainingCapacity();
+    const prior = default;
+    defer default = prior;
+    default = .{ .capture = &cap };
+    emitQuiet(v);
+    try std.testing.expectEqual(@as(usize, 3), cap.records.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "fix:") == null);
 }
 
 // spec: Reporter - Keeps advisory warnings separate from blocking violation records

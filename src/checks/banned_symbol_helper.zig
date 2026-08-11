@@ -390,7 +390,9 @@ pub fn scan(
         return;
     }
     reporter.fail("{s} FAILED ({d} occurrence(s))", .{ check_name, violations.items.len });
-    for (violations.items) |v| reporter.emit(v);
+    // Quiet: each record carries its own remedy for the sink, but the console
+    // gets the one shared `fix:` line below instead of a copy per finding.
+    for (violations.items) |v| reporter.emitQuiet(v);
     detail("  fix: {s}\n", .{opts.fix_hint});
     return error.CheckFailed;
 }

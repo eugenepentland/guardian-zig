@@ -573,6 +573,8 @@ src/reporter.zig::detail | fn detail(comptime fmt: []const u8, args: anytype) vo
 src/reporter.zig::detail | fn detail(self: Reporter, comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::emit | fn emit(self: Reporter, v: Violation) void
 src/reporter.zig::emit | fn emit(v: Violation) void
+src/reporter.zig::emitQuiet | fn emitQuiet(self: Reporter, v: Violation) void
+src/reporter.zig::emitQuiet | fn emitQuiet(v: Violation) void
 src/reporter.zig::fail | fn fail(comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::fail | fn fail(self: Reporter, comptime fmt: []const u8, args: anytype) void
 src/reporter.zig::fatal | fn fatal(comptime fmt: []const u8, args: anytype) noreturn
@@ -604,6 +606,7 @@ src/scope.zig::wholeTree | fn wholeTree(self: Decision) ?[]const u8
 src/scope.zig::wholeTreeReason | fn wholeTreeReason(posture: Posture) ?[]const u8
 src/sink.zig::Location struct_
 src/sink.zig::Summary struct_
+src/sink.zig::hintText | fn hintText(fix_line: ?[]const u8) ?[]const u8
 src/sink.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/sink.zig::scrapedRecord | fn scrapedRecord(check: []const u8, text: []const u8, fix_line: ?[]const u8) reporter.Violation
 src/sink.zig::splitLocation | fn splitLocation(text: []const u8) Location

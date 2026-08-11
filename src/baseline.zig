@@ -547,7 +547,11 @@ fn sinkReported(
     const hint = if (firstFixHint(src.captured)) |h| try a.dupe(u8, h) else null;
     for (lines) |line| {
         if (src.recordFor(line)) |v| {
-            reporter.sink(v);
+            // The check's own `fix:` line, captured with its findings, is the
+            // remedy for any record that carries none of its own.
+            var row = v;
+            if (row.fix_hint == null) row.fix_hint = sink.hintText(hint);
+            reporter.sink(row);
             continue;
         }
         reporter.sink(sink.scrapedRecord(check_name, try a.dupe(u8, line), hint));

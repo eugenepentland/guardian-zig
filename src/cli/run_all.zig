@@ -1167,11 +1167,17 @@ fn outcomeOf(ctx: *const types.RunCtx, r: CheckResult) run_view.Outcome {
 /// outlives the worker arena), else the scraped violation lines tagged with the
 /// check name. Best-effort — a copy/append OOM drops the record, never fails.
 fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckResult) void {
+    // A check prints its remedy once, as a `fix:` line beneath its findings.
+    // The sink has no "beneath the findings", so that line becomes the hint on
+    // every row the check produced — unless the record already carries a more
+    // specific one of its own (formatting's `zig fmt <file>`, the ban family's
+    // per-rule rename).
+    const hint = baseline.firstFixHint(r.output);
     if (r.records.len > 0) {
         // Best-effort telemetry: a dropped sink record is logged, not swallowed
         // silently, and never fails the gate (the check's own verdict already
         // stands). log is fine here — cli/ is exempt from debug-print-ban.
-        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
+        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, withHint(v, hint))) catch |e|
             std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
         return;
     }
@@ -1181,7 +1187,6 @@ fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckR
     // check's single trailing `fix:` line becomes every row's hint, so a prose
     // check's rows carry the same actionable detail a migrated check's do.
     const lines = baseline.extract(ctx.allocator, r.output) catch return;
-    const hint = baseline.firstFixHint(r.output);
     for (lines) |line| {
         const v = sink.scrapedRecord(check_name, line, hint);
         acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
@@ -1199,6 +1204,15 @@ fn collectMeasured(ctx: *types.RunCtx, acc: *Sink, r: CheckResult) void {
         .path = a.dupe(u8, m.path) catch m.path,
         .message = a.dupe(u8, m.message) catch m.message,
     }) catch |e| std.log.warn("guardian: dropped a measurement note: {s}", .{@errorName(e)});
+}
+
+/// A record with `hint` filled in when it has none of its own, so a row's hint
+/// reads the same whether the check emitted records or printed prose.
+fn withHint(v: reporter.Violation, hint: ?[]const u8) reporter.Violation {
+    if (v.fix_hint != null or hint == null) return v;
+    var out = v;
+    out.fix_hint = sink.hintText(hint);
+    return out;
 }
 
 /// Copies a Violation's borrowed string fields into `a` so a record produced in

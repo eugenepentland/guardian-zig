@@ -111,10 +111,7 @@ fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
                 "{d} code lines (recommended: {d}; hard limit: {d})",
                 .{ lines, ctx.warning_limit, ctx.hard_limit },
             ),
-        .fix_hint = if (is_hard)
-            "split the file at a cohesive module boundary"
-        else
-            "consider splitting the file at a cohesive module boundary",
+        .fix_hint = if (is_hard) null else "consider splitting the file at a cohesive module boundary",
         // File-level metric: the ratchet subject is the file itself.
         .ratchet_key = try ctx.allocator.dupe(u8, entry.rel_path),
         .metric = lines,

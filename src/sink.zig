@@ -152,12 +152,15 @@ pub fn scrapedRecord(check: []const u8, text: []const u8, fix_line: ?[]const u8)
         .file = loc.file,
         .line = loc.line,
         .message = loc.message,
-        .fix_hint = hintBody(fix_line),
+        .fix_hint = hintText(fix_line),
     };
 }
 
-/// The actionable half of a `fix: <text>` line, or null when there is none.
-fn hintBody(fix_line: ?[]const u8) ?[]const u8 {
+/// The actionable half of a check's `fix: <text>` line, or null when there is
+/// none (or nothing but the label). Public because a check that emits
+/// structured records reaches the same line the same way: the runner fills any
+/// record that carries no hint of its own from it.
+pub fn hintText(fix_line: ?[]const u8) ?[]const u8 {
     const raw = fix_line orelse return null;
     const tail = if (std.mem.startsWith(u8, raw, "fix:")) raw["fix:".len..] else raw;
     const body = std.mem.trim(u8, tail, " \t\r\n");
@@ -255,6 +258,10 @@ test "scrapedRecord carries the check's fix hint and re-renders its source line"
     // A check that prints no fix line leaves the hint null rather than empty.
     try std.testing.expectEqual(@as(?[]const u8, null), scrapedRecord("spec", "unverified: X - Y", null).fix_hint);
     try std.testing.expectEqual(@as(?[]const u8, null), scrapedRecord("spec", "unverified: X - Y", "fix:  ").fix_hint);
+    // The same reading serves a check that emitted records: the runner fills a
+    // hintless record from the very same line.
+    try std.testing.expectEqualStrings("do the thing", hintText("fix: do the thing").?);
+    try std.testing.expectEqual(@as(?[]const u8, null), hintText(null));
 }
 
 // spec: Machine-Readable Sink - Serializes each violation as a JSON line escaping message and path text

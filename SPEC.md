@@ -541,6 +541,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Keeps advisory warnings separate from blocking violation records
 - Prints a report-only verb instead of FAILED for a policy-demoted check
 - Records a violation for the sink without printing it
+- Prints a finding without the fix hint it keeps for the sink
 
 ## Machine-Readable Sink
 
