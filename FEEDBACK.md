@@ -4859,3 +4859,8 @@ result. Three gated commits, ~1100 lines across 105 files.
   (`.guardian/x-budget.txt` vs `.guardian/baselines/x-budget.txt`), which cost
   the merge driver a 16-false-finding first cut on eda. A `kind=` field in the
   header would delete the whole path+row-shape guessing layer.
+
+## 2026-08-11 · codex · eda — pair-safe routing and topology cleanup
+
+- **good:** `bool-ops-per-condition` caught a dense semantic-layout write guard, and the zero-match test-filter safeguard exposed that the new CLI tests compiled but were not rooted; after adding the explicit test-root import, the same filter selected all three intended tests. Selective `pub-api-surface` acceptance contained the API snapshot to exactly five intentional additions, and the final 70-check exact-commit release gate passed with zero blockers.
+- **friction:** Exact-commit preparation took 384 seconds wall time (tests 378 seconds, ReleaseSafe build 309 seconds) after an already-green full suite, so the mandatory handoff dominated the turnaround despite correct caching and concurrent jobs.
