@@ -375,10 +375,35 @@ pub fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8 
 /// hooks live in the common dir. May be absolute or project-relative; null when
 /// git is unavailable (best-effort, so install-hook degrades to a clear error).
 pub fn hooksDir(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
-    const argv = [_][]const u8{ "git", rev_parse, "--git-path", "hooks" };
+    return gitPath(allocator, project_dir, "hooks");
+}
+
+/// Resolves `leaf` inside this working tree's git directory via `git rev-parse
+/// --git-path <leaf>` — the worktree-correct way to reach `hooks`,
+/// `info/attributes`, and friends. May be absolute or project-relative; null
+/// when git is unavailable or there is no repository.
+pub fn gitPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", rev_parse, "--git-path", leaf };
     const out = runGit(allocator, project_dir, &argv) orelse return null;
     const trimmed = std.mem.trim(u8, out, &std.ascii.whitespace);
     return if (trimmed.len == 0) null else trimmed;
+}
+
+/// The local value of git config `key`, or null when it is unset (or git is
+/// unavailable). Read-only: `--local` so a user's global setting is never
+/// mistaken for this repository's.
+pub fn configValue(allocator: Allocator, project_dir: []const u8, key: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", "config", "--local", "--get", key };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const trimmed = std.mem.trim(u8, out, &std.ascii.whitespace);
+    return if (trimmed.len == 0) null else trimmed;
+}
+
+/// Sets git config `key` to `value` in this repository's own config; true on
+/// success. Writes `.git/config` only — never the user's global file.
+pub fn setConfig(allocator: Allocator, project_dir: []const u8, key: []const u8, value: []const u8) bool {
+    const argv = [_][]const u8{ "git", "config", "--local", key, value };
+    return runGit(allocator, project_dir, &argv) != null;
 }
 
 /// Errors from a *checked* git run: git could not be spawned, or it ran and

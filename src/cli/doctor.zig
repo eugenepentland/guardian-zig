@@ -6,6 +6,7 @@ const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
 const cache = @import("../cache.zig");
 const benchmark = @import("../benchmark.zig");
+const merge_driver = @import("merge_driver.zig");
 
 const max_metadata_bytes = 16 * 1024 * 1024;
 const retired = [_][]const u8{
@@ -31,6 +32,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     try inspectSnapshots(ctx, &findings);
     try inspectMutationAdoption(ctx, &findings);
     try inspectIntegration(ctx, &findings);
+    inspectMergeDriver(ctx, &findings);
     try inspectCache(ctx, &findings);
     inspectBinaryIdentity(ctx, &findings);
 
@@ -145,6 +147,21 @@ fn inspectIntegration(ctx: *types.RunCtx, findings: *Findings) !void {
 fn usesPathIntegration(zon: []const u8) bool {
     return std.mem.indexOf(u8, zon, ".guardian =") != null and
         (std.mem.indexOf(u8, zon, ".path =") != null or std.mem.indexOf(u8, zon, "../guardian") != null);
+}
+
+/// Reports whether this clone resolves `.guardian/` conflicts automatically.
+/// Advisory: a repository with one branch never needs the driver, and it is a
+/// local convenience — nothing about the metadata is wrong without it.
+fn inspectMergeDriver(ctx: *types.RunCtx, findings: *Findings) void {
+    if (merge_driver.isInstalled(ctx.allocator, ctx.project_dir)) {
+        reporter.detail("  ok: .guardian merge driver installed (conflicts resolve automatically)\n", .{});
+        return;
+    }
+    advisory(
+        findings,
+        "no .guardian merge driver in this clone; run `guardian-check install-merge-driver {s}`",
+        .{ctx.project_dir},
+    );
 }
 
 fn inspectCache(ctx: *types.RunCtx, findings: *Findings) !void {

@@ -14,6 +14,9 @@ const nightly = @import("cli/nightly.zig");
 const commit_cmd = @import("cli/commit.zig");
 const migrate_cmd = @import("cli/migrate.zig");
 const install_hook = @import("cli/install_hook.zig");
+const merge_file = @import("cli/merge_file.zig");
+const merge_driver = @import("cli/merge_driver.zig");
+const merge_state = @import("checks/merge_state.zig");
 const explain = @import("cli/explain.zig");
 const doctor = @import("cli/doctor.zig");
 const spec_sync = @import("cli/spec_sync.zig");
@@ -134,12 +137,20 @@ pub fn main() !void {
         .policy_approved = envFlagActive(readEnv(allocator, policy_approval_env)),
         .command_exists = registeredCommand,
         .bench = parsed.bench,
+        .merge = parsed.merge,
     };
 
     dispatch(&ctx, &cfg, command) catch |e| switch (e) {
         // CheckFailed means the check already printed its own diagnostic.
         // Exit non-zero without surfacing a Zig stack trace.
         error.CheckFailed => std.process.exit(1),
+        // A metadata file git left mid-merge. The bare error name says nothing
+        // about WHICH file, and that was the whole cost of the old assert: the
+        // scan below names every file, line, and the command that fixes it.
+        error.ConflictMarkers => {
+            merge_state.reportUnresolved(&ctx);
+            std.process.exit(1);
+        },
         else => return e,
     };
 }
@@ -187,6 +198,9 @@ const ParsedArgs = struct {
     /// `bench` subcommand, metric name/value, and its `--unit`/`--dir`/
     /// `--note`/`--force` flags. Untouched by every other command.
     bench: benchmark.Args = .{},
+    /// `merge-file`'s three positionals (git's `%O %A %B`) and its `--path`
+    /// (`%P`) hint. Untouched by every other command.
+    merge: registry.MergeInputs = .{},
 };
 
 // Scans argv (sans program name): first non-flag token is the command, the next
@@ -229,6 +243,9 @@ fn parseArgs(args: []const [:0]u8) ParsedArgs {
         } else if (std.mem.eql(u8, arg, "--note")) {
             i += 1;
             if (i < args.len) parsed.bench.note = args[i];
+        } else if (std.mem.eql(u8, arg, "--path")) {
+            i += 1;
+            if (i < args.len) parsed.merge.path = args[i];
         } else {
             takePositional(&parsed, arg);
         }
@@ -292,6 +309,7 @@ fn takePositional(parsed: *ParsedArgs, arg: []const u8) void {
         return;
     }
     if (std.mem.eql(u8, command, bench_cmd.command_name) and parsed.bench.takePositional(arg)) return;
+    if (std.mem.eql(u8, command, merge_file.command_name) and parsed.merge.takePositional(arg)) return;
     parsed.project_dir = arg;
 }
 
@@ -385,6 +403,12 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // dispatched like commit, so a raw `git commit` can't bypass the gate now
     // that a dev build only reports.
     if (std.mem.eql(u8, command, install_hook.command_name)) return install_hook.run(ctx);
+    // merge-file is git's merge driver for `.guardian/` metadata and
+    // install-merge-driver is what points git at it. Both are special-dispatched
+    // like install-hook: they take their own positionals (three temp files) and
+    // must never join the `all` suite.
+    if (std.mem.eql(u8, command, merge_file.command_name)) return merge_file.run(ctx);
+    if (std.mem.eql(u8, command, merge_driver.command_name)) return merge_driver.run(ctx);
     if (std.mem.eql(u8, command, "doctor")) return doctor.run(ctx);
     // size reports one file's current measurements. Dispatched here rather than
     // registered so it can never join the `all` suite: it measures and prints,
@@ -506,6 +530,11 @@ test {
     _ = @import("cli/commit.zig");
     _ = @import("cli/migrate.zig");
     _ = @import("cli/install_hook.zig");
+    _ = @import("cli/merge_file.zig");
+    _ = @import("cli/merge_driver.zig");
+    _ = @import("merge/artifact.zig");
+    _ = @import("merge/three_way.zig");
+    _ = @import("merge/scan.zig");
     _ = @import("cli/explain.zig");
     _ = @import("version.zig");
     _ = @import("reporter.zig");
