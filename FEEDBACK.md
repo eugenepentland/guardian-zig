@@ -4996,3 +4996,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 - **good:** `cognitive-complexity` caught the direct-terminal router at 26 against its 25-point cap; extracting `renderDirectBodies` isolated the shared-bias rehoming rule and restored the 71-check gate without acceptance.
 - **friction:** One SVG expectation typo required a second six-minute aggregate ReleaseSafe compile even though the native PNG had already proved the geometry; a reliable focused renderer-test target would avoid paying the 2,476-test compile cost for fixture-only corrections.
 - **bug:** The shared Zig cache again failed with `manifest_create Unexpected`; isolated local/global caches were required to build reliably in a concurrent-worktree session.
+
+## 2026-08-11 · claude · guardian-zig — threshold-surfing audit (read-only introspection)
+
+- **good:** The introspection tier carried an entire archaeology audit of eda without a single gating run: `history` answered "which check fails most" in one command (file-size: 24 of 59 red runs), `debt --live` enumerated every zero-headroom item (289 functions at 6/6 params) with per-key ceilings, and `size` cross-validated an external parser exactly (param-count histogram matched guardian's to the item). Read-only consumer-repo analysis is a genuinely supported workflow now.
+- **wish:** Nothing sorts the debt/headroom output by distance-to-hard-cap across *files* — the audit had to compute "optimizer.zig is 17 lines under the 10k hard cap and un-ratcheted" by hand from `size` calls; that one number is the highest-signal early warning the data has (echoes the 2026-08-10 "closest to the hard limit" wish, now with a second use case).
