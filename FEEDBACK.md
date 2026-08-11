@@ -4879,3 +4879,29 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `nesting-depth` and `function-size` rejected the first pin-grouping implementation at depth 6 and eight runtime parameters; extracting a small grouping state reduced both without accepting new structural debt. Selective `pub-api-surface` acceptance then recorded exactly the one intentional functional-grouping entry point, and the 71-check whole-tree gate passed.
 - **friction:** Exact-commit preparation took 438 seconds wall time (tests 428 seconds, ReleaseSafe build 353 seconds) even after an already-green 2,435-test local run; concurrent Zig worktree builds again made mandatory release preparation dominate a small SVG-layout change.
+
+## 2026-08-11 · claude · eda — plane-carried decoupling: surface loop first, one shared stitch via
+
+- **good:** the `file-size` per-item ratchet on `src/placement/router.zig` (at its
+  ceiling with 0 headroom) forced the whole mechanism into a new
+  `src/placement/plane_stitch.zig` and paid for the ~30 lines the call site
+  needed by extracting `netHasPlane`/`netPourLayers`/`padInPour` and by making
+  `groundVias` *literally* call the pass its doc claimed it duplicated. Both
+  changes were improvements the ratchet talked me into, not workarounds.
+  `guardian-check size <file>` was the right tool: it reports the exact
+  headroom in code lines, so I could budget the edit before writing it.
+- **good:** `errdefer-in-init` fired on a two-`try` arena `Web.init`. On an arena
+  the leak is theoretical, but the honest fix (one allocation split in half —
+  same shape, same lifetime) was shorter than the errdefers would have been.
+- **friction:** each iteration of "change a constant, measure the corpus" costs a
+  ~5.5 min `zig build -Doptimize=ReleaseSafe`, because the measurement rig is a
+  served binary. I paid it four times. Nothing Guardian owns, but a documented
+  "gate-free fast install" (`zig build -Dno-gate install`?) would halve a
+  measurement-driven session; today the gate re-runs inside every build even
+  when the previous run was green and the tree is unchanged apart from one
+  constant.
+- **wish:** `spec` reports an unlinked tag by its full behavior sentence, which is
+  right, but when a tag is edited (not added) the report reads as one new
+  unlinked tag plus one orphan bullet with no hint that they are the same
+  behavior reworded. A `~` grouping like `pub-api-surface` already prints for a
+  changed signature would make an edited bullet obvious at a glance.
