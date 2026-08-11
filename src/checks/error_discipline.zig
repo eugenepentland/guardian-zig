@@ -183,9 +183,14 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 
     fail("error discipline FAILED ({d} violation(s))", .{violations.items.len});
     for (violations.items) |v| print("  {s}\n", .{v});
-    print("  fix: declare an explicit error set, e.g.\n", .{});
-    print("    pub const MyError = error{{ Foo, Bar }};\n", .{});
-    print("    pub fn run(...) MyError!void {{ ... }}\n", .{});
+    // One self-contained line: the JSONL sink attaches a check's first `fix:`
+    // line to every row it reports, and a hint that trails off into a following
+    // example line ("…, e.g.") is not actionable on its own.
+    print(
+        "  fix: declare an explicit error set — `pub const MyError = error{{ Foo, Bar }};` — " ++
+            "and return `MyError!void`.\n",
+        .{},
+    );
     return error.CheckFailed;
 }
 

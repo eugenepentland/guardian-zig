@@ -427,7 +427,47 @@ fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
         } else if (omittedLine(ctx.allocator, total, shown) catch null) |line| {
             reporter.detail("    - {s}\n", .{line});
         }
+        // One remedy per group, from its first finding: concise mode hides the
+        // check's own output, so without this the reader is told what broke and
+        // never what to do about it. A per-finding hint would triple the group.
+        printGroupHint(acc.records.items, name);
     }
+}
+
+/// Prints a failing group's remedy line — the first finding's `fix_hint`, which
+/// for a prose check is its own trailing `fix:` line and for a ratchet
+/// regression names the ceiling and the accept command. Silent when the check
+/// supplied no hint (better an absent line than filler).
+fn printGroupHint(records: []const reporter.Violation, name: []const u8) void {
+    const v = firstRecordFor(records, name) orelse return;
+    const hint = v.fix_hint orelse return;
+    reporter.detail("    fix: {s}\n", .{hint});
+}
+
+// spec: Run Summary - Prints one remedy line under a concise failure group
+
+test "a concise failure group ends in its first finding's fix hint" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const records = [_]reporter.Violation{
+        .{ .check = "catch-discipline", .file = "src/x.zig", .line = 16, .message = "catch block is empty", .fix_hint = "handle the error explicitly with a switch or named return" },
+        .{ .check = "spec", .message = "unverified: Auth - Validates tokens" },
+    };
+    // Concise mode hides the check's own output, so the group repeats its remedy.
+    printGroupHint(&records, "catch-discipline");
+    try std.testing.expectEqualStrings(
+        "    fix: handle the error explicitly with a switch or named return\n",
+        cap.buf.items,
+    );
+
+    // A check with no hint prints no line at all rather than an empty one.
+    cap.buf.clearRetainingCapacity();
+    printGroupHint(&records, "spec");
+    try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
 }
 
 // spec: Run Summary - Groups blocking failures by check with a bounded sample
@@ -1128,19 +1168,31 @@ fn outcomeOf(ctx: *const types.RunCtx, r: CheckResult) run_view.Outcome {
 /// outlives the worker arena), else the scraped violation lines tagged with the
 /// check name. Best-effort — a copy/append OOM drops the record, never fails.
 fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckResult) void {
+    // A check prints its remedy once, as a `fix:` line beneath its findings.
+    // The sink has no "beneath the findings", so that line becomes the hint on
+    // every row the check produced — unless the record already carries a more
+    // specific one of its own (formatting's `zig fmt <file>`, the ban family's
+    // per-rule rename).
+    const hint = baseline.firstFixHint(r.output);
     if (r.records.len > 0) {
         // Best-effort telemetry: a dropped sink record is logged, not swallowed
         // silently, and never fails the gate (the check's own verdict already
         // stands). log is fine here — cli/ is exempt from debug-print-ban.
-        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
+        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, withHint(v, hint))) catch |e|
             std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
         return;
     }
     // Unmigrated check: scrape indented violation lines (baseline.extract shares
-    // the same indentation rules), tagging each with the check name.
+    // the same indentation rules), tagging each with the check name. The line's
+    // own `<file>[:<line>]: ` prefix is lifted into the record's fields and the
+    // check's single trailing `fix:` line becomes every row's hint, so a prose
+    // check's rows carry the same actionable detail a migrated check's do.
     const lines = baseline.extract(ctx.allocator, r.output) catch return;
-    for (lines) |line| acc.records.append(ctx.allocator, .{ .check = check_name, .message = line }) catch |e|
-        std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
+    for (lines) |line| {
+        const v = sink.scrapedRecord(check_name, line, hint);
+        acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
+            std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
+    }
 }
 
 /// Gathers a check's measurement-deferred findings into the run accumulator,
@@ -1153,6 +1205,15 @@ fn collectMeasured(ctx: *types.RunCtx, acc: *Sink, r: CheckResult) void {
         .path = a.dupe(u8, m.path) catch m.path,
         .message = a.dupe(u8, m.message) catch m.message,
     }) catch |e| std.log.warn("guardian: dropped a measurement note: {s}", .{@errorName(e)});
+}
+
+/// A record with `hint` filled in when it has none of its own, so a row's hint
+/// reads the same whether the check emitted records or printed prose.
+fn withHint(v: reporter.Violation, hint: ?[]const u8) reporter.Violation {
+    if (v.fix_hint != null or hint == null) return v;
+    var out = v;
+    out.fix_hint = sink.hintText(hint);
+    return out;
 }
 
 /// Copies a Violation's borrowed string fields into `a` so a record produced in

@@ -190,6 +190,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Counts a check's findings and their diff-scope overlap
 - Uses concise grouped output by default
 - Groups blocking failures by check with a bounded sample
+- Prints one remedy line under a concise failure group
 - Keeps every check's full output under the verbose flag
 - Parses the summary and verbose output flags
 - Resolves the verbose flag ahead of the summary flag
@@ -548,6 +549,7 @@ lives in a fixed-size buffer.
 - Stops scraping violations at every trailing prose label
 - Preserves the count of same-key violations across a stored baseline
 - Skips findings whose file is missing and gitignored instead of counting them
+- Forwards a newly reported violation to the sink with its location and fix hint
 
 ## Violation Identity
 
@@ -580,6 +582,7 @@ lives in a fixed-size buffer.
 - Scrapes the check's own fix hint for the regression message
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
 - Names the offending file line and metric in the regression status line
+- Sends each regressed key to the sink with its record and the ceiling it broke
 
 ## Measurement Mode
 
@@ -600,6 +603,8 @@ lives in a fixed-size buffer.
 - Writes a machine payload and one trailing newline to the stream a caller pipes
 - Keeps advisory warnings separate from blocking violation records
 - Prints a report-only verb instead of FAILED for a policy-demoted check
+- Records a violation for the sink without printing it
+- Prints a finding without the fix hint it keeps for the sink
 
 ## Machine-Readable Sink
 
@@ -607,6 +612,8 @@ lives in a fixed-size buffer.
 - Appends a run summary record with pass fail skip counts
 - Writes the last-run log under the git-ignored guardian cache dir
 - Writes a summary-only log when the run passes with no violations
+- Lifts a scraped line's file and line number into the record's own fields
+- Attaches a prose check's own fix line to every row it scrapes
 
 ## Delivery Metrics
 
@@ -934,6 +941,7 @@ without an explained `--force`.
 - Defaults the roots to src/main.zig, src/root.zig, and each .zig directly under test/
 - Uses the configured roots and drops any that name no graphed file
 - Skips the scan when no test root resolves
+- Labels the unconfigured-roots notice so it is not scraped as a violation
 
 ## size introspection
 

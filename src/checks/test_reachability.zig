@@ -141,7 +141,10 @@ fn reportNoRoots(configured: []const []const u8) void {
     } else {
         ok(check_name ++ ": skipped — no test root found (src/main.zig, src/root.zig, test/*.zig)", .{});
     }
-    detail("  set [test_reachability] roots = [\"src/your_test_root.zig\"] to enable the scan.\n", .{});
+    // `note:` is one of the labels the violation scraper stops at (see
+    // baseline.extract): unlabeled prose from a PASSING check was scraped into
+    // last-run.jsonl as a phantom violation.
+    detail("  note: set [test_reachability] roots = [\"src/your_test_root.zig\"] to enable the scan.\n", .{});
 }
 
 fn reportDead(allocator: Allocator, dead: []const import_graph.Node) Allocator.Error!void {
@@ -217,6 +220,23 @@ const fixture_nodes = [_]import_graph.Node{
 };
 
 const fixture_roots = [_][]const u8{"src/check.zig"};
+
+// spec: Test Reachability - Labels the unconfigured-roots notice so it is not scraped as a violation
+
+test "the skip notice is trailing prose, not a finding" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    reportNoRoots(&.{});
+    // The violation scraper reads every indented line as a finding unless it
+    // opens with a known prose label, and this check PASSES while printing the
+    // notice — unlabeled, it reached last-run.jsonl as a phantom violation.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "\n  note: set [test_reachability] roots") != null);
+    try std.testing.expectEqual(@as(usize, 0), cap.records.items.len);
+}
 
 // spec: Test Reachability - Passes a test-bearing file that a test root transitively imports
 

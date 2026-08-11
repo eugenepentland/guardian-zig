@@ -14,6 +14,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 const reporter = @import("reporter.zig");
+const sink = @import("sink.zig");
 const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
@@ -492,7 +493,69 @@ fn processOutcome(
         return error.CheckFailed;
     };
 
-    return reportOutcome(check_name, underPartialView(view, outcome), may_write);
+    const shown = underPartialView(view, outcome);
+    // The findings this run REPORTED go to the machine-readable sink as the
+    // check's own structured records. Without this the sink only ever saw the
+    // prose printed below, because the check's records were consumed by the
+    // nested capture above (see `runWithBaseline`).
+    try sinkReported(ctx.allocator, check_name, .{
+        .records = records,
+        .keyed = violations,
+        .captured = captured,
+    }, shown);
+    return reportOutcome(check_name, shown, may_write);
+}
+
+/// Where a reported line's structured detail comes from: the check's own
+/// records (index-aligned with `keyed`, which was rendered from them) plus its
+/// captured prose, the fallback for a check that reports text only.
+const SinkSource = struct {
+    records: []const reporter.Violation,
+    keyed: []const Keyed,
+    captured: []const u8,
+
+    /// The record behind one reported line, or null for a check whose findings
+    /// were scraped rather than emitted (no records to align against).
+    fn recordFor(self: SinkSource, line: []const u8) ?reporter.Violation {
+        if (self.records.len != self.keyed.len) return null;
+        for (self.keyed, self.records) |k, v| {
+            if (std.mem.eql(u8, k.line, line)) return v;
+        }
+        return null;
+    }
+};
+
+/// Forwards the violations this run reported — the ones beyond the baseline —
+/// to the JSONL sink, so `last-run.jsonl` carries file/line/metric/fix_hint for
+/// a baselined check instead of the scraped summary text. Only reported
+/// findings are forwarded: grandfathered debt is not what this run flagged, and
+/// the sink's rows have always meant "what the run reported".
+///
+/// `a` must outlive this check's baseline arena and the inner capture (the run
+/// allocator), because the sink is serialized after every check has finished.
+fn sinkReported(
+    a: Allocator,
+    check_name: []const u8,
+    src: SinkSource,
+    outcome: Outcome,
+) Allocator.Error!void {
+    const lines = switch (outcome) {
+        .grown => |g| g.new_lines,
+        .migration_blocked => |m| m.lines,
+        else => return,
+    };
+    const hint = if (firstFixHint(src.captured)) |h| try a.dupe(u8, h) else null;
+    for (lines) |line| {
+        if (src.recordFor(line)) |v| {
+            // The check's own `fix:` line, captured with its findings, is the
+            // remedy for any record that carries none of its own.
+            var row = v;
+            if (row.fix_hint == null) row.fix_hint = sink.hintText(hint);
+            reporter.sink(row);
+            continue;
+        }
+        reporter.sink(sink.scrapedRecord(check_name, try a.dupe(u8, line), hint));
+    }
 }
 
 /// The view this check ran under: `partial` when a diff-scoped run handed it
@@ -682,12 +745,60 @@ fn processRatchet(
         }
         return;
     }
-    return reportRatchet(check_name, ratchetUnderPartialView(viewFor(ctx), outcome), .{
+    const shown = ratchetUnderPartialView(viewFor(ctx), outcome);
+    // A regressed ratchet is the one blocking finding this path reports, so it
+    // is what the sink must carry: the check's own record for each offending
+    // key (file, line, metric) plus the ceiling it broke. Scraping the report
+    // below instead is what left `last-run.jsonl` with no usable file-size row.
+    if (shown == .regressed) try sinkRegressed(ctx.allocator, check_name, shown.regressed, input.records);
+    return reportRatchet(check_name, shown, .{
         .allocator = a,
         .fix_hint = firstFixHint(input.captured),
         .records = input.records,
         .write_allowed = input.write_allowed,
     });
+}
+
+/// Sends one sink row per regressed ratchet key. The row is the check's own
+/// violation record (so it keeps file, line and the measured metric) with its
+/// fix hint replaced by the ratchet's: the ceiling and the overshoot are the
+/// numbers a reader needs here, and they exist nowhere in the check's own
+/// message. `a` is the run allocator — the sink is written after every check
+/// has finished, so the baseline arena's memory would already be gone.
+fn sinkRegressed(
+    a: Allocator,
+    check_name: []const u8,
+    reg: ratchet.Regression,
+    records: []const reporter.Violation,
+) Allocator.Error!void {
+    const unit = ratchet.unitLabel(check_name);
+    for (reg.grown) |g| sinkRatchetKey(check_name, records, g.key, try std.fmt.allocPrint(
+        a,
+        "{d} {s} over its frozen ratchet ceiling of {d} — reduce it, or `guardian-check accept {s} .`",
+        .{ g.new - g.old, unit, g.old, check_name },
+    ));
+    for (reg.new_offenders) |o| sinkRatchetKey(check_name, records, o.key, try std.fmt.allocPrint(
+        a,
+        "a new offender at {d} {s} — reduce it below the cap, or `guardian-check accept {s} .` to ratchet it",
+        .{ o.value, unit, check_name },
+    ));
+}
+
+/// One regressed key's sink row: the check's record for that key when it has
+/// one, else a bare row naming the key so the sink still lists the offender.
+fn sinkRatchetKey(
+    check_name: []const u8,
+    records: []const reporter.Violation,
+    key: []const u8,
+    hint: []const u8,
+) void {
+    if (recordForKey(records, key)) |v| {
+        var row = v;
+        row.fix_hint = hint;
+        reporter.sink(row);
+        return;
+    }
+    reporter.sink(.{ .check = check_name, .message = key, .ratchet_key = key, .fix_hint = hint });
 }
 
 /// Keeps a legacy ratchet entry while the same subject is still being reported
@@ -944,8 +1055,10 @@ fn atFrozenCap(reg: ratchet.Regression) bool {
 
 /// The first `fix:` hint line in a check's captured output (dedented), or null.
 /// Reuses the check's own hint text for the ratchet regression message instead
-/// of duplicating it in a table.
-fn firstFixHint(captured: []const u8) ?[]const u8 {
+/// of duplicating it in a table. Public so the JSONL sink can attach the same
+/// hint to the rows it scrapes from a prose-reporting check's output — one
+/// definition of "where a check's fix hint lives", shared by both readers.
+pub fn firstFixHint(captured: []const u8) ?[]const u8 {
     var it = std.mem.splitScalar(u8, captured, '\n');
     while (it.next()) |raw| {
         const trimmed = leftTrim(raw);
@@ -1201,6 +1314,132 @@ test "runWithBaseline replays warnings without ratcheting them" {
         ratchet.version,
     );
     try std.testing.expectEqual(@as(usize, 0), snap.lines.len);
+}
+
+/// A file-size run over the hard limit: one structured record carrying the
+/// file, the measured line count and the ratchet key — the exact shape the real
+/// check emits, and the one the sink was losing under baseline mode.
+fn fileSizeOverHardLimit(_: *types.RunCtx) types.RunError!void {
+    reporter.emit(.{
+        .check = "file-size",
+        .file = "src/big.zig",
+        .message = "10 code lines (hard limit: 5)",
+        .ratchet_key = "src/big.zig",
+        .metric = 10,
+    });
+    return error.CheckFailed;
+}
+
+// spec: Per-Item Ratchets - Sends each regressed key to the sink with its record and the ceiling it broke
+
+test "a regressed file-size key reaches the JSONL sink with its file, metric and ceiling" {
+    const dir = "zig-cache/test-baseline-ratchet-sink";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Freeze src/big.zig at 8 lines, then run the check measuring 10: a
+    // regression against a frozen ceiling, which is what eda's router.zig hit.
+    const path = try pathFor(a, dir, "file-size");
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/big.zig", .value = 8 }}, true, true);
+
+    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    // The arena stands in for the run allocator: the forwarded sink records
+    // outlive the check, exactly as they do under `all`.
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    try std.testing.expectError(error.CheckFailed, runWithBaseline(&ctx, .{
+        .name = "file-size",
+        .summary = "test",
+        .scope = .per_file,
+        .run = fileSizeOverHardLimit,
+    }));
+
+    // Exactly the regressed key, as the check measured it — file, message and
+    // metric survive the baseline layer instead of being scraped back out of
+    // its prose (which yielded a fileless row, or none at all).
+    try std.testing.expectEqual(@as(usize, 1), outer.records.items.len);
+    const row = outer.records.items[0];
+    try std.testing.expectEqualStrings("file-size", row.check);
+    try std.testing.expectEqualStrings("src/big.zig", row.file.?);
+    try std.testing.expectEqual(@as(?u64, 10), row.metric);
+    // The hint carries what the check itself cannot know: the ceiling it broke,
+    // by how much, and the command that would ratify it.
+    try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "frozen ratchet ceiling of 8") != null);
+    try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "2 code lines") != null);
+    try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "guardian-check accept file-size .") != null);
+}
+
+/// A prose-reporting check: one indented violation line naming its own location
+/// plus the trailing `fix:` hint every such check prints once.
+fn proseViolation(_: *types.RunCtx) types.RunError!void {
+    reporter.fail("catch-discipline FAILED (1 occurrence(s))", .{});
+    reporter.detail("  src/x.zig:16: catch block is empty (silently swallows the error)\n", .{});
+    reporter.detail("  fix: handle the error explicitly with a switch or named return.\n", .{});
+    return error.CheckFailed;
+}
+
+// spec: Baseline Mode - Forwards a newly reported violation to the sink with its location and fix hint
+
+test "a new violation above the baseline reaches the sink structured, not as prose" {
+    const dir = "zig-cache/test-baseline-grown-sink";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+    try std.fs.cwd().makePath(dir);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // An existing baseline of one unrelated violation, so this run's finding is
+    // new debt (`grown`) rather than a first-run capture.
+    const path = try pathFor(a, dir, "catch-discipline");
+    _ = try lifecycle(a, path, try keyedLines(a, "catch-discipline", &.{"src/other.zig:3: catch block is empty"}), true, true);
+
+    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    // The arena stands in for the run allocator: the forwarded sink records
+    // outlive the check, exactly as they do under `all`.
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    try std.testing.expectError(error.CheckFailed, runWithBaseline(&ctx, .{
+        .name = "catch-discipline",
+        .summary = "test",
+        .scope = .per_file,
+        .run = proseViolation,
+    }));
+
+    try std.testing.expectEqual(@as(usize, 1), outer.records.items.len);
+    const row = outer.records.items[0];
+    try std.testing.expectEqualStrings("src/x.zig", row.file.?);
+    try std.testing.expectEqual(@as(u32, 16), row.line.?);
+    try std.testing.expectEqualStrings("catch block is empty (silently swallows the error)", row.message);
+    try std.testing.expectEqualStrings(
+        "handle the error explicitly with a switch or named return.",
+        row.fix_hint.?,
+    );
 }
 
 // spec: Per-Item Ratchets - Retains legacy ratchet entries while the same subjects remain advisory warnings
