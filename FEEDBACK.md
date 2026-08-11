@@ -4749,3 +4749,7 @@ result. Three gated commits, ~1100 lines across 105 files.
   demands them only at the point the branch asks to become mergeable, would move
   the tax to the boundary where it earns its keep — the ship half — without
   weakening it there at all.
+
+## 2026-08-11 · codex · eda — authoritative PCB-layout push to KiCad
+- **good:** `type-size` and `cognitive-complexity` caught an early version that enlarged central sync/writer state and dispatch logic; nesting the new request/stats state and extracting pose/replacement preprocessing made the final whole-tree gate green without ratcheting either check.
+- **good:** `spec` named all five newly tagged layout-handoff tests and supplied exact missing-bullet text, while selective `pub-api-surface` acceptance changed only the one intentional exact-layout reader entry. The final full gate passed before the 382-second test / 313-second ReleaseSafe release preparation.
