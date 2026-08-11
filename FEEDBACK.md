@@ -4825,3 +4825,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The `spec`, `doc-comments`, `type-size`, `bool-ops`, and `pub-api-surface` checks caught three missing SPEC links and pushed the first implementation from an 11-field public result plus dense guards to a documented 7-field API. The final 70-check whole-tree ReleaseSafe gate passed with zero blockers.
 - **friction:** Exact-commit release preparation took 399 seconds wall time (tests 393 seconds, build 325 seconds) after a warm full local test had taken about 26 seconds; concurrent Zig cache contention made the otherwise-correct handoff unusually slow.
+
+## 2026-08-11 · codex · eda — direct schematic feedback-loop routing
+
+- **good:** `spec` named both unlinked feedback-routing test tags verbatim, and `function-size` caught the first 8-parameter deferred-render helpers; adding the exact SPEC bullets and packing the render geometry into one request made the next gate green. Selective `pub-api-surface` acceptance then recorded exactly the three intended renderer declarations.
+- **friction:** The verified feature commit took 384 seconds to prepare (378-second tests, 306-second build), then concurrent work advanced `main` and forced the post-merge hook to spend another 409 seconds preparing the merge tree. Both gates were correct and green, but the duplicated cold handoff dominated an otherwise small SVG change.
