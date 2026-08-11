@@ -5034,3 +5034,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-11 · codex · eda — Zig 0.16/master incremental-build probe
 
 - **friction:** The full EDA build graph could not reach its application target under Zig 0.16.0 because Guardian's build helper still uses 0.15-era APIs (`Dir.access` without an `Io`, `std.process.getEnvVarOwned`, and `std.fs.Dir`). The same compatibility wall remained on the tested master snapshot, forcing the incremental benchmark onto a separate Guardian-free `bench-layout` harness and preventing an end-to-end server measurement.
+
+## 2026-08-11 · codex · eda — PCB passive footprint editor
+
+- **good:** The diff-scoped gate immediately caught an attempted four-field expansion of frozen `FlatInstance` plus the `pcb_layout_page.zig` file-size and cognitive-complexity ratchets, steering exact schematic-source provenance into a focused module; the final 71-check whole-tree gate passed.
+- **friction:** The intentional three-function internal helper module required `pub-api-surface` acceptance, but the suggested bare `guardian-check accept pub-api-surface .` command was not on `PATH`; invoking the repository-built binary explicitly resolved it after one failed command.
