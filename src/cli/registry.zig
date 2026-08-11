@@ -82,6 +82,7 @@ const check_policy_drift = @import("../checks/policy_drift.zig");
 const check_merge_state = @import("../checks/merge_state.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
+const cmd_history = @import("history.zig");
 
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
@@ -121,6 +122,16 @@ pub const all: []const Command = &.{
         .summary = "Report baseline/snapshot debt totals with deltas (non-gating)",
         .scope = .whole_tree,
         .run = cmd_debt.run,
+    },
+    // whole_tree because it reads one whole artifact — the append-only run log
+    // — and answers about every run in it. A diff-scoped run must never hand it
+    // a narrowed view: "96% of runs are green" is a statement about the log's
+    // entire contents or it is a lie.
+    .{
+        .name = cmd_history.command_name,
+        .summary = "Report gate outcomes, durations, and failing checks from the run log (non-gating)",
+        .scope = .whole_tree,
+        .run = cmd_history.run,
     },
     .{
         .name = "file-size",
@@ -626,14 +637,14 @@ pub fn printHelp() void {
 /// compile-time property: `Command.scope` has no default, so a newly
 /// registered check must classify itself.)
 const inherently_whole_tree = [_][]const u8{
-    "spec",                    "spec-init",             "mutate",
-    "debt",                    "spec-quality",          "completeness",
-    "imports",                 "pub-api-surface",       "panic-budget",
-    "dead-pub",                "orphan-files",          "int-from-float-budget",
-    "unsafe-ops-budget",       "test-coverage",         "repeated-string-literal",
-    "repeated-switch-on-enum", "change-classification", "fuzz-presence",
-    "external-gates",          "policy-drift",          "test-reachability",
-    "merge-state",
+    "spec",                    "spec-init",               "mutate",
+    "debt",                    "history",                 "spec-quality",
+    "completeness",            "imports",                 "pub-api-surface",
+    "panic-budget",            "dead-pub",                "orphan-files",
+    "int-from-float-budget",   "unsafe-ops-budget",       "test-coverage",
+    "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
+    "fuzz-presence",           "external-gates",          "policy-drift",
+    "test-reachability",       "merge-state",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

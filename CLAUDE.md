@@ -160,6 +160,8 @@ guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps +
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating); --json goes to stdout
 guardian-check debt . --live         # + each ratcheted key vs its ceiling AND what is nearest a blocking limit
 guardian-check debt . --current      # the same switch under its original name (re-parses the tree)
+guardian-check history .             # read the DORA run log back: pass rate, red streaks, run cost, worst checks
+guardian-check history . --check spec --json   # one check's failure history; --json writes to stdout
 guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
@@ -308,10 +310,10 @@ but never fails the build unless `[stdout_flush] enabled = true` promotes it to 
 gating hard-block, which Guardian leaves off). Formatting is one of them:
 the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
-`zig fmt --check` build step. Three more registry entries are
+`zig fmt --check` build step. Four more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command, and the `debt` report (73 registry entries total;
-`all`/`nightly`/`commit`/`explain`/`version`
+command, the `debt` report, and the `history` run-log reader (74 registry
+entries total; `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
 public API, code style, error handling, and allocation. Four checks are

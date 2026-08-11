@@ -7,8 +7,14 @@ const reporter = @import("../reporter.zig");
 const cache = @import("../cache.zig");
 const benchmark = @import("../benchmark.zig");
 const merge_driver = @import("merge_driver.zig");
+const accept_session = @import("../accept_session.zig");
+const journal = @import("../mutation/journal.zig");
+const git = @import("../git.zig");
+const config_mod = @import("../config.zig");
 
 const max_metadata_bytes = 16 * 1024 * 1024;
+/// Characters of a commit hash a report prints to identify it.
+const short_sha_len = 8;
 const retired = [_][]const u8{
     "spec-drift", "comptime-quota",       "doc-quality", "vague-name-blacklist",
     "dup-const",  "returns-per-function",
@@ -31,6 +37,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     try inspectBaselines(ctx, &findings);
     try inspectSnapshots(ctx, &findings);
     try inspectMutationAdoption(ctx, &findings);
+    try inspectMutationJournal(ctx, &findings);
+    try inspectPendingAccepts(ctx, &findings);
     try inspectIntegration(ctx, &findings);
     inspectMergeDriver(ctx, &findings);
     try inspectCache(ctx, &findings);
@@ -131,6 +139,63 @@ fn inspectMutationAdoption(ctx: *types.RunCtx, findings: *Findings) !void {
             .{ctx.project_dir},
         );
     };
+}
+
+/// Reports a journal a previous `mutate` left behind. The case a fresh worktree
+/// actually meets is a journal naming a file this checkout never contained: an
+/// interrupted run in *another* checkout wrote it, nothing here is at risk, and
+/// the next `mutate` drops it. That reads as a leftover to delete, not as an
+/// alarm about a file the reader cannot even find.
+fn inspectMutationJournal(ctx: *types.RunCtx, findings: *Findings) !void {
+    const left = (try journal.leftover(ctx.allocator, ctx.project_dir)) orelse return;
+    if (left.file_present) {
+        advisory(findings, "mutation journal present for {s}: an interrupted run may have left a" ++
+            " mutant applied; the next `guardian-check mutate` reverts it", .{left.rel_path});
+        return;
+    }
+    advisory(findings, "stale mutation journal naming {s}, a file this checkout does not contain:" ++
+        " an interrupted run in another checkout left it, so it is inert — delete {s}", .{ left.rel_path, journal.leaf });
+}
+
+/// Lists the session accept notes nothing else surfaces. A note suppresses
+/// ratchet growth only while HEAD is unchanged (see accept_session.zig), so one
+/// recorded at any other commit is inert — and invisible, because no command
+/// prints it and nothing removes it. Both kinds are reported, aged in commits.
+fn inspectPendingAccepts(ctx: *types.RunCtx, findings: *Findings) !void {
+    const entries = try accept_session.recorded(ctx.allocator, ctx.project_dir);
+    if (entries.len == 0) return;
+    const head = git.headHash(ctx.allocator, ctx.project_dir);
+    for (entries) |entry| reportPendingAccept(ctx, findings, entry, head);
+}
+
+/// One note's line: live at HEAD (a plain note — this is the mechanism working),
+/// or expired, with how far back it was taken.
+fn reportPendingAccept(
+    ctx: *types.RunCtx,
+    findings: *Findings,
+    entry: accept_session.Entry,
+    head: ?[]const u8,
+) void {
+    if (head != null and std.mem.eql(u8, head.?, entry.head)) {
+        // A note, not a warning: this is the session mechanism working.
+        reporter.detail("  note: pending accept: {s} is live for this session, recorded at HEAD {s}\n", .{
+            entry.check, shortSha(entry.head),
+        });
+        return;
+    }
+    if (git.commitsBehindHead(ctx.allocator, ctx.project_dir, entry.head)) |behind| {
+        advisory(findings, "expired pending accept: {s}, recorded at {s} — {d} commit(s) behind" ++
+            " HEAD, so it suppresses nothing; delete {s}", .{ entry.check, shortSha(entry.head), behind, accept_session.leaf });
+        return;
+    }
+    advisory(findings, "expired pending accept: {s}, recorded at {s} — not an ancestor of HEAD" ++
+        " (another branch, or rewritten history); delete {s}", .{ entry.check, shortSha(entry.head), accept_session.leaf });
+}
+
+/// The leading characters of a commit hash, for a report that only needs to
+/// identify it.
+fn shortSha(sha: []const u8) []const u8 {
+    return sha[0..@min(sha.len, short_sha_len)];
 }
 
 fn inspectIntegration(ctx: *types.RunCtx, findings: *Findings) !void {
@@ -265,4 +330,78 @@ test "staleGatingBinary flags only a present, differing stamp" {
     try std.testing.expect(!staleGatingBinary(a, a));
     // A different binary than the last green run's: stale, worth a warning.
     try std.testing.expect(staleGatingBinary(a, b));
+}
+
+// spec: Maintenance - Doctor ages every pending accept and warns about an expired one
+
+test "pending accepts read as live at HEAD and expired anywhere else" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/doctor-pending-accepts";
+    std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test setup: {s}", .{@errorName(e)});
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test cleanup: {s}", .{@errorName(e)});
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default;
+    defer reporter.default = prior;
+    reporter.default = .{ .capture = &cap };
+
+    const cfg: config_mod.Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
+    var findings: Findings = .{};
+    // Live at HEAD: the session mechanism working, so a note and not a warning.
+    reportPendingAccept(&ctx, &findings, .{ .head = "aaaa1111bbbb", .check = "file-size" }, "aaaa1111bbbb");
+    try std.testing.expectEqual(@as(usize, 0), findings.warnings);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "note: pending accept: file-size is live") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "aaaa1111") != null);
+
+    // Recorded at some other commit: inert, invisible without this line, and
+    // named with the file to delete.
+    reportPendingAccept(&ctx, &findings, .{ .head = "cccc2222dddd", .check = "type-size" }, "aaaa1111bbbb");
+    try std.testing.expectEqual(@as(usize, 1), findings.warnings);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "expired pending accept: type-size") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, accept_session.leaf) != null);
+}
+
+// spec: Maintenance - Doctor reports a mutation journal for an absent file as an inert leftover
+
+test "a journal naming a file this checkout lacks reads as a leftover to delete" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/doctor-mutation-journal";
+    std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test setup: {s}", .{@errorName(e)});
+    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test cleanup: {s}", .{@errorName(e)});
+    try std.fs.cwd().makePath(dir ++ "/src");
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default;
+    defer reporter.default = prior;
+    reporter.default = .{ .capture = &cap };
+
+    const cfg: config_mod.Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
+    var findings: Findings = .{};
+    // No journal at all: the normal state, and doctor says nothing about it.
+    try inspectMutationJournal(&ctx, &findings);
+    try std.testing.expectEqual(@as(usize, 0), findings.warnings);
+
+    const rel = "src/gone.zig";
+    const abs = try std.fs.path.join(a, &.{ dir, rel });
+    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = "return a < b;\n" });
+    journal.begin(a, dir, .{
+        .rel_path = rel,
+        .abs_path = abs,
+        .original = "return a < b;\n",
+        .mutated = "return a <= b;\n",
+        .start = 9,
+        .end = 10,
+    });
+    try std.fs.cwd().deleteFile(abs);
+    try inspectMutationJournal(&ctx, &findings);
+    try std.testing.expectEqual(@as(usize, 1), findings.warnings);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "stale mutation journal naming src/gone.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "inert") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, journal.leaf) != null);
 }
