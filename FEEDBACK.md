@@ -4973,3 +4973,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The diff-scoped `spec`, `file-size`, and `test-no-conditional` checks caught an unlinked browser contract, an attempted addition to the frozen `pcb_layout_page.zig` ceiling, and a two-loop regression test in the first run. Moving the behavior entirely into the embedded client, linking the exact spec bullet, and using one table-driven assertion cleared all 71 checks without snapshot acceptance.
 - **friction:** Exact-commit preparation took 441 seconds, then `main` advanced and the required clean rebase forced another 434-second release preparation. Both candidates passed, but roughly 15 minutes of duplicate tests/builds dominated this client-only lazy-loading change.
+
+## 2026-08-11 · codex · eda — native schematic PNG export
+
+- **good:** The diff-scoped gate caught an over-wide helper signature, missing public docs, an inferred public error set, a stack-escaping fixture, and unlinked `SPEC.md` tags before runtime validation. Fixing those findings produced a smaller renderer API, explicit ownership, and a clean 71-check whole-tree gate.
+- **friction:** `zig build test` selected and compiled the full 2,469-test binary even with a forwarded `--test-filter`, costing about six minutes per small renderer-contract iteration. A reliable focused test path would shorten image-driven work without weakening the exact-commit release boundary.
+- **bug:** Concurrent use of the shared Zig cache intermittently failed with `manifest_create Unexpected`; isolated `--cache-dir` and `--global-cache-dir` paths avoided the failure. The failure mode and isolated-cache recovery should be documented for concurrent worktrees.
