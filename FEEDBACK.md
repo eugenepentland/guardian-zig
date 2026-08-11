@@ -4869,3 +4869,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The `spec` check rejected the new supply-pull-up regression test until its exact behavior was linked in `SPEC.md`; after linking it, the diff-scoped and whole-tree gates both passed with zero blockers.
 - **friction:** The first mandatory `prepare-release` waited behind the machine-wide gate lock, then stopped immediately because Guardian's source had advanced past its prebuilt checker. Refreshing `guardian-check` in the Guardian repo and rerunning resolved it, but a cheap selfcheck before queueing—or automatic prebuilt refresh—would have avoided the delayed retry.
+
+## 2026-08-11 · codex · eda — Original and Functional schematic views
+
+- **good:** `function-size` caught the first implementation threading one extra mode argument through six established renderer functions. Packing route/view into `SchematicOptions` and SVG-context/view into a private page context kept every function at its prior parameter boundary and produced a cleaner interface.
+- **good:** Selective `pub-api-surface` acceptance previewed exactly three new view/options declarations and four intentional signature changes, then verified that snapshot alone before the 71-check gate passed.
