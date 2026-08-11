@@ -4944,3 +4944,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `function-size`, `bool-ops-per-condition`, `pub-api-surface`, and `spec` caught an oversized row-map helper, a dense eligibility condition, an unnecessary public helper, and two unlinked behavior tags during the first diff-scoped pass; the final whole-tree gate cleared all 71 checks without snapshot acceptance.
 - **friction:** Visually correcting one SVG subcircuit required two roughly six-minute aggregate `zig build test` compiles before the exact-commit release preparation added another 413 seconds (407-second tests, 336-second ReleaseSafe build). The gates were correct, but a renderer-focused compile/test target would make image-driven iteration much cheaper without changing the merge boundary.
+
+## 2026-08-11 · codex · eda — browser CSE import auto-commit
+
+- **good:** `change-classification` required the browser CSE mutation seam to gain a behavioral test, and `spec` then required that test to link an exact Web Server contract; the resulting combined footprint/datasheet auto-commit behavior is explicit, tested, and passed all 71 checks without snapshot acceptance.
