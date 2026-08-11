@@ -4753,3 +4753,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-11 · codex · eda — authoritative PCB-layout push to KiCad
 - **good:** `type-size` and `cognitive-complexity` caught an early version that enlarged central sync/writer state and dispatch logic; nesting the new request/stats state and extracting pose/replacement preprocessing made the final whole-tree gate green without ratcheting either check.
 - **good:** `spec` named all five newly tagged layout-handoff tests and supplied exact missing-bullet text, while selective `pub-api-surface` acceptance changed only the one intentional exact-layout reader entry. The final full gate passed before the 382-second test / 313-second ReleaseSafe release preparation.
+
+## 2026-08-11 · claude · eda — merge two parallel router waves (45° dress vs dangling-copper prune)
+
+- good: the completeness + spec gates caught two silent git-merge casualties in SPEC.md — git treated an identical trailing `panic-free` waiver line as shared suffix (section above lost it) and dropped a bullet whose hunk main won while its tagged test survived. Both surfaced as precise findings (missing category by section name; unlinked tag by file) before anything landed.
+- good: the gate also stayed out of the way of the real semantic conflict (main's copper_topology prune vs a branch test asserting the pruned copper survives) — the full-suite commit gate reported the failing test by name, which is exactly the right surface for a product-decision conflict.
