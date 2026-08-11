@@ -18,6 +18,8 @@ const sink = @import("sink.zig");
 const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
+const relocation = @import("relocation.zig");
+const git = @import("git.zig");
 const accept_session = @import("accept_session.zig");
 const violation_key = @import("violation_key.zig");
 const scope = @import("scope.zig");
@@ -586,7 +588,15 @@ fn underPartialView(view: scope.View, outcome: Outcome) Outcome {
 fn ratchetUnderPartialView(view: scope.View, outcome: ratchet.Outcome) ratchet.Outcome {
     if (view == .whole_tree) return outcome;
     return switch (outcome) {
-        .improved => |i| .{ .matched = i.remaining + i.pruned },
+        // A relocation survives the reinterpretation: only git's whole-tree
+        // rename detection can produce one under a partial view, so the move is
+        // real even though the lower/prune counts beside it are not.
+        .improved => |i| if (i.moved > 0) .{ .improved = .{
+            .lowered = 0,
+            .pruned = 0,
+            .remaining = i.remaining + i.pruned,
+            .moved = i.moved,
+        } } else .{ .matched = i.remaining + i.pruned },
         else => outcome,
     };
 }
@@ -710,10 +720,25 @@ fn processRatchet(
     std.debug.assert(ratchet.metricMode(check_name) != null);
     const path = try pathFor(a, ctx.project_dir, check_name);
     const blocking = try ratchet.aggregate(a, input.records, ratchet.metricMode(check_name).?);
-    const entries = try preserveAdvisoryRatchets(a, path, blocking, input.warnings, input.force_refresh);
-    try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, input.force_refresh);
+    // Relocation runs in two passes around the advisory merge: git's renames
+    // first (they re-key entries whether or not anything reported), so a
+    // preserved advisory entry is matched against the path its warning names,
+    // then the content-matched extract tier against the reconciled set.
+    const recorded = try readRecorded(a, path);
+    const renamed = try relocation.renamedFiles(a, recorded orelse &.{}, try renamesFor(a, ctx, recorded));
+    const entries = try preserveAdvisoryRatchets(a, renamed.entries, blocking, input.warnings, input.force_refresh);
+    const reloc = try relocation.extractedItems(a, renamed, entries, viewFor(ctx));
+    try ratchetDenyGrowthGuard(a, ctx, check_name, .{
+        .recorded = if (recorded == null) null else reloc.entries,
+        .entries = entries,
+        .force_refresh = input.force_refresh,
+    });
 
-    const outcome = ratchet.lifecycle(a, path, entries, input.force_refresh, input.write_allowed) catch |e| {
+    const outcome = ratchet.lifecycle(a, path, entries, .{
+        .force_refresh = input.force_refresh,
+        .write_allowed = input.write_allowed,
+        .transfers = reloc.transfers,
+    }) catch |e| {
         reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
@@ -723,13 +748,20 @@ fn processRatchet(
     // subject", and that intent holds until the commit locks the ratchet.
     // deny_growth still wins: a guarded check never rides a session note.
     if (outcome == .regressed and accept_session.isPending(a, ctx.project_dir, check_name)) {
-        try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, true);
+        try ratchetDenyGrowthGuard(a, ctx, check_name, .{
+            .recorded = if (recorded == null) null else reloc.entries,
+            .entries = entries,
+            .force_refresh = true,
+        });
         // On a metadata-writable run the re-lock persists (commit locks the
         // ratchet). On an ordinary read-only run the growth is tolerated green
         // under the session note but nothing is written — the same read-only
         // contract as every other lifecycle write.
         if (input.write_allowed) {
-            const relocked = ratchet.lifecycle(a, path, entries, true, true) catch |e| {
+            const relocked = ratchet.lifecycle(a, path, entries, .{
+                .force_refresh = true,
+                .write_allowed = true,
+            }) catch |e| {
                 reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
                 return error.CheckFailed;
             };
@@ -756,7 +788,40 @@ fn processRatchet(
         .fix_hint = firstFixHint(input.captured),
         .records = input.records,
         .write_allowed = input.write_allowed,
+        .reloc = reloc,
     });
+}
+
+/// The v2 ratchet entries this check has on file, or null when there is no
+/// readable one (absent, or still a v1 text baseline) — the two cases that are
+/// not recorded debt at all, and that the lifecycle re-reads to tell apart.
+/// Read once per check and shared by the relocation plan, the advisory-preserve
+/// merge, and the deny_growth guard.
+fn readRecorded(a: Allocator, path: []const u8) Allocator.Error!?[]const ratchet.Entry {
+    // An unreadable file is "nothing recorded" — the lifecycle reads it again
+    // and is the one place that decides create-vs-migrate. A failure to
+    // ALLOCATE, though, is not an absent ratchet: it propagates.
+    const snap = snapshot.read(a, path, ratchet.version) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    return try ratchet.decodeLines(a, snap.lines);
+}
+
+/// Git's whole-file renames for this run. `all` resolves them once up front and
+/// parks them on the context, because the per-check pass runs in parallel over
+/// copied contexts and would otherwise spawn one git per ratchet check; a
+/// single-check run has no such pass and resolves them here. A check with
+/// nothing recorded has nothing to relocate, so it never asks git at all.
+fn renamesFor(
+    a: Allocator,
+    ctx: *types.RunCtx,
+    recorded: ?[]const ratchet.Entry,
+) Allocator.Error![]const git.Rename {
+    const none: []const git.Rename = &.{};
+    if (recorded == null or recorded.?.len == 0) return none;
+    if (ctx.renames) |resolved| return resolved;
+    return git.renamesAgainst(a, ctx.project_dir, "HEAD");
 }
 
 /// Sends one sink row per regressed ratchet key. The row is the check's own
@@ -808,15 +873,13 @@ fn sinkRatchetKey(
 /// record set. Once the warning itself disappears, normal auto-pruning applies.
 fn preserveAdvisoryRatchets(
     a: std.mem.Allocator,
-    path: []const u8,
+    recorded: []const ratchet.Entry,
     blocking: []const ratchet.Entry,
     warnings: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError![]const ratchet.Entry {
     if (force_refresh or warnings.len == 0) return blocking;
-    const snap = snapshot.read(a, path, ratchet.version) catch return blocking;
-    const old = try ratchet.decodeLines(a, snap.lines);
-    return mergeAdvisoryEntries(a, old, blocking, warnings);
+    return mergeAdvisoryEntries(a, recorded, blocking, warnings);
 }
 
 fn mergeAdvisoryEntries(
@@ -848,23 +911,29 @@ fn warningPresent(warnings: []const reporter.Violation, key: []const u8) bool {
     return false;
 }
 
+/// What the deny_growth guard compares: the ratchet on file with this run's
+/// relocations already applied (null when there is none to grow — a first
+/// record or a v1 migration is not growth), and the state a refresh would
+/// write. Comparing against the RELOCATED recording is what lets a listed check
+/// still move an entry between keys: nothing grew, so nothing is denied.
+const GuardInput = struct {
+    recorded: ?[]const ratchet.Entry,
+    entries: []const ratchet.Entry,
+    force_refresh: bool,
+};
+
 /// deny_growth for a ratchet check: on a refresh of a listed check, refuse to
-/// rewrite when the new state would raise any key's value or add a key. A
-/// missing / v1 (pre-migration) file reads as no prior ratchet — a refresh that
-/// first-records or migrates is never "growth", so it is allowed.
+/// rewrite when the new state would raise any key's value or add a key.
 fn ratchetDenyGrowthGuard(
     a: std.mem.Allocator,
     ctx: *types.RunCtx,
     check_name: []const u8,
-    path: []const u8,
-    entries: []const ratchet.Entry,
-    force_refresh: bool,
+    in: GuardInput,
 ) types.RunError!void {
-    if (!force_refresh) return;
+    if (!in.force_refresh) return;
     if (!nameInList(ctx.cfg.baseline.deny_growth, check_name)) return;
-    const snap = snapshot.read(a, path, ratchet.version) catch return;
-    const old = try ratchet.decodeLines(a, snap.lines);
-    if (!try ratchet.wouldGrow(a, old, entries)) return;
+    const old = in.recorded orelse return;
+    if (!try ratchet.wouldGrow(a, old, in.entries)) return;
     reporter.fail(
         "refusing to refresh {s}: ratchet would raise a value or add a key; " ++
             "fix the regressions or remove {s} from deny_growth",
@@ -883,11 +952,28 @@ const RatchetReport = struct {
     fix_hint: ?[]const u8,
     records: []const reporter.Violation,
     write_allowed: bool,
+    /// What this run recognized as relocation rather than new debt.
+    reloc: relocation.Plan = .{},
 };
 
-/// Reports a ratchet outcome; `regressed` prints each grown / new-offender key
-/// (with the check's own fix hint, scraped from its captured output) and fails.
+/// Reports a ratchet outcome, then every entry it re-keyed. The moves print
+/// UNDER the verdict — for a regression too, where the relocations that did
+/// resolve are exactly the context for the offenders that did not.
 fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetReport) types.RunError!void {
+    const verdict = reportVerdict(check_name, outcome, rep);
+    for (rep.reloc.moved) |m| {
+        if (m.item.len == 0)
+            reporter.detail("  moved: {s} -> {s}\n", .{ m.from, m.to })
+        else
+            reporter.detail("  moved: {s} -> {s} :: {s}\n", .{ m.from, m.to, m.item });
+    }
+    return verdict;
+}
+
+/// The verdict half of `reportRatchet`; `regressed` prints each grown /
+/// new-offender key (with the check's own fix hint, scraped from its captured
+/// output) and fails.
+fn reportVerdict(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetReport) types.RunError!void {
     const write_allowed = rep.write_allowed;
     // On a read-only run the create/migrate/improve outcomes were classified but
     // not persisted — word them as pending, all green.
@@ -900,23 +986,40 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
             reporter.ok("ok: {s}: legacy ratchet format ({d} key(s); run `guardian-check migrate .` to re-key)", .{ check_name, n });
             return;
         },
-        .improved => |imp| {
-            reporter.ok("ok: {s}: {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)", .{ check_name, imp.lowered, imp.pruned, check_name });
-            return;
-        },
+        .improved => |imp| return reportPendingImproved(check_name, imp),
         else => {},
     };
     switch (outcome) {
         .created => |n| reporter.ok("{s}: ratchet baselined ({d} key(s))", .{ check_name, n }),
         .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
         .matched => |n| reporter.ok("ok: {s}: ratchet matches ({d} key(s))", .{ check_name, n }),
-        .improved => |imp| reporter.ok(
+        .improved => |imp| if (imp.moved > 0) reporter.ok(
+            "{s}: {d} ratchet(s) moved, {d} lowered, {d} pruned (now {d} key(s))",
+            .{ check_name, imp.moved, imp.lowered, imp.pruned, imp.remaining },
+        ) else reporter.ok(
             "{s}: {d} ratchet(s) lowered, {d} pruned (now {d} key(s))",
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: ratchet refreshed ({d} key(s))", .{ check_name, n }),
         .regressed => |reg| return reportRegressed(check_name, reg, rep),
     }
+}
+
+/// The read-only wording for an improvement: classified, not written. A
+/// relocation is pending in exactly the same sense — the entry re-keys in
+/// memory so the gate stays green, and `accept` is what records it.
+fn reportPendingImproved(check_name: []const u8, imp: ratchet.Improved) void {
+    if (imp.moved > 0) {
+        reporter.ok(
+            "ok: {s}: {d} moved, {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)",
+            .{ check_name, imp.moved, imp.lowered, imp.pruned, check_name },
+        );
+        return;
+    }
+    reporter.ok(
+        "ok: {s}: {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)",
+        .{ check_name, imp.lowered, imp.pruned, check_name },
+    );
 }
 
 /// The check's own violation record for ratchet key `key` — the record carries
@@ -982,6 +1085,10 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: Ratchet
         "  {s}: {s} — {d} {s}, a new offender at or above the cap (accept to ratchet, or reduce)\n",
         .{ check_name, o.key, o.value, unit },
     );
+    // A new offender that LOOKS relocated says so on the spot: the reader's
+    // next question is always "wasn't this already baselined somewhere?", and
+    // the answer is a lookup they would otherwise do by hand.
+    reportUnresolvedMoves(check_name, rep);
     // A ratchet freezes each item at the value it recorded, so a key that grew
     // had ZERO headroom — it was sitting exactly at its own cap and the change
     // tipped it over, with no baseline escape. That is invisible from the
@@ -1002,6 +1109,17 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: Ratchet
         },
     }
     return error.CheckFailed;
+}
+
+/// Names the recorded entry behind every new key this run refused to treat as a
+/// relocation (see relocation.zig for the three refusals). Rendering failures
+/// are dropped rather than propagated: this is guidance printed alongside a
+/// failure that already stands on its own.
+fn reportUnresolvedMoves(check_name: []const u8, rep: RatchetReport) void {
+    for (rep.reloc.unresolved) |u| {
+        const hint = relocation.hintText(rep.allocator, check_name, u) catch continue;
+        reporter.detail("  {s}: {s}\n", .{ u.key, hint });
+    }
 }
 
 /// Whether accepting this regression would RAISE a frozen ceiling (`raises`) or
@@ -1345,7 +1463,10 @@ test "a regressed file-size key reaches the JSONL sink with its file, metric and
     // Freeze src/big.zig at 8 lines, then run the check measuring 10: a
     // regression against a frozen ceiling, which is what eda's router.zig hit.
     const path = try pathFor(a, dir, "file-size");
-    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/big.zig", .value = 8 }}, true, true);
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/big.zig", .value = 8 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
 
     const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
     // The arena stands in for the run allocator: the forwarded sink records
@@ -1382,6 +1503,114 @@ test "a regressed file-size key reaches the JSONL sink with its file, metric and
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "frozen ratchet ceiling of 8") != null);
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "2 code lines") != null);
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "guardian-check accept file-size .") != null);
+}
+
+/// A type-size run reporting one 8-field struct from the file it was just
+/// extracted into — the `PadObs` shape, whose ratchet entry is recorded under
+/// the file it came from.
+fn typeSizeAtNewHome(_: *types.RunCtx) types.RunError!void {
+    reporter.emit(.{
+        .check = "type-size",
+        .file = "src/pad_obs.zig",
+        .message = "PadObs has 8 fields (cap 7)",
+        .ratchet_key = "src/pad_obs.zig|PadObs",
+        .metric = 8,
+    });
+    return error.CheckFailed;
+}
+
+// spec: Ratchet Relocation - Prints each transferred entry as a moved line naming both files and the item
+
+test "an extracted item passes the gate and re-keys its entry, reporting the move" {
+    const dir = "zig-cache/test-baseline-relocation";
+    std.fs.cwd().deleteTree(dir) catch {};
+    defer std.fs.cwd().deleteTree(dir) catch {};
+    // Both files exist: the struct left obs.zig, obs.zig did not leave the
+    // tree. (A stored key naming a missing, gitignored file is a partial view,
+    // which would lock this run read-only for an unrelated reason.)
+    try std.fs.cwd().makePath(dir ++ "/src");
+    (try std.fs.cwd().createFile(dir ++ "/src/obs.zig", .{})).close();
+    (try std.fs.cwd().createFile(dir ++ "/src/pad_obs.zig", .{})).close();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = try pathFor(a, dir, "type-size");
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/obs.zig|PadObs", .value = 8 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
+
+    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+        .metadata_writable = true,
+        // Resolved (to nothing) by the run, as `all` does before its check pass.
+        .renames = &.{},
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    // Green: the 8 fields were already grandfathered, just somewhere else.
+    try runWithBaseline(&ctx, .{
+        .name = "type-size",
+        .summary = "test",
+        .scope = .per_file,
+        .run = typeSizeAtNewHome,
+    });
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        outer.buf.items,
+        "moved: src/obs.zig -> src/pad_obs.zig :: PadObs",
+    ) != null);
+
+    // The recorded entry moved rather than multiplied: still one key, at the
+    // ceiling it already had.
+    const after = try ratchet.decodeLines(a, (try snapshot.read(a, path, ratchet.version)).lines);
+    try std.testing.expectEqual(@as(usize, 1), after.len);
+    try std.testing.expectEqualStrings("src/pad_obs.zig|PadObs", after[0].key);
+    try std.testing.expectEqual(@as(u64, 8), after[0].value);
+}
+
+// spec: Ratchet Relocation - Allows a deny_growth refresh that only relocates recorded keys
+
+test "deny_growth permits a relocated key and still refuses a raised one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const cfg: @import("config.zig").Config = .{
+        .baseline = .{ .enabled = true, .deny_growth = &.{"type-size"} },
+    };
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+
+    // The guard compares against the RELOCATED recording, so an accept that
+    // only re-keys an entry adds nothing and is allowed.
+    const relocated = [_]ratchet.Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 8 }};
+    const current = [_]ratchet.Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 8 }};
+    try ratchetDenyGrowthGuard(a, &ctx, "type-size", .{
+        .recorded = &relocated,
+        .entries = &current,
+        .force_refresh = true,
+    });
+    // Moving is not a licence to grow: a ninth field at the new key is refused
+    // exactly as it would be at the old one.
+    const grown = [_]ratchet.Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 9 }};
+    try std.testing.expectError(error.CheckFailed, ratchetDenyGrowthGuard(a, &ctx, "type-size", .{
+        .recorded = &relocated,
+        .entries = &grown,
+        .force_refresh = true,
+    }));
 }
 
 /// A prose-reporting check: one indented violation line naming its own location

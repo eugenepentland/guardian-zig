@@ -17,6 +17,8 @@ const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
 const scope = @import("../scope.zig");
+const git = @import("../git.zig");
+const ratchet = @import("../ratchet.zig");
 const run_view = @import("run_view.zig");
 const bench = @import("bench.zig");
 const measurement = @import("../measurement.zig");
@@ -132,7 +134,9 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var scoped_storage: ast_index.Index = undefined;
     defer ctx.source_index = null;
     defer ctx.scoped = null;
+    defer ctx.renames = null;
     try prepareSources(ctx, &index_storage, &scoped_storage, writes);
+    try prepareRenames(ctx);
 
     // Time the run for the DORA sink. Started here (after the cache-skip guard)
     // so a cache-skipped run — which returns above — records nothing.
@@ -270,6 +274,25 @@ fn prepareSources(
         };
     }
     announceScope(ctx);
+}
+
+/// Resolves git's whole-file renames once, for the relocation-aware ratchets
+/// (relocation.zig). Done here rather than inside a check because the per-check
+/// pass runs in parallel over copied contexts — a lazy memo there would spawn
+/// one git per ratchet check, or race. A project whose ratchets are all
+/// disabled (Guardian's own default) never shells out at all.
+fn prepareRenames(ctx: *types.RunCtx) types.RunError!void {
+    if (!anyRatchetBaselined(ctx)) return;
+    ctx.renames = try git.renamesAgainst(ctx.allocator, ctx.project_dir, "HEAD");
+}
+
+/// True when any threshold check would take the ratchet lifecycle on this run —
+/// the only consumer of rename data.
+fn anyRatchetBaselined(ctx: *const types.RunCtx) bool {
+    for (ratchet.names) |name| {
+        if (ctx.cfg.policy.usesBaselineFor(name, ctx.cfg.baseline)) return true;
+    }
+    return false;
 }
 
 /// The one-line banner a diff-scoped run prints before any check runs. Routed
@@ -1678,9 +1701,9 @@ test "policy protection and explicit blocks bypass a global baseline" {
     try std.testing.expect(!cfg.policy.usesBaselineFor("policy-drift", cfg.baseline));
     try std.testing.expect(!cfg.policy.usesBaselineFor("file-size", cfg.baseline));
     try std.testing.expect(cfg.policy.usesBaselineFor("naming", cfg.baseline));
-    var ratchet = cfg.policy;
-    ratchet.ratchet = &.{"naming"};
-    try std.testing.expect(ratchet.usesBaselineFor("naming", .{}));
+    var ratcheted = cfg.policy;
+    ratcheted.ratchet = &.{"naming"};
+    try std.testing.expect(ratcheted.usesBaselineFor("naming", .{}));
     var report = cfg.policy;
     report.report = &.{"naming"};
     try std.testing.expect(!report.usesBaselineFor("naming", cfg.baseline));

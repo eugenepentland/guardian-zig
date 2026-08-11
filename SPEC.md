@@ -594,6 +594,20 @@ lives in a fixed-size buffer.
 - Names the offending file line and metric in the regression status line
 - Sends each regressed key to the sink with its record and the ceiling it broke
 
+## Ratchet Relocation
+
+- Reads rename pairs from git's name-status records
+- Re-keys every recorded entry under a file git reports as renamed
+- Transfers a recorded entry to the file its item was extracted into
+- Keeps the new-offender failure when several recorded entries share the item name
+- Keeps the new-offender failure when a moved item measures above its recorded ceiling
+- Withholds content-matched transfers from a diff-scoped run
+- Names the recorded candidate and its ceiling when a relocation is not transferred
+- Conserves the recorded entry count and never raises a transferred ceiling
+- Reports a detected move as pending on a read-only run and records it on a writable one
+- Prints each transferred entry as a moved line naming both files and the item
+- Allows a deny_growth refresh that only relocates recorded keys
+
 ## Measurement Mode
 
 - Defers only the instrumentation-class checks

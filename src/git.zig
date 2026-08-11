@@ -18,6 +18,14 @@ const max_git_output_bytes: usize = 64 * 1024 * 1024;
 /// each repeat the literal (repeated-string-literal).
 const rev_parse = "rev-parse";
 
+/// Flags every diff invocation here shares, hoisted so the several call sites
+/// don't each repeat the literal (repeated-string-literal): raw (unquoted)
+/// paths, no colour, and paths relative to the directory the diff ran in — the
+/// same spelling a ratchet key is built from.
+const quote_path_off = "core.quotepath=false";
+const no_color = "--no-color";
+const relative = "--relative";
+
 /// A run of added lines in the new side of a diff: 1-indexed `start`,
 /// `len` lines long. A pure deletion has no span.
 pub const LineSpan = struct {
@@ -133,8 +141,8 @@ fn parseDigits(line: []const u8, i: *usize) ?u32 {
 /// unspawnable git is a hard `GitError` with git's stderr surfaced.
 pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult {
     const argv = [_][]const u8{
-        "git",        "-c",  "core.quotepath=false", "diff",
-        "--no-color", "-U0", "--relative",           ref,
+        "git",    "-c",  quote_path_off, "diff",
+        no_color, "-U0", relative,       ref,
         "--",
     };
     const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
@@ -150,13 +158,99 @@ pub fn diffPathNamesAgainst(
     ref: []const u8,
 ) GitError!PathDiffResult {
     const argv = [_][]const u8{
-        "git",        "-c",          "core.quotepath=false", "diff",
-        "--no-color", "--name-only", "-z",                   "--no-renames",
-        "--relative", ref,           "--",
+        "git",    "-c",          quote_path_off, "diff",
+        no_color, "--name-only", "-z",           "--no-renames",
+        relative, ref,           "--",
     };
     const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
         return .{ .unavailable = "not a git repository — diff-scoped checks skipped" };
     return .{ .ok = try parseNulPaths(allocator, out) };
+}
+
+/// One whole-file rename git detected: the path `ref` recorded, and the path
+/// the same content lives at now. Both are relative to the directory the diff
+/// ran in, so they compare directly against a ratchet key's file part.
+pub const Rename = struct { from: []const u8, to: []const u8 };
+
+/// Whole-file renames between `ref` and this working tree, taken from both the
+/// unstaged and the staged view (a rename staged and then edited can score as a
+/// rename in only one of them). Pairs are deduplicated by their new path.
+///
+/// Only renames git can *see* are reported: a `git mv`, or a move whose new
+/// path was `git add`ed. A brand-new untracked file appears in no diff at all —
+/// which is precisely the case the ratchet's content-matched tier covers.
+///
+/// Best-effort by design: no repository, no git binary, or any git failure
+/// yields an empty slice, so relocation-aware ratcheting degrades to its
+/// pre-rename behaviour instead of failing a gate over a missing tool.
+pub fn renamesAgainst(
+    allocator: Allocator,
+    project_dir: []const u8,
+    ref: []const u8,
+) Allocator.Error![]const Rename {
+    var out: std.ArrayList(Rename) = .empty;
+    try appendRenames(allocator, project_dir, try renameArgv(allocator, ref, false), &out);
+    try appendRenames(allocator, project_dir, try renameArgv(allocator, ref, true), &out);
+    return out.toOwnedSlice(allocator);
+}
+
+/// The rename-detecting `--name-status` argv for one view: the working tree, or
+/// (`cached`) the index. One builder so the two views cannot drift apart.
+fn renameArgv(allocator: Allocator, ref: []const u8, cached: bool) Allocator.Error![]const []const u8 {
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.appendSlice(allocator, &.{
+        "git", "-c", quote_path_off, "diff", no_color, "--find-renames", "--name-status", "-z", relative,
+    });
+    if (cached) try argv.append(allocator, "--cached");
+    try argv.appendSlice(allocator, &.{ ref, "--" });
+    return argv.toOwnedSlice(allocator);
+}
+
+/// Runs one rename-detecting diff and appends its pairs, skipping any whose new
+/// path another view already reported.
+fn appendRenames(
+    allocator: Allocator,
+    project_dir: []const u8,
+    argv: []const []const u8,
+    out: *std.ArrayList(Rename),
+) Allocator.Error!void {
+    const text = runGit(allocator, project_dir, argv) orelse return;
+    for (try parseRenamesZ(allocator, text)) |r| {
+        if (renameTo(out.items, r.to) != null) continue;
+        try out.append(allocator, r);
+    }
+}
+
+/// The pair in `renames` whose new path is `to`, or null. Also the caller-facing
+/// lookup for "did this path arrive by rename?".
+pub fn renameTo(renames: []const Rename, to: []const u8) ?Rename {
+    for (renames) |r| {
+        if (std.mem.eql(u8, r.to, to)) return r;
+    }
+    return null;
+}
+
+/// Parses `git diff --name-status -z` records into rename pairs. Each record is
+/// a status token followed by its path — except a rename or copy (`R100`,
+/// `C75`), which carries the old path AND the new one. Only renames are
+/// returned: a copy leaves the original in place, so re-keying its recorded
+/// debt would move debt off a file that still holds it. Pure, so the record
+/// framing is unit-tested without git.
+fn parseRenamesZ(allocator: Allocator, text: []const u8) Allocator.Error![]const Rename {
+    var out: std.ArrayList(Rename) = .empty;
+    var it = std.mem.splitScalar(u8, text, 0);
+    while (it.next()) |status| {
+        if (status.len == 0) continue;
+        if (status[0] != 'R' and status[0] != 'C') {
+            _ = it.next(); // an ordinary record's single path
+            continue;
+        }
+        const from = it.next() orelse break;
+        const to = it.next() orelse break;
+        if (status[0] != 'R' or from.len == 0 or to.len == 0) continue;
+        try out.append(allocator, .{ .from = from, .to = to });
+    }
+    return out.toOwnedSlice(allocator);
 }
 
 fn parseNulPaths(allocator: Allocator, text: []const u8) Allocator.Error![]const []const u8 {
@@ -712,6 +806,30 @@ test "commitsBehindHead is zero for HEAD and null for a commit it cannot reach" 
     // HEAD is zero commits behind itself; outside a repo git answers nothing.
     const self_distance = commitsBehindHead(a, ".", "HEAD");
     try testing.expect(self_distance == null or self_distance.? == 0);
+}
+
+// spec: Ratchet Relocation - Reads rename pairs from git's name-status records
+
+test "parseRenamesZ pairs rename records and skips ordinary and copy ones" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A modification (one path), a rename (two paths), a copy (two paths — the
+    // original stays, so its debt must NOT be re-keyed), then another rename.
+    const out = "M\x00src/a.zig\x00R100\x00src/old.zig\x00src/new.zig\x00" ++
+        "C75\x00src/src.zig\x00src/copy.zig\x00R087\x00src/big.zig\x00sub/big.zig\x00";
+    const renames = try parseRenamesZ(a, out);
+    try testing.expectEqual(@as(usize, 2), renames.len);
+    try testing.expectEqualStrings("src/old.zig", renames[0].from);
+    try testing.expectEqualStrings("src/new.zig", renames[0].to);
+    try testing.expectEqualStrings("sub/big.zig", renames[1].to);
+    // Lookup is by the NEW path — the side a current violation names.
+    try testing.expectEqualStrings("src/old.zig", renameTo(renames, "src/new.zig").?.from);
+    try testing.expect(renameTo(renames, "src/copy.zig") == null);
+    // The process shell degrades quietly: this repo has no staged rename, and
+    // outside a repository (or with no git at all) the answer is the empty set.
+    const live = try renamesAgainst(a, ".", "HEAD");
+    for (live) |r| try testing.expect(r.from.len > 0 and r.to.len > 0);
 }
 
 // spec-case: Policy Protection - Blocks protected Guardian metadata drift unless trusted CI approves it
