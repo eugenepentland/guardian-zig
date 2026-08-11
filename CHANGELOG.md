@@ -6,6 +6,16 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Make `debt` decision-ready: send `--json` to stdout instead of stderr (so
+  `debt --json | jq` receives it), group rows into violation-debt, inventory
+  and score sections carrying explicit `kind`/`direction`/`unit` fields, replace
+  the preformatted `note` with a structured `worst {metric, file, item}`, label
+  it `worst (baselined)` since it is the stored ceiling rather than a live
+  measurement, and add a `--live` (alias of `--current`) headroom section
+  listing the items nearest the limit that would block them. Also fixes a
+  measurement collision in `debt --current`: `function-length`/`function-size`
+  and `file-size`/`line-length` share ratchet-key spellings, so ceilings were
+  compared against another check's number.
 - Make individual snapshot replacements atomic and checked-in Guardian metadata
   transactional across aggregate runs: a red gate restores pre-run state, and
   warning-only legacy ratchets remain until their advisory finding disappears.
