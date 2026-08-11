@@ -4921,3 +4921,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `spec`, `pub-api-surface`, `function-size`, and the frozen `file-size` ratchet caught the missing behavior links, the intentional plane-fill serializer API, an oversized helper signature, and page growth before the 2,438-test run. Selective `pub-api-surface` acceptance added exactly the one intended declaration, and the final 71-check gate had zero blockers.
 - **friction:** A named test filter could not reach the new `serve.pour_json` test through the aggregate `src/test_root.zig` import and selected zero tests; filter derivation then refused to help because the intentional uncommitted `.guardian/pub-api.txt` refresh put every changed file in scope. I used a temporary direct Zig probe to validate the one fixture before paying another six-minute full ReleaseSafe compile.
+
+## 2026-08-11 · codex · eda — Sequential and Functional schematic slider
+
+- **good:** The `spec` check kept the renamed Sequential/Functional behavior bullet and regression tag exact, while the function ratchets accepted the private switch renderer without widening `writeHeader`; all 71 checks passed without snapshot acceptance.
+- **friction:** Exact-commit preparation took 467 seconds (455-second tests, 376-second ReleaseSafe build) after the focused 17-test UI run, so the mandatory release gate again dominated a four-file presentation-only change.
