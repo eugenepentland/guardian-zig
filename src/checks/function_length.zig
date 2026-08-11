@@ -9,10 +9,15 @@ const ast = @import("../ast/parser.zig");
 const ast_index = @import("../ast/index.zig");
 const config_mod = @import("../config.zig");
 const near_cap = @import("../near_cap.zig");
+const hysteresis = @import("../hysteresis.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
+
+/// This check's registry name, used for its own violation records and to ask
+/// whether hysteresis binds it.
+const check_name = "function-length";
 
 /// What the alert line tells a function to do about its remaining runway.
 const extract_remedy = "extract a focused helper now";
@@ -22,6 +27,9 @@ const ScanCtx = struct {
     warnings: *std.ArrayList(reporter.Violation),
     violations: *std.ArrayList(reporter.Violation),
     cfg: config_mod.FunctionLengthCfg,
+    /// What the pre-trip alert says a crossing would cost; `.unacceptable`
+    /// when `[hysteresis]` binds this check (see near_cap.Crossing).
+    crossing: near_cap.Crossing = .blocks,
 };
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
@@ -47,7 +55,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
                 .{ f.name, f.line_count, ctx.cfg.max_lines, ctx.cfg.hard_max_lines },
             );
         try destination.append(a, .{
-            .check = "function-length",
+            .check = check_name,
             .file = entry.rel_path,
             .line = f.start_line,
             .message = message,
@@ -65,7 +73,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 fn noteNearHardCap(ctx: *ScanCtx, rel_path: []const u8, f: ast.FnDeclInfo) std.mem.Allocator.Error!void {
     if (!near_cap.isNearHardCap(f.line_count, ctx.cfg.hard_max_lines)) return;
     try ctx.warnings.append(ctx.allocator, .{
-        .check = "function-length",
+        .check = check_name,
         .file = rel_path,
         .line = f.start_line,
         .alert = true,
@@ -74,6 +82,7 @@ fn noteNearHardCap(ctx: *ScanCtx, rel_path: []const u8, f: ast.FnDeclInfo) std.m
             .hard_cap = ctx.cfg.hard_max_lines,
             .unit = "lines",
             .remedy = extract_remedy,
+            .crossing = ctx.crossing,
             .subject = try std.fmt.allocPrint(ctx.allocator, "fn {s}", .{f.name}),
         }),
     });
@@ -117,6 +126,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .warnings = &warnings,
         .violations = &violations,
         .cfg = cfg,
+        .crossing = hysteresis.crossingFor(ctx_param.cfg, check_name),
     };
 
     try ast_index.runSrc(ctx_param.source_index, allocator, project_dir, .{ .ctx = &ctx, .visit = visit });

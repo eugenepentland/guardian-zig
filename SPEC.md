@@ -608,6 +608,29 @@ lives in a fixed-size buffer.
 - Prints each transferred entry as a moved line naming both files and the item
 - Allows a deny_growth refresh that only relocates recorded keys
 
+## Hysteresis
+
+- Derives each check's recover line from its hard cap and recover percentage
+- Parses the hysteresis section and defaults it on for the two volume caps
+- Hard-fails a recover percentage out of range or a check that is not two-tier
+- Restores plain ratchet behavior when hysteresis is disabled
+- Blocks a hard-cap crossing with the recover target and no accept command
+- Refuses an accept that records a crossing or raises a tripped ceiling
+- Fails an accept run rather than recording a refused crossing or raise
+- Keeps a tripped entry recorded while its subject stays above the recover line
+- Fails a tripped entry that grew while recovering below the hard cap
+- Clears the trip and prunes the entry at or below the recover line
+- Leaves an unratcheted subject in the advisory band untouched
+- Holds an entry that reported nothing on a diff-scoped run
+- Grandfathers over-cap subjects when a tripped check first records its ratchet
+- Withholds this session's pending accept from a tripped check
+- Holds a legacy entry through the recovery zone from accept to recovered
+- Carries a tripped entry to the new key when git renames its file
+- Names the recover target in every blocked message and hint
+- Says a crossing cannot be accepted in a tripped check's near-cap alert
+- Marks a tripped key and its recover line in the live debt report
+- Merges two branches' progress on a tripped entry to the lower value
+
 ## Measurement Mode
 
 - Defers only the instrumentation-class checks

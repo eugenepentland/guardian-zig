@@ -374,6 +374,7 @@ src/config.zig::FunctionSizeCfg struct_
 src/config.zig::FuzzPresenceCfg struct_
 src/config.zig::GateCfg struct_
 src/config.zig::GateMode enum_
+src/config.zig::HysteresisCfg struct_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
@@ -505,6 +506,31 @@ src/git.zig::renameTo | fn renameTo(renames: []const Rename, to: []const u8) ?Re
 src/git.zig::renamesAgainst | fn renamesAgainst( allocator: Allocator, project_dir: []const u8, ref: []const u8, ) Allocator.Error![]const Rename
 src/git.zig::setConfig | fn setConfig(allocator: Allocator, project_dir: []const u8, key: []const u8, value: []const u8) bool
 src/git.zig::untrackedFiles | fn untrackedFiles(allocator: Allocator, project_dir: []const u8) GitError![]const []const u8
+src/hysteresis.zig::Plan struct_
+src/hysteresis.zig::Policy struct_
+src/hysteresis.zig::Recovered struct_
+src/hysteresis.zig::Refusal struct_
+src/hysteresis.zig::RefusalKind enum_
+src/hysteresis.zig::crossingDetail | fn crossingDetail( a: Allocator, policy: Policy, key: []const u8, value: u64, unit: []const u8, ) Allocator.Error![]const u8
+src/hysteresis.zig::crossingFor | fn crossingFor(cfg: *const config_mod.Config, check_name: []const u8) near_cap.Crossing
+src/hysteresis.zig::fixHint | fn fixHint(a: Allocator, policy: Policy, unit: []const u8) Allocator.Error![]const u8
+src/hysteresis.zig::hardCapFor | fn hardCapFor(cfg: *const config_mod.Config, check_name: []const u8) ?u64
+src/hysteresis.zig::hasRecovered | fn hasRecovered(self: Policy, value: u64) bool
+src/hysteresis.zig::isCrossing | fn isCrossing(self: Policy, value: u64) bool
+src/hysteresis.zig::isSupported | fn isSupported(check_name: []const u8) bool
+src/hysteresis.zig::max_recover_pct value
+src/hysteresis.zig::min_recover_pct value
+src/hysteresis.zig::overCapDetail | fn overCapDetail( a: Allocator, policy: Policy, key: []const u8, grown: ratchet.GrownKey, unit: []const u8, ) Allocator.Error![]const u8
+src/hysteresis.zig::policyFor | fn policyFor(cfg: *const config_mod.Config, check_name: []const u8) ?Policy
+src/hysteresis.zig::policyNote | fn policyNote(a: Allocator, policy: Policy) Allocator.Error![]const u8
+src/hysteresis.zig::reconcile | fn reconcile( a: Allocator, policy: Policy, recorded: []const ratchet.Entry, blocking: []const ratchet.Entry, warnings: []const reporter.Violation, view: scope.View, ) Allocator.Error!Plan
+src/hysteresis.zig::recoverLine | fn recoverLine(hard_cap: u64, pct: u32) u64
+src/hysteresis.zig::recoveredLine | fn recoveredLine(a: Allocator, rec: Recovered, unit: []const u8) Allocator.Error![]const u8
+src/hysteresis.zig::recoveringCeiling | fn recoveringCeiling(self: Plan, key: []const u8) ?u64
+src/hysteresis.zig::recoveringDetail | fn recoveringDetail( a: Allocator, policy: Policy, key: []const u8, grown: ratchet.GrownKey, unit: []const u8, ) Allocator.Error![]const u8
+src/hysteresis.zig::refusalFor | fn refusalFor( policy: Policy, recorded: []const ratchet.Entry, entries: []const ratchet.Entry, ) ?Refusal
+src/hysteresis.zig::supported value
+src/hysteresis.zig::tracksRecovery | fn tracksRecovery(self: Policy) bool
 src/measurement.zig::Exemption struct_
 src/measurement.zig::RunFacts struct_
 src/measurement.zig::active | fn active(ctx: *const types.RunCtx) bool
@@ -601,6 +627,7 @@ src/mutation/runner.zig::ratchetDecision | fn ratchetDecision(old_pct: ?u32, new
 src/mutation/runner.zig::runOne | fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outcome
 src/mutation/runner.zig::spliced | fn spliced(allocator: Allocator, original: []const u8, m: gen.Mutant) SpliceError![]const u8
 src/mutation/runner.zig::viable | fn viable(self: Score) u32
+src/near_cap.zig::Crossing enum_
 src/near_cap.zig::Measurement struct_
 src/near_cap.zig::alertMessage | fn alertMessage(arena: Allocator, m: Measurement) Allocator.Error![]const u8
 src/near_cap.zig::isNearHardCap | fn isNearHardCap(value: u64, hard_cap: u64) bool

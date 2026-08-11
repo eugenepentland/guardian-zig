@@ -6,10 +6,15 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const near_cap = @import("../near_cap.zig");
+const hysteresis = @import("../hysteresis.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
 const fail = reporter.fail;
+
+/// This check's registry name, used for its own violation records and to ask
+/// whether hysteresis binds it.
+const check_name = "file-size";
 
 /// What the alert line tells a file to do about its remaining runway.
 const split_remedy = "split at a cohesive module boundary now";
@@ -25,6 +30,10 @@ const FileSizeCtx = struct {
     hard_limit: u32,
     warnings: *std.ArrayList(reporter.Violation),
     violations: *std.ArrayList(reporter.Violation),
+    /// What the pre-trip alert says a crossing would cost. `.unacceptable`
+    /// when `[hysteresis]` binds this check — there is then no accept on the
+    /// other side of the cap, only a shrink back to the recover line.
+    crossing: near_cap.Crossing = .blocks,
 };
 
 /// True when `line` counts toward the metric: it carries something other than
@@ -137,7 +146,7 @@ fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const is_hard = lines > ctx.hard_limit;
     const destination = if (is_hard) ctx.violations else ctx.warnings;
     try destination.append(ctx.allocator, .{
-        .check = "file-size",
+        .check = check_name,
         .file = entry.rel_path,
         .message = if (is_hard)
             try std.fmt.allocPrint(ctx.allocator, "{d} code lines (hard limit: {d})", .{ lines, ctx.hard_limit })
@@ -163,7 +172,7 @@ fn fileSizeVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 fn noteNearHardCap(ctx: *FileSizeCtx, rel_path: []const u8, lines: u32) std.mem.Allocator.Error!void {
     if (!near_cap.isNearHardCap(lines, ctx.hard_limit)) return;
     try ctx.warnings.append(ctx.allocator, .{
-        .check = "file-size",
+        .check = check_name,
         .file = rel_path,
         .alert = true,
         .message = try near_cap.alertMessage(ctx.allocator, .{
@@ -171,6 +180,7 @@ fn noteNearHardCap(ctx: *FileSizeCtx, rel_path: []const u8, lines: u32) std.mem.
             .hard_cap = ctx.hard_limit,
             .unit = "code lines",
             .remedy = split_remedy,
+            .crossing = ctx.crossing,
         }),
     });
 }
@@ -189,6 +199,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         .hard_limit = cfg.hard_max_file_lines,
         .warnings = &warnings,
         .violations = &violations,
+        .crossing = hysteresis.crossingFor(cfg, check_name),
     };
 
     const dirs_to_check = [_][]const u8{ "src", "test" };

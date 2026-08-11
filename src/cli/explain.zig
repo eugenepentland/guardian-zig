@@ -107,8 +107,16 @@ const entries = [_]Entry{
     \\the hard limit the file also draws one NEAR HARD CAP line, printed even
     \\when the run collapses the advisory tier to a count — the last warning
     \\before a crossing lands mid-feature on whoever adds the next line.
-    \\Exempt: adjust either limit, list a glob in `file_size_exclude`, or disable
-    \\via the top-level `disabled` list.
+    \\Hysteresis (on by default, `[hysteresis]`): crossing the hard cap TRIPS
+    \\this file and cannot be accepted — no env var, no ceiling raise. The trip
+    \\is then remembered below the cap: the entry follows the file down (every
+    \\shrink lands green, even while still over), growth blocks, and the trip
+    \\clears only at the recover line, `recover_pct` under the cap (10000 →
+    \\8000 at the default 20). `guardian-check debt . --live` prints each
+    \\tripped key and what is left to fall.
+    \\Exempt: adjust either limit, list a glob in `file_size_exclude`, drop the
+    \\check from `[hysteresis] checks` (or set `enabled = false`) to restore
+    \\plain ratchet behavior, or disable it via the top-level `disabled` list.
     },
     .{ .name = "boundaries", .text = 
     \\Why: an agent reaches across an architectural layer (core importing utils),
@@ -349,7 +357,13 @@ const entries = [_]Entry{
     \\`hard_max_lines` block. Extract cohesive blocks into named helpers. At 95%
     \\of the hard limit the function draws one NEAR HARD CAP line, printed even
     \\when the run collapses the advisory tier to a count.
-    \\Exempt: adjust either `[function_length]` limit, or disable the check.
+    \\Hysteresis (on by default, `[hysteresis]`): crossing `hard_max_lines`
+    \\TRIPS the function and cannot be accepted. While tripped the entry only
+    \\ever shrinks — growth blocks with no accept to reach for — and the trip
+    \\clears at the recover line, `recover_pct` under the cap (400 → 320 at the
+    \\default 20).
+    \\Exempt: adjust either `[function_length]` limit, drop the check from
+    \\`[hysteresis] checks` to restore plain ratchet behavior, or disable it.
     },
     .{ .name = "nesting-depth", .text = 
     \\Why: deep brace nesting hides the branch an agent forgot to handle.

@@ -33,16 +33,35 @@ const percent: u64 = 100;
 /// can match one token across a collapsed summary and a full replay alike.
 const marker = "NEAR HARD CAP";
 
+/// What crossing this cap would cost, which is the half of the sentence that
+/// decides how urgent the line is. Under hysteresis (`[hysteresis]`) a crossing
+/// cannot be ratcheted at all — the subject then has to shrink to the recover
+/// line to clear — so a pre-trip warning must not imply the usual "cross it and
+/// accept it" escape exists.
+pub const Crossing = enum {
+    blocks,
+    unacceptable,
+
+    fn text(self: Crossing) []const u8 {
+        return switch (self) {
+            .blocks => "crossing blocks the gate",
+            .unacceptable => "crossing cannot be accepted",
+        };
+    }
+};
+
 /// One measurement standing near its hard cap: the value and the cap it is
-/// approaching, the unit they are counted in, the remedy the line ends on, and
-/// the subject within the file when the file path alone doesn't name it (a
-/// function); null for a whole-file metric, whose file is the subject.
+/// approaching, the unit they are counted in, the remedy the line ends on, what
+/// crossing would cost, and the subject within the file when the file path
+/// alone doesn't name it (a function); null for a whole-file metric, whose file
+/// is the subject.
 pub const Measurement = struct {
     value: u64,
     hard_cap: u64,
     unit: []const u8,
     remedy: []const u8,
     subject: ?[]const u8 = null,
+    crossing: Crossing = .blocks,
 };
 
 /// True when `value` has reached the alert share of `hard_cap` without passing
@@ -73,8 +92,18 @@ pub fn alertMessage(arena: Allocator, m: Measurement) Allocator.Error![]const u8
     const gap = if (m.subject == null) "" else "  ";
     return std.fmt.allocPrint(
         arena,
-        "{s}  {s}{s}{d} of {d} {s} ({d}%) — crossing blocks the gate; {s}",
-        .{ marker, subject, gap, m.value, m.hard_cap, m.unit, pctOf(m.value, m.hard_cap), m.remedy },
+        "{s}  {s}{s}{d} of {d} {s} ({d}%) — {s}; {s}",
+        .{
+            marker,
+            subject,
+            gap,
+            m.value,
+            m.hard_cap,
+            m.unit,
+            pctOf(m.value, m.hard_cap),
+            m.crossing.text(),
+            m.remedy,
+        },
     );
 }
 
@@ -103,6 +132,27 @@ test "the alert band opens at 95% of the cap and closes once the cap is crossed"
     // A missing cap can never produce a percentage or an alert (no divide).
     try testing.expect(!isNearHardCap(5, 0));
     try testing.expectEqual(@as(u64, 0), pctOf(5, 0));
+}
+
+// spec: Hysteresis - Says a crossing cannot be accepted in a tripped check's near-cap alert
+
+test "the alert tail names the consequence hysteresis actually attaches to a crossing" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Under hysteresis the usual "cross it, then accept it" escape is gone, so
+    // the last warning before the crossing must not imply it exists.
+    try testing.expectEqualStrings(
+        "NEAR HARD CAP  9612 of 10000 code lines (96%) — crossing cannot be accepted; " ++
+            "split at a cohesive module boundary now",
+        try alertMessage(a, .{
+            .value = 9612,
+            .hard_cap = 10_000,
+            .unit = "code lines",
+            .remedy = "split at a cohesive module boundary now",
+            .crossing = .unacceptable,
+        }),
+    );
 }
 
 // spec: Near Hard Cap - Renders one alert line naming the value, the cap, the share, and the remedy

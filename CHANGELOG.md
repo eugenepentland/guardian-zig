@@ -6,6 +6,26 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Add hysteresis to the hard-cap ratchets — trip → no accept → shrink to
+  recover — on by default for `file-size` and `function-length`
+  (`[hysteresis] enabled/recover_pct/checks`; `line-length` is supported but
+  opt-in). Crossing a hard cap now TRIPS the subject and cannot be accepted:
+  `accept` and `GUARDIAN_UPDATE_SNAPSHOT` refuse to record the new entry or to
+  raise an existing ceiling, and the failure names the recover line instead of
+  an accept command. The trip is then remembered below the cap — the entry
+  follows the advisory measurement down (every shrink lands green, even while
+  still over the cap), growth blocks, and the entry prunes only once the
+  subject reaches the recover line, `recover_pct` under the cap (10000 → 8000
+  at the default 20), printing a `recovered:` line when it does. Measured
+  motivation: one consumer's three largest files sat at 100–103% of the
+  10000-line cap with five ceiling-raising accepts on one file in nine days,
+  and a file that dipped under the cap had its entry pruned and regrew freely.
+  Relocations still transfer (a `git mv`ed tripped file keeps its entry),
+  first-record adoption still grandfathers over-cap subjects, session accept
+  notes never cover a trip, diff-scoped runs never clear one they could not
+  see, and `enabled = false` restores plain ratchet behavior exactly.
+  `debt --live` marks each tripped key with its recover line and what is left
+  to fall.
 - Stop counting comments and blank lines in the `file-size` metric: a code line
   is now a non-blank, non-comment line outside `test { ... }` blocks. At a frozen
   ceiling, deleting doc comments was the cheapest way to buy headroom, so the
