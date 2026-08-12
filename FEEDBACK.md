@@ -5300,3 +5300,18 @@ result. Three gated commits, ~1100 lines across 105 files.
 - good: int_from_float require_guard pointed at the one conversion and the configured guard name (numeric.checkedInt) was discoverable from guardian.toml in seconds.
 - good: file-size held the line on pcb_layout_page (1 line over its frozen ceiling) — forced the blob writer into pcb_rules_json where it belongs, and a genuine one-line reduction instead of an accept.
 - friction: test-no-conditional's "more than one top-level loop" message names a line but not which loop asserts nothing when both DO assert (mask_relief's two via loops each carried expects); merging them was fine, but the message reads as if one loop must be assert-free.
+
+## 2026-08-12 · claude · eda — release-cache false-verification remediation
+
+good: the counting test runner's `guardian/test: N test(s) selected` line was
+the forensic key of the whole incident — a green release test job whose log
+lacks it provably never executed the suite (run-step cache replay). It cleanly
+separated 27 sham release candidates from 115 real ones and is now a hard
+fail-closed gate in eda's prepare-release.sh.
+good: `zig build guardian -- all . --gate --full` ran clean (71 checks, 0
+blocking) on a shell+markdown-only change, and the immediate re-run at commit
+time was a cached no-op — no friction.
+wish: the counting runner could also print the source identity it ran for
+(commit/tree hash) next to the count, so a test log is self-describing when
+audited later; the sham logs had to be tied back to trees via Zig cache
+manifests instead.
