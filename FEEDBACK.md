@@ -5068,3 +5068,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · eda — VTUNE anchor and vertical labels
 
 - **good:** The nesting-depth ratchet caught `renderConnBody` growing from its frozen depth of 6 to 7 when the inline-net anchor was added. Turning the non-spoke case into an early return removed one level from the whole walker; all 71 checks and four focused renderer regressions then passed without accepting new debt.
+
+## 2026-08-12 · codex · eda — CE shared-rail ownership
+
+- **good:** Extending the focused RF-bias SVG test with CE reproduced the visual defect as an exact accounting failure (`expected 8, found 9`) before the fix. Honoring the existing passive-island owner in the shared-rail walker made that test, the legitimate shared-net terminator control, and all 71 checks pass without snapshot acceptance.
