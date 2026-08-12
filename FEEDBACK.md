@@ -5232,3 +5232,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 - **good:** The diff-scoped `bool-ops-per-condition` check caught a five-operator top/bottom obstacle predicate introduced during the render-path optimization; replacing it with an explicit side switch made the cached-courtyard path clearer before commit. The `spec` check also rejected a duplicated Edge.Cuts tag, forcing the concave-outline regression to document its distinct bounding-box failure mode.
 - **good:** The final whole-tree run passed all 71 checks, and exact-commit preparation reused the warm cache to complete the full tests plus ReleaseSafe candidate in four seconds; the post-merge deploy reused that candidate and passed every health probe.
 - **friction:** Green filtered label and silkscreen runs still printed `failed command:` for the successful custom-runner invocation immediately before summaries reporting 20/20 and 29/29 tests passed. The process exit remained the only unambiguous success signal.
+
+## 2026-08-12 · codex · eda — board-text DRC and component-safe perimeter fencing
+
+- **good:** The file-size ratchet rejected a two-line increase to the already-frozen 10,480-line PCB page, which kept layout-text DRC context in the shared reporting seam instead of spreading it through mutation paths. The whole-tree 71-check gate passed with zero blockers, and exact-commit preparation reused the warm candidate cache to complete full tests plus ReleaseSafe build in seven seconds.
+- **friction:** Both green focused regressions again printed `failed command:` for the successful custom test runner and exited 0; this affected the board-text/courtyard and grounded-edge-component fence tests.
