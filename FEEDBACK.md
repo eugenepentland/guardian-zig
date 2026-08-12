@@ -5283,3 +5283,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 - friction: debug-print-ban blocked temporary profiling `std.debug.print` lines during a perf investigation — `zig build` (app) built fine but `zig build test` gated on them, so every focused-test iteration needed the prints stripped or the run read around 7 grouped failures. A sanctioned scratch escape (env var like GUARDIAN_ALLOW_DEBUG_PRINT=1 for uncommitted iteration, still blocking commit) would keep the ban while not taxing profiling loops.
 - friction: the first `zig build` after editing three files reported "diff-scoped … 0 file(s) in scope" and 0 blocking, then an identical later run reported 4 files in scope with 7 blockers — the same uncommitted tree judged differently across runs made the first green look trustworthy when it wasn't. Never diagnosed; possibly cache-key vs dirty-path detection.
 - good: init-hygiene + type-size on the new gate struct forced a `build()` factory + nested PairWorld sub-struct — both genuinely read better than the first draft.
+
+## 2026-08-12 · codex · zig_genetic_cascades — multipath gain-axis clamp
+
+- **good:** The browser-level regression verified the new passband-mean-minus-80-dB gain floor while confirming noise figure retains automatic scaling; the whole-tree Guardian run remained green at 71/71 checks.
