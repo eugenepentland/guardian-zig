@@ -5226,3 +5226,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The diff-scoped and whole-tree 71-check gates kept the new fabricator catalog in a cycle-free leaf module, required an explicit SPEC mapping for named stackup parsing, and isolated the two intentional public catalog functions for snapshot acceptance. Exact-commit preparation passed the full suite and ReleaseSafe build in 231 seconds of concurrent wall time.
 - **friction:** Green filtered catalog tests again printed `failed command:` for the successful custom-runner invocation and then exited 0; this happened on both focused test filters and required checking the process exit rather than trusting the visible status line.
+
+## 2026-08-12 · codex · eda — collision-aware sub-circuit silk labels
+
+- **good:** The diff-scoped `bool-ops-per-condition` check caught a five-operator top/bottom obstacle predicate introduced during the render-path optimization; replacing it with an explicit side switch made the cached-courtyard path clearer before commit. The `spec` check also rejected a duplicated Edge.Cuts tag, forcing the concave-outline regression to document its distinct bounding-box failure mode.
+- **good:** The final whole-tree run passed all 71 checks, and exact-commit preparation reused the warm cache to complete the full tests plus ReleaseSafe candidate in four seconds; the post-merge deploy reused that candidate and passed every health probe.
+- **friction:** Green filtered label and silkscreen runs still printed `failed command:` for the successful custom-runner invocation immediately before summaries reporting 20/20 and 29/29 tests passed. The process exit remained the only unambiguous success signal.
