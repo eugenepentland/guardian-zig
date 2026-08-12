@@ -5268,3 +5268,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The `spec` check immediately caught the unlinked WebGPU/Canvas2D fallback contract; adding the matching SPEC bullet left the diff-scoped and whole-tree 71-check gates green, and exact-commit preparation passed the full suite plus ReleaseSafe build in five seconds.
 - **friction:** The green focused regression again printed `failed command:` for the successful custom runner before exiting 0, and the first ordinary Debug build failed with `manifest_create ReadOnlyFileSystem` until explicit writable Zig cache paths were supplied.
+
+## 2026-08-12 · claude · eda — RF mask relief + 50R via antipads (gerber)
+- good: pub-api-surface failure text printed the exact accept command and a "pure additions, safe to accept" delta verdict — new `via_antipad.default_system_ohms` accepted with zero guesswork, and `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface,type-size zig build` took both snapshots in one run.
+- good: type-size per-item ratchet caught the 8th field landing on BOTH mirrors of the RF class struct (eval/env.zig ClassRf and placement/net_rules.zig Rf) in one report — exactly the pair that must not drift apart.
+- friction: a filtered `zig build test` that fails only on the GATE (2 blocking checks, all 23 selected tests fine) ends with `failed command: … ./test --guardian-filter=…` and `test wall 0.00s`, so the failure reads as a test-binary crash; rerunning that printed command by hand passed everything, costing a confused round-trip before the "2 check(s) would block commit" lines above were recognized as the real cause. Wish the build error named the gate, not the test invocation.
