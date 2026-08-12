@@ -5094,3 +5094,11 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** Focused Debug tests and the native Barracuda sub-block PNG reproduced a label collision that the standalone module image missed because top-level renames lengthened `V_3V3_LMX` / `LO1_SYNTH` and numbered refs. A generic terminal-priority regression now keeps grounded termination and external output rows clear of the centered bias tree; all 71 checks passed without snapshot acceptance.
 - **good:** `prepare-release.sh` verified the exact commit with 386-second full tests and a 317-second ReleaseSafe build in 393 seconds of concurrent wall time. The post-merge hook reused that candidate and completed the health-checked restart in one second.
+
+## 2026-08-12 · claude · eda — pin-binding substrate + observability (two opus subagent branches)
+
+- good: the per-item ratchets steered design instead of blocking it, twice — cognitive-complexity on writeDescribeJson forced a clean writeLoopBinding extraction, and FlatInstance sitting at the 12-field type ceiling forced collapsing three parallel decouple fields into one DecoupleBind struct (12→10), which is the better model anyway.
+- good: the counting test runner's "N test(s) selected by filter" line was used by both agents to prove their filters matched — the empty-filter lie is dead in practice.
+- friction: pcb_layout_page.zig sits exactly at its file-size floor (ceiling 10293, file 10309 after a 16-line feature), so ANY net addition must be paid for by relocating unrelated code out of the file. The relocation (writePadRect → pcb_part_json.zig) was healthy, but the coupling of "add a JSON field" to "find something to evict" is real overhead on a file many features touch.
+- friction: env.Instance at its 26-field ceiling meant the post-build binding-resolution pass could not carry a source span for its ambiguity warning; it had to route through the span-less assertions channel instead. The ceiling did its job (no field creep) but there is no sanctioned way to say "this warning belongs to that form" without a field.
+- good: spec deny_growth + same-commit tagged tests held across a 17-file, +884/−214 commit with 18 new bullets — no drift, one reviewed pub-api snapshot accept.
