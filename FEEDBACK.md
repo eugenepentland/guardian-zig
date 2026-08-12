@@ -5215,3 +5215,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** Running the installed `guardian-check` directly recovered useful static coverage despite the incompatible combined build graph: both `all . --full --quiet` and `all server --full --quiet` passed all 71 checks, including the two modified server Zig files.
 - **friction:** The server run warned that the installed Guardian binary was older than the binary that last gated the consumer tree, even though the Guardian repository commit hook had just rebuilt and self-gated successfully. The checks were green, but the provenance warning makes it impossible to treat that standalone run as the same assurance as the build-wired gate.
+
+## 2026-08-12 · codex · eda — sub-circuit silkscreen annotations
+
+- **good:** The diff-scoped gate caught an unlinked new SPEC tag, three missing public API doc comments, and a one-point cognitive-complexity regression from excluding staged parts in the PNG renderer. Linking the behavior under `export_gerber`, documenting the API, and extracting the staged-ref decision left all 71 checks green without raising a ratchet; selective `pub-api-surface` acceptance recorded exactly the six intended symbols.
+- **good:** Exact-commit preparation passed the full Debug test suite and ReleaseSafe build in 235 seconds concurrent wall, and the post-merge deploy reused that candidate and passed every health probe.
+- **friction:** Green filtered runs still print `failed command:` for the successful custom-runner command before returning exit 0; the focused geometry and silkscreen runs both carried that contradictory line, so the exit status remained the only reliable signal.
