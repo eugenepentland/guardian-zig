@@ -5276,3 +5276,10 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 ## 2026-08-12 · claude · eda — assembly-view mask relief (viewer wave)
 - good: the @embedFile structural guard in serve/assembly_debug.zig caught my viewer edit changing the exact `isPerimeterVia(v)?PH.copper:PH.viaMask` expression it pins — a JS regression a Zig test suite has no other way to see; the failure named the file:line and the literal, fix was one assertion update.
+
+## 2026-08-12 · claude · eda — PCB/assembly page-load perf (fence gate, page cache, sidecar single-parse)
+- good: file-size ratchet on pcb_layout_page.zig (69 over ceiling) pushed a real extraction (new serve/layout_sidecar_json.zig, ~350 lines of pure JSON parsers) instead of a lazy accept — the "reduce it, or accept" fix text made both paths explicit and the ratchet auto-lowering makes the reduction stick.
+- good: GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface kept the named refresh despite the otherwise-red run, so the deliberate new drc.ViaAdditionGate API could be ratified without ratifying anything else.
+- friction: debug-print-ban blocked temporary profiling `std.debug.print` lines during a perf investigation — `zig build` (app) built fine but `zig build test` gated on them, so every focused-test iteration needed the prints stripped or the run read around 7 grouped failures. A sanctioned scratch escape (env var like GUARDIAN_ALLOW_DEBUG_PRINT=1 for uncommitted iteration, still blocking commit) would keep the ban while not taxing profiling loops.
+- friction: the first `zig build` after editing three files reported "diff-scoped … 0 file(s) in scope" and 0 blocking, then an identical later run reported 4 files in scope with 7 blockers — the same uncommitted tree judged differently across runs made the first green look trustworthy when it wasn't. Never diagnosed; possibly cache-key vs dirty-path detection.
+- good: init-hygiene + type-size on the new gate struct forced a `build()` factory + nested PairWorld sub-struct — both genuinely read better than the first draft.
