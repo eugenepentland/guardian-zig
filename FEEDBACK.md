@@ -5064,3 +5064,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · eda — inline VTUNE return
 
 - **good:** The diff-scoped cognitive-complexity check caught the inline direct-lane scan at 27 points during the focused Debug loop; extracting the scan and using an `orelse` assignment brought the renderer back under the cap, after which all 71 checks, the targeted layout regressions, and the native PNG review passed without snapshot acceptance.
+
+## 2026-08-12 · codex · eda — VTUNE anchor and vertical labels
+
+- **good:** The nesting-depth ratchet caught `renderConnBody` growing from its frozen depth of 6 to 7 when the inline-net anchor was added. Turning the non-spoke case into an early return removed one level from the whole walker; all 71 checks and four focused renderer regressions then passed without accepting new debt.
