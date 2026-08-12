@@ -5287,3 +5287,10 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · zig_genetic_cascades — multipath gain-axis clamp
 
 - **good:** The browser-level regression verified the new passband-mean-minus-80-dB gain floor while confirming noise figure retains automatic scaling; the whole-tree Guardian run remained green at 71/71 checks.
+
+## 2026-08-12 · codex · eda — three-round rg/ZLS router evaluation
+
+- **good:** Across six isolated feature implementations, the whole-tree commit gate consistently caught unlinked spec tags, public-API additions, and frozen file-size growth before handoff; every final experiment commit passed all 71 blocking checks without accepting a baseline.
+- **friction:** The same exploratory assembly feature paid the whole-tree commit-hook cost across six branches and several narrow repair commits. Public helper experiments and three-line edits to the frozen PCB page repeatedly forced API removal or mechanical line reduction even though every branch was explicitly experimental and unmerged.
+- **wish:** Add a branch-local dry-run/report mode that computes the exact commit-gate findings without staging/committing, plus an enforced merge-boundary check that prevents experimental exemptions from reaching main. This would preserve the production guarantee while removing failed-commit attempts from controlled workflow experiments.
+- **friction:** Green filtered Debug runs continued to print `failed command:` for the successful custom test runner before exiting 0; this affected all final A/B validations and made the process exit status the only trustworthy success signal.
