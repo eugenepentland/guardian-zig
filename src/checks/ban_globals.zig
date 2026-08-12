@@ -6,6 +6,7 @@
 //! singleton (guardian's own threadlocal Reporter default rides one).
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
@@ -55,7 +56,7 @@ pub fn analyzeContent(
 }
 
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
-    const z = try ctx.allocator.dupeZ(u8, content);
+    const z = try ctx.allocator.dupeSentinel(u8, content, 0);
     var tok = std.zig.Tokenizer.init(z);
     var saw_pub = false;
     var in_test = false;
@@ -179,9 +180,9 @@ test "a counter global in a measurement path passes the local run and fails the 
     // A throwaway project holding one instrumented file: exactly the shape of a
     // profiling session (`pub var` per-cause counters in a hot module).
     const project = "zig-cache/measurement-ban-globals";
-    var root = try std.fs.cwd().makeOpenPath(project ++ "/src", .{});
+    var root = try fs.cwd().makeOpenPath(project ++ "/src", .{});
     defer root.close();
-    defer std.fs.cwd().deleteTree(project) catch |e|
+    defer fs.cwd().deleteTree(project) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ project, @errorName(e) });
     try root.writeFile(.{ .sub_path = "hot.zig", .data = "pub var dbg_hits: usize = 0;\n" });
 

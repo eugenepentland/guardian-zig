@@ -201,7 +201,7 @@ const placeholder_needles = [_][]const u8{
 /// True if `s` is obviously a placeholder (placeholder word, template/angle marker, or whitespace).
 fn looksLikePlaceholder(s: []const u8) bool {
     for (placeholder_needles) |needle| {
-        if (std.ascii.indexOfIgnoreCase(s, needle) != null) return true;
+        if (std.ascii.findIgnoreCase(s, needle) != null) return true;
     }
     for (s) |c| {
         if (isPlaceholderMarker(c)) return true;
@@ -231,7 +231,7 @@ fn shannonEntropy(s: []const u8) f64 {
     if (s.len == 0) return 0;
     // Past the guard, len is non-zero, so it is a safe per-symbol probability divisor.
     std.debug.assert(s.len > 0);
-    var counts = [_]u32{0} ** 256;
+    var counts: [256]u32 = @splat(0);
     for (s) |c| counts[c] += 1;
     const len_f: f64 = @floatFromInt(s.len);
     var bits: f64 = 0;
@@ -254,7 +254,7 @@ fn isEntropySecret(value: []const u8) bool {
 /// Case-insensitive: true if `name` contains a secret-bearing substring.
 fn isSecretName(name: []const u8) bool {
     for (secret_name_needles) |needle| {
-        if (std.ascii.indexOfIgnoreCase(name, needle) != null) return true;
+        if (std.ascii.findIgnoreCase(name, needle) != null) return true;
     }
     return false;
 }
@@ -306,7 +306,7 @@ pub fn analyzeContent(
         .violations = &violations,
         .fixture_path = isFixturePath(rel_path),
     };
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     try scanTree(&ctx, &tree);
     return violations.toOwnedSlice(allocator);
 }
@@ -453,7 +453,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     if (entry.tree) |t| {
         try scanTree(&local, t);
     } else {
-        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .{});
         try scanTree(&local, &tree);
     }
 }

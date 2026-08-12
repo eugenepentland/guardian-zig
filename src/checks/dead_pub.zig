@@ -4,6 +4,7 @@
 //! references so a decl kept alive by nothing but its own test still reads dead.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
@@ -87,7 +88,7 @@ fn tallyIdentifiers(
     counts: *std.StringHashMapUnmanaged(u32),
     skip_tests: bool,
 ) !void {
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     tallyTree(&tree, counts, skip_tests);
 }
 
@@ -167,7 +168,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     // build.zig is a Zig file at the project root — include its references
     // so consumer-facing build helpers aren't flagged dead.
     const build_path = try std.fmt.allocPrint(allocator, "{s}/build.zig", .{project_dir});
-    if (std.fs.cwd().readFileAllocOptions(allocator, build_path, 1024 * 1024, null, .of(u8), 0)) |content| {
+    if (fs.cwd().readFileAllocOptions(allocator, build_path, 1024 * 1024, null, .of(u8), 0)) |content| {
         try tallyIdentifiers(allocator, content, &counts, false);
     } else |_| {}
 

@@ -371,7 +371,7 @@ test "visit quotes the file's own catch shape in the violation" {
 
     // A file with no conforming catch to point at keeps the plain message.
     violations.clearRetainingCapacity();
-    try visit(@ptrCast(&ctx), .{ .rel_path = "src/y.zig", .content = 
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/y.zig", .content =
         \\fn x() void {
         \\    list.append(item) catch {};
         \\}

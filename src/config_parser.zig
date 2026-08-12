@@ -8,6 +8,7 @@
 //! default the operator did not ask for.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const config = @import("config.zig");
 const reporter = @import("reporter.zig");
@@ -85,7 +86,7 @@ const lock_against_key = config_policy.lock_against_key;
 /// `guardian.toml:line: …` diagnostic, so a typo can't silently drop config.
 pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
     const path = try std.fmt.allocPrint(allocator, "{s}/guardian.toml", .{dir});
-    const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |e| switch (e) {
+    const content = fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return .{}, // zero-config: absent is fine
         else => {
             // reporter.fail already prefixes "guardian: " — don't double it.
@@ -758,8 +759,8 @@ fn isPlainRelativePath(path: []const u8) bool {
 }
 
 fn noteMutationLine(lines: *MutationLines, key: []const u8, line_no: u32) void {
-    inline for (std.meta.fields(MutationLines)) |field| {
-        if (std.mem.eql(u8, key, field.name)) @field(lines, field.name) = line_no;
+    inline for (@typeInfo(MutationLines).@"struct".field_names) |field_name| {
+        if (std.mem.eql(u8, key, field_name)) @field(lines, field_name) = line_no;
     }
 }
 
@@ -1873,9 +1874,9 @@ test "parse [[allow]] per-check path overrides" {
         \\paths = ["src/reporter.zig"]
     ;
     const cfg = try parse(arena.allocator(), content);
-    const fs = cfg.extraAllowed("ban-fs");
-    try std.testing.expectEqual(@as(usize, 2), fs.len);
-    try std.testing.expectEqualStrings("src/walk*", fs[0]);
+    const fs_allowed = cfg.extraAllowed("ban-fs");
+    try std.testing.expectEqual(@as(usize, 2), fs_allowed.len);
+    try std.testing.expectEqualStrings("src/walk*", fs_allowed[0]);
     try std.testing.expectEqualStrings("src/reporter.zig", cfg.extraAllowed("debug-print-ban")[0]);
     try std.testing.expectEqual(@as(usize, 0), cfg.extraAllowed("nonexistent").len);
 }
@@ -2020,10 +2021,10 @@ test "load hard-fails when guardian.toml exists but cannot be read" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/config-unreadable-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
+    fs.cwd().deleteTree(dir) catch {};
     // A *directory* named guardian.toml exists but can't be read as a file.
-    try std.fs.cwd().makePath(dir ++ "/guardian.toml");
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cfg cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir ++ "/guardian.toml");
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("cfg cleanup: {s}", .{@errorName(e)});
     // load prints a diagnostic; capture it so the test log stays clean.
     var cap: reporter.Capture = .{ .allocator = a };
     defer cap.deinit();
@@ -2046,6 +2047,7 @@ const config_fuzz_corpus = [_][]const u8{
     "spec_file = \"x",
     "[[allow]]\ncheck =",
 };
+const fuzz_input_bytes = 64 * 1024;
 
 /// One fuzz iteration for the guardian.toml parser: arbitrary input bytes must
 /// never panic or overflow. A `ParseError` is a valid outcome — the invariant
@@ -2053,7 +2055,9 @@ const config_fuzz_corpus = [_][]const u8{
 /// returns UnknownSection/UnknownKey it has also populated the diagnostic (a
 /// non-zero line and a non-empty message), so a misconfigured gate always
 /// reports where. OOM from a giant fuzzer input is not a parser bug.
-fn fuzzParseInto(allocator: Allocator, input: []const u8) anyerror!void {
+fn fuzzParseInto(allocator: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var input_buffer: [fuzz_input_bytes]u8 = undefined;
+    const input = input_buffer[0..smith.slice(&input_buffer)];
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     var diag: Diagnostic = .{};

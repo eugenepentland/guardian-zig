@@ -141,7 +141,7 @@ pub fn active(ctx: *const types.RunCtx) bool {
 /// silently widen it. A pattern with a wildcard therefore matches nothing (the
 /// parser rejects one outright, so this is only the second line of defence).
 pub fn pathCovers(pattern: []const u8, rel_path: []const u8) bool {
-    const prefix = std.mem.trimRight(u8, pattern, "/");
+    const prefix = std.mem.trimEnd(u8, pattern, "/");
     if (prefix.len == 0) return false;
     if (std.mem.eql(u8, prefix, rel_path)) return true;
     if (rel_path.len <= prefix.len) return false;

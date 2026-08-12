@@ -13,9 +13,11 @@
 //! `all` suite or be reachable as a gate on a consumer's code.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const source_digest = @import("../source_digest.zig");
+const wiring = @import("../wiring.zig");
 const build_options = @import("build_options");
 
 const print = reporter.detail;
@@ -37,7 +39,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var root = openRoot(ctx.project_dir) catch return reportUnreadable(ctx.project_dir);
     defer root.close();
 
-    const actual = source_digest.compute(ctx.allocator, root) catch |e| switch (e) {
+    const actual = source_digest.compute(wiring.io(), ctx.allocator, root.inner) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.SourceRootUnreadable => return reportUnreadable(ctx.project_dir),
     };
@@ -51,8 +53,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
 /// Opens the Guardian source root, collapsing every reason it cannot be opened
 /// into the one error whose remedy the report knows.
-fn openRoot(path: []const u8) error{SourceRootUnreadable}!std.fs.Dir {
-    return std.fs.cwd().openDir(path, .{}) catch error.SourceRootUnreadable;
+fn openRoot(path: []const u8) error{SourceRootUnreadable}!fs.Dir {
+    return fs.cwd().openDir(path, .{}) catch error.SourceRootUnreadable;
 }
 
 /// True when this binary was built from exactly the source that produced

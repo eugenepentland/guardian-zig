@@ -85,7 +85,7 @@ pub fn imports(arena: Allocator, source: []const u8) []const Import {
 
 fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
     var result: std.ArrayList(Import) = .empty;
-    const z = try arena.dupeZ(u8, source);
+    const z = try arena.dupeSentinel(u8, source, 0);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();
@@ -108,8 +108,8 @@ fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
 
 /// AST-based public function discovery.
 pub fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn {
-    const z = try arena.dupeZ(u8, source);
-    var tree = try Ast.parse(arena, z, .zig);
+    const z = try arena.dupeSentinel(u8, source, 0);
+    var tree = try Ast.parse(arena, z, .{});
     return pubFnsFromTree(arena, &tree);
 }
 
@@ -178,8 +178,8 @@ pub const fnDeclInfosFromTree = containers.fnDeclInfosFromTree;
 
 /// All top-level functions (pub and private), with parameter counts.
 pub fn allFns(arena: Allocator, source: []const u8) AstError![]const FnInfo {
-    const z = try arena.dupeZ(u8, source);
-    var tree = try Ast.parse(arena, z, .zig);
+    const z = try arena.dupeSentinel(u8, source, 0);
+    var tree = try Ast.parse(arena, z, .{});
     return allFnsFromTree(arena, &tree);
 }
 
@@ -326,7 +326,7 @@ test "the *FromTree variants operate on a shared parsed tree" {
         \\pub fn top(a2: i32) void { _ = a2; }
         \\pub const V = 1;
     ;
-    var tree = try Ast.parse(a, source, .zig);
+    var tree = try Ast.parse(a, source, .{});
     const t = &tree;
     try std.testing.expect((try collectDecls(a, t)).len >= 3);
     try std.testing.expect((try pubFnsFromTree(a, t)).len == 2);

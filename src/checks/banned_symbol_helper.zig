@@ -142,7 +142,7 @@ pub fn analyzeRecords(
     content: [:0]const u8,
     opts: ScanOpts,
 ) Allocator.Error![]const reporter.Violation {
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     return analyzeTree(allocator, rel_path, &tree, opts);
 }
 
@@ -334,7 +334,7 @@ fn fileVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     if (entry.tree) |t| {
         try scanTree(&local, t);
     } else {
-        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .{});
         try scanTree(&local, &tree);
     }
 }
@@ -469,7 +469,7 @@ test "analyzeTree scans a pre-parsed tree identically to analyzeRecords" {
     ;
     // The whole point of the entry point: the caller already parsed this file
     // (the shared AST index did), so the scan must not need a second parse.
-    var tree = try std.zig.Ast.parse(a, content, .zig);
+    var tree = try std.zig.Ast.parse(a, content, .{});
     const from_tree = try analyzeTree(a, "src/x.zig", &tree, .{ .rules = &rules });
     const from_source = try analyzeRecords(a, "src/x.zig", content, .{ .rules = &rules });
     try std.testing.expectEqual(from_source.len, from_tree.len);

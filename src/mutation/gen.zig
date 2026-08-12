@@ -58,7 +58,7 @@ pub const GenResult = struct {
 /// are emitted in token order, so identical input yields identical output.
 /// Sites on a `// mutate-ok` line are recorded in `waived_lines` and skipped.
 pub fn generate(allocator: Allocator, rel_path: []const u8, content: []const u8) Allocator.Error!GenResult {
-    const z = try allocator.dupeZ(u8, content);
+    const z = try allocator.dupeSentinel(u8, content, 0);
     var out: std.ArrayList(Mutant) = .empty;
     var waived: std.ArrayList(u32) = .empty;
     var tok = std.zig.Tokenizer.init(z);

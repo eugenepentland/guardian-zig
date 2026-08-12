@@ -1,5 +1,9 @@
 # Guardian for Zig
 
+Toolchain: Zig `0.17.0-dev.1683+5ceec001b` exactly, matching
+`build.zig.zon`. Zig 0.17 optimize spellings are lowercase (`debug`, `safe`,
+`fast`, and `small`), including `-Doptimize=safe` on the command line.
+
 ## Usage Feedback Log
 
 `FEEDBACK.md` (repo root) is the append-only log where agents record friction,
@@ -92,20 +96,20 @@ test_command = "env GUARDIAN_TEST_MAX_WALL_SECS=120 zig build test"
 `testTier` strips a leading `env NAME=VALUE …` before classifying, so that
 still counts as the whole default suite and draws no advisory.
 
-**The installed `guardian-check` is ReleaseSafe by default** — a plain
+**The installed `guardian-check` is `safe` by default** — a plain
 `zig build` (no `-Doptimize`) builds `zig-out/bin/guardian-check` optimized,
-because consumer projects (eda) run it as their commit gate and a Debug build
+because consumer projects (eda) run it as their commit gate and a `debug` build
 turns that ~1.1 s whole-tree gate into ~42 s, silently, for every agent commit
-until someone notices (measured 2026-07-26). An explicit `-Doptimize=Debug`
-still produces a Debug binary for debugger work; the test suite keeps the
-plain Debug default so its compile stays fast. If commits in a consumer repo
+until someone notices (measured 2026-07-26). An explicit `-Doptimize=debug`
+still produces a debug binary for debugger work; the test suite keeps the
+plain debug default so its compile stays fast. If commits in a consumer repo
 start reporting a gate of tens of seconds, check this binary's size first
-(ReleaseSafe ≈ 10 MB, Debug ≈ 55 MB).
+(`safe` ≈ 10 MB, `debug` ≈ 55 MB).
 
 **Consumers reuse that binary instead of recompiling it.** `addAllChecks`
 prefers `<guardian dep root>/zig-out/bin/guardian-check` over a from-source
 compile, because a consumer with a private per-worktree Zig cache otherwise pays
-a full cold ReleaseSafe compile of an unchanged tool before any of its own code
+a full cold `safe` compile of an unchanged tool before any of its own code
 builds (measured on a minimal consumer, fresh `--cache-dir`: 67.9 s → 11.3 s).
 Selection order: self-hosting always compiles, then `GUARDIAN_PREBUILT=off|0`
 compiles, then `GUARDIAN_PREBUILT=<path>` runs that binary, then the
@@ -187,7 +191,7 @@ const guardian_dep = b.dependency("guardian", .{ .target = target, .optimize = o
 const check_exe = guardian_dep.artifact("guardian-check");
 
 // Format check
-const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
+const fmt_check = b.addFmt(.{ .paths = &.{b.path("src")}, .check = true });
 b.getInstallStep().dependOn(&fmt_check.step);
 
 // One call wires every hard-block check into the install step.

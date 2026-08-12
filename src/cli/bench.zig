@@ -21,6 +21,8 @@
 //! guardian.toml grants it the `ban-time` allow, as it does the DORA sink.
 
 const std = @import("std");
+const wiring = @import("../wiring.zig");
+const fs = @import("../fs.zig");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const config_mod = @import("../config.zig");
@@ -225,7 +227,7 @@ fn ledgerPath(ctx: *types.RunCtx) Allocator.Error![]const u8 {
 /// itself is the pure, unit-tested `benchmark.isoDate`.
 fn today(arena: Allocator) Allocator.Error![]const u8 {
     var buf: [benchmark.iso_date_buf_len]u8 = undefined;
-    const secs = std.math.cast(u64, std.time.timestamp()) orelse 0;
+    const secs = std.math.cast(u64, std.Io.Clock.real.now(wiring.io()).toSeconds()) orelse 0;
     return arena.dupe(u8, benchmark.isoDate(&buf, secs));
 }
 
@@ -324,7 +326,7 @@ test "report is concise by default and verbose on request" {
     defer arena.deinit();
     const a = arena.allocator();
     const project = "zig-cache/bench-report-test";
-    defer std.fs.cwd().deleteTree(project) catch |e|
+    defer fs.cwd().deleteTree(project) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ project, @errorName(e) });
     var cap: reporter.Capture = .{ .allocator = a };
     defer cap.deinit();

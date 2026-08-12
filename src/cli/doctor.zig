@@ -1,6 +1,7 @@
 //! Read-only project-health diagnostics for Guardian metadata and integration.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const types = @import("types.zig");
 const registry = @import("registry.zig");
 const reporter = @import("../reporter.zig");
@@ -55,7 +56,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
 fn inspectBaselines(ctx: *types.RunCtx, findings: *Findings) !void {
     const path = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian/baselines", .{ctx.project_dir});
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |e| switch (e) {
+    var dir = fs.cwd().openDir(path, .{ .iterate = true }) catch |e| switch (e) {
         error.FileNotFound => return,
         else => {
             integrity(findings, "cannot read baseline directory {s}: {s}", .{ path, @errorName(e) });
@@ -84,7 +85,7 @@ fn inspectBaselines(ctx: *types.RunCtx, findings: *Findings) !void {
 
 fn inspectSnapshots(ctx: *types.RunCtx, findings: *Findings) !void {
     const path = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian", .{ctx.project_dir});
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch |e| switch (e) {
+    var dir = fs.cwd().openDir(path, .{ .iterate = true }) catch |e| switch (e) {
         error.FileNotFound => return,
         else => {
             integrity(findings, "cannot read metadata directory {s}: {s}", .{ path, @errorName(e) });
@@ -108,7 +109,7 @@ fn inspectSnapshots(ctx: *types.RunCtx, findings: *Findings) !void {
 }
 
 fn inspectHeader(allocator: std.mem.Allocator, path: []const u8, findings: *Findings) !void {
-    const content = std.fs.cwd().readFileAlloc(allocator, path, max_metadata_bytes) catch |e| {
+    const content = fs.cwd().readFileAlloc(allocator, path, max_metadata_bytes) catch |e| {
         if (e == error.OutOfMemory) return error.OutOfMemory;
         integrity(findings, "cannot read recognized metadata {s}: {s}", .{ path, @errorName(e) });
         return;
@@ -120,19 +121,19 @@ fn inspectHeader(allocator: std.mem.Allocator, path: []const u8, findings: *Find
 
 fn inspectMutationAdoption(ctx: *types.RunCtx, findings: *Findings) !void {
     const config_path = try std.fmt.allocPrint(ctx.allocator, "{s}/guardian.toml", .{ctx.project_dir});
-    const cfg = std.fs.cwd().readFileAlloc(ctx.allocator, config_path, 1024 * 1024) catch |e| blk: {
+    const cfg = fs.cwd().readFileAlloc(ctx.allocator, config_path, 1024 * 1024) catch |e| blk: {
         if (e == error.OutOfMemory) return error.OutOfMemory;
         break :blk "";
     };
     const marker = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian/cache/last-mutate.jsonl", .{ctx.project_dir});
     const explicitly_configured = std.mem.indexOf(u8, cfg, "[mutation]") != null;
     const previously_run = blk: {
-        std.fs.cwd().access(marker, .{}) catch break :blk false;
+        fs.cwd().access(marker, .{}) catch break :blk false;
         break :blk true;
     };
     if (!explicitly_configured and !previously_run) return;
     const ratchet = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian/mutation.txt", .{ctx.project_dir});
-    std.fs.cwd().access(ratchet, .{}) catch {
+    fs.cwd().access(ratchet, .{}) catch {
         advisory(
             findings,
             "mutation is adopted but its ratchet is missing; run `guardian-check mutate --full {s}`",
@@ -200,7 +201,7 @@ fn shortSha(sha: []const u8) []const u8 {
 
 fn inspectIntegration(ctx: *types.RunCtx, findings: *Findings) !void {
     const zon_path = try std.fmt.allocPrint(ctx.allocator, "{s}/build.zig.zon", .{ctx.project_dir});
-    const zon = std.fs.cwd().readFileAlloc(ctx.allocator, zon_path, 4 * 1024 * 1024) catch |e| {
+    const zon = fs.cwd().readFileAlloc(ctx.allocator, zon_path, 4 * 1024 * 1024) catch |e| {
         if (e == error.OutOfMemory) return error.OutOfMemory;
         return;
     };
@@ -248,7 +249,7 @@ fn inspectOneCache(ctx: *types.RunCtx, findings: *Findings, leaf: []const u8, wa
 }
 
 fn dirSize(allocator: std.mem.Allocator, path: []const u8) std.mem.Allocator.Error!?u64 {
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+    var dir = fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
     defer dir.close();
     var total: u64 = 0;
     var it = dir.iterate();
@@ -339,8 +340,8 @@ test "pending accepts read as live at HEAD and expired anywhere else" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/doctor-pending-accepts";
-    std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test setup: {s}", .{@errorName(e)});
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test setup: {s}", .{@errorName(e)});
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test cleanup: {s}", .{@errorName(e)});
     var cap: reporter.Capture = .{ .allocator = a };
     defer cap.deinit();
     const prior = reporter.default;
@@ -371,9 +372,9 @@ test "a journal naming a file this checkout lacks reads as a leftover to delete"
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/doctor-mutation-journal";
-    std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test setup: {s}", .{@errorName(e)});
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test cleanup: {s}", .{@errorName(e)});
-    try std.fs.cwd().makePath(dir ++ "/src");
+    fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test setup: {s}", .{@errorName(e)});
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("doctor test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir ++ "/src");
     var cap: reporter.Capture = .{ .allocator = a };
     defer cap.deinit();
     const prior = reporter.default;
@@ -389,7 +390,7 @@ test "a journal naming a file this checkout lacks reads as a leftover to delete"
 
     const rel = "src/gone.zig";
     const abs = try std.fs.path.join(a, &.{ dir, rel });
-    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = "return a < b;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = abs, .data = "return a < b;\n" });
     journal.begin(a, dir, .{
         .rel_path = rel,
         .abs_path = abs,
@@ -398,7 +399,7 @@ test "a journal naming a file this checkout lacks reads as a leftover to delete"
         .start = 9,
         .end = 10,
     });
-    try std.fs.cwd().deleteFile(abs);
+    try fs.cwd().deleteFile(abs);
     try inspectMutationJournal(&ctx, &findings);
     try std.testing.expectEqual(@as(usize, 1), findings.warnings);
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "stale mutation journal naming src/gone.zig") != null);

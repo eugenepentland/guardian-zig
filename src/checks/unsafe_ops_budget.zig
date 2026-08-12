@@ -38,7 +38,7 @@ const unsafe_builtins = [_][]const u8{
 /// `var x: T = undefined;` declaration-init — the idiomatic buffer setup —
 /// uncounted.
 const Counts = struct {
-    builtins: [unsafe_builtins.len]u32 = [_]u32{0} ** unsafe_builtins.len,
+    builtins: [unsafe_builtins.len]u32 = @splat(0),
     undefined_reassign: u32 = 0,
 
     fn add(self: *Counts, other: Counts) void {
@@ -134,7 +134,7 @@ fn tallyBuiltin(c: *Counts, slice: []const u8) void {
 fn countFromContent(allocator: std.mem.Allocator, content: [:0]const u8) std.mem.Allocator.Error!Counts {
     // Propagate OOM: zeroed counts on allocation failure would let a new unsafe
     // op or undefined re-assignment slip past the snapshot budget.
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     return countFromTree(&tree);
 }
 

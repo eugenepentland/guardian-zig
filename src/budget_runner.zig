@@ -3,7 +3,9 @@
 //! the direct process, while wait4-backed resource statistics retain peak RSS.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const reporter = @import("reporter.zig");
+const wiring = @import("wiring.zig");
 
 const Allocator = std.mem.Allocator;
 const watchdog_tick_ns: u64 = 100 * std.time.ns_per_ms;
@@ -18,7 +20,7 @@ pub const Result = struct {
 
 /// Errors raised while starting the clock, spawning/waiting for the child, or
 /// creating its deadline watchdog thread.
-pub const RunError = std.time.Timer.Error || std.process.Child.WaitError || std.Thread.SpawnError;
+pub const RunError = std.process.SpawnError || std.process.Child.WaitError || std.Thread.SpawnError;
 
 /// Runs `argv` directly in `cwd`, with inherited output. A non-zero
 /// `timeout_ns` kills the whole process group at the deadline. Errors are
@@ -30,31 +32,35 @@ pub fn run(
     cwd: []const u8,
     timeout_ns: u64,
 ) RunError!Result {
-    var timer = try std.time.Timer.start();
-    var child = std.process.Child.init(argv, allocator);
-    child.cwd = cwd;
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-    child.pgid = 0;
-    child.request_resource_usage_statistics = true;
-    try child.spawn();
+    _ = allocator;
+    const io = wiring.io();
+    const started = std.Io.Clock.awake.now(io);
+    var child = try std.process.spawn(io, .{
+        .argv = argv,
+        .cwd = .{ .path = cwd },
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+        .pgid = 0,
+        .request_resource_usage_statistics = true,
+    });
 
-    var watchdog: Watchdog = .{ .pgid = child.id, .timeout_ns = timeout_ns };
+    var watchdog: Watchdog = .{ .pgid = child.id.?, .timeout_ns = timeout_ns };
     var thread: ?std.Thread = null;
     errdefer {
-        watchdog.finished.set();
-        _ = child.kill() catch |e| reporter.detail("  external gate cleanup failed: {s}\n", .{@errorName(e)});
+        watchdog.finished.set(io);
+        child.kill(io);
         if (thread) |t| t.join();
     }
-    if (timeout_ns > 0) thread = try std.Thread.spawn(.{}, Watchdog.watch, .{&watchdog});
+    if (!builtin.single_threaded and timeout_ns > 0)
+        thread = try std.Thread.spawn(.{}, Watchdog.watch, .{&watchdog});
 
-    const term = try child.wait();
-    watchdog.finished.set();
+    const term = try child.wait(io);
+    watchdog.finished.set(io);
     if (thread) |t| t.join();
     return .{
         .term = term,
-        .elapsed_ns = timer.read(),
+        .elapsed_ns = @intCast(started.untilNow(io, .awake).toNanoseconds()),
         .timed_out = watchdog.fired.load(.monotonic),
         .max_rss_bytes = child.resource_usage_statistics.getMaxRss(),
     };
@@ -63,14 +69,14 @@ pub fn run(
 const Watchdog = struct {
     pgid: std.process.Child.Id,
     timeout_ns: u64,
-    finished: std.Thread.ResetEvent = .{},
+    finished: std.Io.Event = .unset,
     fired: std.atomic.Value(bool) = .init(false),
 
     fn watch(self: *Watchdog) void {
         var waited: u64 = 0;
         while (waited < self.timeout_ns) {
             const tick = @min(watchdog_tick_ns, self.timeout_ns - waited);
-            self.finished.timedWait(tick) catch {
+            self.finished.waitTimeout(wiring.io(), timeoutNs(tick)) catch {
                 waited += tick;
                 continue;
             };
@@ -81,6 +87,13 @@ const Watchdog = struct {
             reporter.detail("  external gate process-group kill failed: {s}\n", .{@errorName(e)});
     }
 };
+
+fn timeoutNs(ns: u64) std.Io.Timeout {
+    return .{ .duration = .{
+        .clock = .awake,
+        .raw = .fromNanoseconds(@intCast(ns)),
+    } };
+}
 
 test "supervised external command is killed at its wall-time ceiling" {
     const result = try run(std.testing.allocator, &.{ "sleep", "1" }, ".", 10 * std.time.ns_per_ms);

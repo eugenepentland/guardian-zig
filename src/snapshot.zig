@@ -4,6 +4,7 @@
 //! snapshot_helper.zig.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 
 pub const magic_prefix = "# guardian-snapshot v";
@@ -62,7 +63,7 @@ pub const ReadError = error{
     BadFormat,
     VersionMismatch,
     ConflictMarkers,
-} || std.mem.Allocator.Error || std.fs.File.OpenError || std.posix.ReadError;
+} || std.mem.Allocator.Error || fs.File.OpenError || fs.File.ReadError || error{StreamTooLong};
 
 /// Parses the magic header line, validating the prefix and version.
 /// Returns BadFormat on a missing/malformed header and VersionMismatch
@@ -87,7 +88,7 @@ fn parseVersion(header: ?[]const u8) ReadError!u32 {
 /// if the version doesn't match expected_version, ConflictMarkers when the
 /// file is an unresolved merge.
 pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot {
-    const content = std.fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch |e| switch (e) {
+    const content = fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return error.Missing,
         // Pass through real I/O / OOM errors — only a bad header is BadFormat,
         // so "your snapshot is corrupt" isn't reported for a permission error.
@@ -121,8 +122,8 @@ pub fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadE
 }
 
 /// Errors that an atomic snapshot replacement may propagate.
-pub const WriteError = std.fs.AtomicFile.InitError ||
-    std.fs.AtomicFile.FinishError ||
+pub const WriteError = fs.AtomicFile.InitError ||
+    fs.AtomicFile.FinishError ||
     std.mem.Allocator.Error ||
     error{WriteFailed};
 
@@ -138,7 +139,7 @@ pub fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!voi
 /// file — presort and call this. `write` is `sort` + `writePresorted`.
 pub fn writePresorted(path: []const u8, version: u32, lines: []const []const u8) WriteError!void {
     var buf: [4096]u8 = undefined;
-    var atomic = try std.fs.cwd().atomicFile(path, .{ .make_path = true, .write_buffer = &buf });
+    var atomic = try fs.cwd().atomicFile(path, .{ .make_path = true, .write_buffer = &buf });
     defer atomic.deinit();
     const w = &atomic.file_writer.interface;
     try w.print("{s}{d}\n", .{ magic_prefix, version });
@@ -175,7 +176,7 @@ pub fn writePresortedChecked(arena: Allocator, path: []const u8, version: u32, l
 /// on disk before replacing it.
 fn render(arena: Allocator, version: u32, lines: []const []const u8) Allocator.Error![]u8 {
     var buf: std.ArrayList(u8) = .empty;
-    try buf.writer(arena).print("{s}{d}\n", .{ magic_prefix, version });
+    try buf.appendSlice(arena, try std.fmt.allocPrint(arena, "{s}{d}\n", .{ magic_prefix, version }));
     for (lines) |line| {
         try buf.appendSlice(arena, line);
         try buf.append(arena, '\n');
@@ -186,7 +187,7 @@ fn render(arena: Allocator, version: u32, lines: []const []const u8) Allocator.E
 /// True when the file at `path` exists and holds exactly `bytes`. A missing or
 /// unreadable file is "not equal" (so the write proceeds), never an error.
 fn onDiskEquals(arena: Allocator, path: []const u8, bytes: []const u8) bool {
-    const existing = std.fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch return false;
+    const existing = fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch return false;
     return std.mem.eql(u8, existing, bytes);
 }
 
@@ -254,7 +255,7 @@ test "write then read round-trips" {
     const tmp_path = "zig-cache/test-snapshot.txt";
     var lines = [_][]const u8{ "zebra", "apple", "mango" };
     try write(tmp_path, 1, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+    defer fs.cwd().deleteFile(tmp_path) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     const snap = try read(a, tmp_path, 1);
@@ -275,7 +276,7 @@ test "writePresorted keeps the caller's line order" {
     // Deliberately non-lexical order: writePresorted must not reorder it.
     const lines = [_][]const u8{ "130 zebra", "95 apple" };
     try writePresorted(tmp_path, 2, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+    defer fs.cwd().deleteFile(tmp_path) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     const snap = try read(a, tmp_path, 2);
@@ -292,8 +293,8 @@ test "writeChecked rewrites only when the content differs" {
     const a = arena.allocator();
 
     const tmp_path = "zig-cache/test-snapshot-checked.txt";
-    std.fs.cwd().deleteFile(tmp_path) catch {};
-    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+    fs.cwd().deleteFile(tmp_path) catch {};
+    defer fs.cwd().deleteFile(tmp_path) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     // First write of a missing file reports a real write.
@@ -303,10 +304,10 @@ test "writeChecked rewrites only when the content differs" {
     // Re-writing the SAME set (even given in a different order — writeChecked
     // sorts first) renders byte-identical content, so the file is left untouched
     // and nothing is reported as written: the content-identical short-circuit.
-    const before = try std.fs.cwd().readFileAlloc(a, tmp_path, 4096);
+    const before = try fs.cwd().readFileAlloc(a, tmp_path, 4096);
     var same = [_][]const u8{ "alpha", "beta" };
     try std.testing.expect(!try writeChecked(a, tmp_path, 1, &same));
-    const after = try std.fs.cwd().readFileAlloc(a, tmp_path, 4096);
+    const after = try fs.cwd().readFileAlloc(a, tmp_path, 4096);
     try std.testing.expectEqualStrings(before, after);
 
     // A genuine change writes again.
@@ -337,7 +338,7 @@ test "read returns VersionMismatch on wrong version" {
     const tmp_path = "zig-cache/test-snapshot-ver.txt";
     var lines = [_][]const u8{"x"};
     try write(tmp_path, 1, &lines);
-    defer std.fs.cwd().deleteFile(tmp_path) catch |e|
+    defer fs.cwd().deleteFile(tmp_path) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     try std.testing.expectError(error.VersionMismatch, read(a, tmp_path, 2));

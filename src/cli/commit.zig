@@ -23,6 +23,7 @@
 //! defensively so it can never be treated as a gate.
 
 const std = @import("std");
+const wiring = @import("../wiring.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const run_all = @import("run_all.zig");
@@ -204,7 +205,7 @@ fn testTier(cmd: []const u8) TestTier {
     var it = std.mem.tokenizeAny(u8, effective, " \t\r\n");
     while (it.next()) |tok| {
         for (narrowing_tokens) |n| {
-            if (std.ascii.indexOfIgnoreCase(tok, n) != null) return .filtered;
+            if (std.ascii.findIgnoreCase(tok, n) != null) return .filtered;
         }
     }
     return .custom;
@@ -297,16 +298,16 @@ const TestOutcome = struct { passed: bool, output: []const u8 };
 
 /// Spawns `argv` in `project_dir` with `child_skip_env` set, capturing output.
 fn spawnTests(a: Allocator, project_dir: []const u8, argv: []const []const u8) !TestOutcome {
-    var env = try std.process.getEnvMap(a);
+    var env = try wiring.cloneEnviron(a);
     try env.put(child_skip_env, "1");
-    const res = try std.process.Child.run(.{
-        .allocator = a,
+    const res = try std.process.run(a, wiring.io(), .{
         .argv = argv,
-        .cwd = project_dir,
-        .env_map = &env,
-        .max_output_bytes = max_test_output_bytes,
+        .cwd = .{ .path = project_dir },
+        .environ_map = &env,
+        .stdout_limit = .limited64(max_test_output_bytes),
+        .stderr_limit = .limited64(max_test_output_bytes),
     });
-    const passed = res.term == .Exited and res.term.Exited == 0;
+    const passed = res.term.success();
     const output = if (res.stderr.len > 0) res.stderr else res.stdout;
     return .{ .passed = passed, .output = output };
 }
@@ -550,7 +551,7 @@ fn endsWithAny(s: []const u8, suffixes: []const []const u8) bool {
 
 /// True when `s` contains any of `needles`, ignoring letter case.
 fn containsAny(s: []const u8, needles: []const []const u8) bool {
-    for (needles) |n| if (std.ascii.indexOfIgnoreCase(s, n) != null) return true;
+    for (needles) |n| if (std.ascii.findIgnoreCase(s, n) != null) return true;
     return false;
 }
 

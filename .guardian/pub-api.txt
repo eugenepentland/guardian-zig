@@ -115,7 +115,7 @@ src/cache.zig::stampMtime | fn stampMtime(project_dir: []const u8) ?i128
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
 src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
-src/check.zig::main | fn main() !void
+src/check.zig::main | fn main(process_init: std.process.Init) !void
 src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/assert_doc_consistency.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
@@ -474,6 +474,68 @@ src/file_metrics.zig::measureFile | fn measureFile( arena: Allocator, rel_path: 
 src/file_metrics.zig::measured_checks value
 src/file_metrics.zig::standingOf | fn standingOf(value: u64, ceiling: ?u64) Standing
 src/file_metrics.zig::unmeasured_checks value
+src/fs.zig::AtomicFile struct_
+src/fs.zig::AtomicFileOptions struct_
+src/fs.zig::CreateFileOptions struct_
+src/fs.zig::DeleteFileError value
+src/fs.zig::Dir struct_
+src/fs.zig::Entry value
+src/fs.zig::Error value
+src/fs.zig::Error value
+src/fs.zig::File struct_
+src/fs.zig::FinishError value
+src/fs.zig::GetSeekPosError value
+src/fs.zig::InitError value
+src/fs.zig::Iterator struct_
+src/fs.zig::MakeError value
+src/fs.zig::OpenError value
+src/fs.zig::OpenError value
+src/fs.zig::PReadError value
+src/fs.zig::ReadError value
+src/fs.zig::Stat value
+src/fs.zig::Stat value
+src/fs.zig::StatError value
+src/fs.zig::Walker struct_
+src/fs.zig::WriteError value
+src/fs.zig::access | fn access(self: Dir, sub_path: []const u8, options: std.Io.Dir.AccessOptions) std.Io.Dir.AccessError!void
+src/fs.zig::atomicFile | fn atomicFile(self: Dir, sub_path: []const u8, options: AtomicFileOptions) std.Io.Dir.CreateFileAtomicError!AtomicFile
+src/fs.zig::close | fn close(self: Dir) void
+src/fs.zig::close | fn close(self: File) void
+src/fs.zig::createFile | fn createFile(self: Dir, sub_path: []const u8, options: CreateFileOptions) File.OpenError!File
+src/fs.zig::cwd | fn cwd() Dir
+src/fs.zig::deinit | fn deinit(self: *AtomicFile) void
+src/fs.zig::deinit | fn deinit(self: *Walker) void
+src/fs.zig::deleteFile | fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void
+src/fs.zig::deleteTree | fn deleteTree(self: Dir, sub_path: []const u8) std.Io.Dir.DeleteTreeError!void
+src/fs.zig::finish | fn finish(self: *AtomicFile) FinishError!void
+src/fs.zig::isTty | fn isTty(self: File) std.Io.Cancelable!bool
+src/fs.zig::iterate | fn iterate(self: Dir) Iterator
+src/fs.zig::makeOpenPath | fn makeOpenPath(self: Dir, sub_path: []const u8, options: std.Io.Dir.OpenOptions) std.Io.Dir.CreateDirPathOpenError!Dir
+src/fs.zig::makePath | fn makePath(self: Dir, sub_path: []const u8) MakeError!void
+src/fs.zig::max_path_bytes value
+src/fs.zig::next | fn next(self: *Iterator) Error!?std.Io.Dir.Entry
+src/fs.zig::next | fn next(self: *Walker) Error!?Entry
+src/fs.zig::openDir | fn openDir(self: Dir, sub_path: []const u8, options: std.Io.Dir.OpenOptions) OpenError!Dir
+src/fs.zig::openFile | fn openFile(self: Dir, sub_path: []const u8, options: std.Io.Dir.OpenFileOptions) File.OpenError!File
+src/fs.zig::path value
+src/fs.zig::preadAll | fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize
+src/fs.zig::readFileAlloc | fn readFileAlloc(self: Dir, allocator: std.mem.Allocator, sub_path: []const u8, max_bytes: usize) std.Io.Dir.ReadFileAllocError![]u8
+src/fs.zig::readFileAllocOptions | fn readFileAllocOptions( self: Dir, allocator: std.mem.Allocator, sub_path: []const u8, max_bytes: usize, size_hint: ?usize, comptime alignment: std.mem.Alignment, comptime sentinel: ?u8, ) std.Io.Dir.ReadFileAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8)
+src/fs.zig::reader | fn reader(self: File, buffer: []u8) std.Io.File.Reader
+src/fs.zig::readerStreaming | fn readerStreaming(self: File, buffer: []u8) std.Io.File.Reader
+src/fs.zig::realpathAlloc | fn realpathAlloc(self: Dir, allocator: std.mem.Allocator, sub_path: []const u8) std.Io.Dir.RealPathFileAllocError![:0]u8
+src/fs.zig::seekFromEnd | fn seekFromEnd(self: File, offset: i64) (StatError || std.Io.File.SeekError || error{Overflow})!void
+src/fs.zig::selfExePathAlloc | fn selfExePathAlloc(allocator: std.mem.Allocator) std.process.ExecutablePathAllocError![:0]u8
+src/fs.zig::stat | fn stat(self: File) StatError!Stat
+src/fs.zig::statFile | fn statFile(self: Dir, sub_path: []const u8) std.Io.Dir.StatFileError!Stat
+src/fs.zig::stderr | fn stderr() File
+src/fs.zig::stdin | fn stdin() File
+src/fs.zig::stdout | fn stdout() File
+src/fs.zig::walk | fn walk(self: Dir, allocator: std.mem.Allocator) std.mem.Allocator.Error!Walker
+src/fs.zig::writeAll | fn writeAll(self: File, bytes: []const u8) WriteError!void
+src/fs.zig::writeFile | fn writeFile(self: Dir, options: std.Io.Dir.WriteFileOptions) std.Io.Dir.WriteFileError!void
+src/fs.zig::writer | fn writer(self: File, buffer: []u8) std.Io.File.Writer
+src/fs.zig::writerStreaming | fn writerStreaming(self: File, buffer: []u8) std.Io.File.Writer
 src/git.zig::ChangedPath struct_
 src/git.zig::DiffResult union_
 src/git.zig::FileDiff struct_
@@ -634,7 +696,7 @@ src/reporter.zig::fatal | fn fatal(comptime fmt: []const u8, args: anytype) nore
 src/reporter.zig::flatLine | fn flatLine(arena: Allocator, v: Violation) Allocator.Error![]const u8
 src/reporter.zig::flatLines | fn flatLines(arena: Allocator, records: []const Violation) Allocator.Error![]const []const u8
 src/reporter.zig::green value
-src/reporter.zig::init | fn init(quiet: bool) void
+src/reporter.zig::init | fn init(quiet: bool) std.Io.Cancelable!void
 src/reporter.zig::machine | fn machine(text: []const u8) std.Io.Writer.Error!void
 src/reporter.zig::measure | fn measure(m: Measured) void
 src/reporter.zig::ok | fn ok(comptime fmt: []const u8, args: anytype) void
@@ -702,7 +764,7 @@ src/snapshot_helper.zig::update_env value
 src/snapshot_helper.zig::usesLegacyBroadToken | fn usesLegacyBroadToken(allocator: Allocator) bool
 src/source_digest.zig::Error value
 src/source_digest.zig::Hex value
-src/source_digest.zig::compute | fn compute(allocator: std.mem.Allocator, root: std.fs.Dir) Error!Hex
+src/source_digest.zig::compute | fn compute(io: std.Io, allocator: std.mem.Allocator, root: std.Io.Dir) Error!Hex
 src/source_digest.zig::hex_len value
 src/spec/hints.zig::FrozenTag struct_
 src/spec/hints.zig::Hint union_
@@ -746,8 +808,8 @@ src/test_filter.zig::declaredTests | fn declaredTests(arena: Allocator, tree: *c
 src/test_filter.zig::derive | fn derive(arena: Allocator, in: Inputs) Allocator.Error!Derivation
 src/test_filter.zig::isEmpty | fn isEmpty(self: Derivation) bool
 src/test_filter.zig::renderArgs | fn renderArgs(arena: Allocator, names: []const []const u8, flag: []const u8) Allocator.Error![]const u8
-src/test_runner.zig::fuzz | fn fuzz( context: anytype, comptime testOne: fn (context: @TypeOf(context), []const u8) anyerror!void, options: testing.FuzzInputOptions, ) anyerror!void
-src/test_runner.zig::main | fn main() void
+src/test_runner.zig::fuzz | fn fuzz( context: anytype, comptime testOne: fn (context: @TypeOf(context), *testing.Smith) anyerror!void, options: testing.FuzzInputOptions, ) anyerror!void
+src/test_runner.zig::main | fn main(init: std.process.Init.Minimal) void
 src/test_runner.zig::std_options value
 src/test_timing.zig::Caps struct_
 src/test_timing.zig::Detail enum_
@@ -802,3 +864,7 @@ src/walk.zig::WalkOpts struct_
 src/walk.zig::matchGlob | fn matchGlob(text: []const u8, pattern: []const u8) bool
 src/walk.zig::normalizePath | fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8
 src/walk.zig::walkZigFiles | fn walkZigFiles( allocator: Allocator, fs_root: []const u8, opts: WalkOpts, visitor: Visitor, ) WalkError!void
+src/wiring.zig::cloneEnviron | fn cloneEnviron(allocator: std.mem.Allocator) (std.mem.Allocator.Error || std.Io.UnexpectedError)!std.process.Environ.Map
+src/wiring.zig::getEnvOwned | fn getEnvOwned(allocator: std.mem.Allocator, name: []const u8) std.process.Environ.GetAllocError![]u8
+src/wiring.zig::init | fn init(process_init: std.process.Init) void
+src/wiring.zig::io | fn io() std.Io

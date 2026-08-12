@@ -2,7 +2,7 @@
     .name = .guardian,
     .version = "0.2.0",
     .fingerprint = 0x64486055bb22ff42,
-    .minimum_zig_version = "0.15.0",
+    .minimum_zig_version = "0.17.0-dev.1683+5ceec001b",
     .paths = .{
         "build.zig",
         "build.zig.zon",

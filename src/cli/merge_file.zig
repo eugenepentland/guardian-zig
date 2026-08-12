@@ -19,6 +19,7 @@
 //! ordinary conflict and the human resolves it by regenerating.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
@@ -64,7 +65,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const marked = merged.needs_regen or base.file.pending_regen or
         ours.file.pending_regen or theirs.file.pending_regen;
     const rendered = try render(a, version, merged.lines, if (marked) try markerLine(a, hint) else null);
-    std.fs.cwd().writeFile(.{ .sub_path = args.ours, .data = rendered }) catch {
+    fs.cwd().writeFile(.{ .sub_path = args.ours, .data = rendered }) catch {
         reporter.fail("merge-file: could not write the merged result to {s}", .{args.ours});
         return error.CheckFailed;
     };
@@ -104,7 +105,7 @@ fn resolve(a: Allocator, kind: artifact.Kind, sides: [3]Side) Allocator.Error!Me
 /// Reads one side. A missing file is the empty side (git omits the base when
 /// both branches added the path), never an error.
 fn load(a: Allocator, path: []const u8) Allocator.Error!Side {
-    const content = std.fs.cwd().readFileAlloc(a, path, max_bytes) catch |e| switch (e) {
+    const content = fs.cwd().readFileAlloc(a, path, max_bytes) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => "",
     };
@@ -165,10 +166,9 @@ fn render(
     marker: ?[]const u8,
 ) Allocator.Error![]const u8 {
     var buf: std.ArrayList(u8) = .empty;
-    const w = buf.writer(a);
-    try w.print("{s}{d}\n", .{ snapshot.magic_prefix, version });
-    if (marker) |m| try w.print("{s}\n", .{m});
-    for (lines) |line| try w.print("{s}\n", .{line});
+    try buf.appendSlice(a, try std.fmt.allocPrint(a, "{s}{d}\n", .{ snapshot.magic_prefix, version }));
+    if (marker) |m| try buf.appendSlice(a, try std.fmt.allocPrint(a, "{s}\n", .{m}));
+    for (lines) |line| try buf.appendSlice(a, try std.fmt.allocPrint(a, "{s}\n", .{line}));
     return buf.toOwnedSlice(a);
 }
 
@@ -275,7 +275,7 @@ fn runFixture(a: Allocator, stem: []const u8, hint: []const u8, sides: [3][]cons
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
     try run(&ctx);
-    return std.fs.cwd().readFileAlloc(a, ctx.merge.ours, max_bytes);
+    return fs.cwd().readFileAlloc(a, ctx.merge.ours, max_bytes);
 }
 
 /// The refusal twin of `runFixture`: returns the error the command raised (and
@@ -289,19 +289,19 @@ fn runFixtureFailing(a: Allocator, stem: []const u8, hint: []const u8, sides: [3
     reporter.default.capture = &cap;
     try testing.expectError(error.CheckFailed, run(&ctx));
     // A refusal must not have touched the worktree's own copy.
-    const after = try std.fs.cwd().readFileAlloc(a, ctx.merge.ours, max_bytes);
+    const after = try fs.cwd().readFileAlloc(a, ctx.merge.ours, max_bytes);
     try testing.expectEqualStrings(sides[1], after);
 }
 
 /// Builds a run context over three freshly written fixture files.
 fn fixtureCtx(a: Allocator, stem: []const u8, hint: []const u8, sides: [3][]const u8) !types.RunCtx {
     const config = @import("../config.zig");
-    try std.fs.cwd().makePath(fixture_dir);
+    try fs.cwd().makePath(fixture_dir);
     const suffixes = [_][]const u8{ "base", "ours", "theirs" };
     var paths: [3][]const u8 = undefined;
     for (suffixes, sides, 0..) |suffix, body, i| {
         paths[i] = try std.fmt.allocPrint(a, "{s}/merge-{s}-{s}.txt", .{ fixture_dir, stem, suffix });
-        try std.fs.cwd().writeFile(.{ .sub_path = paths[i], .data = body });
+        try fs.cwd().writeFile(.{ .sub_path = paths[i], .data = body });
     }
     const cfg = try a.create(config.Config);
     cfg.* = .{};
@@ -317,7 +317,7 @@ fn fixtureCtx(a: Allocator, stem: []const u8, hint: []const u8, sides: [3][]cons
 /// Deletes one fixture's three files.
 fn removeFixture(inputs: types.MergeInputs) void {
     for ([_][]const u8{ inputs.base, inputs.ours, inputs.theirs }) |p| {
-        std.fs.cwd().deleteFile(p) catch |e|
+        fs.cwd().deleteFile(p) catch |e|
             std.log.warn("test cleanup {s}: {s}", .{ p, @errorName(e) });
     }
 }

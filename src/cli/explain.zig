@@ -34,7 +34,7 @@ const Entry = struct {
 // refresh, or top-level `disabled` list). Prose sits in `\\` multiline literals
 // so it is exempt from the line-length cap.
 const entries = [_]Entry{
-    .{ .name = "formatting", .text = 
+    .{ .name = "formatting", .text =
     \\Why: an agent hand-edits a file and leaves it in a shape `zig fmt` would
     \\rewrite, so every later diff carries formatting noise. It is also the
     \\cheapest gate in the suite, so it runs FIRST and prints immediately — a
@@ -45,7 +45,7 @@ const entries = [_]Entry{
     \\"formatting" in the top-level `disabled` list (a vendored tree kept
     \\verbatim is the only good reason).
     },
-    .{ .name = "spec", .text = 
+    .{ .name = "spec", .text =
     \\Why: an agent adds a behavior but never writes — or mistags — its test, so
     \\SPEC.md and the suite silently drift apart.
     \\Fix: give every SPEC.md `- ` bullet exactly one `// spec: <Section> -
@@ -53,14 +53,14 @@ const entries = [_]Entry{
     \\Exempt: none — the 1:1 map is the workflow. Remove the bullet if the
     \\behavior is truly gone.
     },
-    .{ .name = "spec-init", .text = 
+    .{ .name = "spec-init", .text =
     \\Why: not a gate — the generator that seeds a starter SPEC.md from your
     \\`pub fn` signatures so onboarding isn't a blank page.
     \\Fix: run `zig build spec-init`, then replace the placeholder bullets with
     \\real behavior descriptions.
     \\Exempt: n/a — it only runs when you invoke it.
     },
-    .{ .name = "mutate", .text = 
+    .{ .name = "mutate", .text =
     \\Why: not a gate — static checks prove tests exist; `mutate` proves they
     \\bite by splicing small deliberate bugs and checking the suite catches them.
     \\Fix: for each surviving mutant, strengthen the test to assert the exact
@@ -73,7 +73,7 @@ const entries = [_]Entry{
     \\per-mutant result cache; a snapshot refresh bypasses it. Run the fast tier
     \\(`zig build mutate`) on PRs and `mutate-full` in nightly.
     },
-    .{ .name = "debt", .text = 
+    .{ .name = "debt", .text =
     \\Why: not a gate — a report of accumulated ratchet debt (per-check baseline
     \\counts, snapshot totals, mutation score) so frozen debt growth is a visible
     \\decision, not a side effect smeared across `.guardian/` churn commits. It
@@ -83,7 +83,7 @@ const entries = [_]Entry{
     \\the delta column shows the change vs the committed `.guardian/` state.
     \\Exempt: n/a — run `guardian-check debt [dir]`; never part of `all`.
     },
-    .{ .name = "history", .text = 
+    .{ .name = "history", .text =
     \\Why: not a gate — the read surface over the append-only DORA run log
     \\(`.guardian/cache/dora.jsonl`), which guardian has written one record per
     \\gated run into since the sink landed and which nothing read back. It
@@ -94,7 +94,7 @@ const entries = [_]Entry{
     \\writes the whole report to stdout as one object.
     \\Exempt: n/a — run `guardian-check history [dir]`; never part of `all`.
     },
-    .{ .name = "file-size", .text = 
+    .{ .name = "file-size", .text =
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.
     \\Finding: files above `max_file_lines` warn; only files above
@@ -102,21 +102,21 @@ const entries = [_]Entry{
     \\Exempt: adjust either limit, list a glob in `file_size_exclude`, or disable
     \\via the top-level `disabled` list.
     },
-    .{ .name = "boundaries", .text = 
+    .{ .name = "boundaries", .text =
     \\Why: an agent reaches across an architectural layer (core importing utils),
     \\eroding the module boundaries the design depends on.
     \\Fix: invert the dependency or route through the allowed module; remove the
     \\forbidden `@import`.
     \\Exempt: edit or drop the offending `[[boundary]]` rule in guardian.toml.
     },
-    .{ .name = "usingnamespace-ban", .text = 
+    .{ .name = "usingnamespace-ban", .text =
     \\Why: `usingnamespace` hides where a symbol comes from, defeating grep and
     \\letting agents introduce invisible name collisions.
     \\Fix: import the module under an explicit name and qualify each use.
     \\Exempt: none in src/; test files are already allowed. Disable via the
     \\top-level `disabled` list only as a last resort.
     },
-    .{ .name = "deprecated-alias", .text = 
+    .{ .name = "deprecated-alias", .text =
     \\Why: Zig 0.15 renamed a batch of std containers/idioms and kept the old
     \\names as `/// Deprecated` aliases. `std.ArrayListUnmanaged` (= `std.ArrayList`
     \\today), `std.array_list.Managed`, `usingnamespace` (removed from the grammar),
@@ -136,14 +136,14 @@ const entries = [_]Entry{
     \\guardian.toml (the C-ABI/vendor escape hatch — e.g. a file that mirrors an
     \\old API on purpose), or drop the check via the top-level `disabled` list.
     },
-    .{ .name = "spec-quality", .text = 
+    .{ .name = "spec-quality", .text =
     \\Why: vague spec bullets ("handles input properly") can't drive a real test,
     \\so the 1:1 map becomes theater.
     \\Fix: rewrite the bullet to state a concrete, observable behavior of at
     \\least the minimum length.
     \\Exempt: tune `[spec_quality] forbidden_phrases`, or disable the section.
     },
-    .{ .name = "completeness", .text = 
+    .{ .name = "completeness", .text =
     \\Why (opt-in): an agent writes a happy-path spec and never considers the
     \\scenario classes that ship the most bugs — empty/large inputs, overflow,
     \\I/O failure, unauthorized/concurrent access, malformed encoding, panics.
@@ -160,7 +160,7 @@ const entries = [_]Entry{
     \\Exempt: off unless `[completeness] enabled = true`; list non-feature
     \\sections (Overview, Changelog) in `[completeness] exempt_sections`.
     },
-    .{ .name = "naming", .text = 
+    .{ .name = "naming", .text =
     \\Why: agents bleed Rust/Python/C casing into Zig or reach for placeholder
     \\names (tmp/data/Manager) that describe nothing. Zig std reserves
     \\SCREAMING_SNAKE for C/OS-ABI mirrors (~97% of its all-caps hits) — a plain
@@ -173,7 +173,7 @@ const entries = [_]Entry{
     \\guardian.toml; or drop the whole check via the top-level `disabled` list
     \\(the retired `vague-name-blacklist` name is tolerated there too).
     },
-    .{ .name = "function-size", .text = 
+    .{ .name = "function-size", .text =
     \\Scope: this is the PARAMETER-COUNT check — "size" means how many runtime
     \\arguments a fn takes, not how long it is. For line count see
     \\`explain function-length`.
@@ -184,7 +184,7 @@ const entries = [_]Entry{
     \\Fix: group related runtime parameters into an options/context struct.
     \\Exempt: raise `[function_size] max_params`, or disable the check.
     },
-    .{ .name = "doc-comments", .text = 
+    .{ .name = "doc-comments", .text =
     \\Why: agents ship a public API with no doc comment — or a placeholder one —
     \\leaving the next reader (human or model) to guess the contract.
     \\Fix: add a real doc comment (>= min_chars) to every pub fn/type stating
@@ -192,13 +192,13 @@ const entries = [_]Entry{
     \\Exempt: add trivial names to `[doc_quality] exempt_names` (deinit/format/
     \\next/reset are exempt by default), or lower `min_chars`.
     },
-    .{ .name = "imports", .text = 
+    .{ .name = "imports", .text =
     \\Why: a cycle in the `@import` graph makes modules impossible to reason about
     \\or reuse in isolation — an easy accident when an agent wires two files.
     \\Fix: extract the shared types into a third module, or invert one edge.
     \\Exempt: none — cycles are always a defect. Break the loop.
     },
-    .{ .name = "pub-api-surface", .text = 
+    .{ .name = "pub-api-surface", .text =
     \\Why: an agent silently widens (or breaks) the public API — a new pub fn, a
     \\changed signature — with no reviewer sign-off.
     \\Fix: make the API change intentional, then accept it into the snapshot.
@@ -210,7 +210,7 @@ const entries = [_]Entry{
     \\the same signature under a different file (neither new nor removed), and
     \\`+`/`-` are the one-sided entries.
     },
-    .{ .name = "panic-budget", .text = 
+    .{ .name = "panic-budget", .text =
     \\Why: agents scatter `@panic` / `unreachable` / `TODO` / `FIXME` as they
     \\stub, turning recoverable paths into crashes.
     \\Fix: handle the case explicitly (return an error) instead of panicking, or
@@ -218,7 +218,7 @@ const entries = [_]Entry{
     \\Exempt: `zig build guardian-accept -Dguardian-checks=panic-budget` to
     \\accept a deliberate new site, verify it, and commit the snapshot.
     },
-    .{ .name = "catch-discipline", .text = 
+    .{ .name = "catch-discipline", .text =
     \\Why: `catch unreachable`, `catch {}` and `catch undefined` convert a real
     \\error into a crash, silent swallow, or UB — a classic agent shortcut.
     \\Fix: handle the error with a `switch`, a named `catch |e|` body, or a
@@ -227,28 +227,28 @@ const entries = [_]Entry{
     \\at line 765") — copy it rather than inventing a new policy.
     \\Exempt: none in src/; test blocks are already exempt.
     },
-    .{ .name = "unwrap-discipline", .text = 
+    .{ .name = "unwrap-discipline", .text =
     \\Why: `orelse unreachable` / `orelse undefined` crashes (or invokes UB) the
     \\instant an optional the agent assumed was set is null.
     \\Fix: handle the null branch explicitly, or prove non-null with a preceding
     \\check and comment.
     \\Exempt: none in src/; test blocks are already exempt.
     },
-    .{ .name = "error-discipline", .text = 
+    .{ .name = "error-discipline", .text =
     \\Why: an inferred `!T` or `anyerror!T` on a pub fn hides the real failure
     \\modes from callers, so agents can't reason about what to handle.
     \\Fix: declare an explicit error set: `pub fn f() MyError!T`.
     \\Exempt: `main` and `anytype`-param (writer) fns are already skipped;
     \\otherwise name the set.
     },
-    .{ .name = "cognitive-complexity", .text = 
+    .{ .name = "cognitive-complexity", .text =
     \\Why: deeply tangled control flow is where agents (and humans) introduce
     \\off-by-one and missed-branch bugs.
     \\Fix: extract helpers, flatten nesting, replace flag threading with early
     \\returns.
     \\Exempt: raise `[complexity] max_score`, or disable the check.
     },
-    .{ .name = "anytype-budget", .text = 
+    .{ .name = "anytype-budget", .text =
     \\Why: over-using `anytype` erases type information, so mistakes surface as
     \\confusing comptime errors far from the cause.
     \\Fix: give parameters concrete types; reserve `anytype` for genuine
@@ -260,33 +260,33 @@ const entries = [_]Entry{
     \\Exempt: raise `[anytype_budget] max_per_file`, or list the file in
     \\`[anytype_budget] exclude`.
     },
-    .{ .name = "dead-pub", .text = 
+    .{ .name = "dead-pub", .text =
     \\Why: an agent leaves a `pub fn`/`pub const` referenced nowhere — dead
     \\surface that misleads future callers and rots.
     \\Fix: delete it, or make it non-pub if it's an internal helper.
     \\Exempt: set `[dead_pub] ignore_test_refs` to tune test-only liveness, or
     \\disable the check.
     },
-    .{ .name = "allocator-hygiene", .text = 
+    .{ .name = "allocator-hygiene", .text =
     \\Why: a hardcoded global allocator (page_allocator, GPA, testing.allocator)
     \\outside main/test defeats injection and hides leaks.
     \\Fix: thread an `Allocator` parameter from the entry point instead.
     \\Exempt: annotate a deliberate site with a `// allocator-ok:` comment.
     },
-    .{ .name = "debug-print-ban", .text = 
+    .{ .name = "debug-print-ban", .text =
     \\Why: `std.debug.print` / `std.log.*` left in production is stray trace
     \\output an agent forgot to remove.
     \\Fix: route user-facing output through your reporter, or delete the trace.
     \\Exempt: allowed in `pub fn main`, tests, and `cli/*`/`commands*` modules;
     \\extra paths via `[[allow]] check = "debug-print-ban"`.
     },
-    .{ .name = "orphan-files", .text = 
+    .{ .name = "orphan-files", .text =
     \\Why: a .zig file reachable from no root is dead code — or, worse, tests an
     \\agent wrote that never actually run.
     \\Fix: `@import` it from a reachable module (or the test root), or delete it.
     \\Exempt: declare explicit roots in `[orphan_files] roots`, or disable.
     },
-    .{ .name = "test-reachability", .text = 
+    .{ .name = "test-reachability", .text =
     \\Why: Zig only compiles the tests it can reach. A file nobody imports from
     \\the test root contributes no `test` blocks to the test binary, so its tests
     \\never run — and the spec check still counts their `// spec:` tags as
@@ -300,13 +300,13 @@ const entries = [_]Entry{
     \\skips itself when no root resolves, so it never blocks a project it cannot
     \\measure.
     },
-    .{ .name = "stub-body-ban", .text = 
+    .{ .name = "stub-body-ban", .text =
     \\Why: a single-statement `return undefined` / placeholder `@panic` /
     \\`unreachable` body is an agent's unfinished stub masquerading as done.
     \\Fix: implement the real body, or return a proper error until it exists.
     \\Exempt: none — finish the function. Disable only during migration.
     },
-    .{ .name = "int-from-float-budget", .text = 
+    .{ .name = "int-from-float-budget", .text =
     \\Why: every new `@intFromFloat` is a lossy cast that silently mishandles NaN
     \\/ out-of-range values unless guarded.
     \\Fix: clamp/validate the float and document the range before casting — or
@@ -320,40 +320,40 @@ const entries = [_]Entry{
     \\Exempt: `zig build guardian-accept -Dguardian-checks=int-from-float-budget`
     \\after guard review, then commit the verified snapshot.
     },
-    .{ .name = "unsafe-ops-budget", .text = 
+    .{ .name = "unsafe-ops-budget", .text =
     \\Why: new `@ptrCast`/`@bitCast`/`@ptrFromInt`/… or `undefined` re-assignments
     \\are unsafe operations agents reach for to make types line up.
     \\Fix: prefer a safe conversion; if genuinely needed, isolate and comment it.
     \\Exempt: `zig build guardian-accept -Dguardian-checks=unsafe-ops-budget` to
     \\accept the new count and commit the verified snapshot.
     },
-    .{ .name = "type-size", .text = 
+    .{ .name = "type-size", .text =
     \\Why: a struct that keeps gaining fields is a god-object an agent grew
     \\instead of decomposing.
     \\Fix: split the type along cohesion lines into smaller structs.
     \\Exempt: raise `[type_size] max_fields`, or list the file in
     \\`[type_size] exclude` for legitimate flat config bags.
     },
-    .{ .name = "function-length", .text = 
+    .{ .name = "function-length", .text =
     \\Why: an ever-longer function is where agents append logic rather than
     \\factor it — the hardest place to review a change safely.
     \\Finding: functions above `max_lines` warn; only those above
     \\`hard_max_lines` block. Extract cohesive blocks into named helpers.
     \\Exempt: adjust either `[function_length]` limit, or disable the check.
     },
-    .{ .name = "nesting-depth", .text = 
+    .{ .name = "nesting-depth", .text =
     \\Why: deep brace nesting hides the branch an agent forgot to handle.
     \\Fix: early-return guard clauses, or extract the inner block into a helper.
     \\Exempt: raise `[nesting_depth] max_depth`, or disable the check.
     },
-    .{ .name = "test-coverage", .text = 
+    .{ .name = "test-coverage", .text =
     \\Why (opt-in): a pub fn referenced by no test is behavior an agent shipped
     \\with zero executable proof.
     \\Fix: add a test that references the function.
     \\Exempt: list entry points in `[test_coverage] exempt_names`; the check is
     \\off unless `[test_coverage] enabled = true`.
     },
-    .{ .name = "ban", .text = 
+    .{ .name = "ban", .text =
     \\Why: the compiled ban-* checks are Guardian's opinions (clock, RNG, fs);
     \\this one is YOURS. It enforces the `[[ban]]` entries in guardian.toml, for
     \\the case those checks can't reach: a call that must route through a
@@ -381,49 +381,49 @@ const entries = [_]Entry{
     \\import (`const opt = @import("optimizer.zig"); opt.placeFromPoses()`) needs
     \\its own rule for that spelling. Chains inside strings/comments never match.
     },
-    .{ .name = "ban-time", .text = 
+    .{ .name = "ban-time", .text =
     \\Why: reading the wall clock inline makes behavior time-dependent and
     \\untestable — an agent grabbing `std.time.timestamp()` where it's handy.
     \\Fix: inject a clock port and read time through it.
     \\Exempt: allowed under `infra/clock`; add paths via
     \\`[[allow]] check = "ban-time"`.
     },
-    .{ .name = "ban-rng", .text = 
+    .{ .name = "ban-rng", .text =
     \\Why: constructing an RNG inline makes runs non-reproducible — flaky tests
     \\and un-seedable behavior.
     \\Fix: inject a seeded random port and draw from it.
     \\Exempt: allowed under `infra/random`; add paths via
     \\`[[allow]] check = "ban-rng"`.
     },
-    .{ .name = "ban-fs", .text = 
+    .{ .name = "ban-fs", .text =
     \\Why: direct `std.fs` I/O couples logic to the real filesystem, so an agent's
     \\code can't be tested without touching disk.
     \\Fix: inject a filesystem port (or pass in the bytes) instead.
     \\Exempt: allowed under `infra/fs`; add paths via
     \\`[[allow]] check = "ban-fs"`.
     },
-    .{ .name = "ban-net", .text = 
+    .{ .name = "ban-net", .text =
     \\Why: inline `std.net`/`std.http` hides a network dependency inside business
     \\logic — untestable and non-deterministic.
     \\Fix: inject an HTTP/net adapter behind an interface.
     \\Exempt: allowed under `adapters/http` or `infra/net`; add paths via
     \\`[[allow]] check = "ban-net"`.
     },
-    .{ .name = "ban-env", .text = 
+    .{ .name = "ban-env", .text =
     \\Why: reading env vars deep in the code scatters configuration an agent
     \\should have threaded from the entry point.
     \\Fix: read env once in config/main and pass the value down.
     \\Exempt: allowed in `config` or `main`; add paths via
     \\`[[allow]] check = "ban-env"`.
     },
-    .{ .name = "ban-sleep", .text = 
+    .{ .name = "ban-sleep", .text =
     \\Why: a real sleep in production code is an agent's substitute for proper
     \\synchronization — slow and flaky.
     \\Fix: wait on the actual condition/event instead of sleeping.
     \\Exempt: allowed in test infrastructure; add paths via
     \\`[[allow]] check = "ban-sleep"`.
     },
-    .{ .name = "ban-globals", .text = 
+    .{ .name = "ban-globals", .text =
     \\Why: a mutable file-scope `var` (pub or not, `threadlocal` included) — or a
     \\`pub var` at container scope — is shared hidden global state, an agent's
     \\quick stash that causes spooky action at a distance. zig-core's library core
@@ -434,26 +434,26 @@ const entries = [_]Entry{
     \\threadlocal singleton this way). A struct-scope non-pub container `var` is
     \\out of scope.
     },
-    .{ .name = "ban-hardcoded-paths", .text = 
+    .{ .name = "ban-hardcoded-paths", .text =
     \\Why: a literal `/etc`, a Windows drive path, or `http://host` is an
     \\environment assumption an agent baked in that breaks on another machine.
     \\Fix: make the path/URL a configurable input.
     \\Exempt: add paths via `[[allow]] check = "ban-hardcoded-paths"`, or disable.
     },
-    .{ .name = "ban-secrets", .text = 
+    .{ .name = "ban-secrets", .text =
     \\Why: a hardcoded credential (AWS/GitHub/Slack token, PEM key, high-entropy
     \\`password =`) is a leak an agent pasted from a sample.
     \\Fix: remove the secret; load it from env/secret storage at runtime.
     \\Exempt: publishable/test keys and placeholders are already ignored; add
     \\paths via `[[allow]] check = "ban-secrets"` for fixtures.
     },
-    .{ .name = "compile-error-explanation", .text = 
+    .{ .name = "compile-error-explanation", .text =
     \\Why: a bare `@compileError` with no message leaves the next person staring
     \\at an unexplained build failure.
     \\Fix: pass a non-empty string literal explaining the constraint.
     \\Exempt: none — always explain the error. Disable only in edge cases.
     },
-    .{ .name = "init-hygiene", .text = 
+    .{ .name = "init-hygiene", .text =
     \\Why: `if`/`while`/`for`/`switch` inside an `init`/`create`/`make` body means
     \\the constructor is doing work it should delegate — hard to test.
     \\Fix: keep init to plain field assignment; move logic to a named method.
@@ -466,31 +466,31 @@ const entries = [_]Entry{
     \\Exempt: disable via the top-level `disabled` list if your init genuinely
     \\needs branching.
     },
-    .{ .name = "static-factory-ban", .text = 
+    .{ .name = "static-factory-ban", .text =
     \\Why: `.getDefault()`/`.singleton()`/`.shared()` are hidden global state an
     \\agent used instead of injecting the dependency.
     \\Fix: construct the value at the composition root and pass it in.
     \\Exempt: allowed in `main`/`wiring`; otherwise disable the check.
     },
-    .{ .name = "init-deinit-symmetry", .text = 
+    .{ .name = "init-deinit-symmetry", .text =
     \\Why: a struct that owns an allocator field but has no `pub fn deinit` leaks
     \\whatever it allocated — an agent forgot the teardown.
     \\Fix: add a `pub fn deinit` that frees everything init acquired.
     \\Exempt: disable the check if the type deliberately borrows (never owns).
     },
-    .{ .name = "errdefer-in-init", .text = 
+    .{ .name = "errdefer-in-init", .text =
     \\Why: an init with 2+ `try` calls and no `errdefer` leaks the first resource
     \\when the second fails — a subtle agent oversight.
     \\Fix: add an `errdefer` to release each acquired resource on a later failure.
     \\Exempt: none — add the errdefer. Disable only during migration.
     },
-    .{ .name = "test-has-assertion", .text = 
+    .{ .name = "test-has-assertion", .text =
     \\Why: a `test "..."` with no `expect*` call asserts nothing — it passes as
     \\long as it doesn't crash, giving false coverage an agent counts as tested.
     \\Fix: add an `expect`/`expectEqual`/… that checks the actual result.
     \\Exempt: none — a test must assert something.
     },
-    .{ .name = "test-no-conditional", .text = 
+    .{ .name = "test-no-conditional", .text =
     \\Why: `if`/`while`/`switch` (or extra `for`) at a test's top level usually
     \\means the test only checks one branch, or skips silently.
     \\Fix: split into separate tests, or drive inputs table-style with asserts.
@@ -499,7 +499,7 @@ const entries = [_]Entry{
     \\asserting loop in the test.
     \\Exempt: none — restructure the test. Disable only as a last resort.
     },
-    .{ .name = "test-skip-ban", .text = 
+    .{ .name = "test-skip-ban", .text =
     \\Why: a test whose body is empty or whose first statement is
     \\`return error.SkipZigTest;` never runs yet still satisfies its `// spec:`
     \\tag — a silent hole in the flagship 1:1 spec-test guarantee.
@@ -509,41 +509,41 @@ const entries = [_]Entry{
     \\and never flagged.
     \\Exempt: none — finish or remove the test. Disable only during migration.
     },
-    .{ .name = "prod-imports-no-test", .text = 
+    .{ .name = "prod-imports-no-test", .text =
     \\Why: production code importing a `*_test.zig`/`tests/` file drags test-only
     \\scaffolding into the shipped binary — an agent wiring the wrong module.
     \\Fix: import from the production module; move shared helpers out of the test
     \\file.
     \\Exempt: none — production must not depend on tests.
     },
-    .{ .name = "bool-ops-per-condition", .text = 
+    .{ .name = "bool-ops-per-condition", .text =
     \\Why: a condition crammed with many `and`/`or`/`!` is where boolean-logic
     \\bugs hide.
     \\Fix: split into nested/sequential ifs to cut the leaf count, or name an
     \\intermediate boolean (naming alone doesn't reduce the leaves).
     \\Exempt: raise `[bool_ops] max_ops`, or disable the check.
     },
-    .{ .name = "line-length", .text = 
+    .{ .name = "line-length", .text =
     \\Why: very long lines force horizontal scrolling and hide the end of a
     \\statement an agent tacked on.
     \\Finding: lines above `max_len` warn; only those above `hard_max_len` block.
     \\Wrap when it improves readability; `\\` multiline strings are exempt.
     \\Exempt: adjust either `[line_length]` limit, or disable the check.
     },
-    .{ .name = "boolean-param-ban", .text = 
+    .{ .name = "boolean-param-ban", .text =
     \\Why: a bool parameter in a pub fn makes call sites unreadable
     \\(`f(true, false)`) and easy for an agent to transpose.
     \\Fix: take a two-case enum, or split into two named functions.
     \\Exempt: disable via the top-level `disabled` list.
     },
-    .{ .name = "magic-number", .text = 
+    .{ .name = "magic-number", .text =
     \\Why (opt-in): a bare integer literal is an unexplained constant an agent
     \\dropped in — meaning lost the moment it's read.
     \\Fix: name it as a `const` with a descriptive identifier.
     \\Exempt: off unless `[magic_number] enabled = true`; float idioms already
     \\allowed.
     },
-    .{ .name = "repeated-string-literal", .text = 
+    .{ .name = "repeated-string-literal", .text =
     \\Why: the same literal repeated 3+ times (or a duplicated named const across
     \\files) is knowledge an agent copy-pasted instead of centralizing.
     \\Two sub-analyses, both with an 8-char minimum length (short literals like
@@ -555,38 +555,38 @@ const entries = [_]Entry{
     \\Exempt: disable via the top-level `disabled` list (retired `dup-const` name
     \\also tolerated there).
     },
-    .{ .name = "struct-method-cap", .text = 
+    .{ .name = "struct-method-cap", .text =
     \\Why: a type with too many `pub fn` methods is accreting responsibilities an
     \\agent should have split.
     \\Fix: extract a cohesive method group into its own type.
     \\Exempt: disable via the top-level `disabled` list.
     },
-    .{ .name = "optional-density", .text = 
+    .{ .name = "optional-density", .text =
     \\Why: a struct where most fields are `?T` models "anything can be missing" —
     \\an agent dodging a real state machine.
     \\Fix: split into required-vs-optional structs, or model states as a union.
     \\Exempt: disable via the top-level `disabled` list.
     },
-    .{ .name = "stringly-typed-switches", .text = 
+    .{ .name = "stringly-typed-switches", .text =
     \\Why: switching on string literals is a fragile substitute for an enum — a
     \\typo an agent makes compiles and silently misroutes.
     \\Fix: define an enum and switch on it; parse strings to the enum at the edge.
     \\Exempt: disable via the top-level `disabled` list.
     },
-    .{ .name = "repeated-switch-on-enum", .text = 
+    .{ .name = "repeated-switch-on-enum", .text =
     \\Why: the same enum prong-set switched in 2+ files means dispatch that should
     \\live on the type is scattered — every new variant is a shotgun edit.
     \\Fix: move the behavior onto the type (a method) so adding a variant is one
     \\edit.
     \\Exempt: disable via the top-level `disabled` list.
     },
-    .{ .name = "stack-escape", .text = 
+    .{ .name = "stack-escape", .text =
     \\Why: returning `&local`, a slice of a stack array, or `&local.field` yields
     \\a dangling pointer into a dead frame — a memory-safety bug agents write.
     \\Fix: return by value, or accept an out-param/allocator the caller owns.
     \\Exempt: none — it's undefined behavior. Restructure the return.
     },
-    .{ .name = "assert-doc-consistency", .text = 
+    .{ .name = "assert-doc-consistency", .text =
     \\Why: an agent writes the Zig-core `/// Asserts <precondition>` doc but never
     \\adds the guard, so the doc promises a check the body never performs — a
     \\precondition that reads as enforced yet isn't.
@@ -596,7 +596,7 @@ const entries = [_]Entry{
     \\trigger is the whole word `Asserts` (case-sensitive), so lowercase prose
     \\never fires.
     },
-    .{ .name = "fatal-exit", .text = 
+    .{ .name = "fatal-exit", .text =
     \\Why: a raw `std.process.exit(1)` scattered through the code fragments the
     \\termination path an agent should route through one helper. Zig core funnels
     \\every hard exit through `std.process.fatal` (×281); Guardian carries
@@ -611,7 +611,7 @@ const entries = [_]Entry{
     \\file via `[[allow]] check = "fatal-exit"` (Guardian points it at
     \\`src/reporter.zig`).
     },
-    .{ .name = "stdout-flush", .text = 
+    .{ .name = "stdout-flush", .text =
     \\Why (report-only by default): in 0.15 a buffered `std.fs.File.stdout()/
     \\stderr()` writer that is never `flush()`ed silently TRUNCATES its output —
     \\the buffered bytes vanish when the writer leaves scope. This surfaces a
@@ -627,7 +627,7 @@ const entries = [_]Entry{
     \\stays report-only.
     \\Exempt: add paths via `[[allow]] check = "stdout-flush"`.
     },
-    .{ .name = "change-classification", .text = 
+    .{ .name = "change-classification", .text =
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
     \\no regression test" pattern that lets the same bug return.
     \\Fix: add a test (or `// spec:` tag / SPEC.md bullet) in the same change.
@@ -637,19 +637,19 @@ const entries = [_]Entry{
     \\Exempt: `[change_classification] enabled = false`, or set the diff base via
     \\`--against` / `GUARDIAN_AGAINST`; skips silently outside a git repo.
     },
-    .{ .name = "escape-discipline", .text = 
+    .{ .name = "escape-discipline", .text =
     \\Why (opt-in): raw `{s}` interpolation into HTML/SVG is an XSS sink an agent
     \\builds when concatenating markup from untrusted text.
     \\Fix: route the value through an escaping helper before interpolation.
     \\Exempt: off unless `[escape_discipline] enabled = true`.
     },
-    .{ .name = "oom-discipline", .text = 
+    .{ .name = "oom-discipline", .text =
     \\Why (opt-in): a swallowing `catch` on an allocating call conflates
     \\OutOfMemory with "not found", dropping data an agent meant to keep.
     \\Fix: propagate the allocation error; handle domain-absence separately.
     \\Exempt: off unless `[oom_discipline] enabled = true`.
     },
-    .{ .name = "fuzz-presence", .text = 
+    .{ .name = "fuzz-presence", .text =
     \\Why (opt-in): a hand-rolled parser/decoder that ate untrusted input loses
     \\its fuzz harness in a refactor, so the coverage-guided net silently lapses.
     \\Fix: add a `test { try std.testing.fuzz(ctx, testOne, .{}); }` harness to
@@ -659,7 +659,7 @@ const entries = [_]Entry{
     \\Exempt: off unless `[fuzz_presence] modules` names at least one file; drop
     \\a path from that list if it no longer needs a fuzz harness.
     },
-    .{ .name = "module-doc-header", .text = 
+    .{ .name = "module-doc-header", .text =
     \\Why: a src file over the line threshold (`[module_doc_header] min_lines`,
     \\default 200) is where a reader arrives cold and needs orientation, yet an
     \\agent rarely writes the `//!` module doc. Calibrated to zig-core reality —
@@ -689,7 +689,7 @@ const entries = [_]Entry{
             "trusted CI job. Configure the comparison ref and paths under [policy].\n" ++
             "Exempt: off unless `[policy] lock_enabled = true`; this check cannot demote itself.",
     },
-    .{ .name = "commit", .text = 
+    .{ .name = "commit", .text =
     \\Why: a meta command, not a gate — brings guardian-zig into the sibling
     \\guardians' intent-driven flow: run the whole gate, then commit the change
     \\set, with rails so a green build can't leak a secret or stage build output.
@@ -701,7 +701,7 @@ const entries = [_]Entry{
     \\git untouched. Never pushes, never amends.
     \\Exempt: n/a — never part of `all`; requires an explicit non-empty --intent.
     },
-    .{ .name = "install-hook", .text = 
+    .{ .name = "install-hook", .text =
     \\Why: a meta command, not a gate — with a dev build now only REPORTING, a raw
     \\`git commit` would otherwise slip past Guardian. This writes
     \\`.git/hooks/pre-commit` (marked with a guardian comment) that runs the
@@ -712,7 +712,7 @@ const entries = [_]Entry{
     \\Exempt: an existing non-guardian pre-commit hook is never overwritten — add
     \\`guardian-check all . --gate` to it by hand, or remove it and re-run.
     },
-    .{ .name = "merge-state", .text = 
+    .{ .name = "merge-state", .text =
     \\Why: a `.guardian/` file git left mid-merge reads as ordinary debt to every
     \\other check, so the tree gates GREEN on numbers nobody measured. Three
     \\states are refused: git's conflict markers still in the file, a counter
@@ -725,7 +725,7 @@ const entries = [_]Entry{
     \\Exempt: none. Install the driver (`guardian-check install-merge-driver`) so
     \\most of these conflicts never reach you in the first place.
     },
-    .{ .name = "install-merge-driver", .text = 
+    .{ .name = "install-merge-driver", .text =
     \\Why: a meta command, not a gate. `.guardian/` files are auto-shrinking
     \\ratchets and per-item snapshots that every branch touches, so they conflict
     \\constantly — and the "obvious" hand-union is wrong in ways that are silent
@@ -737,7 +737,7 @@ const entries = [_]Entry{
     \\`merge.guardian.driver` at `guardian-check merge-file %O %A %B --path %P`.
     \\Exempt: n/a — an existing attributes file is extended, never replaced.
     },
-    .{ .name = "merge-file", .text = 
+    .{ .name = "merge-file", .text =
     \\Why: a meta command, not a gate — the driver git runs per conflicted
     \\`.guardian/` file. Arguments are in GIT's order, `%O %A %B` = base, ours,
     \\theirs, and the merged result is written to `<ours>` (`%A`).
@@ -762,7 +762,7 @@ const entries = [_]Entry{
         "Fix: review and manually apply appropriate suggestions. Add `--json` for\n" ++
         "machine-readable output. The command never modifies files.\n" ++
         "Exempt: n/a — never part of `all`; it is always a dry run." },
-    .{ .name = "test-filter", .text = 
+    .{ .name = "test-filter", .text =
     \\Why: on a large tree an edit costs a whole test-binary rebuild plus the whole
     \\suite (measured on one consumer: ~207s per edit/verify iteration, of which
     \\~180s disappears when only the changed file's tests are compiled). This
@@ -796,7 +796,7 @@ const entries = [_]Entry{
         "Exempt: n/a — never part of `all` and never blocking. Naming a metric in\n" ++
         "`[benchmark] gate = [...]` opts it into a ratchet: `set` then refuses a\n" ++
         "regression unless `--force` arrives with an explanatory `--note`." },
-    .{ .name = "size", .text = 
+    .{ .name = "size", .text =
     \\Why: a ratchet freezes each item at the value guardian measured, but nothing
     \\reported that value back — the checks print a number only once an item is
     \\already over its cap, and `debt` lists ceilings without the current value

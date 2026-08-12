@@ -69,7 +69,7 @@ pub fn analyzeContent(
 /// (the process entry point, where a raw exit is legitimate). Propagates OOM
 /// from the tokenizer copy / the append rather than dropping a finding.
 fn scan(allocator: Allocator, content: []const u8, lines: *std.ArrayList(u32)) Allocator.Error!bool {
-    const z = try allocator.dupeZ(u8, content);
+    const z = try allocator.dupeSentinel(u8, content, 0);
     var tok = std.zig.Tokenizer.init(z);
     var chain: Chain = .none;
     var has_main = false;

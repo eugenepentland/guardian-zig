@@ -2,6 +2,7 @@
 //! before analysis so an incomplete worktree cannot prune trustworthy debt.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const walk = @import("walk.zig");
 const reporter = @import("reporter.zig");
 const types = @import("cli/types.zig");
@@ -12,7 +13,7 @@ pub fn validate(ctx: *types.RunCtx) types.RunError!void {
     const required = ctx.cfg.required_inputs;
     if (required.len == 0) return;
 
-    var root = std.fs.cwd().openDir(ctx.project_dir, .{ .iterate = true }) catch |err| {
+    var root = fs.cwd().openDir(ctx.project_dir, .{ .iterate = true }) catch |err| {
         reporter.fail("required-input preflight could not open {s}: {s}", .{ ctx.project_dir, @errorName(err) });
         return error.CheckFailed;
     };
@@ -35,7 +36,7 @@ pub fn validate(ctx: *types.RunCtx) types.RunError!void {
     return error.CheckFailed;
 }
 
-fn patternExists(allocator: std.mem.Allocator, root: std.fs.Dir, pattern: []const u8) !bool {
+fn patternExists(allocator: std.mem.Allocator, root: fs.Dir, pattern: []const u8) !bool {
     const star = std.mem.indexOfScalar(u8, pattern, '*') orelse {
         root.access(pattern, .{}) catch |err| switch (err) {
             error.FileNotFound => return false,
@@ -117,13 +118,13 @@ test "required input matching supports exact paths and globs" {
 
 test "patternExists scans only the fixed glob prefix" {
     const dir_path = "zig-cache/test-required-inputs";
-    std.fs.cwd().deleteTree(dir_path) catch {};
-    defer std.fs.cwd().deleteTree(dir_path) catch {};
-    try std.fs.cwd().makePath(dir_path ++ "/src/generated");
-    var file = try std.fs.cwd().createFile(dir_path ++ "/src/generated/page.zig", .{});
+    fs.cwd().deleteTree(dir_path) catch {};
+    defer fs.cwd().deleteTree(dir_path) catch {};
+    try fs.cwd().makePath(dir_path ++ "/src/generated");
+    var file = try fs.cwd().createFile(dir_path ++ "/src/generated/page.zig", .{});
     file.close();
 
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    var dir = try fs.cwd().openDir(dir_path, .{ .iterate = true });
     defer dir.close();
     try std.testing.expect(try patternExists(std.testing.allocator, dir, "src/generated/*.zig"));
     try std.testing.expect(try patternExists(std.testing.allocator, dir, "src/generated/page.zig"));
@@ -132,9 +133,9 @@ test "patternExists scans only the fixed glob prefix" {
 
 test "validate blocks an unmatched required input before analysis" {
     const dir_path = "zig-cache/test-required-input-validation";
-    std.fs.cwd().deleteTree(dir_path) catch {};
-    defer std.fs.cwd().deleteTree(dir_path) catch {};
-    try std.fs.cwd().makePath(dir_path);
+    fs.cwd().deleteTree(dir_path) catch {};
+    defer fs.cwd().deleteTree(dir_path) catch {};
+    try fs.cwd().makePath(dir_path);
     const cfg: @import("config.zig").Config = .{ .required_inputs = &.{"src/generated/*.zig"} };
     var ctx: types.RunCtx = .{
         .allocator = std.testing.allocator,

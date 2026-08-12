@@ -44,7 +44,7 @@ fn scanLines(
     var line_num: u32 = 1;
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| : (line_num += 1) {
-        const trimmed = std.mem.trimLeft(u8, line, &std.ascii.whitespace);
+        const trimmed = std.mem.trimStart(u8, line, &std.ascii.whitespace);
         // A multiline-string (`\\...`) line is emitted verbatim — its length is
         // template data (HTML/SVG/KiCad), not code, and it cannot be wrapped
         // without changing the output bytes. Skip it.
@@ -176,7 +176,9 @@ test "scanLines separates warnings from hard failures" {
     const a = arena.allocator();
     var warnings: std.ArrayList(reporter.Violation) = .empty;
     var violations: std.ArrayList(reporter.Violation) = .empty;
-    const content = ("x" ** 50) ++ "\n" ++ ("x" ** 90);
+    const short: [50]u8 = @splat('x');
+    const long: [90]u8 = @splat('x');
+    const content = short ++ "\n" ++ long;
     try scanLines(
         a,
         "src/x.zig",
@@ -202,7 +204,7 @@ test "analyzeContent allows short lines" {
 test "analyzeContent skips overlong spec tag lines but caps ordinary comments" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const pad = "x" ** 130;
+    const pad: [130]u8 = @splat('x');
     // Spec tags (plain and spec-case, any indentation) are exempt; an
     // ordinary comment of the same length still trips the cap.
     const content = "// spec: Section - " ++ pad ++ "\n" ++
@@ -217,7 +219,7 @@ test "analyzeContent skips overlong spec tag lines but caps ordinary comments" {
 test "analyzeContent skips overlong multiline-string lines" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const long = "x" ** 130;
+    const long: [130]u8 = @splat('x');
     // A `\\`-prefixed template line over the cap; the code lines are short.
     const content = "const s =\n    \\\\" ++ long ++ "\n;\n";
     const out = try analyzeContent(arena.allocator(), "src/x.zig", content);

@@ -106,7 +106,7 @@ fn matchesAny(path: []const u8, globs: []const []const u8) bool {
 /// failed allocation would let the budget pass open.
 fn unguardedCastLines(allocator: Allocator, content: []const u8, guard_fns: []const []const u8) Allocator.Error![]u32 {
     var lines: std.ArrayList(u32) = .empty;
-    const z = try allocator.dupeZ(u8, content);
+    const z = try allocator.dupeSentinel(u8, content, 0);
     var tok = std.zig.Tokenizer.init(z);
     var st: GuardScan = .{ .guard_fns = guard_fns };
     while (true) {

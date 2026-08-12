@@ -102,7 +102,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) walk.VisitError!void {
     if (entry.tree) |t| {
         try scanTree(ctx, entry.rel_path, t);
     } else {
-        var tree = try Ast.parse(ctx.allocator, entry.content, .zig);
+        var tree = try Ast.parse(ctx.allocator, entry.content, .{});
         try scanTree(ctx, entry.rel_path, &tree);
     }
 }
@@ -116,7 +116,7 @@ pub fn analyzeContent(
 ) std.mem.Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .violations = &violations };
-    var tree = try Ast.parse(allocator, content, .zig);
+    var tree = try Ast.parse(allocator, content, .{});
     try scanTree(&ctx, rel_path, &tree);
     return violations.toOwnedSlice(allocator);
 }

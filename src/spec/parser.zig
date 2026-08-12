@@ -4,6 +4,8 @@
 //! regardless of incidental formatting.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
+const wiring = @import("../wiring.zig");
 const Allocator = std.mem.Allocator;
 
 /// One bullet under a SPEC.md section: the section name, the bullet text,
@@ -27,7 +29,7 @@ pub const ParseError = std.mem.Allocator.Error || error{CouldNotReadSpec};
 
 /// Reads `path` and parses it as SPEC.md.
 pub fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section {
-    const content = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch
+    const content = fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch
         return error.CouldNotReadSpec;
     return parseContent(allocator, content);
 }
@@ -39,7 +41,7 @@ pub fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Sect
 /// already absolute or the cwd can't be read.
 pub fn resolveProjectDir(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
     if (std.fs.path.isAbsolute(project_dir)) return project_dir;
-    const cwd = std.process.getCwdAlloc(allocator) catch return project_dir;
+    const cwd = std.process.currentPathAlloc(wiring.io(), allocator) catch return project_dir;
     return std.fs.path.join(allocator, &.{ cwd, project_dir });
 }
 
@@ -233,7 +235,7 @@ pub fn normalizeKey(allocator: Allocator, text: []const u8) Allocator.Error![]co
     // Strip trailing whitespace first, then any run of `.`/`!` (and whitespace
     // between), so "foo." / "foo !" / "foo" all normalize identically.
     const trimmed = std.mem.trim(u8, slice, &std.ascii.whitespace);
-    return std.mem.trimRight(u8, trimmed, ". !\t");
+    return std.mem.trimEnd(u8, trimmed, ". !\t");
 }
 
 // spec: Spec Lifecycle - Normalizes spec keys for whitespace-insensitive comparison

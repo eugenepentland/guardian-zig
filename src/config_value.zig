@@ -140,7 +140,7 @@ pub fn stripInlineComment(val: []const u8) []const u8 {
                 in_str = !in_str;
                 escaped = false;
             },
-            '#' => if (!in_str) return std.mem.trimRight(u8, val[0..i], &std.ascii.whitespace),
+            '#' => if (!in_str) return std.mem.trimEnd(u8, val[0..i], &std.ascii.whitespace),
             else => escaped = false,
         }
     }

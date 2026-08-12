@@ -15,6 +15,7 @@
 //! nothing is recorded and nothing is ever pending.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const git = @import("git.zig");
 const snapshot = @import("snapshot.zig");
@@ -128,8 +129,8 @@ test "a recorded session note is pending at its head and expires at another" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/test-accept-session";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
 
     try recordAtHead(a, dir, "aaaa1111", &.{ "file-size", "type-size" });
     try testing.expect(isPendingAtHead(a, dir, "aaaa1111", "file-size"));
@@ -153,8 +154,8 @@ test "recorded lists notes from both heads and is empty without a note file" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/test-accept-session-list";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
 
     try testing.expectEqual(@as(usize, 0), (try recorded(a, dir)).len);
     try recordAtHead(a, dir, "aaaa1111", &.{ "file-size", "type-size" });
@@ -188,8 +189,8 @@ test "record and isPending agree through the live git head" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/test-accept-session-live";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
     // Inside a git checkout this is a live round-trip at the real HEAD;
     // outside one, record no-ops and isPending stays false — the two public
     // entry points agree either way.

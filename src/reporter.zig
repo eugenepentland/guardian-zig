@@ -4,6 +4,7 @@
 //! without re-parsing prose. Output is unbuffered debug.print to stderr.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
@@ -102,8 +103,18 @@ pub const Capture = struct {
 
     /// Appends `fmt`/`args` to the capture buffer; logs a warning on OOM.
     pub fn write(self: *Capture, comptime fmt: []const u8, args: anytype) void {
-        self.buf.writer(self.allocator).print(fmt, args) catch |e|
+        const len = std.fmt.count(fmt, args);
+        self.buf.ensureUnusedCapacity(self.allocator, len) catch |e| {
             std.log.warn("guardian capture write failed: {s}", .{@errorName(e)});
+            return;
+        };
+        const start = self.buf.items.len;
+        self.buf.items.len += len;
+        _ = std.fmt.bufPrint(self.buf.items[start..], fmt, args) catch |e| {
+            self.buf.items.len = start;
+            std.log.warn("guardian capture format failed: {s}", .{@errorName(e)});
+            return;
+        };
     }
 
     /// Records a structured Violation emitted through `Reporter.emit`, so
@@ -312,9 +323,9 @@ fn warnDirect(use_color: bool, v: Violation) void {
 pub threadlocal var default: Reporter = .{};
 
 /// Initializes the module-level default Reporter (TTY-detected color).
-pub fn init(quiet: bool) void {
+pub fn init(quiet: bool) std.Io.Cancelable!void {
     default = .{
-        .use_color = std.fs.File.stderr().isTty(),
+        .use_color = try fs.File.stderr().isTty(),
         .quiet = quiet,
     };
 }
@@ -346,7 +357,7 @@ const machine_buf_len = 4096;
 /// stdout to itself.
 pub fn machine(text: []const u8) std.Io.Writer.Error!void {
     var buf: [machine_buf_len]u8 = undefined;
-    var out = std.fs.File.stdout().writer(&buf);
+    var out = fs.File.stdout().writer(&buf);
     return writeMachine(&out.interface, text);
 }
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const fs = @import("../fs.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 
@@ -31,7 +32,7 @@ fn analyzeModules(allocator: Allocator, modules: []const ModuleSource) Allocator
             ));
             continue;
         };
-        const z = try allocator.dupeZ(u8, content);
+        const z = try allocator.dupeSentinel(u8, content, 0);
         if (!hasFuzzCall(z)) {
             try violations.append(allocator, try std.fmt.allocPrint(
                 allocator,
@@ -77,7 +78,7 @@ fn isFuzzTail(name: []const u8, prev1: std.zig.Token.Tag, prev2: std.zig.Token.T
 /// file is missing/unreadable (the caller turns null into a hard violation).
 fn readModule(allocator: Allocator, project_dir: []const u8, module: []const u8) Allocator.Error!?[]const u8 {
     const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, module });
-    return std.fs.cwd().readFileAlloc(allocator, path, read_limit) catch |e| switch (e) {
+    return fs.cwd().readFileAlloc(allocator, path, read_limit) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return null,
     };

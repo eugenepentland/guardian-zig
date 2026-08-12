@@ -5,6 +5,8 @@
 //! @import cycle.
 
 const std = @import("std");
+const fs = @import("fs.zig");
+const wiring = @import("wiring.zig");
 const config_mod = @import("config.zig");
 const config_parser = @import("config_parser.zig");
 const reporter = @import("reporter.zig");
@@ -38,7 +40,8 @@ const against_env = "GUARDIAN_AGAINST";
 const policy_approval_env = "GUARDIAN_POLICY_APPROVED";
 
 /// Entry point. Parses argv, dispatches to the registered command.
-pub fn main() !void {
+pub fn main(process_init: std.process.Init) !void {
+    wiring.init(process_init);
     // page_allocator is intentional here; pub fn main is the documented
     // exemption point in the "Allocator Hygiene" spec — every other call
     // site threads the allocator from this arena.
@@ -50,7 +53,7 @@ pub fn main() !void {
     // deliberately-mutated tree would deadlock the tier on itself, so
     // every command no-ops until the mutant is restored.
     if (envFlagActive(readEnv(allocator, mutation_runner.mutation_env))) {
-        reporter.init(false);
+        try reporter.init(false);
         reporter.ok("checks skipped (mutation test run in progress)", .{});
         return;
     }
@@ -60,20 +63,27 @@ pub fn main() !void {
     // tests — still executes. Distinct from the mutation env so its intent reads
     // clearly; it never skips anything but guardian's own checks.
     if (envFlagActive(readEnv(allocator, commit_cmd.child_skip_env))) {
-        reporter.init(false);
+        try reporter.init(false);
         reporter.ok("checks skipped (guardian-spawned child build)", .{});
         return;
     }
 
-    const args = try std.process.argsAlloc(allocator);
-    if (args.len < 2) {
-        reporter.init(false);
+    const args = try process_init.minimal.args.toSlice(allocator);
+    const forward_sentinel = "__guardian_build_forward__";
+    const forwarded = args.len >= 2 and std.mem.eql(u8, args[1], forward_sentinel);
+    if (args.len < 2 and !forwarded) {
+        try reporter.init(false);
         registry.printHelp();
         std.process.exit(1);
     }
 
-    const parsed = parseArgs(args[1..]);
-    reporter.init(parsed.quiet);
+    const default_build_args: []const [:0]const u8 = &.{ "all", "." };
+    const cli_args = if (forwarded)
+        if (args.len > 2) args[2..] else default_build_args
+    else
+        args[1..];
+    const parsed = parseArgs(cli_args);
+    try reporter.init(parsed.quiet);
 
     // `--version` / `version`: print and exit before any project work. Printing
     // std.debug.print from pub fn main is exempt from debug-print-ban.
@@ -211,7 +221,7 @@ const ParsedArgs = struct {
 // a run's output is printed, `--intent "<msg>"` is the commit subject,
 // `--unit`/`--dir`/`--note` carry a `bench set` recording, `--version`
 // requests the version.
-fn parseArgs(args: []const [:0]u8) ParsedArgs {
+fn parseArgs(args: []const [:0]const u8) ParsedArgs {
     var parsed: ParsedArgs = .{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -370,7 +380,7 @@ fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Er
 
 /// Reads an env var; null when unset (arena-owned when present).
 fn readEnv(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
-    return std.process.getEnvVarOwned(allocator, name) catch null;
+    return wiring.getEnvOwned(allocator, name) catch null;
 }
 
 /// Truthy-flag semantics shared with GUARDIAN_UPDATE_SNAPSHOT: set and
@@ -496,6 +506,8 @@ test {
     _ = @import("config_semantics.zig");
     _ = @import("config_policy.zig");
     _ = @import("build_helper.zig");
+    _ = @import("fs.zig");
+    _ = @import("wiring.zig");
     _ = @import("required_inputs.zig");
     _ = @import("metadata_transaction.zig");
     _ = @import("spec/parser.zig");
@@ -657,11 +669,11 @@ test "parseArgs reads --against ref and --full alongside command and dir" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 5);
-    args[0] = try a.dupeZ(u8, "mutate");
-    args[1] = try a.dupeZ(u8, ".");
-    args[2] = try a.dupeZ(u8, "--against");
-    args[3] = try a.dupeZ(u8, "origin/main");
-    args[4] = try a.dupeZ(u8, "--full");
+    args[0] = try a.dupeSentinel(u8, "mutate", 0);
+    args[1] = try a.dupeSentinel(u8, ".", 0);
+    args[2] = try a.dupeSentinel(u8, "--against", 0);
+    args[3] = try a.dupeSentinel(u8, "origin/main", 0);
+    args[4] = try a.dupeSentinel(u8, "--full", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("mutate", parsed.command.?);
     try std.testing.expectEqualStrings(".", parsed.project_dir);
@@ -677,12 +689,12 @@ test "parseArgs reads --only, --skip and --version" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 6);
-    args[0] = try a.dupeZ(u8, "all");
-    args[1] = try a.dupeZ(u8, "--only");
-    args[2] = try a.dupeZ(u8, "spec,file-size");
-    args[3] = try a.dupeZ(u8, "--skip");
-    args[4] = try a.dupeZ(u8, "boundaries");
-    args[5] = try a.dupeZ(u8, "--version");
+    args[0] = try a.dupeSentinel(u8, "all", 0);
+    args[1] = try a.dupeSentinel(u8, "--only", 0);
+    args[2] = try a.dupeSentinel(u8, "spec,file-size", 0);
+    args[3] = try a.dupeSentinel(u8, "--skip", 0);
+    args[4] = try a.dupeSentinel(u8, "boundaries", 0);
+    args[5] = try a.dupeSentinel(u8, "--version", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("all", parsed.command.?);
     try std.testing.expectEqualStrings("spec,file-size", parsed.only.?);
@@ -697,15 +709,15 @@ test "parseArgs reads the --gate flag" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 3);
-    args[0] = try a.dupeZ(u8, "all");
-    args[1] = try a.dupeZ(u8, ".");
-    args[2] = try a.dupeZ(u8, "--gate");
+    args[0] = try a.dupeSentinel(u8, "all", 0);
+    args[1] = try a.dupeSentinel(u8, ".", 0);
+    args[2] = try a.dupeSentinel(u8, "--gate", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("all", parsed.command.?);
     try std.testing.expect(parsed.gate);
     // Absent by default: a plain build reports rather than blocks.
     const plain = try a.alloc([:0]u8, 1);
-    plain[0] = try a.dupeZ(u8, "all");
+    plain[0] = try a.dupeSentinel(u8, "all", 0);
     try std.testing.expect(!parseArgs(plain).gate);
 }
 
@@ -716,19 +728,19 @@ test "parseArgs reads --summary and --verbose" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 3);
-    args[0] = try a.dupeZ(u8, "all");
-    args[1] = try a.dupeZ(u8, ".");
-    args[2] = try a.dupeZ(u8, "--summary");
+    args[0] = try a.dupeSentinel(u8, "all", 0);
+    args[1] = try a.dupeSentinel(u8, ".", 0);
+    args[2] = try a.dupeSentinel(u8, "--summary", 0);
     const parsed = parseArgs(args);
     try std.testing.expect(parsed.summary);
     try std.testing.expect(!parsed.verbose);
     // --verbose is the full-detail escape hatch; concise mode is the default.
     const verbose = try a.alloc([:0]u8, 2);
-    verbose[0] = try a.dupeZ(u8, "all");
-    verbose[1] = try a.dupeZ(u8, "--verbose");
+    verbose[0] = try a.dupeSentinel(u8, "all", 0);
+    verbose[1] = try a.dupeSentinel(u8, "--verbose", 0);
     try std.testing.expect(parseArgs(verbose).verbose);
     const plain = try a.alloc([:0]u8, 1);
-    plain[0] = try a.dupeZ(u8, "all");
+    plain[0] = try a.dupeSentinel(u8, "all", 0);
     try std.testing.expect(parseArgs(plain).summary);
 }
 
@@ -739,10 +751,10 @@ test "parseArgs reads --intent message alongside command and dir" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 4);
-    args[0] = try a.dupeZ(u8, "commit");
-    args[1] = try a.dupeZ(u8, "--intent");
-    args[2] = try a.dupeZ(u8, "add the widget");
-    args[3] = try a.dupeZ(u8, ".");
+    args[0] = try a.dupeSentinel(u8, "commit", 0);
+    args[1] = try a.dupeSentinel(u8, "--intent", 0);
+    args[2] = try a.dupeSentinel(u8, "add the widget", 0);
+    args[3] = try a.dupeSentinel(u8, ".", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("commit", parsed.command.?);
     try std.testing.expectEqualStrings("add the widget", parsed.intent.?);
@@ -756,14 +768,14 @@ test "parseArgs reads maintenance report and prune flags" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 8);
-    args[0] = try a.dupeZ(u8, "debt");
-    args[1] = try a.dupeZ(u8, "../project");
-    args[2] = try a.dupeZ(u8, "--json");
-    args[3] = try a.dupeZ(u8, "--check");
-    args[4] = try a.dupeZ(u8, "spec");
-    args[5] = try a.dupeZ(u8, "--prune-stale");
-    args[6] = try a.dupeZ(u8, "--yes");
-    args[7] = try a.dupeZ(u8, "--assert-density");
+    args[0] = try a.dupeSentinel(u8, "debt", 0);
+    args[1] = try a.dupeSentinel(u8, "../project", 0);
+    args[2] = try a.dupeSentinel(u8, "--json", 0);
+    args[3] = try a.dupeSentinel(u8, "--check", 0);
+    args[4] = try a.dupeSentinel(u8, "spec", 0);
+    args[5] = try a.dupeSentinel(u8, "--prune-stale", 0);
+    args[6] = try a.dupeSentinel(u8, "--yes", 0);
+    args[7] = try a.dupeSentinel(u8, "--assert-density", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("debt", parsed.command.?);
     try std.testing.expectEqualStrings("../project", parsed.project_dir);
@@ -781,9 +793,9 @@ test "parseArgs reads the size target before the project dir and the debt --curr
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 3);
-    args[0] = try a.dupeZ(u8, "size");
-    args[1] = try a.dupeZ(u8, "src/check.zig");
-    args[2] = try a.dupeZ(u8, "../project");
+    args[0] = try a.dupeSentinel(u8, "size", 0);
+    args[1] = try a.dupeSentinel(u8, "src/check.zig", 0);
+    args[2] = try a.dupeSentinel(u8, "../project", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("size", parsed.command.?);
     try std.testing.expectEqualStrings("src/check.zig", parsed.target_path.?);
@@ -793,9 +805,9 @@ test "parseArgs reads the size target before the project dir and the debt --curr
     // --current is a toggle, and only `size` consumes a target positional: a
     // debt run's first positional is still the project directory.
     const debt_args = try a.alloc([:0]u8, 3);
-    debt_args[0] = try a.dupeZ(u8, "debt");
-    debt_args[1] = try a.dupeZ(u8, "../project");
-    debt_args[2] = try a.dupeZ(u8, "--current");
+    debt_args[0] = try a.dupeSentinel(u8, "debt", 0);
+    debt_args[1] = try a.dupeSentinel(u8, "../project", 0);
+    debt_args[2] = try a.dupeSentinel(u8, "--current", 0);
     const debt_parsed = parseArgs(debt_args);
     try std.testing.expect(debt_parsed.current);
     try std.testing.expect(debt_parsed.target_path == null);
@@ -804,8 +816,8 @@ test "parseArgs reads the size target before the project dir and the debt --curr
     // `--live` is the same switch: the report points at that name, so the name
     // has to work.
     const live_args = try a.alloc([:0]u8, 2);
-    live_args[0] = try a.dupeZ(u8, "debt");
-    live_args[1] = try a.dupeZ(u8, "--live");
+    live_args[0] = try a.dupeSentinel(u8, "debt", 0);
+    live_args[1] = try a.dupeSentinel(u8, "--live", 0);
     try std.testing.expect(parseArgs(live_args).current);
 }
 
@@ -816,9 +828,9 @@ test "parseArgs reads accept check list and project directory positionals" {
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 3);
-    args[0] = try a.dupeZ(u8, "accept");
-    args[1] = try a.dupeZ(u8, "file-size,line-length");
-    args[2] = try a.dupeZ(u8, "../project");
+    args[0] = try a.dupeSentinel(u8, "accept", 0);
+    args[1] = try a.dupeSentinel(u8, "file-size,line-length", 0);
+    args[2] = try a.dupeSentinel(u8, "../project", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("file-size,line-length", parsed.accept_checks.?);
     try std.testing.expectEqualStrings("../project", parsed.project_dir);
@@ -831,17 +843,17 @@ test "parseArgs reads the bench subcommand, metric, value, flags, and project di
     defer arena.deinit();
     const a = arena.allocator();
     const args = try a.alloc([:0]u8, 11);
-    args[0] = try a.dupeZ(u8, "bench");
-    args[1] = try a.dupeZ(u8, "set");
-    args[2] = try a.dupeZ(u8, "close_open_nets_wall_s");
-    args[3] = try a.dupeZ(u8, "531");
-    args[4] = try a.dupeZ(u8, "--unit");
-    args[5] = try a.dupeZ(u8, "s");
-    args[6] = try a.dupeZ(u8, "--dir");
-    args[7] = try a.dupeZ(u8, "min");
-    args[8] = try a.dupeZ(u8, "--note");
-    args[9] = try a.dupeZ(u8, "fixture B, 87/90 nets");
-    args[10] = try a.dupeZ(u8, "../project");
+    args[0] = try a.dupeSentinel(u8, "bench", 0);
+    args[1] = try a.dupeSentinel(u8, "set", 0);
+    args[2] = try a.dupeSentinel(u8, "close_open_nets_wall_s", 0);
+    args[3] = try a.dupeSentinel(u8, "531", 0);
+    args[4] = try a.dupeSentinel(u8, "--unit", 0);
+    args[5] = try a.dupeSentinel(u8, "s", 0);
+    args[6] = try a.dupeSentinel(u8, "--dir", 0);
+    args[7] = try a.dupeSentinel(u8, "min", 0);
+    args[8] = try a.dupeSentinel(u8, "--note", 0);
+    args[9] = try a.dupeSentinel(u8, "fixture B, 87/90 nets", 0);
+    args[10] = try a.dupeSentinel(u8, "../project", 0);
     const parsed = parseArgs(args);
     try std.testing.expectEqualStrings("bench", parsed.command.?);
     try std.testing.expectEqualStrings("set", parsed.bench.sub);
@@ -854,10 +866,10 @@ test "parseArgs reads the bench subcommand, metric, value, flags, and project di
     try std.testing.expect(!parsed.bench.force);
     // `--force` is a toggle, and a listing takes only the project directory.
     const listing = try a.alloc([:0]u8, 4);
-    listing[0] = try a.dupeZ(u8, "bench");
-    listing[1] = try a.dupeZ(u8, "list");
-    listing[2] = try a.dupeZ(u8, "../project");
-    listing[3] = try a.dupeZ(u8, "--force");
+    listing[0] = try a.dupeSentinel(u8, "bench", 0);
+    listing[1] = try a.dupeSentinel(u8, "list", 0);
+    listing[2] = try a.dupeSentinel(u8, "../project", 0);
+    listing[3] = try a.dupeSentinel(u8, "--force", 0);
     const listed = parseArgs(listing);
     try std.testing.expectEqualStrings("list", listed.bench.sub);
     try std.testing.expectEqualStrings("../project", listed.project_dir);
@@ -908,7 +920,7 @@ test "envFlagActive gates the mutation-run check skip" {
 // are nested — so neither ban-fs nor test-no-conditional flags it.)
 test "test root imports every check file" {
     const self_src = @embedFile("check.zig");
-    var dir = try std.fs.cwd().openDir("src/checks", .{ .iterate = true });
+    var dir = try fs.cwd().openDir("src/checks", .{ .iterate = true });
     defer dir.close();
     var it = dir.iterate();
     var missing_buf: [256]u8 = undefined;
@@ -937,7 +949,7 @@ test "test root imports every check file" {
 // flags it, same as the check-file guard.)
 test "test root imports every fakes file" {
     const self_src = @embedFile("check.zig");
-    var dir = try std.fs.cwd().openDir("src/fakes", .{ .iterate = true });
+    var dir = try fs.cwd().openDir("src/fakes", .{ .iterate = true });
     defer dir.close();
     var it = dir.iterate();
     var missing_buf: [256]u8 = undefined;

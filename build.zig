@@ -17,17 +17,17 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // The INSTALLED guardian-check defaults to ReleaseSafe even when no
+    // The INSTALLED guardian-check defaults to safe even when no
     // -Doptimize is given. This binary runs a 67-check gate over whole
-    // consumer trees on every agent commit, and a Debug build of it turns
+    // consumer trees on every agent commit, and a debug build of it turns
     // that gate from ~1.1 s into ~42 s (measured on eda's 234-file tree,
     // 2026-07-26) — a 40x tax silently paid per commit whenever someone
     // refreshes zig-out with a plain `zig build`. An explicit -Doptimize
-    // still wins (dependents like eda pass ReleaseSafe already; a debugger
-    // session can ask for -Doptimize=Debug). Tests keep the plain default
+    // still wins (dependents like eda pass safe already; a debugger
+    // session can ask for -Doptimize=debug). Tests keep the plain default
     // below so the local dev loop keeps its fast compile.
     const exe_optimize: std.builtin.OptimizeMode =
-        if (b.user_input_options.contains("optimize")) optimize else .ReleaseSafe;
+        if (b.user_input_options.contains("optimize")) optimize else .safe;
 
     // Identity of the source this build is about to compile. A consumer that
     // reuses zig-out/bin/guardian-check instead of paying the ~49 s cold
@@ -36,7 +36,10 @@ pub fn build(b: *std.Build) void {
     // (src/source_digest.zig; both sides import it so they cannot drift).
     // Reading our own source root is a precondition of building at all, so a
     // failure here is fatal rather than a silently unverifiable binary.
-    const digest = source_digest.compute(b.allocator, b.build_root.handle) catch |err|
+    var source_root = b.root.openDir(b.graph.io, ".", .{}) catch |err|
+        std.debug.panic("guardian: cannot open own source root: {s}", .{@errorName(err)});
+    defer source_root.close(b.graph.io);
+    const digest = source_digest.compute(b.graph.io, b.allocator, source_root) catch |err|
         std.debug.panic("guardian: cannot digest own source root: {s}", .{@errorName(err)});
     const guardian_options = b.addOptions();
     guardian_options.addOption([]const u8, "source_digest", &digest);
@@ -46,6 +49,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/check.zig"),
         .target = target,
         .optimize = exe_optimize,
+        .single_threaded = false,
     });
     check_mod.addOptions("build_options", guardian_options);
     const check_exe = b.addExecutable(.{
@@ -67,6 +71,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/check.zig"),
         .target = target,
         .optimize = optimize,
+        .single_threaded = false,
     });
     test_mod.addOptions("build_options", guardian_options);
     const fuzz_filter = b.option(
@@ -104,6 +109,10 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters.items,
         .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .server },
     });
+    // Zig 0.17.0-dev.1683's self-hosted backend emits a zero-PC coverage map
+    // under --fuzz. Guardian requires a fuzz filter, so use that explicit fuzz
+    // configuration to select LLVM without taxing ordinary test builds.
+    if (fuzz_filter != null) unit_tests.use_llvm = true;
     const run_tests = b.addRunArtifact(unit_tests);
     guardian_helper.announceFilters(run_tests, test_filters.items);
     const test_step = b.step("test", "Run unit tests");
@@ -139,7 +148,7 @@ pub fn build(b: *std.Build) void {
     probe_step.dependOn(&b.addTest(.{ .root_module = runner_test_mod }).step);
 
     // Format check
-    const fmt_check = b.addFmt(.{ .paths = &.{"src"}, .check = true });
+    const fmt_check = b.addFmt(.{ .paths = &.{b.path("src")}, .check = true });
     b.getInstallStep().dependOn(&fmt_check.step);
     test_step.dependOn(&fmt_check.step);
 

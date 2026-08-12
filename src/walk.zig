@@ -5,6 +5,7 @@
 //! every check.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 
 /// One file yielded by the walker: its display path and full content.
@@ -51,11 +52,11 @@ pub const Visitor = struct {
 /// directory, iterating it, and reading each file, unioned with whatever the
 /// visitor callback returns (`VisitError`). Naming the set instead of aliasing
 /// `anyerror` gives every caller a compile-time-exhaustive error space.
-pub const WalkError = std.fs.Dir.OpenError ||
-    std.fs.Dir.Iterator.Error ||
-    std.fs.File.OpenError ||
-    std.fs.File.GetSeekPosError ||
-    std.fs.File.ReadError ||
+pub const WalkError = fs.Dir.OpenError ||
+    fs.Dir.Iterator.Error ||
+    fs.File.OpenError ||
+    fs.File.GetSeekPosError ||
+    fs.File.ReadError ||
     error{ FileTooBig, StreamTooLong } ||
     VisitError;
 
@@ -75,7 +76,7 @@ pub fn walkZigFiles(
     opts: WalkOpts,
     visitor: Visitor,
 ) WalkError!void {
-    var dir = std.fs.cwd().openDir(fs_root, .{ .iterate = true }) catch |e| switch (e) {
+    var dir = fs.cwd().openDir(fs_root, .{ .iterate = true }) catch |e| switch (e) {
         // A missing root (e.g. an optional test/ dir) is simply nothing to
         // scan. Any other failure (permissions, etc.) is a real error — a hard
         // gate must never silently pass because it couldn't read the sources.
@@ -87,7 +88,7 @@ pub fn walkZigFiles(
     try walkRecursive(state, dir, opts.display_root);
 }
 
-fn walkRecursive(state: WalkState, dir: std.fs.Dir, prefix: []const u8) !void {
+fn walkRecursive(state: WalkState, dir: fs.Dir, prefix: []const u8) !void {
     var iter = dir.iterate();
     while (try iter.next()) |entry| {
         const rel = if (prefix.len > 0)
@@ -110,7 +111,7 @@ fn walkRecursive(state: WalkState, dir: std.fs.Dir, prefix: []const u8) !void {
 /// Reads and yields one file to the visitor if it matches the configured
 /// extension and isn't excluded. Fails loud on read errors (permissions,
 /// > max_file_bytes): a silently skipped file would be exempt from every check.
-fn maybeVisitFile(state: WalkState, dir: std.fs.Dir, name: []const u8, rel: []const u8) !void {
+fn maybeVisitFile(state: WalkState, dir: fs.Dir, name: []const u8, rel: []const u8) !void {
     const opts = state.opts;
     if (!std.mem.endsWith(u8, name, opts.extension)) return;
     if (isExcluded(rel, opts.excludes)) return;
@@ -240,13 +241,16 @@ const wildcard_fuzz_corpus = [_][]const u8{
     "src/x.zigsrc/*.zig",
     "a.zig.zig",
 };
+const fuzz_input_bytes = 64 * 1024;
 
 /// One fuzz iteration for the wildcard matcher: an arbitrary pattern and
 /// candidate must never overflow the segment-cursor arithmetic (a bad slice
 /// index would panic in Debug). The input is split in half into (text, pattern).
 /// Cheap oracle: a pattern with no `*` collapses to a whole-string anchor, so
 /// matchWildcard matches iff text equals the pattern.
-fn fuzzMatchWildcard(_: void, input: []const u8) anyerror!void {
+fn fuzzMatchWildcard(_: void, smith: *std.testing.Smith) anyerror!void {
+    var input_buffer: [fuzz_input_bytes]u8 = undefined;
+    const input = input_buffer[0..smith.slice(&input_buffer)];
     const half = input.len / 2;
     const text = input[0..half];
     const pattern = input[half..];

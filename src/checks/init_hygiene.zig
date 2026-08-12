@@ -76,7 +76,7 @@ fn isInitName(name: []const u8) bool {
 /// in the tree can construct with it.
 fn isTestFixture(arena: Allocator, content: []const u8, fn_info: ast.FnDeclInfo) Allocator.Error!bool {
     if (fn_info.is_pub) return false;
-    const z = try arena.dupeZ(u8, content);
+    const z = try arena.dupeSentinel(u8, content, 0);
     return !referencedOutsideTests(z, fn_info.name);
 }
 
@@ -98,7 +98,7 @@ fn referencedOutsideTests(z: [:0]const u8, name: []const u8) bool {
 }
 
 fn scanBody(arena: Allocator, body: []const u8) Allocator.Error!?[]const u8 {
-    const z = try arena.dupeZ(u8, body);
+    const z = try arena.dupeSentinel(u8, body, 0);
     var tok = std.zig.Tokenizer.init(z);
     while (true) {
         const t = tok.next();

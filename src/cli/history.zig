@@ -27,6 +27,7 @@
 //! counted and skipped rather than failing the report.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
@@ -309,7 +310,7 @@ fn reportMissing(ctx: *types.RunCtx, path: []const u8) types.RunError!void {
 /// The line buffer and the per-line parse arena are both reused, so the whole
 /// scan costs the same memory whatever the file's length.
 fn scan(arena: Allocator, path: []const u8, stats: *Stats) types.RunError!ScanResult {
-    const file = std.fs.cwd().openFile(path, .{}) catch |e| switch (e) {
+    const file = fs.cwd().openFile(path, .{}) catch |e| switch (e) {
         error.FileNotFound => return .missing,
         else => return .unreadable,
     };
@@ -318,15 +319,14 @@ fn scan(arena: Allocator, path: []const u8, stats: *Stats) types.RunError!ScanRe
     var line_arena = std.heap.ArenaAllocator.init(arena);
     defer line_arena.deinit();
     while (true) {
-        const line = reader.interface.takeDelimiterExclusive('\n') catch |e| switch (e) {
-            error.EndOfStream => return .ok,
+        const line = (reader.interface.takeDelimiter('\n') catch |e| switch (e) {
             error.StreamTooLong => {
                 stats.counts.skipped += 1;
                 _ = reader.interface.discardDelimiterInclusive('\n') catch return .ok;
                 continue;
             },
             else => return .unreadable,
-        };
+        }) orelse return .ok;
         _ = line_arena.reset(.retain_capacity);
         try observeLine(arena, line_arena.allocator(), stats, line);
     }
@@ -605,7 +605,7 @@ fn writeJson(ctx: *types.RunCtx, path: []const u8, stats: *const Stats) types.Ru
     const report = try buildJson(a, path, stats);
     const text = try std.json.Stringify.valueAlloc(a, report, .{});
     var buf: [max_line_bytes]u8 = undefined;
-    var out = std.fs.File.stdout().writer(&buf);
+    var out = fs.File.stdout().writer(&buf);
     try out.interface.print("{s}\n", .{text});
     try out.interface.flush();
 }
@@ -716,22 +716,22 @@ const Fixture = struct {
     fn deinit(self: *Fixture) void {
         reporter.default = self.prior;
         self.cap.deinit();
-        std.fs.cwd().deleteTree(self.dir) catch |e| noteCleanup(e);
+        fs.cwd().deleteTree(self.dir) catch |e| noteCleanup(e);
     }
 };
 
 /// Empties and recreates a fixture directory.
 fn resetDir(dir: []const u8) !void {
-    std.fs.cwd().deleteTree(dir) catch |e| noteCleanup(e);
-    try std.fs.cwd().makePath(dir);
+    fs.cwd().deleteTree(dir) catch |e| noteCleanup(e);
+    try fs.cwd().makePath(dir);
 }
 
 /// Writes `log` as the fixture's run log; a null log leaves no file at all.
 fn writeLog(arena: Allocator, dir: []const u8, cfg: config_mod.Config, log: ?[]const u8) !void {
     const text = log orelse return;
     const path = try dora.resolvePath(arena, dir, cfg.dora.sink_path);
-    try std.fs.cwd().makePath(std.fs.path.dirname(path).?);
-    try std.fs.cwd().writeFile(.{ .sub_path = path, .data = text });
+    try fs.cwd().makePath(std.fs.path.dirname(path).?);
+    try fs.cwd().writeFile(.{ .sub_path = path, .data = text });
 }
 
 /// A fixture-cleanup failure is not the test's subject, but it is worth seeing.
@@ -1017,7 +1017,7 @@ test "an unreadable run log fails the command rather than reading as empty" {
     // A directory where the log should be: it exists, and it is not readable
     // as a file — the case that must never be mistaken for "no runs yet".
     const path = try dora.resolvePath(a, fx.dir, fx.cfg.dora.sink_path);
-    try std.fs.cwd().makePath(path);
+    try fs.cwd().makePath(path);
     var ctx = fx.ctx();
     try testing.expectError(error.CheckFailed, run(&ctx));
     try testing.expect(std.mem.indexOf(u8, fx.output(), "cannot read the run log") != null);

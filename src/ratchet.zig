@@ -15,6 +15,7 @@
 //! already tripped the default cap and fails rather than being ratified.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 const reporter = @import("reporter.zig");
@@ -337,7 +338,7 @@ pub fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Alloc
 const testing = std.testing;
 
 fn deleteIfExists(path: []const u8) void {
-    std.fs.cwd().deleteFile(path) catch |e| switch (e) {
+    fs.cwd().deleteFile(path) catch |e| switch (e) {
         error.FileNotFound => {},
         else => std.log.warn("test cleanup {s}: {s}", .{ path, @errorName(e) }),
     };
@@ -534,7 +535,7 @@ test "lifecycle defers create and auto-lower on a read-only run" {
     // written, so an ordinary run leaves the tree clean.
     const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
     try testing.expect((try lifecycle(a, path, &at130, false, false)) == .created);
-    try testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+    try testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
 
     // Record it writably, then improve on a read-only run: the auto-lower is
     // reported but the committed ratchet keeps its higher ceiling untouched.

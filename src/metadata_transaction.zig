@@ -4,6 +4,7 @@
 //! failed analysis never leaves partial acceptance or pruning behind.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const walk = @import("walk.zig");
 
 const Allocator = std.mem.Allocator;
@@ -108,7 +109,7 @@ pub const Transaction = struct {
             // named refresh the operator asked to keep.
             if (self.isPreserved(rel_path)) continue;
             const path = try fullPath(allocator, self.project_dir, rel_path);
-            std.fs.cwd().deleteFile(path) catch |err| switch (err) {
+            fs.cwd().deleteFile(path) catch |err| switch (err) {
                 error.FileNotFound => {},
                 else => return err,
             };
@@ -118,7 +119,7 @@ pub const Transaction = struct {
             if (self.isPreserved(original.rel_path)) continue;
             const path = try fullPath(allocator, self.project_dir, original.rel_path);
             var buffer: [4096]u8 = undefined;
-            var atomic = try std.fs.cwd().atomicFile(path, .{ .make_path = true, .write_buffer = &buffer });
+            var atomic = try fs.cwd().atomicFile(path, .{ .make_path = true, .write_buffer = &buffer });
             defer atomic.deinit();
             try atomic.file_writer.interface.writeAll(original.content);
             try atomic.finish();
@@ -135,10 +136,10 @@ pub const Transaction = struct {
 
 /// Filesystem/OOM surface of restoring the captured metadata tree.
 pub const RollbackError = walk.WalkError ||
-    std.fs.Dir.DeleteFileError ||
-    std.fs.Dir.MakeError ||
-    std.fs.AtomicFile.InitError ||
-    std.fs.AtomicFile.FinishError ||
+    fs.Dir.DeleteFileError ||
+    fs.Dir.MakeError ||
+    fs.AtomicFile.InitError ||
+    fs.AtomicFile.FinishError ||
     error{WriteFailed};
 
 fn metadataWalkOpts() walk.WalkOpts {
@@ -162,38 +163,38 @@ fn fullPath(allocator: Allocator, project_dir: []const u8, rel_path: []const u8)
 
 test "rollback restores modified metadata and removes newly created files" {
     const dir = "zig-cache/test-metadata-transaction";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/.guardian/baselines");
-    try std.fs.cwd().makePath(dir ++ "/.guardian/cache");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/a.txt", .data = "old\n" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/cache/log", .data = "before\n" });
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/.guardian/baselines");
+    try fs.cwd().makePath(dir ++ "/.guardian/cache");
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/a.txt", .data = "old\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/cache/log", .data = "before\n" });
 
     var txn = try Transaction.begin(std.testing.allocator, dir);
     defer txn.deinit();
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/a.txt", .data = "new\n" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/pub-api.txt", .data = "created\n" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/cache/log", .data = "after\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/a.txt", .data = "new\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/pub-api.txt", .data = "created\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/cache/log", .data = "after\n" });
 
     try txn.rollback();
-    const old = try std.fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/baselines/a.txt", 100);
+    const old = try fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/baselines/a.txt", 100);
     defer std.testing.allocator.free(old);
-    const log = try std.fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/cache/log", 100);
+    const log = try fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/cache/log", 100);
     defer std.testing.allocator.free(log);
     try std.testing.expectEqualStrings("old\n", old);
     try std.testing.expectEqualStrings("after\n", log);
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(dir ++ "/.guardian/pub-api.txt", .{}));
+    try std.testing.expectError(error.FileNotFound, fs.cwd().access(dir ++ "/.guardian/pub-api.txt", .{}));
 }
 
 // spec: Transactional Metadata - Preserves a named refresh's metadata across a failed gate
 
 test "rollback keeps preserved paths' run bytes while restoring the rest" {
     const dir = "zig-cache/test-metadata-preserve";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/.guardian/baselines");
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/.guardian/baselines");
     // An existing baseline that gets modified, plus none for pub-api yet.
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/other.txt", .data = "old\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/other.txt", .data = "old\n" });
 
     var txn = try Transaction.begin(std.testing.allocator, dir);
     defer txn.deinit();
@@ -201,17 +202,17 @@ test "rollback keeps preserved paths' run bytes while restoring the rest" {
     // baselines/other.txt.
     txn.preserveMetadata(&.{"pub-api.txt"});
 
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/other.txt", .data = "new\n" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/pub-api.txt", .data = "accepted\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/baselines/other.txt", .data = "new\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/.guardian/pub-api.txt", .data = "accepted\n" });
 
     try txn.rollback();
 
     // The unrelated baseline is restored to its pre-run bytes...
-    const other = try std.fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/baselines/other.txt", 100);
+    const other = try fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/baselines/other.txt", 100);
     defer std.testing.allocator.free(other);
     try std.testing.expectEqualStrings("old\n", other);
     // ...while the preserved, run-created snapshot survives the failed gate.
-    const api = try std.fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/pub-api.txt", 100);
+    const api = try fs.cwd().readFileAlloc(std.testing.allocator, dir ++ "/.guardian/pub-api.txt", 100);
     defer std.testing.allocator.free(api);
     try std.testing.expectEqualStrings("accepted\n", api);
 }

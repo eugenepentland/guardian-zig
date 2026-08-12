@@ -1,4 +1,5 @@
 const std = @import("std");
+const fs = @import("../fs.zig");
 const spec_init = @import("../spec/init.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
@@ -15,7 +16,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const spec_file = ctx.cfg.spec_file;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, spec_file });
 
-    if (std.fs.cwd().access(spec_path, .{})) |_| {
+    if (fs.cwd().access(spec_path, .{})) |_| {
         reporter.fatal(
             "{s} already exists — refusing to overwrite\n  Delete it first if you want to regenerate.",
             .{spec_file},
@@ -31,7 +32,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
 
     const content = try spec_init.generateSpecContent(allocator, modules.items);
-    const file = std.fs.cwd().createFile(spec_path, .{}) catch
+    const file = fs.cwd().createFile(spec_path, .{}) catch
         reporter.fatal("failed to write {s}", .{spec_path});
     defer file.close();
     file.writeAll(content) catch

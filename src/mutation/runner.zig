@@ -14,6 +14,9 @@
 //! journaled (see journal.zig) so a run killed mid-mutant is recoverable.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const fs = @import("../fs.zig");
+const wiring = @import("../wiring.zig");
 const gen = @import("gen.zig");
 const journal = @import("journal.zig");
 const reporter = @import("../reporter.zig");
@@ -35,11 +38,11 @@ const mutation_cache_leaf = ".guardian/cache/zig-mutate";
 /// `StaleMutant` (the source moved out from under a generated mutant). A
 /// precise named set instead of `anyerror` keeps the error space explicit.
 pub const RunError = Allocator.Error ||
-    std.fs.File.OpenError ||
-    std.fs.File.ReadError ||
-    std.fs.File.WriteError ||
-    std.fs.File.GetSeekPosError ||
-    std.process.Child.SpawnError ||
+    fs.File.OpenError ||
+    fs.File.ReadError ||
+    fs.File.WriteError ||
+    fs.File.GetSeekPosError ||
+    std.process.SpawnError ||
     error{ StaleMutant, FileTooBig, StreamTooLong };
 
 /// What one mutant did to the suite.
@@ -204,11 +207,11 @@ pub fn cleanStep(
 /// after logging it, so callers can fail the command without widening RunError.
 pub fn prepareCache(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const u8 {
     const p = try std.fs.path.join(allocator, &.{ project_dir, mutation_cache_leaf });
-    std.fs.cwd().deleteTree(p) catch |e| {
+    fs.cwd().deleteTree(p) catch |e| {
         std.log.err("mutation Zig cache recovery failed: {s}", .{@errorName(e)});
         return null;
     };
-    std.fs.cwd().makePath(p) catch |e| {
+    fs.cwd().makePath(p) catch |e| {
         std.log.err("mutation Zig cache creation failed: {s}", .{@errorName(e)});
         return null;
     };
@@ -218,7 +221,7 @@ pub fn prepareCache(allocator: Allocator, project_dir: []const u8) Allocator.Err
 /// Removes the campaign-local Zig cache. Best-effort, because cleanup must not
 /// hide a more useful mutation verdict already being returned.
 pub fn cleanupCache(path: []const u8) void {
-    std.fs.cwd().deleteTree(path) catch |e| {
+    fs.cwd().deleteTree(path) catch |e| {
         std.log.warn("mutation Zig cache cleanup failed: {s}", .{@errorName(e)});
     };
 }
@@ -229,7 +232,7 @@ pub fn cleanupCache(path: []const u8) void {
 /// run killed mid-mutant recoverable; a failed restore is reported loudly.
 pub fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outcome {
     const abs = try std.fs.path.join(allocator, &.{ opts.project_dir, m.path });
-    const original = try std.fs.cwd().readFileAlloc(allocator, abs, max_src_bytes);
+    const original = try fs.cwd().readFileAlloc(allocator, abs, max_src_bytes);
     const mutated = try spliced(allocator, original, m);
 
     // Journal + mark in-flight BEFORE writing the mutant, so a crash/kill
@@ -243,9 +246,9 @@ pub fn runOne(allocator: Allocator, opts: RunOpts, m: gen.Mutant) RunError!Outco
         .start = m.start,
         .end = m.end,
     });
-    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
+    try fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
     defer {
-        std.fs.cwd().writeFile(.{ .sub_path = abs, .data = original }) catch {
+        fs.cwd().writeFile(.{ .sub_path = abs, .data = original }) catch {
             reporter.fail("mutate: FAILED to restore {s} — recover with `git checkout -- {s}`", .{ abs, m.path });
         };
         journal.finish(allocator, opts.project_dir);
@@ -356,36 +359,41 @@ fn superviseArgv(
     cwd: []const u8,
     params: SuperviseParams,
 ) RunError!Supervised {
-    var env = try std.process.getEnvMap(allocator);
+    var env = try wiring.cloneEnviron(allocator);
     defer env.deinit();
     try env.put(mutation_env, "1");
 
-    var child = std.process.Child.init(argv, allocator);
-    child.cwd = cwd;
-    child.env_map = &env;
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    child.pgid = 0; // new process group led by the child → -pgid kills the tree
-    try child.spawn();
+    const io = wiring.io();
+    var child = try std.process.spawn(io, .{
+        .argv = argv,
+        .cwd = .{ .path = cwd },
+        .environ_map = &env,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .pgid = 0, // new process group led by the child → -pgid kills the tree
+    });
 
-    journal.trackChild(child.id);
+    journal.trackChild(child.id.?);
     defer journal.trackChild(0);
 
     var dog: Watchdog = .{
-        .pgid = child.id,
+        .pgid = child.id.?,
         .timeout_ns = params.timeout_ns,
         .tick_ns = params.tick_ns,
         .heartbeat = params.heartbeat,
     };
-    const th: ?std.Thread = std.Thread.spawn(.{}, Watchdog.watch, .{&dog}) catch null;
-    const term = child.wait() catch null;
-    dog.finished.set();
+    const th: ?std.Thread = if (builtin.single_threaded)
+        null
+    else
+        std.Thread.spawn(.{}, Watchdog.watch, .{&dog}) catch null;
+    const term = child.wait(io) catch null;
+    dog.finished.set(io);
     if (th) |t| t.join();
 
     if (dog.fired.load(.monotonic)) return .{ .result = .timed_out, .elapsed_ns = dog.elapsed_ns };
     const t = term orelse return .{ .result = .failed, .elapsed_ns = dog.elapsed_ns };
-    const clean = t == .Exited and t.Exited == 0;
+    const clean = t.success();
     return .{ .result = if (clean) .ok else .failed, .elapsed_ns = dog.elapsed_ns };
 }
 
@@ -400,7 +408,7 @@ const Watchdog = struct {
     timeout_ns: u64,
     tick_ns: u64,
     heartbeat: ?Heartbeat,
-    finished: std.Thread.ResetEvent = .{},
+    finished: std.Io.Event = .unset,
     fired: std.atomic.Value(bool) = .init(false),
     /// Tick-accumulated elapsed, read by the spawner after `join`.
     elapsed_ns: u64 = 0,
@@ -409,7 +417,7 @@ const Watchdog = struct {
         var waited: u64 = 0;
         while (waited < self.timeout_ns) {
             const wait_ns = @min(self.tick_ns, self.timeout_ns - waited);
-            self.finished.timedWait(wait_ns) catch {
+            self.finished.waitTimeout(wiring.io(), timeoutNs(wait_ns)) catch {
                 waited += wait_ns;
                 if (waited < self.timeout_ns) self.beat(waited);
                 continue;
@@ -434,6 +442,13 @@ const Watchdog = struct {
             reporter.detail("  watchdog group-kill failed: {s}\n", .{@errorName(e)});
     }
 };
+
+fn timeoutNs(ns: u64) std.Io.Timeout {
+    return .{ .duration = .{
+        .clock = .awake,
+        .raw = .fromNanoseconds(@intCast(ns)),
+    } };
+}
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -473,12 +488,12 @@ test "prepareCache creates a clean isolated cache and cleanupCache removes it" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const dir = "zig-cache/mutation-cache-lifecycle";
-    std.fs.cwd().deleteTree(dir) catch |e| return e;
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cache test cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch |e| return e;
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("cache test cleanup: {s}", .{@errorName(e)});
     const cache_dir = (try prepareCache(arena.allocator(), dir)).?;
-    try std.fs.cwd().access(cache_dir, .{});
+    try fs.cwd().access(cache_dir, .{});
     cleanupCache(cache_dir);
-    try testing.expectError(error.FileNotFound, std.fs.cwd().access(cache_dir, .{}));
+    try testing.expectError(error.FileNotFound, fs.cwd().access(cache_dir, .{}));
 }
 
 test "cleanStep is part of the clean-baseline runner API" {
@@ -538,8 +553,8 @@ const reap_poll_ms: u64 = 20;
 /// Waits `ns` without a banned wall-clock sleep: an event that is never set, so
 /// `timedWait` always times out after exactly `ns`.
 fn testTick(ns: u64) void {
-    var ev: std.Thread.ResetEvent = .{};
-    ev.timedWait(ns) catch return;
+    var ev: std.Io.Event = .unset;
+    ev.waitTimeout(std.testing.io, timeoutNs(ns)) catch return;
 }
 
 /// Reads `pidfile` once the shell has written the grandchild pid, retrying a few
@@ -547,7 +562,7 @@ fn testTick(ns: u64) void {
 fn waitForPidfile(a: Allocator, pidfile: []const u8) ![]u8 {
     var tries: u32 = 0;
     while (tries < pidfile_tries) : (tries += 1) {
-        if (std.fs.cwd().readFileAlloc(a, pidfile, pidfile_read_cap)) |c| {
+        if (fs.cwd().readFileAlloc(a, pidfile, pidfile_read_cap)) |c| {
             if (std.mem.trim(u8, c, &std.ascii.whitespace).len > 0) return c;
         } else |_| {}
         testTick(ns_per_ms * pidfile_poll_ms);
@@ -560,7 +575,8 @@ fn waitForPidfile(a: Allocator, pidfile: []const u8) ![]u8 {
 fn pidReaped(pid: i32) bool {
     var tries: u32 = 0;
     while (tries < reap_tries) : (tries += 1) {
-        std.posix.kill(pid, 0) catch return true; // ESRCH / gone
+        const rc = std.posix.system.kill(pid, @fromBackingInt(@intCast(0)));
+        if (std.posix.errno(rc) != .SUCCESS) return true; // ESRCH / gone
         testTick(ns_per_ms * reap_poll_ms);
     }
     return false;
@@ -573,9 +589,9 @@ test "superviseArgv kills the whole process group on timeout" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/mutant-group-kill";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("group-kill cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("group-kill cleanup: {s}", .{@errorName(e)});
     const pidfile = dir ++ "/grandchild.pid";
 
     // sh (the direct child) forks a never-ending grandchild, records its pid,

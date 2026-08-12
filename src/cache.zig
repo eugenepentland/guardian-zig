@@ -6,6 +6,7 @@
 //! full run, never to a wrong skip.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const walk = @import("walk.zig");
@@ -22,8 +23,9 @@ pub const Digest = [Sha256.digest_length]u8;
 /// whose content identity is mixed into the digest. Callers in run_all catch
 /// these and fall back to a full run.
 pub const Error = walk.WalkError ||
-    std.fs.File.StatError ||
-    std.fs.File.PReadError ||
+    fs.File.StatError ||
+    fs.File.PReadError ||
+    std.process.ExecutablePathAllocError ||
     error{ NotSupported, FileSystem, NotLink, UnrecognizedVolume, UnknownName };
 
 // Bump when the hashed input set below changes, so a stale cache written by
@@ -64,7 +66,7 @@ fn readSingle(
     leaf: []const u8,
 ) Error!void {
     const p = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, leaf });
-    const content = std.fs.cwd().readFileAlloc(arena, p, max_file_bytes) catch return;
+    const content = fs.cwd().readFileAlloc(arena, p, max_file_bytes) catch return;
     try items.append(arena, .{ .path = try arena.dupe(u8, leaf), .content = content });
 }
 
@@ -84,14 +86,14 @@ fn readSingle(
 /// size or one of those windows in practice; the residual risk is a re-run that
 /// is skipped, never a wrong verdict. Errors propagate: no identity, no skip.
 fn selfBinaryId(arena: Allocator) Error![]const u8 {
-    return binaryIdOf(arena, try std.fs.selfExePathAlloc(arena));
+    return binaryIdOf(arena, try fs.selfExePathAlloc(arena));
 }
 
 /// The content identity of the executable at `path` (see `selfBinaryId`). Split
 /// out from the running-binary lookup so the "two copies of one build share an
 /// identity" rule is testable against ordinary files.
 fn binaryIdOf(arena: Allocator, path: []const u8) Error![]const u8 {
-    var file = try std.fs.cwd().openFile(path, .{});
+    var file = try fs.cwd().openFile(path, .{});
     defer file.close();
     const size = (try file.stat()).size;
 
@@ -135,9 +137,9 @@ pub fn currentBinaryIdHash(arena: Allocator) Error!Digest {
 /// note only — never a digest, never a skip decision — so a missing timestamp
 /// degrades the wording rather than the gate.
 pub fn currentBinaryMtime(arena: Allocator) ?i128 {
-    const exe_path = std.fs.selfExePathAlloc(arena) catch return null;
-    const st = std.fs.cwd().statFile(exe_path) catch return null;
-    return st.mtime;
+    const exe_path = fs.selfExePathAlloc(arena) catch return null;
+    const st = fs.cwd().statFile(exe_path) catch return null;
+    return st.mtime.nanoseconds;
 }
 
 /// Modification time of the green stamp file — when the binary recorded in it
@@ -151,8 +153,8 @@ pub fn stampMtime(project_dir: []const u8) ?i128 {
     // is out of memory" with "there is nothing to compare against".
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ project_dir, cache_leaf }) catch return null;
-    const st = std.fs.cwd().statFile(path) catch return null;
-    return st.mtime;
+    const st = fs.cwd().statFile(path) catch return null;
+    return st.mtime.nanoseconds;
 }
 
 /// Digest over every file Guardian reads as a check input: `.zig` files under
@@ -228,7 +230,7 @@ fn collectEmbeddedAssets(
     const sources = try arena.dupe(Item, items.items);
     for (sources) |source| {
         if (!std.mem.endsWith(u8, source.path, ".zig")) continue;
-        const z = try arena.dupeZ(u8, source.content);
+        const z = try arena.dupeSentinel(u8, source.content, 0);
         var tok = std.zig.Tokenizer.init(z);
         while (true) {
             const builtin = tok.next();
@@ -339,7 +341,7 @@ fn parseHexDigest(hex: []const u8) ?Digest {
 /// Raw stamp-file bytes, or null when absent/unreadable (a first-run cache miss).
 fn readStampFile(arena: Allocator, project_dir: []const u8) Allocator.Error!?[]const u8 {
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
-    return std.fs.cwd().readFileAlloc(arena, path, stored_max_bytes) catch return null;
+    return fs.cwd().readFileAlloc(arena, path, stored_max_bytes) catch return null;
 }
 
 /// The `idx`-th newline-separated line of `raw` (trimmed), or null when absent.
@@ -379,9 +381,9 @@ pub fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.E
 /// the best-effort callers, which swallow it.
 fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: ?Digest) !void {
     const dir = try std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir});
-    try std.fs.cwd().makePath(dir);
+    try fs.cwd().makePath(dir);
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
-    const f = try std.fs.cwd().createFile(path, .{});
+    const f = try fs.cwd().createFile(path, .{});
     defer f.close();
     const dhex = std.fmt.bytesToHex(digest, .lower);
     try f.writeAll(&dhex);
@@ -453,18 +455,18 @@ test "a changed external gate input invalidates the digest" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/external-digest-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("external digest cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("external digest cleanup: {s}", .{@errorName(e)});
 
     const gates = &[_]config.ExternalGate{.{
         .name = "asset-syntax",
         .command = &.{ "node", "--check", "asset.js" },
         .inputs = &.{"asset.js"},
     }};
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 1;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 1;\n" });
     const d1 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 2;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/asset.js", .data = "const value = 2;\n" });
     const d2 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
     try std.testing.expect(!eql(d1, d2));
 }
@@ -475,19 +477,19 @@ test "a changed globbed external gate input invalidates the digest" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/external-glob-digest-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/assets");
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("external glob digest cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/assets");
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("external glob digest cleanup: {s}", .{@errorName(e)});
 
     const gates = &[_]config.ExternalGate{.{
         .name = "asset-syntax",
         .command = &.{ "node", "--check", external_inputs.placeholder },
         .inputs = &.{"assets/*.js"},
     }};
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/a.js", .data = "const a = 1;\n" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "const b = 1;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/a.js", .data = "const a = 1;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "const b = 1;\n" });
     const d1 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "const b = 2;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "const b = 2;\n" });
     const d2 = try digestWithBinaryId(a, dir, "SPEC.md", gates, "guardian-build");
     try std.testing.expect(!eql(d1, d2));
 }
@@ -499,18 +501,18 @@ test "a changed embedded asset invalidates the digest" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/embedded-digest-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/src");
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("embedded digest cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/src");
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("embedded digest cleanup: {s}", .{@errorName(e)});
 
-    try std.fs.cwd().writeFile(.{
+    try fs.cwd().writeFile(.{
         .sub_path = dir ++ "/src/main.zig",
         .data = "const script = @embedFile(\"../www/app.js\");\n",
     });
-    try std.fs.cwd().makePath(dir ++ "/www");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/www/app.js", .data = "const value = 1;\n" });
+    try fs.cwd().makePath(dir ++ "/www");
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/www/app.js", .data = "const value = 1;\n" });
     const d1 = try digestWithBinaryId(a, dir, "SPEC.md", &.{}, "guardian-build");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/www/app.js", .data = "const value = 2;\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/www/app.js", .data = "const value = 2;\n" });
     const d2 = try digestWithBinaryId(a, dir, "SPEC.md", &.{}, "guardian-build");
     try std.testing.expect(!eql(d1, d2));
 }
@@ -522,17 +524,17 @@ test "suiteDigest is stable for an unchanged tree and shifts when a source file 
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/suite-digest-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/src");
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("suite digest cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/src");
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("suite digest cleanup: {s}", .{@errorName(e)});
 
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 1; }\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 1; }\n" });
     const d1 = try suiteDigest(a, dir);
     // Same tree, same digest.
     try std.testing.expect(eql(d1, try suiteDigest(a, dir)));
     // Editing a source file changes the digest — so every cached mutant outcome
     // keyed on the old digest is correctly invalidated.
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 2; }\n" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/src/a.zig", .data = "pub fn f() u32 { return 2; }\n" });
     try std.testing.expect(!eql(d1, try suiteDigest(a, dir)));
 }
 
@@ -543,8 +545,8 @@ test "writeGreenStamp round-trips the digest and the binary identity" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/cache-stamp-proj";
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("stamp test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("stamp test cleanup: {s}", .{@errorName(e)});
 
     var digest: Digest = undefined;
     Sha256.hash("green-inputs", &digest, .{});
@@ -573,19 +575,19 @@ test "binaryIdOf matches byte-identical copies at different paths and splits on 
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/cache-binid-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("binid test cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("binid test cleanup: {s}", .{@errorName(e)});
 
     // The exact shape that used to fire a phantom stale-binary warning on every
     // run: the same build sitting at ./zig-out/bin/guardian-check and in the
     // zig build cache artifact dir. Same bytes, different paths — one identity.
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/installed", .data = "GUARDIAN-BUILD-1" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/o-artifact", .data = "GUARDIAN-BUILD-1" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/installed", .data = "GUARDIAN-BUILD-1" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/o-artifact", .data = "GUARDIAN-BUILD-1" });
     // A genuinely different build: same length, different bytes.
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/rebuilt", .data = "GUARDIAN-BUILD-2" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/rebuilt", .data = "GUARDIAN-BUILD-2" });
     // And one that differs only in size, which the fingerprint hashes directly.
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/grown", .data = "GUARDIAN-BUILD-1x" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/grown", .data = "GUARDIAN-BUILD-1x" });
 
     const installed = try binaryIdOf(a, dir ++ "/installed");
     try std.testing.expectEqualSlices(u8, installed, try binaryIdOf(a, dir ++ "/o-artifact"));
@@ -608,9 +610,9 @@ test "stampMtime reports a written stamp and nothing for an absent one" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/cache-mtime-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("mtime test cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("mtime test cleanup: {s}", .{@errorName(e)});
 
     // No stamp yet: no timestamp to compare against, so the hint stays generic.
     try std.testing.expect(stampMtime(dir) == null);
@@ -629,8 +631,8 @@ test "writeStored then readStored round-trips the digest" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/cache-test-proj";
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cache test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("cache test cleanup: {s}", .{@errorName(e)});
 
     var d: Digest = undefined;
     Sha256.hash("hello", &d, .{});
@@ -651,15 +653,15 @@ test "a post-write .guardian digest stamps clean while the pre-write digest goes
     const a = arena.allocator();
     const dir = "zig-cache/cache-prune-proj";
     const bpath = dir ++ "/.guardian/baselines/foo.txt";
-    try std.fs.cwd().makePath(dir ++ "/.guardian/baselines");
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("prune test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir ++ "/.guardian/baselines");
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("prune test cleanup: {s}", .{@errorName(e)});
 
     // Pre-prune baseline (three violations) → digest d1.
-    try std.fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\nb\nc\n" });
+    try fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\nb\nc\n" });
     const d1 = try inputDigest(a, dir, "SPEC.md", &.{});
 
     // Auto-prune rewrites the baseline smaller → digest d2.
-    try std.fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\n" });
+    try fs.cwd().writeFile(.{ .sub_path = bpath, .data = "# guardian-snapshot v1\na\n" });
     const d2 = try inputDigest(a, dir, "SPEC.md", &.{});
 
     // A .guardian/ rewrite changes the digest, so storing the pre-write digest

@@ -12,6 +12,7 @@
 //! (std.time is banned).
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const runner = @import("runner.zig");
 const gen = @import("gen.zig");
 const Allocator = std.mem.Allocator;
@@ -167,8 +168,8 @@ fn writeCohortInner(
         project_dir,
         cohort_manifest_name,
     });
-    if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
-    const f = try std.fs.cwd().createFile(p, .{});
+    if (std.fs.path.dirname(p)) |dir| try fs.cwd().makePath(dir);
+    const f = try fs.cwd().createFile(p, .{});
     defer f.close();
     try f.writeAll(buf.items);
 }
@@ -183,8 +184,8 @@ fn writeInner(arena: Allocator, project_dir: []const u8, survivors: []const Surv
     try buf.append(arena, '\n');
 
     const p = try pathFor(arena, project_dir);
-    if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
-    const f = try std.fs.cwd().createFile(p, .{});
+    if (std.fs.path.dirname(p)) |dir| try fs.cwd().makePath(dir);
+    const f = try fs.cwd().createFile(p, .{});
     defer f.close();
     try f.writeAll(buf.items);
 }
@@ -241,8 +242,8 @@ test "write emits survivor lines then a summary under the cache dir" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/mutate-report-proj";
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("mutate report cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("mutate report cleanup: {s}", .{@errorName(e)});
 
     const survivors = [_]Survivor{
         .{ .file = "src/x.zig", .line = 1, .original = "<", .replacement = "<=", .src_line = "a < b" },
@@ -255,7 +256,7 @@ test "write emits survivor lines then a summary under the cache dir" {
         .cached = 0,
         .gated = true,
     });
-    const raw = try std.fs.cwd().readFileAlloc(a, try pathFor(a, dir), 4096);
+    const raw = try fs.cwd().readFileAlloc(a, try pathFor(a, dir), 4096);
     var lines = std.mem.tokenizeScalar(u8, raw, '\n');
     try testing.expect(std.mem.indexOf(u8, lines.next().?, "\"type\":\"survivor\"") != null);
     try testing.expect(std.mem.indexOf(u8, lines.next().?, "\"type\":\"summary\"") != null);
@@ -269,8 +270,8 @@ test "writeCohort emits a summary and each selected identity" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/mutate-cohort-proj";
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("cohort cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("cohort cleanup: {s}", .{@errorName(e)});
     const mutants = [_]gen.Mutant{.{
         .path = "src/x.zig",
         .start = 2,
@@ -281,7 +282,7 @@ test "writeCohort emits a summary and each selected identity" {
     }};
     writeCohort(a, dir, "full", 9, &mutants, gen.cohortHash(&mutants));
     const p = try std.fmt.allocPrint(a, "{s}/.guardian/cache/{s}", .{ dir, cohort_manifest_name });
-    const raw = try std.fs.cwd().readFileAlloc(a, p, 4096);
+    const raw = try fs.cwd().readFileAlloc(a, p, 4096);
     try testing.expect(std.mem.indexOf(u8, raw, "\"candidates\":9") != null);
     try testing.expect(std.mem.indexOf(u8, raw, "\"file\":\"src/x.zig\"") != null);
 }

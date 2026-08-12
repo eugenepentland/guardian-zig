@@ -8,6 +8,7 @@
 //! implementation, so both name the same file and line.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
@@ -58,7 +59,7 @@ fn scanDir(
     rel: []const u8,
 ) Allocator.Error!void {
     const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, rel });
-    var dir = std.fs.cwd().openDir(full, .{ .iterate = true }) catch return;
+    var dir = fs.cwd().openDir(full, .{ .iterate = true }) catch return;
     defer dir.close();
     var it = dir.iterate();
     while (it.next() catch return) |entry| {

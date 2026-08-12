@@ -21,6 +21,7 @@
 //! is pure so every rule below is unit-tested without touching disk.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 
@@ -186,7 +187,7 @@ pub fn renderLine(arena: Allocator, rec: Record) Allocator.Error![]const u8 {
         fieldOr(rec.date),
         rec.note,
     });
-    return std.mem.trimRight(u8, line, " ");
+    return std.mem.trimEnd(u8, line, " ");
 }
 
 /// Renders the compact one-line form printed by `bench list` and by every gate
@@ -531,7 +532,7 @@ test "write sorts records by name and read parses them back" {
     defer arena.deinit();
     const a = arena.allocator();
     const path = "zig-cache/test-benchmarks.txt";
-    defer std.fs.cwd().deleteFile(path) catch |e|
+    defer fs.cwd().deleteFile(path) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ path, @errorName(e) });
     const records = [_]Record{
         .{ .name = "zeta_wall_s", .value = 12.5, .unit = "s", .direction = .min },
@@ -555,7 +556,7 @@ test "read surfaces BadFormat for a ledger line that is not a record" {
     defer arena.deinit();
     const a = arena.allocator();
     const path = "zig-cache/test-benchmarks-corrupt.txt";
-    defer std.fs.cwd().deleteFile(path) catch |e|
+    defer fs.cwd().deleteFile(path) catch |e|
         std.log.warn("test cleanup {s}: {s}", .{ path, @errorName(e) });
     var lines = [_][]const u8{"garbage line"};
     try snapshot.write(path, format_version, &lines);

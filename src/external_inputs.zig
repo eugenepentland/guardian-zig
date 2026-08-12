@@ -4,13 +4,14 @@
 //! shell is involved and no other interpolation is performed.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const walk = @import("walk.zig");
 
 const Allocator = std.mem.Allocator;
 
 pub const placeholder = "{input}";
 
-pub const ExpandError = Allocator.Error || std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error;
+pub const ExpandError = Allocator.Error || fs.Dir.OpenError || fs.Dir.Iterator.Error;
 
 /// Existing regular files beneath `project_dir` matched by any pattern, sorted
 /// and deduplicated. Exact paths and `*` globs use exact and wildcard matching
@@ -21,7 +22,7 @@ pub fn expand(
     patterns: []const []const u8,
 ) ExpandError![]const []const u8 {
     if (patterns.len == 0) return &.{};
-    var root = try std.fs.cwd().openDir(project_dir, .{ .iterate = true });
+    var root = try fs.cwd().openDir(project_dir, .{ .iterate = true });
     defer root.close();
     var walker = try root.walk(arena);
     defer walker.deinit();
@@ -135,10 +136,10 @@ test "external input expansion reports unmatched exact paths and globs" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/external-input-expansion";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/assets");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/app.js", .data = "ok" });
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/assets");
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/app.js", .data = "ok" });
 
     const patterns = &.{ "assets/*.js", "assets/missing.css" };
     const paths = try expand(a, dir, patterns);

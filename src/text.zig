@@ -81,6 +81,7 @@ const test_scope_fuzz_corpus = [_][]const u8{
     "test {",
     "fn f() void { if (x) {} }",
 };
+const fuzz_input_bytes = 64 * 1024;
 
 /// One fuzz iteration for the inline-test scope tracker: feeding the token tags
 /// of arbitrary source through `update` must never crash — the closing-brace
@@ -88,8 +89,10 @@ const test_scope_fuzz_corpus = [_][]const u8{
 /// `update` asserts, `test_depth <= depth` while `in_test`. The internal assert
 /// traps in Debug; re-checking it here turns a fuzz counterexample into a named
 /// test failure rather than a bare panic.
-fn fuzzTestScope(allocator: std.mem.Allocator, input: []const u8) anyerror!void {
-    const z = try allocator.dupeZ(u8, input);
+fn fuzzTestScope(allocator: std.mem.Allocator, smith: *std.testing.Smith) anyerror!void {
+    var input_buffer: [fuzz_input_bytes]u8 = undefined;
+    const input = input_buffer[0..smith.slice(&input_buffer)];
+    const z = try allocator.dupeSentinel(u8, input, 0);
     defer allocator.free(z);
     var tok = std.zig.Tokenizer.init(z);
     var scope = TestScope{};

@@ -3,6 +3,8 @@
 //! files participate in Guardian's green-run cache digest.
 
 const std = @import("std");
+const wiring = @import("../wiring.zig");
+const fs = @import("../fs.zig");
 const config = @import("../config.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
@@ -77,11 +79,11 @@ fn runOne(
 ) registry.RunError!bool {
     if (gate.benchmark != null or gate.timeout_secs > 0 or gate.max_rss_mib > 0)
         return runBudgeted(ctx, gate, argv, input);
-    const result = std.process.Child.run(.{
-        .allocator = ctx.allocator,
+    const result = std.process.run(ctx.allocator, wiring.io(), .{
         .argv = argv,
-        .cwd = ctx.project_dir,
-        .max_output_bytes = max_output_bytes,
+        .cwd = .{ .path = ctx.project_dir },
+        .stdout_limit = .limited64(max_output_bytes),
+        .stderr_limit = .limited64(max_output_bytes),
     }) catch |e| {
         if (e == error.OutOfMemory) return error.OutOfMemory;
         if (input) |path|
@@ -90,7 +92,7 @@ fn runOne(
             reporter.fail("external gate '{s}' could not start: {s}", .{ gate.name, @errorName(e) });
         return false;
     };
-    if (result.term == .Exited and result.term.Exited == 0) return true;
+    if (result.term.success()) return true;
     if (input) |path|
         reporter.fail("external gate '{s}' FAILED for {s}", .{ gate.name, path })
     else
@@ -119,7 +121,7 @@ fn runBudgeted(
         reportGateFailure(gate.name, input, "could not run under resource supervision", @errorName(e));
         return false;
     };
-    if (!(result.term == .Exited and result.term.Exited == 0)) {
+    if (!result.term.success()) {
         if (result.timed_out) {
             reportGateFailure(gate.name, input, "exceeded its wall-time ceiling", null);
             reporter.detail("  elapsed ceiling: {d:.3}s\n", .{@as(f64, @floatFromInt(timeout_ns)) / @as(f64, second_ns)});
@@ -268,11 +270,11 @@ test "external gate expands a glob and names each failing per-input invocation" 
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/test-external-glob";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir ++ "/assets");
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/a.js", .data = "ok" });
-    try std.fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "ok" });
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/assets");
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/a.js", .data = "ok" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "ok" });
 
     const cfg: config.Config = .{ .external_gates = &.{.{
         .name = "js-syntax",

@@ -15,6 +15,7 @@
 //! removal keeps failing exactly as before.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const git = @import("git.zig");
 
@@ -45,7 +46,7 @@ pub fn phantomPaths(
 fn present(allocator: Allocator, project_dir: []const u8, rel: []const u8) Allocator.Error!bool {
     const full = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, rel });
     defer allocator.free(full);
-    std.fs.cwd().access(full, .{}) catch return false;
+    fs.cwd().access(full, .{}) catch return false;
     return true;
 }
 

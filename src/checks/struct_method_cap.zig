@@ -180,7 +180,7 @@ test "analyzeContent flags struct with > 20 methods" {
         try buf.appendSlice(a, line);
     }
     try buf.appendSlice(a, "};\n");
-    const src = try a.dupeZ(u8, buf.items);
+    const src = try a.dupeSentinel(u8, buf.items, 0);
     const out = try analyzeContent(a, "src/x.zig", src);
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }
@@ -197,7 +197,7 @@ test "analyzeContent counts pub inline/extern methods toward the cap" {
         try buf.appendSlice(a, try std.fmt.allocPrint(a, "    pub inline fn m{d}() void {{}}\n", .{i}));
     }
     try buf.appendSlice(a, "};\n");
-    const src = try a.dupeZ(u8, buf.items);
+    const src = try a.dupeSentinel(u8, buf.items, 0);
     const out = try analyzeContent(a, "src/x.zig", src);
     try std.testing.expectEqual(@as(usize, 1), out.len);
 }

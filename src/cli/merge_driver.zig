@@ -17,6 +17,7 @@
 //! `isInstalled` to report whether they did.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const Allocator = std.mem.Allocator;
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
@@ -140,7 +141,7 @@ const driver_fmt =
 /// last-resort branch. An unresolvable self path bakes an empty string, which
 /// every branch guards with `-n`, degrading to the three layers above it.
 fn driverCommand(allocator: Allocator) Allocator.Error![]const u8 {
-    const self_path = std.fs.selfExePathAlloc(allocator) catch "";
+    const self_path = fs.selfExePathAlloc(allocator) catch "";
     return std.fmt.allocPrint(allocator, driver_fmt, .{ self_path, self_path, self_path });
 }
 
@@ -154,13 +155,13 @@ fn attributesPath(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
 
 /// Existing attributes bytes, or null when the file is absent/unreadable.
 fn readExisting(allocator: Allocator, path: []const u8) ?[]const u8 {
-    return std.fs.cwd().readFileAlloc(allocator, path, max_attributes_bytes) catch null;
+    return fs.cwd().readFileAlloc(allocator, path, max_attributes_bytes) catch null;
 }
 
 /// Writes `content`, creating the `info/` directory when git has not yet.
 fn writeFile(path: []const u8, content: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir| try std.fs.cwd().makePath(dir);
-    try std.fs.cwd().writeFile(.{ .sub_path = path, .data = content });
+    if (std.fs.path.dirname(path)) |dir| try fs.cwd().makePath(dir);
+    try fs.cwd().writeFile(.{ .sub_path = path, .data = content });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -199,7 +200,7 @@ test "the driver command passes base, ours, theirs, and the pathname" {
     try testing.expect(std.mem.indexOf(u8, cmd, "$GUARDIAN_CHECK") != null);
     try testing.expect(std.mem.indexOf(u8, cmd, "./zig-out/bin/guardian-check") != null);
     try testing.expect(std.mem.indexOf(u8, cmd, "command -v guardian-check") != null);
-    const self_path = try std.fs.selfExePathAlloc(arena.allocator());
+    const self_path = try fs.selfExePathAlloc(arena.allocator());
     try testing.expect(std.mem.indexOf(u8, cmd, self_path) != null);
     // Every use of the baked path is `-n`-guarded, so an unresolvable self path
     // degrades to the layers above instead of testing `-x ""`.

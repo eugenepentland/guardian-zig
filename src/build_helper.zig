@@ -261,20 +261,22 @@ fn resolve(b: *std.Build, check_exe: *std.Build.Step.Compile, opts: Options) Wir
 /// Absolute build root of `owner`, resolved through `b` so both sides of the
 /// self-hosting comparison are spelled the same way.
 fn buildRoot(b: *std.Build, owner: *std.Build) []const u8 {
-    return b.pathResolve(&.{owner.build_root.path orelse "."});
+    const root_dir = owner.root.root_dir.path orelse ".";
+    if (owner.root.sub_path.len == 0) return b.pathResolve(&.{root_dir});
+    return b.pathResolve(&.{ root_dir, owner.root.sub_path });
 }
 
 /// The dependency's already-built binary, or null when it isn't there. Probed
 /// through the dependency's own directory handle, so no path is synthesized
 /// before it is known to resolve.
 fn installedBinary(b: *std.Build, dep: *std.Build, dep_root: []const u8) ?[]const u8 {
-    dep.build_root.handle.access(prebuilt_rel_path, .{}) catch return null;
+    dep.root.access(b.graph.io, prebuilt_rel_path, .{}) catch return null;
     return b.pathResolve(&.{ dep_root, prebuilt_rel_path });
 }
 
 /// Reads a configure-time environment variable; null when unset or unreadable.
 fn readEnv(b: *std.Build, name: []const u8) ?[]const u8 {
-    return std.process.getEnvVarOwned(b.allocator, name) catch null;
+    return b.graph.environ_map.get(name);
 }
 
 /// Registers `guardian-selfcheck`: the prebuilt binary proving it matches the
@@ -309,14 +311,14 @@ fn maybeGateInstall(
     const install = b.getInstallStep();
     if (target_step != install) return;
     for (install.dependencies.items) |dep| {
-        if (!isArtifactInstall(dep.id)) continue;
+        if (!isArtifactInstall(dep.tag)) continue;
         if (containsStep(gates, dep)) continue;
         for (gates) |gate| dep.dependOn(gate);
     }
 }
 
-fn isArtifactInstall(id: std.Build.Step.Id) bool {
-    return id == .install_artifact;
+fn isArtifactInstall(tag: std.Build.Step.Tag) bool {
+    return tag == .install_artifact;
 }
 
 fn containsStep(steps: []const *std.Build.Step, step: *std.Build.Step) bool {
@@ -361,7 +363,8 @@ fn registerMaintenanceSteps(w: Wiring) void {
 /// suite for the current project.
 fn ensureForwardingStep(w: Wiring) void {
     if (w.b.top_level_steps.contains(guardian_run_step)) return;
-    const run = w.invoke(w.b.args orelse &.{ run_all_name, "." });
+    const run = w.invoke(&.{"__guardian_build_forward__"});
+    run.addPassthruArgs();
     const step = w.b.step(guardian_run_step, "Run the current Guardian binary; forward args after --");
     step.dependOn(&run.step);
 }

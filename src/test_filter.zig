@@ -239,8 +239,8 @@ const testing = std.testing;
 
 /// Parses `source` into an arena-owned index entry for the derivation tests.
 fn entryFor(arena: Allocator, rel_path: []const u8, source: []const u8) !ast_index.Entry {
-    const z = try arena.dupeZ(u8, source);
-    return .{ .rel_path = rel_path, .content = z, .tree = try Ast.parse(arena, z, .zig) };
+    const z = try arena.dupeSentinel(u8, source, 0);
+    return .{ .rel_path = rel_path, .content = z, .tree = try Ast.parse(arena, z, .{}) };
 }
 
 // spec: Test Filter - Derives the test names declared by each changed file

@@ -11,6 +11,7 @@
 //! no manual refresh.
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 const reporter = @import("reporter.zig");
@@ -598,7 +599,7 @@ fn ratchetUnderPartialView(view: scope.View, outcome: ratchet.Outcome) ratchet.O
 /// Best-effort: an unreadable/absent metadata file means nothing to compare.
 fn storedPhantoms(a: Allocator, ctx: *types.RunCtx, check_name: []const u8) Allocator.Error!usize {
     const path = try pathFor(a, ctx.project_dir, check_name);
-    const raw = std.fs.cwd().readFileAlloc(a, path, max_baseline_bytes) catch return 0;
+    const raw = fs.cwd().readFileAlloc(a, path, max_baseline_bytes) catch return 0;
     var candidates: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
@@ -1220,7 +1221,7 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 fn deleteIfExists(path: []const u8) void {
-    std.fs.cwd().deleteFile(path) catch |e| switch (e) {
+    fs.cwd().deleteFile(path) catch |e| switch (e) {
         error.FileNotFound => {},
         else => std.log.warn("test cleanup {s}: {s}", .{ path, @errorName(e) }),
     };
@@ -1277,9 +1278,9 @@ fn warningOnly(_: *types.RunCtx) types.RunError!void {
 
 test "runWithBaseline replays warnings without ratcheting them" {
     const dir = "zig-cache/test-baseline-warning";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
 
     const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
     // metadata_writable so the (empty) ratchet is actually recorded — the test
@@ -1334,9 +1335,9 @@ fn fileSizeOverHardLimit(_: *types.RunCtx) types.RunError!void {
 
 test "a regressed file-size key reaches the JSONL sink with its file, metric and ceiling" {
     const dir = "zig-cache/test-baseline-ratchet-sink";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1397,9 +1398,9 @@ fn proseViolation(_: *types.RunCtx) types.RunError!void {
 
 test "a new violation above the baseline reaches the sink structured, not as prose" {
     const dir = "zig-cache/test-baseline-grown-sink";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1787,15 +1788,15 @@ test "lifecycle defers creation and pruning on a read-only run" {
     // run leaves the tree clean.
     const two = try keyedLines(a, "demo", &.{ "alpha", "beta" });
     try std.testing.expect((try lifecycle(a, path, two, false, false)) == .created);
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+    try std.testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
 
     // Record it with a writable run, then resolve one violation on a read-only
     // run: the shrink is reported but the committed baseline is left untouched.
     _ = try lifecycle(a, path, two, false, true);
-    const before = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    const before = try fs.cwd().readFileAlloc(a, path, 4096);
     const one = try keyedLines(a, "demo", &.{"alpha"});
     try std.testing.expect((try lifecycle(a, path, one, false, false)) == .shrunk);
-    const after = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    const after = try fs.cwd().readFileAlloc(a, path, 4096);
     try std.testing.expectEqualStrings(before, after);
 }
 
@@ -1886,14 +1887,14 @@ test "lifecycle does not rewrite a matched baseline whose entries only moved lin
     // Record a baseline whose entry carries a source-line position.
     const at_10 = try keyedLines(a, "ban-fs", &.{"src/x.zig:10: std.fs.cwd reference outside allowed paths"});
     _ = try lifecycle(a, path, at_10, false, true);
-    const before = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    const before = try fs.cwd().readFileAlloc(a, path, 4096);
 
     // The same violation, only shifted to a new line (an unrelated edit grew the
     // file above it), must match — and must NOT rewrite the committed baseline,
     // so a source-only diff stays clean (C1a).
     const at_42 = try keyedLines(a, "ban-fs", &.{"src/x.zig:42: std.fs.cwd reference outside allowed paths"});
     try std.testing.expect((try lifecycle(a, path, at_42, false, true)) == .matched);
-    const after = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    const after = try fs.cwd().readFileAlloc(a, path, 4096);
     try std.testing.expectEqualStrings(before, after);
 }
 
@@ -1919,7 +1920,7 @@ test "rewording a violation's message leaves the baseline green" {
     };
     const baselined = try keyedViolations(a, "repeated-switch-on-enum", "", &.{before});
     try std.testing.expect((try lifecycle(a, path, baselined, false, true)) == .created);
-    const on_disk = try std.fs.cwd().readFileAlloc(a, path, 4096);
+    const on_disk = try fs.cwd().readFileAlloc(a, path, 4096);
 
     // Now reword the *same* underlying violation as freely as a diagnostics
     // batch would: new phrasing, an added count, and an appended file list. The
@@ -1937,7 +1938,7 @@ test "rewording a violation's message leaves the baseline green" {
     // ...yet the run stays green, and the committed baseline is not rewritten,
     // so a consumer's gate survives the upgrade with no accept and no churn.
     try std.testing.expect((try lifecycle(a, path, reworded, false, true)) == .matched);
-    try std.testing.expectEqualStrings(on_disk, try std.fs.cwd().readFileAlloc(a, path, 4096));
+    try std.testing.expectEqualStrings(on_disk, try fs.cwd().readFileAlloc(a, path, 4096));
 
     // The guard rail still holds: a *different* prong set is a real new
     // violation and reds the build.
@@ -2131,7 +2132,7 @@ test "lifecycle creates no baseline file when there are no violations" {
     const out = try lifecycle(a, path, &.{}, false, true);
     try std.testing.expect(out == .matched);
     try std.testing.expectEqual(@as(usize, 0), out.matched);
-    try std.testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+    try std.testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
 }
 
 // spec: Baseline Mode - Refuses to refresh a deny_growth baseline that would grow

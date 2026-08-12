@@ -170,7 +170,7 @@ test "analyzeFile flags a banned chain inside the configured paths" {
 
     // Same verdict through the walker's pre-parsed tree, which is what the real
     // run hands over — the scan must never depend on re-parsing the file.
-    var tree = try std.zig.Ast.parse(a, source, .zig);
+    var tree = try std.zig.Ast.parse(a, source, .{});
     const reused = try analyzeFile(a, .{
         .rel_path = "src/serve/routes.zig",
         .content = source,

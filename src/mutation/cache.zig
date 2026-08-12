@@ -19,6 +19,7 @@
 //! fresh ratchet must be a fresh measurement, not a replay.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const gen = @import("gen.zig");
 const runner = @import("runner.zig");
 
@@ -161,8 +162,8 @@ fn buildMap(arena: Allocator, content: []const u8, suite_hex: []const u8, retain
 /// Overwrites the cache file with `data`, creating the cache dir. Used to
 /// compact the file to the current suite's deduped records after a load.
 fn overwrite(p: []const u8, data: []const u8) !void {
-    if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
-    const f = try std.fs.cwd().createFile(p, .{});
+    if (std.fs.path.dirname(p)) |dir| try fs.cwd().makePath(dir);
+    const f = try fs.cwd().createFile(p, .{});
     defer f.close();
     try f.writeAll(data);
 }
@@ -175,7 +176,7 @@ fn overwrite(p: []const u8, data: []const u8) !void {
 pub fn load(arena: Allocator, project_dir: []const u8, suite_hex: []const u8, mode: Reuse, retained_suites: u32) Map {
     if (mode == .fresh) return .{};
     const p = path(arena, project_dir) catch return .{};
-    const content = std.fs.cwd().readFileAlloc(arena, p, max_cache_bytes) catch return .{};
+    const content = fs.cwd().readFileAlloc(arena, p, max_cache_bytes) catch return .{};
     const loaded = buildMap(arena, content, suite_hex, retained_suites) catch return .{};
     overwrite(p, loaded.compacted) catch |e|
         std.log.warn("guardian mutate cache compaction failed: {s}", .{@errorName(e)});
@@ -206,8 +207,8 @@ fn appendInner(
 ) !void {
     const line = try recordJson(arena, suite_hex, m, outcome);
     const p = try path(arena, project_dir);
-    if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
-    const f = try std.fs.cwd().createFile(p, .{ .truncate = false, .read = false });
+    if (std.fs.path.dirname(p)) |dir| try fs.cwd().makePath(dir);
+    const f = try fs.cwd().createFile(p, .{ .truncate = false, .read = false });
     defer f.close();
     try f.seekFromEnd(0);
     try f.writeAll(line);
@@ -310,8 +311,8 @@ test "append then load round-trips outcomes and bypass returns an empty map" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/mutant-cache-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("mutate cache cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("mutate cache cleanup: {s}", .{@errorName(e)});
 
     const m1 = mk("src/x.zig", 9, 10, "<", "<=");
     const m2 = mk("src/x.zig", 20, 21, ">", ">=");

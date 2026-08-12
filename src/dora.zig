@@ -17,6 +17,8 @@
 //! does the escaping — no hand-rolled JSON.
 
 const std = @import("std");
+const fs = @import("fs.zig");
+const wiring = @import("wiring.zig");
 const Allocator = std.mem.Allocator;
 const config_mod = @import("config.zig");
 const git = @import("git.zig");
@@ -54,13 +56,14 @@ const RunLine = struct {
 /// no monotonic clock, in which case the run reports `duration_ms = 0` —
 /// telemetry degrades, never gates.
 pub const Stopwatch = struct {
-    inner: ?std.time.Timer,
+    started: ?std.Io.Timestamp,
 
     /// Elapsed whole milliseconds since `startStopwatch`, or 0 when the timer
     /// is unavailable. Monotonic, so repeated reads never decrease.
     pub fn elapsedMs(self: *Stopwatch) u64 {
-        if (self.inner) |*t| return nsToMs(t.read());
-        return 0;
+        const started = self.started orelse return 0;
+        const elapsed = started.untilNow(wiring.io(), .awake).toNanoseconds();
+        return nsToMs(@intCast(elapsed));
     }
 };
 
@@ -68,7 +71,7 @@ pub const Stopwatch = struct {
 /// yields a stopwatch that reports 0). std.time.Timer is allowed here via the
 /// `ban-time` [[allow]] for this module in guardian.toml.
 pub fn startStopwatch() Stopwatch {
-    return .{ .inner = std.time.Timer.start() catch null };
+    return .{ .started = std.Io.Clock.awake.now(wiring.io()) };
 }
 
 /// Whole milliseconds in `ns` (floored). Pure, so the conversion is unit-tested
@@ -164,8 +167,8 @@ pub fn resolvePath(arena: Allocator, project_dir: []const u8, sink_path: []const
 
 /// Appends `line` + newline to `path`, creating the file and any parent dirs.
 fn appendLine(path: []const u8, line: []const u8) !void {
-    if (parentDir(path)) |parent| try std.fs.cwd().makePath(parent);
-    const f = try std.fs.cwd().createFile(path, .{ .truncate = false, .read = false });
+    if (parentDir(path)) |parent| try fs.cwd().makePath(parent);
+    const f = try fs.cwd().createFile(path, .{ .truncate = false, .read = false });
     defer f.close();
     try f.seekFromEnd(0);
     try f.writeAll(line);
@@ -221,13 +224,13 @@ test "recordInner appends each record as its own line" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/dora-append-proj";
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("dora test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("dora test cleanup: {s}", .{@errorName(e)});
 
     try recordInner(a, dir, ".guardian/cache/dora.jsonl", .{ .outcome = .green });
     try recordInner(a, dir, ".guardian/cache/dora.jsonl", .{ .outcome = .red, .failed_checks = &.{"spec"} });
 
-    const raw = try std.fs.cwd().readFileAlloc(a, dir ++ "/.guardian/cache/dora.jsonl", 4096);
+    const raw = try fs.cwd().readFileAlloc(a, dir ++ "/.guardian/cache/dora.jsonl", 4096);
     var lines = std.mem.tokenizeScalar(u8, raw, '\n');
     const first = lines.next().?;
     const second = lines.next().?;
@@ -243,15 +246,15 @@ test "recordRun is a no-op when disabled" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/dora-disabled-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("dora test cleanup: {s}", .{@errorName(e)});
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("dora test cleanup: {s}", .{@errorName(e)});
 
     // enabled = false short-circuits before any git or filesystem work.
     recordRun(a, dir, .{ .enabled = false }, .red, &.{"spec"}, 5);
     // The sink file was never created, so accessing it fails as not-found.
     try std.testing.expectError(
         error.FileNotFound,
-        std.fs.cwd().access(dir ++ "/.guardian/cache/dora.jsonl", .{}),
+        fs.cwd().access(dir ++ "/.guardian/cache/dora.jsonl", .{}),
     );
 }
 
@@ -321,7 +324,7 @@ test "nsToMs floors nanoseconds to milliseconds" {
 // spec: Delivery Metrics - Reads zero elapsed for an unavailable stopwatch and a non-decreasing value otherwise
 
 test "elapsedMs is zero when unavailable and non-decreasing otherwise" {
-    var off: Stopwatch = .{ .inner = null };
+    var off: Stopwatch = .{ .started = null };
     try std.testing.expectEqual(@as(u64, 0), off.elapsedMs());
 
     var sw = startStopwatch();

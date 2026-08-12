@@ -1,4 +1,6 @@
 const std = @import("std");
+const fs = @import("../fs.zig");
+const wiring = @import("../wiring.zig");
 const Allocator = std.mem.Allocator;
 
 const print = std.debug.print;
@@ -11,8 +13,8 @@ pub const update_env = "GUARDIAN_UPDATE_GOLDEN";
 /// instead of `anyerror` (both fns take `anytype`, so error-discipline exempts
 /// them, but the alias decl itself is banned).
 pub const GoldenError = Allocator.Error ||
-    std.fs.File.OpenError ||
-    std.fs.File.WriteError ||
+    fs.File.OpenError ||
+    fs.File.WriteError ||
     error{ WriteFailed, TestExpectedEqual };
 
 /// One golden test scenario: an input file pinned via @embedFile and the
@@ -38,7 +40,7 @@ pub const Scenario = struct {
 
 /// Returns true if the user set GUARDIAN_UPDATE_GOLDEN=1.
 fn shouldUpdate(allocator: Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
+    const v = wiring.getEnvOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
     return v.len > 0 and !std.mem.eql(u8, v, "0");
 }
@@ -118,7 +120,7 @@ pub fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype
 }
 
 fn writeFileAtomic(path: []const u8, data: []const u8) !void {
-    const file = try std.fs.cwd().createFile(path, .{});
+    const file = try fs.cwd().createFile(path, .{});
     defer file.close();
     try file.writeAll(data);
 }

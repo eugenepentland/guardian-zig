@@ -101,7 +101,7 @@ test "collectDecls descends into container members" {
         \\pub const T = struct { x: i32, pub fn m(self: T) void { _ = self; } };
         \\pub fn top() void {}
     ;
-    var tree = try Ast.parse(a, source, .zig);
+    var tree = try Ast.parse(a, source, .{});
     // T, x, m, top → at least the outer decl plus the nested method.
     try std.testing.expect((try collectDecls(a, &tree)).len >= 3);
 }
@@ -114,7 +114,7 @@ test "isContainerNode detects container initializers" {
         \\const S = struct { x: i32 };
         \\const V = 42;
     ;
-    var tree = try Ast.parse(a, source, .zig);
+    var tree = try Ast.parse(a, source, .{});
     var saw_container = false;
     var saw_value = false;
     for (tree.rootDecls()) |decl| {
@@ -136,7 +136,7 @@ test "precedingDocText joins the run of preceding doc comments" {
         \\pub const X = 1;
         \\pub const Y = 2;
     ;
-    var tree = try Ast.parse(a, source, .zig);
+    var tree = try Ast.parse(a, source, .{});
     const decls = tree.rootDecls();
     const doc = try precedingDocText(a, &tree, decls[0]);
     try std.testing.expectEqualStrings("line one\nline two", doc.?);

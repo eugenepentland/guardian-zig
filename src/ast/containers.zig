@@ -47,8 +47,8 @@ pub const PubContainerInfo = struct {
 /// Iterates every `pub const Name = struct/enum/union/opaque { ... }` and
 /// reports the field/variant count. Used by the type-size check.
 pub fn pubContainers(arena: Allocator, source: []const u8) AstError![]const PubContainerInfo {
-    const z = try arena.dupeZ(u8, source);
-    var tree = try Ast.parse(arena, z, .zig);
+    const z = try arena.dupeSentinel(u8, source, 0);
+    var tree = try Ast.parse(arena, z, .{});
     return pubContainersFromTree(arena, &tree);
 }
 
@@ -102,8 +102,8 @@ fn countFields(tree: *const Ast, members: []const Ast.Node.Index) u32 {
 
 /// Top-level pub const declarations classified by initializer kind.
 pub fn pubConsts(arena: Allocator, source: []const u8) AstError![]const PubConst {
-    const z = try arena.dupeZ(u8, source);
-    var tree = try Ast.parse(arena, z, .zig);
+    const z = try arena.dupeSentinel(u8, source, 0);
+    var tree = try Ast.parse(arena, z, .{});
     return pubConstsFromTree(arena, &tree);
 }
 
@@ -158,8 +158,8 @@ pub fn allConstNamesFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]
 
 /// Source-string convenience wrapper over `allConstNamesFromTree`.
 pub fn allConstNames(arena: Allocator, source: []const u8) AstError![]const []const u8 {
-    const z = try arena.dupeZ(u8, source);
-    var tree = try Ast.parse(arena, z, .zig);
+    const z = try arena.dupeSentinel(u8, source, 0);
+    var tree = try Ast.parse(arena, z, .{});
     return allConstNamesFromTree(arena, &tree);
 }
 
@@ -199,8 +199,8 @@ pub const FnDeclInfo = struct {
 /// Yields every top-level fn declaration with a body. Bare extern protos
 /// (no body) are skipped.
 pub fn fnDeclInfos(arena: Allocator, source: []const u8) AstError![]const FnDeclInfo {
-    const z = try arena.dupeZ(u8, source);
-    var tree = try Ast.parse(arena, z, .zig);
+    const z = try arena.dupeSentinel(u8, source, 0);
+    var tree = try Ast.parse(arena, z, .{});
     return fnDeclInfosFromTree(arena, &tree);
 }
 
@@ -381,7 +381,7 @@ test "allConstNames returns pub and private container-scope const names only" {
     try std.testing.expectEqual(@as(usize, 4), names.len);
 
     // The *FromTree variant yields the same set from a shared parse.
-    var tree = try Ast.parse(a, source, .zig);
+    var tree = try Ast.parse(a, source, .{});
     const from_tree = try allConstNamesFromTree(a, &tree);
     try std.testing.expectEqual(@as(usize, 4), from_tree.len);
 }

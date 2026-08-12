@@ -63,7 +63,7 @@ const DepthState = struct {
 /// propagates: returning depth 0 on OOM would fail open (a deeply nested fn
 /// would silently pass the cap).
 fn maxNestingDepth(allocator: std.mem.Allocator, body_text: []const u8) std.mem.Allocator.Error!u32 {
-    const z = try allocator.dupeZ(u8, body_text);
+    const z = try allocator.dupeSentinel(u8, body_text, 0);
     defer allocator.free(z);
     var tok = std.zig.Tokenizer.init(z);
     var state: DepthState = .{};

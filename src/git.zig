@@ -8,6 +8,7 @@
 //! stay best-effort (they degrade quietly) via `runGit`.
 
 const std = @import("std");
+const wiring = @import("wiring.zig");
 const Allocator = std.mem.Allocator;
 const reporter = @import("reporter.zig");
 
@@ -455,16 +456,16 @@ fn isNotARepo(stderr: []const u8) bool {
 /// exit 0; a no-repo fatal is `.no_repo`; any other non-zero exit is `.failed`
 /// (with trimmed stderr); an unspawnable git is `.spawn_error`.
 fn spawnGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) Allocator.Error!GitOutcome {
-    const res = std.process.Child.run(.{
-        .allocator = allocator,
+    const res = std.process.run(allocator, wiring.io(), .{
         .argv = argv,
-        .cwd = project_dir,
-        .max_output_bytes = max_git_output_bytes,
+        .cwd = .{ .path = project_dir },
+        .stdout_limit = .limited64(max_git_output_bytes),
+        .stderr_limit = .limited64(max_git_output_bytes),
     }) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return .{ .spawn_error = @errorName(e) },
     };
-    if (res.term == .Exited and res.term.Exited == 0) return .{ .ok = res.stdout };
+    if (res.term.success()) return .{ .ok = res.stdout };
     if (isNotARepo(res.stderr)) return .no_repo;
     return .{ .failed = std.mem.trim(u8, res.stderr, &std.ascii.whitespace) };
 }

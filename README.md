@@ -3,6 +3,9 @@
 Build-step quality gates for Zig projects, combining blocking correctness checks
 with advisory maintainability guidance.
 
+Requires Zig `0.17.0-dev.1683+5ceec001b`, the exact snapshot pinned by
+`build.zig.zon`.
+
 **Designed for AI agents.** Guardian catches mistakes by enforcing spec-driven development: every behavior in your SPEC.md must have a matching test, and every test must trace back to a spec.
 
 ## Quick Start
@@ -18,7 +21,7 @@ const guardian = @import("guardian");
 const guardian_dep = b.dependency("guardian", .{ .target = target, .optimize = optimize });
 const check_exe = guardian_dep.artifact("guardian-check");
 
-b.getInstallStep().dependOn(&b.addFmt(.{ .paths = &.{"src"}, .check = true }).step);
+b.getInstallStep().dependOn(&b.addFmt(.{ .paths = &.{b.path("src")}, .check = true }).step);
 
 // One call wires up every registered gate:
 guardian.addAllChecks(b, check_exe, b.getInstallStep(), .{});
@@ -79,7 +82,7 @@ picks an explicit base. Measured on a 234-file consumer tree: 42.0 s whole-tree
 
 Guardian is a `.path` dependency, so by default every consumer *compiles* it
 into that consumer's own Zig cache. A project that gives each short-lived
-worktree a private cache therefore pays a full cold ReleaseSafe compile of an
+worktree a private cache therefore pays a full cold `safe` compile of an
 unchanged quality tool before any of its own code builds — one consumer
 measured 49 s of a 53 s first build.
 
@@ -190,7 +193,7 @@ zero-match filter is evidence of nothing. Wire it in two lines:
 
 ```zig
 const filters = b.option([]const []const u8, "test-filter", "Run only matching tests") orelse &.{};
-guardian.enableTestDiagnostics(test_mod);              // keep assertion source lines in ReleaseSafe
+guardian.enableTestDiagnostics(test_mod);              // keep assertion source lines in safe builds
 const unit_tests = b.addTest(.{
     .root_module = test_mod,
     .filters = filters,
@@ -219,7 +222,7 @@ genuinely has no tests yet.
 
 `enableTestDiagnostics` sets Zig's error-return tracing on the test module. It
 is what keeps the assertion source location behind a plain `testing.expect`
-when tests use ReleaseSafe/ReleaseFast; without it the compiler discards that
+when tests use `safe`/`fast`; without it the compiler discards that
 trace and no runner can reconstruct the missing call site. Calling
 `addTestCompileProbe` with the same module enables this automatically.
 

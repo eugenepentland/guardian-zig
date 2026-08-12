@@ -41,7 +41,7 @@ pub fn analyzeRecords(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var tree = try std.zig.Ast.parse(a, content, .zig);
+    var tree = try std.zig.Ast.parse(a, content, .{});
 
     var occ: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty;
     defer occ.deinit(a);
@@ -276,7 +276,7 @@ fn extractFileScopeStringConsts(
     content: [:0]const u8,
     out: *std.ArrayList(Decl),
 ) !void {
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     try extractConstsTree(&tree, allocator, file, out);
 }
 
@@ -342,7 +342,7 @@ fn mergedVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     if (entry.tree) |t| {
         try scanFile(ctx, t, entry.rel_path);
     } else {
-        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .{});
         try scanFile(ctx, &tree, entry.rel_path);
     }
 }

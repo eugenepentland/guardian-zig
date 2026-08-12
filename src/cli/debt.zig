@@ -20,6 +20,7 @@
 //! executes when invoked directly (`guardian-check debt [dir]`).
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const walk = @import("../walk.zig");
@@ -299,7 +300,7 @@ fn pruneStale(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     };
     const dir_path = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian/baselines", .{ctx.project_dir});
-    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |e| switch (e) {
+    var dir = fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |e| switch (e) {
         error.FileNotFound => {
             reporter.ok("debt: no baseline directory to prune", .{});
             return;
@@ -331,7 +332,7 @@ fn pruneStale(ctx: *types.RunCtx) types.RunError!void {
             print("  would prune: {s}\n", .{full});
             continue;
         }
-        std.fs.cwd().deleteFile(full) catch |e| {
+        fs.cwd().deleteFile(full) catch |e| {
             reporter.fail("debt: failed to prune {s}: {s}", .{ full, @errorName(e) });
             return error.CheckFailed;
         };
@@ -711,7 +712,7 @@ fn moduleOf(rel_path: []const u8) []const u8 {
 /// identifier immediately followed by `(`. Tokenizing (not substring matching)
 /// means an `assert(` inside a string or comment is not miscounted as a call.
 fn countAssertCalls(arena: Allocator, content: []const u8) Allocator.Error!u64 {
-    const z = try arena.dupeZ(u8, content);
+    const z = try arena.dupeSentinel(u8, content, 0);
     var tok = std.zig.Tokenizer.init(z);
     var count: u64 = 0;
     var prev_is_assert = false;

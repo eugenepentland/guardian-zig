@@ -54,7 +54,7 @@ fn isInitName(name: []const u8) bool {
 }
 
 fn needsErrdefer(arena: Allocator, body: []const u8) Allocator.Error!bool {
-    const z = try arena.dupeZ(u8, body);
+    const z = try arena.dupeSentinel(u8, body, 0);
     var tok = std.zig.Tokenizer.init(z);
     var try_count: u32 = 0;
     var saw_errdefer = false;

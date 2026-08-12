@@ -10,6 +10,7 @@
 //! it may import the registry-adjacent modules without forming a cycle.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const git = @import("../git.zig");
@@ -79,7 +80,7 @@ const hook_script_fmt =
 /// unresolvable self path bakes an empty string, which every `baked` branch
 /// guards with `-n`, degrading cleanly to the pre-baking behavior.
 fn renderScript(allocator: Allocator) Allocator.Error![]const u8 {
-    const self_path = std.fs.selfExePathAlloc(allocator) catch "";
+    const self_path = fs.selfExePathAlloc(allocator) catch "";
     // The unresolved fallback is a comptime literal, not an allocation.
     defer if (self_path.len != 0) allocator.free(self_path);
     return std.fmt.allocPrint(allocator, hook_script_fmt, .{self_path});
@@ -173,7 +174,7 @@ pub fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const 
     if (!std.fs.path.isAbsolute(hooks)) {
         return std.fs.path.join(allocator, &.{ hooks, hook_basename }) catch null;
     }
-    const root = std.fs.cwd().realpathAlloc(allocator, project_dir) catch return null;
+    const root = fs.cwd().realpathAlloc(allocator, project_dir) catch return null;
     const rel_dir = relativeTo(root, hooks) orelse return null;
     return std.fs.path.join(allocator, &.{ rel_dir, hook_basename }) catch null;
 }
@@ -190,13 +191,13 @@ fn relativeTo(root: []const u8, path: []const u8) ?[]const u8 {
 
 /// Existing hook bytes, or null when the file is absent/unreadable.
 fn readExisting(allocator: Allocator, path: []const u8) ?[]const u8 {
-    return std.fs.cwd().readFileAlloc(allocator, path, max_hook_bytes) catch null;
+    return fs.cwd().readFileAlloc(allocator, path, max_hook_bytes) catch null;
 }
 
 /// Writes the executable hook script, creating the hooks directory if needed.
 fn writeHook(path: []const u8, script: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir| try std.fs.cwd().makePath(dir);
-    const f = try std.fs.cwd().createFile(path, .{ .mode = hook_mode });
+    if (std.fs.path.dirname(path)) |dir| try fs.cwd().makePath(dir);
+    const f = try fs.cwd().createFile(path, .{ .mode = hook_mode });
     defer f.close();
     try f.writeAll(script);
 }
@@ -252,7 +253,7 @@ test "rendered hook bakes the installer's own absolute path" {
     // The `{s}` placeholders are gone: the self path (absolute in a test
     // binary) was substituted into the last-resort `-x` branch.
     try testing.expect(std.mem.indexOf(u8, rendered, "{s}") == null);
-    const self_path = try std.fs.selfExePathAlloc(testing.allocator);
+    const self_path = try fs.selfExePathAlloc(testing.allocator);
     defer testing.allocator.free(self_path);
     try testing.expect(std.mem.indexOf(u8, rendered, self_path) != null);
 }

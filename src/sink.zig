@@ -19,6 +19,7 @@
 //! escaping — no hand-rolled JSON, and no timestamps (std.time is banned).
 
 const std = @import("std");
+const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const reporter = @import("reporter.zig");
 
@@ -196,9 +197,9 @@ fn writeInner(
     try buf.append(arena, '\n');
 
     const dir = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_subdir });
-    try std.fs.cwd().makePath(dir);
+    try fs.cwd().makePath(dir);
     const path = try pathFor(arena, project_dir);
-    const f = try std.fs.cwd().createFile(path, .{});
+    const f = try fs.cwd().createFile(path, .{});
     defer f.close();
     try f.writeAll(buf.items);
 }
@@ -328,12 +329,12 @@ test "write emits a summary-only log for a green run" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/sink-green-proj";
-    try std.fs.cwd().makePath(dir);
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("sink test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("sink test cleanup: {s}", .{@errorName(e)});
 
     // A green run has zero violation records: the log is exactly the summary line.
     write(a, dir, &.{}, .{ .passed = 56, .failed = 0, .skipped = 3, .filtered = false });
-    const raw = try std.fs.cwd().readFileAlloc(a, try pathFor(a, dir), 4096);
+    const raw = try fs.cwd().readFileAlloc(a, try pathFor(a, dir), 4096);
     try std.testing.expectEqualStrings(
         "{\"type\":\"summary\",\"passed\":56,\"failed\":0,\"skipped\":3,\"filtered\":false}\n",
         raw,

@@ -102,10 +102,10 @@ pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult 
 /// so prose like `// species: ...` or `// the spec: prefix` is not flagged.
 fn looksLikeSpecTag(line: []const u8) bool {
     if (!std.mem.startsWith(u8, line, "//")) return false;
-    const rest = std.mem.trimLeft(u8, line[2..], " ");
+    const rest = std.mem.trimStart(u8, line[2..], " ");
     for ([_][]const u8{ "spec", "spec-case" }) |kw| {
         if (rest.len <= kw.len or !std.ascii.eqlIgnoreCase(rest[0..kw.len], kw)) continue;
-        const after = std.mem.trimLeft(u8, rest[kw.len..], " ");
+        const after = std.mem.trimStart(u8, rest[kw.len..], " ");
         if (after.len > 0 and after[0] == ':') return true;
     }
     return false;

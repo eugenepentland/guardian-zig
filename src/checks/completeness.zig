@@ -10,6 +10,7 @@
 //! (changelog-ish) are listed in `[completeness] exempt_sections`.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const spec_parser = @import("../spec/parser.zig");
@@ -350,7 +351,7 @@ pub fn readFeatureSections(
     spec_file: []const u8,
 ) Allocator.Error!?[]const FeatureSection {
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, spec_file });
-    const content = std.fs.cwd().readFileAlloc(arena, path, max_spec_bytes) catch return null;
+    const content = fs.cwd().readFileAlloc(arena, path, max_spec_bytes) catch return null;
     return try parseFeatureSections(arena, content);
 }
 
@@ -364,7 +365,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     }
     const allocator = ctx.allocator;
     const spec_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ ctx.project_dir, ctx.cfg.spec_file });
-    const content = std.fs.cwd().readFileAlloc(allocator, spec_path, max_spec_bytes) catch
+    const content = fs.cwd().readFileAlloc(allocator, spec_path, max_spec_bytes) catch
         return reportMissingSpec(allocator, ctx.project_dir, ctx.cfg.spec_file);
     const sections = try parseFeatureSections(allocator, content);
     const violations = try analyze(allocator, sections, cfg.exempt_sections);

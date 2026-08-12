@@ -79,7 +79,7 @@ fn analyzeWithTree(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var tree = if (tree_opt) |t| t.* else Ast.parse(arena, content, .zig) catch
+    var tree = if (tree_opt) |t| t.* else Ast.parse(arena, content, .{}) catch
         return &.{};
 
     var violations: std.ArrayList([]const u8) = .empty;
@@ -88,7 +88,7 @@ fn analyzeWithTree(
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const decl: Ast.Node.Index = @enumFromInt(i);
+        const decl: Ast.Node.Index = @fromBackingInt(@intCast(i));
         if (tree.nodeTag(decl) != .fn_decl) continue;
         try scanFn(arena, &tree, decl, .{ .rel_path = rel_path, .alloc = allocator, .out = &violations });
     }
@@ -186,7 +186,7 @@ fn nestedFnSpans(
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
         if (node == outer) continue;
         if (tree.nodeTag(node) != .fn_decl) continue;
         if (!nodeInSpan(tree, outer_body, node)) continue;
@@ -207,7 +207,7 @@ fn collectLocals(
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
         const var_decl = tree.fullVarDecl(node) orelse continue;
         if (!frameOwns(frame, node)) continue;
         if (var_decl.comptime_token != null) continue;
@@ -275,7 +275,7 @@ fn collectRuntimeNames(
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
         const var_decl = tree.fullVarDecl(node) orelse continue;
         if (!frameOwns(frame, node) or var_decl.comptime_token != null) continue;
         const mutable = tree.tokenTag(var_decl.ast.mut_token) == .keyword_var;
@@ -295,7 +295,7 @@ fn exprIsRuntime(tree: *const Ast, expr: Ast.Node.Index, runtime_names: []const 
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
         if (tree.nodeTag(node) != .identifier or !nodeInSpan(tree, span, node)) continue;
         if (nameInList(runtime_names, tree.tokenSlice(tree.nodeMainToken(node)))) return true;
     }
@@ -321,7 +321,7 @@ fn collectEscapes(
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
         if (tree.nodeTag(node) != .@"return") continue;
         if (!frameOwns(frame, node)) continue;
 
@@ -443,7 +443,7 @@ fn runtimeComposite(
     var i: u32 = 0;
     const count: u32 = @intCast(tree.nodes.len);
     while (i < count) : (i += 1) {
-        const node: Ast.Node.Index = @enumFromInt(i);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
         if (tree.nodeTag(node) != .identifier or !nodeInSpan(tree, span, node)) continue;
         if (nameInList(runtime_names, tree.tokenSlice(tree.nodeMainToken(node)))) return true;
     }

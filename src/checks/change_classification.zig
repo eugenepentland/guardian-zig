@@ -17,6 +17,7 @@
 //! fallback is toggled by `[change_classification] gate_last_commit`.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const git = @import("../git.zig");
 const text = @import("../text.zig");
 const reporter = @import("../reporter.zig");
@@ -353,7 +354,7 @@ fn readSpec(a: Allocator, project_dir: []const u8, spec_file: []const u8) Alloca
     const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ project_dir, spec_file });
     // A missing/unreadable spec is "no spec change" (fail closed for the test
     // requirement); only OOM building the path propagates.
-    return std.fs.cwd().readFileAlloc(a, path, max_spec_bytes) catch null;
+    return fs.cwd().readFileAlloc(a, path, max_spec_bytes) catch null;
 }
 
 /// True when any line covered by `spans` in SPEC.md `content` is a behavior

@@ -45,7 +45,7 @@ fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *BuildCtx = @ptrCast(@alignCast(raw_ctx));
     // entry.content is already null-terminated by the walker — parse it in
     // place instead of copying the whole file again for the sentinel.
-    const tree = try Ast.parse(ctx.arena, entry.content, .zig);
+    const tree = try Ast.parse(ctx.arena, entry.content, .{});
     try ctx.files.append(ctx.arena, .{ .rel_path = entry.rel_path, .content = entry.content, .tree = tree });
 }
 
@@ -148,8 +148,8 @@ test "forEach hands each file's parsed tree to the visitor" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const z = try a.dupeZ(u8, "pub fn foo() void {}\n");
-    const tree = try Ast.parse(a, z, .zig);
+    const z = try a.dupeSentinel(u8, "pub fn foo() void {}\n", 0);
+    const tree = try Ast.parse(a, z, .{});
     var entries = [_]Entry{.{ .rel_path = "src/x.zig", .content = z, .tree = tree }};
     const idx: Index = .{ .files = &entries };
 

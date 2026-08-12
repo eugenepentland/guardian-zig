@@ -89,7 +89,7 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     if (entry.tree) |t| {
         try scoreTree(ctx, entry.rel_path, t);
     } else {
-        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .zig);
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .{});
         try scoreTree(ctx, entry.rel_path, &tree);
     }
 }
@@ -134,7 +134,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
 const testing = std.testing;
 
 fn scoreSource(allocator: std.mem.Allocator, source: [:0]const u8) !u32 {
-    var tree = try std.zig.Ast.parse(allocator, source, .zig);
+    var tree = try std.zig.Ast.parse(allocator, source, .{});
     const tags = tree.tokens.items(.tag);
     for (tree.rootDecls()) |decl| {
         if (tree.nodeTag(decl) != .fn_decl) continue;

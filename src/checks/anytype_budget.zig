@@ -73,7 +73,7 @@ fn countAnytypeTree(tree: *const std.zig.Ast) u32 {
 fn countAnytype(allocator: std.mem.Allocator, content: [:0]const u8) std.mem.Allocator.Error!u32 {
     // Propagate OOM: a zero count on allocation failure would let anytype params
     // slip past the per-file cap.
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     return countAnytypeTree(&tree);
 }
 

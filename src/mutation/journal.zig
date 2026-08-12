@@ -21,6 +21,7 @@
 //! allow, exactly as it does for the reporter singleton.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const reporter = @import("../reporter.zig");
 
 const Allocator = std.mem.Allocator;
@@ -131,7 +132,7 @@ pub const Leftover = struct {
 /// describe the state without changing it.
 pub fn leftover(arena: Allocator, project_dir: []const u8) Allocator.Error!?Leftover {
     const jpath = try journalPath(arena, project_dir);
-    const content = std.fs.cwd().readFileAlloc(arena, jpath, max_src_bytes) catch |e| switch (e) {
+    const content = fs.cwd().readFileAlloc(arena, jpath, max_src_bytes) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return null,
     };
@@ -148,7 +149,7 @@ pub fn leftover(arena: Allocator, project_dir: []const u8) Allocator.Error!?Left
 /// Whether `abs` names an existing file. Split out so `leftover` reads as one
 /// statement per fact it gathers.
 fn fileExists(abs: []const u8) bool {
-    std.fs.cwd().access(abs, .{}) catch return false;
+    fs.cwd().access(abs, .{}) catch return false;
     return true;
 }
 
@@ -157,7 +158,7 @@ fn fileExists(abs: []const u8) bool {
 /// SIGINT/SIGTERM handler: kill any running child group (it's in its own group,
 /// so it didn't receive the terminal signal), revert the in-flight mutant, then
 /// restore the default disposition and re-raise so the exit status is right.
-fn onSignal(sig: i32) callconv(.c) void {
+fn onSignal(sig: std.posix.SIG) callconv(.c) void {
     const pg = g_child_pgid.load(.acquire);
     if (pg > 0) std.posix.kill(-pg, std.posix.SIG.KILL) catch |e| ignoreErr(e);
     if (g_active.load(.acquire)) revertInFlightRaw();
@@ -166,21 +167,25 @@ fn onSignal(sig: i32) callconv(.c) void {
         .mask = std.posix.sigemptyset(),
         .flags = 0,
     };
-    std.posix.sigaction(@intCast(sig), &dfl, null);
-    std.posix.raise(@intCast(sig)) catch |e| ignoreErr(e);
+    std.posix.sigaction(sig, &dfl, null);
+    std.posix.raise(sig) catch |e| ignoreErr(e);
 }
 
 /// Async-signal-safe best-effort revert of the in-flight file: truncate it and
 /// write the original bytes back with raw syscalls (no allocation, no locks).
 fn revertInFlightRaw() void {
     const flags: std.posix.O = .{ .ACCMODE = .WRONLY, .TRUNC = true };
-    // Slice-form open copies the path into a stack buffer (no heap, no @ptrCast).
-    const fd = std.posix.open(g_path_buf[0..g_path_len], flags, 0) catch return;
-    defer std.posix.close(fd);
+    const fd = std.posix.openatZ(std.posix.AT.FDCWD, g_path_buf[0..g_path_len :0].ptr, flags, 0) catch return;
+    defer _ = std.posix.system.close(fd);
     const p = g_orig_ptr orelse return;
     var off: usize = 0;
     while (off < g_orig_len) {
-        const n = std.posix.write(fd, p[off..g_orig_len]) catch return;
+        const rc = std.posix.system.write(fd, p + off, g_orig_len - off);
+        const n: usize = switch (std.posix.errno(rc)) {
+            .SUCCESS => @intCast(rc),
+            .INTR => continue,
+            else => return,
+        };
         if (n == 0) return;
         off += n;
     }
@@ -211,7 +216,7 @@ fn clearInFlight() void {
 
 fn recoverInner(arena: Allocator, project_dir: []const u8) !void {
     const jpath = try journalPath(arena, project_dir);
-    const content = std.fs.cwd().readFileAlloc(arena, jpath, max_src_bytes) catch return; // no journal
+    const content = fs.cwd().readFileAlloc(arena, jpath, max_src_bytes) catch return; // no journal
     const rec = std.json.parseFromSliceLeaky(Record, arena, content, .{
         .ignore_unknown_fields = true,
     }) catch {
@@ -232,7 +237,7 @@ fn recoverInner(arena: Allocator, project_dir: []const u8) !void {
 /// may be part guardian's and part yours, asks the reader to look.
 fn restoreFromJournal(arena: Allocator, project_dir: []const u8, rec: Record) !void {
     const abs = try std.fs.path.join(arena, &.{ project_dir, rec.rel_path });
-    const on_disk = std.fs.cwd().readFileAlloc(arena, abs, max_src_bytes) catch {
+    const on_disk = fs.cwd().readFileAlloc(arena, abs, max_src_bytes) catch {
         reporter.ok(
             "mutate: dropped a stale journal from an interrupted run — it names {s}, " ++
                 "which this checkout does not contain, so there is nothing to revert",
@@ -243,7 +248,7 @@ fn restoreFromJournal(arena: Allocator, project_dir: []const u8, rec: Record) !v
     };
     const disk_hash = try hashHex(arena, on_disk);
     if (std.mem.eql(u8, disk_hash, rec.mutated_hash)) {
-        try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = rec.original });
+        try fs.cwd().writeFile(.{ .sub_path = abs, .data = rec.original });
         reporter.ok("mutate: recovered {s} — reverted a mutant an interrupted run left applied", .{rec.rel_path});
         removeJournal(arena, project_dir);
         return;
@@ -270,13 +275,13 @@ fn writeJournal(arena: Allocator, project_dir: []const u8, entry: Entry) !void {
     };
     const line = try std.json.Stringify.valueAlloc(arena, rec, .{});
     const p = try journalPath(arena, project_dir);
-    if (std.fs.path.dirname(p)) |dir| try std.fs.cwd().makePath(dir);
-    try std.fs.cwd().writeFile(.{ .sub_path = p, .data = line });
+    if (std.fs.path.dirname(p)) |dir| try fs.cwd().makePath(dir);
+    try fs.cwd().writeFile(.{ .sub_path = p, .data = line });
 }
 
 fn removeJournal(arena: Allocator, project_dir: []const u8) void {
     const p = journalPath(arena, project_dir) catch return;
-    std.fs.cwd().deleteFile(p) catch |e| ignoreErr(e);
+    fs.cwd().deleteFile(p) catch |e| ignoreErr(e);
 }
 
 /// The journal file path: `<project_dir>/.guardian/cache/mutant-in-flight.json`.
@@ -296,7 +301,7 @@ const testing = std.testing;
 /// Whether the journal file currently exists under `project_dir`.
 fn journalPresent(arena: Allocator, project_dir: []const u8) bool {
     const p = journalPath(arena, project_dir) catch return false;
-    std.fs.cwd().access(p, .{}) catch return false;
+    fs.cwd().access(p, .{}) catch return false;
     return true;
 }
 
@@ -307,9 +312,9 @@ test "recover reverts a journaled mutant and refuses when the file changed" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/journal-recover-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("journal test cleanup: {s}", .{@errorName(e)});
-    try std.fs.cwd().makePath(dir ++ "/src");
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("journal test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir ++ "/src");
     // Capture the recovery messages: this test deliberately drives the drift
     // path, and an uncaptured warning about a fixture file no checkout contains
     // is what made every `zig build test` look like it had found real trouble.
@@ -334,21 +339,21 @@ test "recover reverts a journaled mutant and refuses when the file changed" {
 
     // (1) Dead run: the mutated bytes sit on disk with a journal and no finish()
     //     — recover restores the original byte-for-byte and consumes the journal.
-    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
+    try fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
     begin(a, dir, entry);
     try testing.expect(journalPresent(a, dir));
     recover(a, dir);
-    try testing.expectEqualStrings(original, try std.fs.cwd().readFileAlloc(a, abs, max_src_bytes));
+    try testing.expectEqualStrings(original, try fs.cwd().readFileAlloc(a, abs, max_src_bytes));
     try testing.expect(!journalPresent(a, dir));
 
     // (2) Drift: the journal says mutated, but the file was edited since — recover
     //     refuses to touch it (safer to warn than clobber an unknown edit).
-    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
+    try fs.cwd().writeFile(.{ .sub_path = abs, .data = mutated });
     begin(a, dir, entry);
     const edited = "return foo(a, b);\n";
-    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = edited });
+    try fs.cwd().writeFile(.{ .sub_path = abs, .data = edited });
     recover(a, dir);
-    try testing.expectEqualStrings(edited, try std.fs.cwd().readFileAlloc(a, abs, max_src_bytes));
+    try testing.expectEqualStrings(edited, try fs.cwd().readFileAlloc(a, abs, max_src_bytes));
     try testing.expect(std.mem.indexOf(u8, cap.buf.items, "leaving src/z.zig as it is") != null);
 
     // (3) Normal completion: finish() clears an active journal.
@@ -365,9 +370,9 @@ test "leftover names the journaled file and whether this checkout has it" {
     defer arena.deinit();
     const a = arena.allocator();
     const dir = "zig-cache/journal-leftover-proj";
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch |e| std.log.warn("journal test cleanup: {s}", .{@errorName(e)});
-    try std.fs.cwd().makePath(dir ++ "/src");
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("journal test cleanup: {s}", .{@errorName(e)});
+    try fs.cwd().makePath(dir ++ "/src");
     var cap: reporter.Capture = .{ .allocator = a };
     defer cap.deinit();
     const prior = reporter.default;
@@ -387,7 +392,7 @@ test "leftover names the journaled file and whether this checkout has it" {
         .start = 9,
         .end = 10,
     };
-    try std.fs.cwd().writeFile(.{ .sub_path = abs, .data = entry.mutated });
+    try fs.cwd().writeFile(.{ .sub_path = abs, .data = entry.mutated });
     begin(a, dir, entry);
     const present = (try leftover(a, dir)).?;
     try testing.expectEqualStrings(rel, present.rel_path);
@@ -395,7 +400,7 @@ test "leftover names the journaled file and whether this checkout has it" {
 
     // The other checkout's journal: the named file is not here, so nothing is
     // at risk — and reading it leaves the journal exactly where it was.
-    try std.fs.cwd().deleteFile(abs);
+    try fs.cwd().deleteFile(abs);
     const absent = (try leftover(a, dir)).?;
     try testing.expect(!absent.file_present);
     try testing.expect(journalPresent(a, dir));

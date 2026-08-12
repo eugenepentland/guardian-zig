@@ -4,6 +4,8 @@
 //! build; `GUARDIAN_UPDATE_SNAPSHOT` (selective by check name) forces a rewrite.
 
 const std = @import("std");
+const fs = @import("fs.zig");
+const wiring = @import("wiring.zig");
 const Allocator = std.mem.Allocator;
 const snapshot = @import("snapshot.zig");
 const types = @import("cli/types.zig");
@@ -33,7 +35,7 @@ pub const Outcome = union(enum) {
 /// True when any non-empty refresh value was supplied. Invalid legacy broad
 /// tokens also bypass the skip cache so validation can reject them visibly.
 pub fn shouldUpdate(allocator: Allocator) bool {
-    const v = std.process.getEnvVarOwned(allocator, update_env) catch return false;
+    const v = wiring.getEnvOwned(allocator, update_env) catch return false;
     defer allocator.free(v);
     const t = std.mem.trim(u8, v, &std.ascii.whitespace);
     return t.len > 0 and !std.mem.eql(u8, t, "0");
@@ -104,7 +106,7 @@ fn classifyValue(allocator: Allocator, raw: []const u8) Allocator.Error!Refresh 
 
 /// Reads and classifies GUARDIAN_UPDATE_SNAPSHOT; `.none` when unset/unreadable.
 fn parseRefresh(allocator: Allocator) Allocator.Error!Refresh {
-    const raw = std.process.getEnvVarOwned(allocator, update_env) catch return .none;
+    const raw = wiring.getEnvOwned(allocator, update_env) catch return .none;
     return classifyValue(allocator, raw);
 }
 
@@ -158,7 +160,7 @@ pub fn refreshTargets(allocator: Allocator) ?[]const []const u8 {
 /// True when the legacy broad token `1` or `true` was supplied. The run-all
 /// validator uses this to fail with explicit `=all` migration guidance.
 pub fn usesLegacyBroadToken(allocator: Allocator) bool {
-    const raw = std.process.getEnvVarOwned(allocator, update_env) catch return false;
+    const raw = wiring.getEnvOwned(allocator, update_env) catch return false;
     defer allocator.free(raw);
     return isRejectedBroadToken(std.mem.trim(u8, raw, &std.ascii.whitespace));
 }
@@ -315,7 +317,7 @@ fn lessThan(_: void, a: []const u8, b: []const u8) bool {
 const testing = std.testing;
 
 fn deleteIfExists(path: []const u8) void {
-    std.fs.cwd().deleteFile(path) catch |e| switch (e) {
+    fs.cwd().deleteFile(path) catch |e| switch (e) {
         error.FileNotFound => {},
         else => std.log.warn("test cleanup {s}: {s}", .{ path, @errorName(e) }),
     };
@@ -370,12 +372,12 @@ test "lifecycle grandfathers a missing snapshot without writing on a read-only r
     var lines = [_][]const u8{ "alpha", "beta" };
     const out = try lifecycle(a, .{ .path = path, .version = 1 }, &lines, false, false);
     try testing.expect(out == .created);
-    try testing.expectError(error.FileNotFound, std.fs.cwd().access(path, .{}));
+    try testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
 
     // The same call on a metadata-writable run records it.
     var lines2 = [_][]const u8{ "alpha", "beta" };
     _ = try lifecycle(a, .{ .path = path, .version = 1 }, &lines2, false, true);
-    try std.fs.cwd().access(path, .{});
+    try fs.cwd().access(path, .{});
 }
 
 test "lifecycle reports drift when changed" {

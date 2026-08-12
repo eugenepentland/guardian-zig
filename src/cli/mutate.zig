@@ -19,6 +19,7 @@
 //! `// mutate-ok` *waiver* for known equivalent mutants.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const ast_index = @import("../ast/index.zig");
@@ -539,7 +540,7 @@ test "readRatchet validates score and cohort and fails closed" {
     defer arena.deinit();
     const a = arena.allocator();
     const path = "zig-cache/mutation-ratchet-test.txt";
-    defer std.fs.cwd().deleteFile(path) catch |e| std.log.warn("ratchet cleanup: {s}", .{@errorName(e)});
+    defer fs.cwd().deleteFile(path) catch |e| std.log.warn("ratchet cleanup: {s}", .{@errorName(e)});
 
     var valid = [_][]const u8{ "score_pct=88", "cohort=abc" };
     try snapshot.write(path, snapshot_version, &valid);

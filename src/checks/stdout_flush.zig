@@ -70,7 +70,7 @@ fn scan(
     content: []const u8,
     findings: *std.ArrayList([]const u8),
 ) Allocator.Error!void {
-    const z = try allocator.dupeZ(u8, content);
+    const z = try allocator.dupeSentinel(u8, content, 0);
     var tok = std.zig.Tokenizer.init(z);
     var region: Region = .{};
     var prev_ident: []const u8 = "";

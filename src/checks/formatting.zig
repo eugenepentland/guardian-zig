@@ -41,7 +41,7 @@ fn fileViolation(
     rel_path: []const u8,
     content: [:0]const u8,
 ) Allocator.Error!?reporter.Violation {
-    var tree = try std.zig.Ast.parse(allocator, content, .zig);
+    var tree = try std.zig.Ast.parse(allocator, content, .{});
     defer tree.deinit(allocator);
     if (tree.errors.len > 0) return null;
     const formatted = try tree.renderAlloc(allocator);
