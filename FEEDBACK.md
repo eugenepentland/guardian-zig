@@ -5154,3 +5154,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · eda — document the Debug-only internal build boundary
 
 - **good:** Guardian passed all 71 whole-tree checks while the EDA build policy was made explicit across 20 documentation, configuration-help, hook, and service files: every internal artifact now stays self-hosted Debug, and LLVM ReleaseSafe is confined to deployment. Exact-commit release preparation completed the 2,538-test Debug job in 75 seconds and the sole ReleaseSafe build in 284 seconds (291 seconds concurrent wall), then the merge hook reused that candidate and passed every production health probe.
+
+## 2026-08-12 · codex · eda — native PCB outline and copper arcs
+
+- **good:** The diff-scoped gate caught four concrete issues before release: an undocumented public arc type, an unsafe float-to-chord-count narrowing, excess nesting in Edge.Cuts emission, and new complexity in the large page writer. After those were fixed, the intentional `BoardArc`/saved-geometry schema growth was isolated cleanly by `pub-api-surface`, `type-size`, and `file-size` acceptance.
+- **friction:** Every successful filtered test run printed a `failed command:` line immediately before a green `Build Summary: 20/20 steps succeeded; 16/16 tests passed`. The contradictory label repeatedly looked like a hidden runner failure until the final summary was inspected; successful runner diagnostics should not use the words `failed command`.
+- **good:** The final whole-tree run passed all 71 checks, and exact-commit preparation reused the warm Zig 0.17 cache to complete the full test and ReleaseSafe jobs with a verified release candidate in seven seconds.
