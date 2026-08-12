@@ -5263,3 +5263,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 - **good:** The `file-size` gate rejected growth in the frozen 10,000-line optimizer and led to one cycle-free pose-math module shared by placement, routing, sub-circuit stamping, and KiCad sync. `spec`, `completeness`, and `pub-api-surface` then made the new numeric contract explicit; the final whole-tree gate passed all 71 checks and exact-commit preparation passed the full suite plus ReleaseSafe build in 223 seconds.
 - **friction:** Green filtered tests again printed `failed command:` for the successful custom runner before exiting 0, so all four focused rotation/geometry/UI runs required checking the final process status rather than trusting the visible line.
 - **friction:** Reusing the worktree-local Zig cache unexpectedly failed with `manifest_create ReadOnlyFileSystem`; switching to explicit writable local/global cache paths succeeded without source changes.
+
+## 2026-08-12 · codex · eda — exact concave custom-pad rendering
+
+- **good:** The `spec` check immediately caught the unlinked WebGPU/Canvas2D fallback contract; adding the matching SPEC bullet left the diff-scoped and whole-tree 71-check gates green, and exact-commit preparation passed the full suite plus ReleaseSafe build in five seconds.
+- **friction:** The green focused regression again printed `failed command:` for the successful custom runner before exiting 0, and the first ordinary Debug build failed with `manifest_create ReadOnlyFileSystem` until explicit writable Zig cache paths were supplied.
