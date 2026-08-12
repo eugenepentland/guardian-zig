@@ -5107,3 +5107,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The first integrated diff-scoped run caught application modules that the slim `bench-layout` performance target did not compile after four public geometry/rule receivers changed to pointers. `file-size` then rejected the optimizer growing past 10,000 code lines, while `doc-comments` and `spec` checked the extracted airwire-geometry module; the resulting focused module and full-source call-site update were cleaner than accepting file growth.
 - **good:** Selective `zig build guardian-accept -Dguardian-checks=pub-api-surface` previewed and recorded exactly five new internal-module declarations plus the four intentional receiver changes, and nothing else in `.guardian/` moved. The final whole-tree gate passed all 71 checks before exact-commit release preparation completed 376-second tests and a 307-second ReleaseSafe build in 382 seconds of concurrent wall time.
+
+## 2026-08-12 · codex · eda — Debug solver-test hot paths
+
+- **good:** Guardian's per-test timing concentrated 206.37 seconds of Debug execution in two rollback fixtures, and the diff-scoped `test-no-conditional` check caught a second top-level assertion loop while those fixtures were strengthened to compare both tracks and vias. The final 2,527-test Debug run took 154.54 seconds, all 71 whole-tree checks passed, and exact release preparation completed 380-second tests plus a 330-second ReleaseSafe build in 389 seconds of concurrent wall time.
