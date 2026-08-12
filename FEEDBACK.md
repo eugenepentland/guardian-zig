@@ -5072,3 +5072,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · eda — CE shared-rail ownership
 
 - **good:** Extending the focused RF-bias SVG test with CE reproduced the visual defect as an exact accounting failure (`expected 8, found 9`) before the fix. Honoring the existing passive-island owner in the shared-rail walker made that test, the legitimate shared-net terminator control, and all 71 checks pass without snapshot acceptance.
+
+## 2026-08-12 · codex · eda — pin-stub-scoped passive folding
+
+- **good:** The focused Functional supply test verified six physical bypass capacitors as five SVG symbols (`4 × 1` plus `1 × 2`) and retained one common supply label; all 71 checks and the neighboring RF/CE regression passed without snapshot acceptance.
+- **friction:** The first sandboxed focused test failed before compilation with the shared Zig cache's `manifest_create Unexpected`; granting the same command normal cache access made it pass without source changes.
