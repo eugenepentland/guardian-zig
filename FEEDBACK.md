@@ -5056,3 +5056,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The diff-scoped gate caught a new public renderer helper, a seventh runtime parameter, a nesting increase, and a one-point cognitive-complexity increase during the inner loop; each finding led to a smaller private helper or simpler control flow, and the final 71-check run passed without snapshot acceptance.
 - **friction:** `zig build test` kept its test-binary compilation running after Guardian had already printed blocking findings. Three quick fix-and-retry iterations therefore left three obsolete ReleaseSafe compilers competing until they were manually interrupted; the surviving compile took about seven minutes. A blocking Guardian step should cancel sibling build work, or the output should explicitly warn that compilation is still running and must be interrupted before retrying.
+
+## 2026-08-12 · codex · eda — compact Functional RF output pairs
+
+- **good:** The diff-scoped 71-check gate stayed green while two focused Debug layout tests covered compact shared-island spacing and an indivisible Functional column split. Native image review still caught the cross-feature CPOUT/VTUNE split before handoff, and the added splitter regression test now protects that interaction.
