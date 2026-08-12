@@ -5210,3 +5210,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · zig_genetic_cascades — review-first multipath results GUI
 
 - **friction:** The consumer still requires Zig 0.15.1, while the shared Guardian and Ward path dependencies now require Zig 0.17. The ambient 0.17 build failed in the consumer and pinned packages; 0.16 and 0.15.1 builds failed in Guardian/Ward before any project test or check could run. This cost three toolchain/cache attempts plus an ungated temporary-copy attempt, and left the change verifiable only through formatting, JavaScript syntax checks, and browser integration tests. A dependency-version preflight should stop configuration immediately with the consumer pin, dependency revision, and required compiler version instead of surfacing unrelated compiler errors from each checkout.
+
+## 2026-08-12 · codex · zig_genetic_cascades — multipath GUI standalone gate follow-up
+
+- **good:** Running the installed `guardian-check` directly recovered useful static coverage despite the incompatible combined build graph: both `all . --full --quiet` and `all server --full --quiet` passed all 71 checks, including the two modified server Zig files.
+- **friction:** The server run warned that the installed Guardian binary was older than the binary that last gated the consumer tree, even though the Guardian repository commit hook had just rebuilt and self-gated successfully. The checks were green, but the provenance warning makes it impossible to treat that standalone run as the same assurance as the build-wired gate.
