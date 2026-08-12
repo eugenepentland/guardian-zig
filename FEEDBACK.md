@@ -5221,3 +5221,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 - **good:** The diff-scoped gate caught an unlinked new SPEC tag, three missing public API doc comments, and a one-point cognitive-complexity regression from excluding staged parts in the PNG renderer. Linking the behavior under `export_gerber`, documenting the API, and extracting the staged-ref decision left all 71 checks green without raising a ratchet; selective `pub-api-surface` acceptance recorded exactly the six intended symbols.
 - **good:** Exact-commit preparation passed the full Debug test suite and ReleaseSafe build in 235 seconds concurrent wall, and the post-merge deploy reused that candidate and passed every health probe.
 - **friction:** Green filtered runs still print `failed command:` for the successful custom-runner command before returning exit 0; the focused geometry and silkscreen runs both carried that contradictory line, so the exit status remained the only reliable signal.
+
+## 2026-08-12 · codex · eda — JLC stackup presets and RF via fencing
+
+- **good:** The diff-scoped and whole-tree 71-check gates kept the new fabricator catalog in a cycle-free leaf module, required an explicit SPEC mapping for named stackup parsing, and isolated the two intentional public catalog functions for snapshot acceptance. Exact-commit preparation passed the full suite and ReleaseSafe build in 231 seconds of concurrent wall time.
+- **friction:** Green filtered catalog tests again printed `failed command:` for the successful custom-runner invocation and then exited 0; this happened on both focused test filters and required checking the process exit rather than trusting the visible status line.
