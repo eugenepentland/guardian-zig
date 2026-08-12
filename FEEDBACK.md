@@ -5184,3 +5184,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · eda — direct routing for too-short RF differential pairs
 
 - **good:** Diff-scoped Guardian runs kept the routing-policy change to two implementation files and linked both the near-equal-pitch geometry test and the end-to-end R2 topology test to exact SPEC bullets. The whole-tree 71-check gate then passed with zero blocking findings, and the warm exact-commit release gate produced the tested ReleaseSafe candidate in seven seconds for immediate health-checked deployment.
+
+## 2026-08-12 · codex · zig_genetic_cascades — mixer-domain, scoring, and component-data repairs
+
+- **good:** The diff-scoped gate caught three SPEC bullets under the wrong module/subsection, two undocumented public types, a repeated high/low sideband switch, and a four-operator server condition. Fixing those findings left both the library and server at 71/71 whole-tree checks; selective `pub-api-surface` acceptance recorded exactly nine intended additions.
+- **friction:** The shared Guardian and Ward checkouts had migrated to Zig 0.17 while this consumer still pins Zig 0.15.1, so its normal build failed in dependency sources before the gate could run. Completing verification required pinning both dependencies at their last 0.15-compatible commits in temporary worktrees, seeding fetched packages locally, and rerunning the 561-test build outside the restricted socket sandbox. A consumer/dependency Zig-version preflight would have turned several compiler/network retries into one actionable diagnostic.
+- **friction:** Guardian returned `GitCommandFailed` after otherwise completing its checks in an rsync-based verification copy with no `.git`; initializing a temporary repository made the same build green. Naming the missing repository metadata directly would distinguish environment setup from a failed quality check.
