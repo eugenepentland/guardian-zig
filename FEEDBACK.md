@@ -5077,3 +5077,8 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** The focused Functional supply test verified six physical bypass capacitors as five SVG symbols (`4 × 1` plus `1 × 2`) and retained one common supply label; all 71 checks and the neighboring RF/CE regression passed without snapshot acceptance.
 - **friction:** The first sandboxed focused test failed before compilation with the shared Zig cache's `manifest_create Unexpected`; granting the same command normal cache access made it pass without source changes.
+
+## 2026-08-12 · codex · eda — reviewed LMX2595 functional schematic release
+
+- **good:** The whole-tree gate completed 71 checks with 0 blocking findings, then `prepare-release.sh` ran the full tests and ReleaseSafe build concurrently against the exact rebased commit. Tests took 401 seconds, the build took 333 seconds, and concurrency kept wall time to 408 seconds; the verified candidate was reused by the post-merge deploy and passed every health probe.
+- **good:** Cheap focused Debug tests and native PNG export supported repeated visual review without duplicating the final ReleaseSafe gate. The last pin-stub grouping experiment was reverted before release, restoring the reviewed single `6× 1uF` symbol while retaining the earlier accounting and routing fixes.
