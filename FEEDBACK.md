@@ -5060,3 +5060,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · eda — compact Functional RF output pairs
 
 - **good:** The diff-scoped 71-check gate stayed green while two focused Debug layout tests covered compact shared-island spacing and an indivisible Functional column split. Native image review still caught the cross-feature CPOUT/VTUNE split before handoff, and the added splitter regression test now protects that interaction.
+
+## 2026-08-12 · codex · eda — inline VTUNE return
+
+- **good:** The diff-scoped cognitive-complexity check caught the inline direct-lane scan at 27 points during the focused Debug loop; extracting the scan and using an `orelse` assignment brought the renderer back under the cap, after which all 71 checks, the targeted layout regressions, and the native PNG review passed without snapshot acceptance.
