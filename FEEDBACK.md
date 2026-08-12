@@ -5257,3 +5257,9 @@ result. Three gated commits, ~1100 lines across 105 files.
 ## 2026-08-12 · codex · zig_genetic_cascades — multipath frequency review controls
 
 - **good:** `change-classification` caught the expanded review-array behavior before it had a tagged regression; adding the exact SPEC bullet and an RF/IF-axis coverage test made the separation between review data and grading analysis explicit. The final whole-tree run passed all 71 checks.
+
+## 2026-08-12 · codex · eda — 45-degree PCB component rotation
+
+- **good:** The `file-size` gate rejected growth in the frozen 10,000-line optimizer and led to one cycle-free pose-math module shared by placement, routing, sub-circuit stamping, and KiCad sync. `spec`, `completeness`, and `pub-api-surface` then made the new numeric contract explicit; the final whole-tree gate passed all 71 checks and exact-commit preparation passed the full suite plus ReleaseSafe build in 223 seconds.
+- **friction:** Green filtered tests again printed `failed command:` for the successful custom runner before exiting 0, so all four focused rotation/geometry/UI runs required checking the final process status rather than trusting the visible line.
+- **friction:** Reusing the worktree-local Zig cache unexpectedly failed with `manifest_create ReadOnlyFileSystem`; switching to explicit writable local/global cache paths succeeded without source changes.
