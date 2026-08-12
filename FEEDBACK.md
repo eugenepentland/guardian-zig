@@ -5253,3 +5253,7 @@ result. Three gated commits, ~1100 lines across 105 files.
 
 - **good:** `file-size`, `type-size`, `test-no-conditional`, `spec`, and `pub-api-surface` each caught a real integration issue while the pre-plane route-wave behavior was extracted, documented, and regression-tested; the final whole-tree gate passed all 71 checks.
 - **bug:** `prepare-release.sh` twice published a supposedly exact-commit ReleaseSafe candidate whose binary was byte-for-byte the already-deployed main artifact (same SHA-256 and old timestamp) after the source tree changed. Both runs reported `build: 0s` and passed candidate validation because the shared `release-cache/build` returned a stale install. The Debug binary routed the LMX2595 fixture 24/24, while the stale candidate routed 22/24. Moving only `.git/release-cache/build` aside forced a real 233-second build, produced a new hash, and restored 24/24. The release gate needs to prove the installed artifact was built from the claimed tree rather than trusting Zig's shared install cache.
+
+## 2026-08-12 · codex · zig_genetic_cascades — multipath frequency review controls
+
+- **good:** `change-classification` caught the expanded review-array behavior before it had a tagged regression; adding the exact SPEC bullet and an RF/IF-axis coverage test made the separation between review data and grading analysis explicit. The final whole-tree run passed all 71 checks.
