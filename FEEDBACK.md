@@ -5335,3 +5335,7 @@ manifests instead.
 ## 2026-08-13 · codex · eda — preserve selected PCB layout in Assembly view
 - **friction:** The first focused test filter matched a spec/comment phrase but no test name; Guardian failed closed with “NOTHING YOU ASKED FOR RAN,” making the mistake clear but costing one compile/test cycle to correct.
 - **good:** The corrected diff-scoped filters reported their selected test counts, and the commit-time whole-tree 71-check gate passed with zero blocking findings.
+
+## 2026-08-13 · codex · eda — RF through-via fence rings
+- **friction:** A broad `fence` filter selected server tests that construct `httpz.testing` sockets; the sandbox denied `setsockopt(SO_RCVTIMEO)`, crashing six tests after 63 passed. The placement-only `via-fence` filter passed, but the failure cost one additional diagnostic run.
+- **good:** The spec check immediately caught the new test’s missing/duplicate contract tag, and the diff-scoped gate passed with zero blocking findings after adding the dedicated SPEC bullet.
