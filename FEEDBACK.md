@@ -5442,3 +5442,8 @@ manifests instead.
 
 ## 2026-08-13 · codex · eda — cap PCB pad-label font size
 - **good:** The browser contract, commit-time gate, and exact-commit release preparation completed all 71 Guardian checks with zero blockers; the full Debug suite passed in 83 seconds, the ReleaseSafe candidate built in 239 seconds, and deployment health probes were green.
+
+## 2026-08-13 · codex · eda — propagate RF mask radius across route chords
+- **good:** `spec`, `doc-comments`, and `pub-api-surface` caught an initially unlinked geometry contract, a missing public-function comment, and the new shared terminal-finish surface before commit; the final whole-tree gates completed all 71 checks with zero blockers.
+- **friction:** Successful focused geometry, Gerber, and browser-contract tests continued to stream `failed command:` even though the enclosing builds exited 0, so each result required a separate status poll.
+- **good:** The exact-commit gate passed the full Debug suite in 81 seconds and built the ReleaseSafe candidate in 231 seconds; an actual-board Playwright comparison confirmed 1,696 changed pixels between 0.25 mm and 1 mm terminal radii.
