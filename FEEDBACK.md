@@ -5421,3 +5421,8 @@ manifests instead.
 - **good:** `type-size` pushed the new stroke terminal metadata into cohesive width/terminal groups, while `pub-api-surface` made the shared Gerber-outline helper an explicit review point; the diff-scoped, commit-time, and release-preparation gates all completed 71 checks with zero blockers.
 - **friction:** Every successful focused test again streamed `failed command:` for the custom runner even though the enclosing build exited 0, requiring repeated process-status polls to establish that the tests passed.
 - **good:** The exact-commit release gate passed the full Debug suite in 81 seconds, built the ReleaseSafe candidate in 230 seconds, and the post-merge deployment health probes were green.
+
+## 2026-08-13 · codex · eda — pour-derived route-space A/B
+- **good:** `file-size`, `allocator-hygiene`, `anytype-budget`, and `type-size` rejected the first integration shape and pushed the experiment out of the already-ratcheted router, onto an explicitly supplied scratch allocator, and into cohesive nested metric/counter records. The final commit-time and release-preparation gates completed all 71 checks with zero blockers.
+- **good:** The full suite caught a real serialization-test capacity regression that focused tests had missed: the new benchmark fields overflowed one 512-byte fixed writer after 2,677 tests passed. Enlarging that fixture made the second exact-commit preparation pass all 2,678 tests and build the ReleaseSafe candidate.
+- **friction:** Successful focused tests continued to stream `failed command:` for the custom runner before the enclosing build exited 0, requiring a separate status poll to distinguish green runs from failures.
