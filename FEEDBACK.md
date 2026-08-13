@@ -5439,3 +5439,6 @@ manifests instead.
 - **good:** `file-size`, `function-size`, `anytype-budget`, `unsafe-ops-budget`, `catch-discipline`, and `type-size` caught an overgrown first cache integration and pushed state out of the ratcheted router, reduced a seven-parameter helper, removed unsafe casts, and made allocation failure explicit. The final commit-time and release-preparation gates completed all 71 checks with zero blockers.
 - **good:** `pub-api-surface` made the run-scoped cache seam an explicit snapshot decision; the exact-commit gate then passed the full Debug suite in 79 seconds, built the ReleaseSafe candidate in 228 seconds, and deployed it with green health probes.
 - **friction:** Successful focused cache tests again streamed `failed command:` for the custom runner despite the enclosing build exiting 0, requiring a separate final-status poll to establish that all selected tests passed.
+
+## 2026-08-13 · codex · eda — cap PCB pad-label font size
+- **good:** The browser contract, commit-time gate, and exact-commit release preparation completed all 71 Guardian checks with zero blockers; the full Debug suite passed in 83 seconds, the ReleaseSafe candidate built in 239 seconds, and deployment health probes were green.
