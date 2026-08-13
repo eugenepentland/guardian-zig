@@ -5416,3 +5416,8 @@ manifests instead.
 ## 2026-08-13 · codex · eda — keep RF fence vias out of footprint rule areas
 - **good:** `spec` caught both a split multiline tag and its missing contract bullet; after linking the exact-rotation regression, the diff-scoped and commit-time gates completed all 71 checks with zero blockers. Each of three exact-commit release preparations also passed the full Debug suite and ReleaseSafe build.
 - **friction:** Two concurrent `main` advances invalidated verified candidates after roughly four minutes each, forcing three full release preparations for unchanged via-keepout code. Successful focused tests also printed `failed command:` for the custom runner despite exiting 0, so every result required a separate status poll.
+
+## 2026-08-13 · codex · eda — rounded RF mask termini and correct assembly copper
+- **good:** `type-size` pushed the new stroke terminal metadata into cohesive width/terminal groups, while `pub-api-surface` made the shared Gerber-outline helper an explicit review point; the diff-scoped, commit-time, and release-preparation gates all completed 71 checks with zero blockers.
+- **friction:** Every successful focused test again streamed `failed command:` for the custom runner even though the enclosing build exited 0, requiring repeated process-status polls to establish that the tests passed.
+- **good:** The exact-commit release gate passed the full Debug suite in 81 seconds, built the ReleaseSafe candidate in 230 seconds, and the post-merge deployment health probes were green.
