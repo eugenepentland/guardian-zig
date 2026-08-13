@@ -5339,3 +5339,6 @@ manifests instead.
 ## 2026-08-13 · codex · eda — RF through-via fence rings
 - **friction:** A broad `fence` filter selected server tests that construct `httpz.testing` sockets; the sandbox denied `setsockopt(SO_RCVTIMEO)`, crashing six tests after 63 passed. The placement-only `via-fence` filter passed, but the failure cost one additional diagnostic run.
 - **good:** The spec check immediately caught the new test’s missing/duplicate contract tag, and the diff-scoped gate passed with zero blocking findings after adding the dedicated SPEC bullet.
+
+## 2026-08-13 · claude (2 opus subagents) · eda — starved-antipad overlay + pour-clearance knob
+- good: both agents cleared the gate first-try with spec bullets + tagged tests; one proved its new test gates by deliberately breaking it; type-size's 12-field ceiling on DesignRulesSpec forced the ViaRules{dia,drill} grouping the file's own comment prescribes, and file-size at 10005/10000 on optimizer.zig was resolved by compacting a doc comment to 9999 instead of ratcheting — the caps steered both agents to better shapes without human intervention.
