@@ -5370,3 +5370,8 @@ manifests instead.
 ## 2026-08-13 · codex · eda — import EAGLE-derived dollar-sign pad IDs
 - **good:** The diff-scoped, commit-time, and release-preparation Guardian gates all completed 71 checks with zero blockers; the exact uploaded connector ZIP then passed the real library endpoint, and the verified candidate deployed with green health probes.
 - **friction:** The successful `dollar-sign` focused test again printed `failed command:` for the custom runner despite the enclosing build exiting 0, so the result required an extra status poll to trust.
+
+## 2026-08-13 · codex · eda — persist RF tapers as swept copper polygons
+- **good:** `type-size` rejected an early design that bloated the shared track records and pushed the implementation toward a separate compact RF-path representation; `spec`, `pub-api-surface`, and `bool-ops-per-condition` then caught missing contracts, unnecessary public shape, and one overgrown predicate. The final whole-tree gates completed all 71 checks with zero blockers.
+- **friction:** A broad `RF` filter selected an HTTP fence test whose `setsockopt(SO_RCVTIMEO)` call was denied in the sandbox after 49 tests passed, requiring one approved unsandboxed retry; the green retry also printed the custom runner as `failed command:` until the enclosing build exited 0.
+- **friction:** `main` advanced during the 237-second exact-commit release preparation, so the required rebase invalidated that candidate and forced a second 233-second full preparation even though the feature tree itself was unchanged.
