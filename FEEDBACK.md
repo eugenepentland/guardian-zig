@@ -5387,3 +5387,7 @@ manifests instead.
 ## 2026-08-13 · codex · eda — footprint copper-pour keepouts
 - **good:** `type-size` rejected an early implementation that added independent slices to both `Geom` and the hot `Part` record; grouping silkscreen and copper constraints into one footprint-feature bundle preserved both ratchet ceilings. The final diff-scoped, commit-time, and release-preparation gates completed all 71 checks with zero blockers.
 - **friction:** Successful focused tests again streamed a `failed command:` line from the custom runner even though the enclosing build summary reported all selected tests passed, so each result required waiting for the final build status to disambiguate it.
+
+## 2026-08-13 · codex · eda — simplified autorouter sidebar and Barracuda net classes
+- **good:** The `spec` check immediately caught a renamed saved-version browser contract whose old `SPEC.md` bullet had gone stale; after linking it, diff-scoped, commit-time, and release-preparation gates completed all 71 checks with zero blockers. Exact-commit preparation ran the full Debug suite in 83 seconds, produced the ReleaseSafe candidate in 232 seconds, and the post-merge health checks passed.
+- **friction:** Successful focused sidebar tests still streamed `failed command:` for the custom runner even though the enclosing build exited 0, requiring an extra status poll for each filter to distinguish green results from real failures.
