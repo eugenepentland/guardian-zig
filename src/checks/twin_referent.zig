@@ -667,6 +667,9 @@ test "classifyWord needs a module root before reading a chain" {
     try testing.expect(classifyWord("known.known_value", &resolver).?.kind == .chain);
     // A file-extension tail is a filename, not a symbol.
     try testing.expect(classifyWord("known.toml", &resolver) == null);
+    // Every segment has to be a bare identifier, so a hyphenated tail is prose
+    // even under a real module root.
+    try testing.expect(classifyWord("known.a-b", &resolver) == null);
     // A single identifier is too weak a claim to resolve.
     try testing.expect(classifyWord("start", &resolver) == null);
 }
@@ -698,6 +701,26 @@ test "buildResolver resolves the extra paths it is handed" {
         \\pub const x = 1;
         \\
     )).len);
+}
+
+// spec: Twin Referent - Groups consecutive comment lines into one run and breaks at a gap
+
+test "groupRuns joins adjacent lines and starts a new run after a gap" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const lines = [_]CommentLine{
+        .{ .line = 5, .text = "the table below mirrors" },
+        .{ .line = 6, .text = "src/gone.zig" },
+        .{ .line = 9, .text = "a separate block" },
+    };
+    const runs = try groupRuns(a, &lines);
+    // Exactly two runs: no empty leading run, and the gap at line 7-8 splits.
+    try testing.expectEqual(@as(usize, 2), runs.len);
+    try testing.expectEqual(@as(u32, 5), runs[0].line);
+    try testing.expectEqualStrings("the table below mirrors\nsrc/gone.zig", runs[0].text);
+    try testing.expectEqual(@as(u32, 9), runs[1].line);
+    try testing.expectEqualStrings("a separate block", runs[1].text);
 }
 
 // spec: Twin Referent - Reads a claim spanning two lines of one comment block

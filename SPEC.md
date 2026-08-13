@@ -1036,6 +1036,7 @@ without an explained `--force`.
 - Treats a dotted word as prose unless its root names a module
 - Skips a chain rooted in a namespace it cannot index
 - Resolves a claim naming a root-level file outside the index
+- Groups consecutive comment lines into one run and breaks at a gap
 - Reads a claim spanning two lines of one comment block
 - Never reads a comment marker inside a string literal
 - Reports one claim once however many phrases introduce it

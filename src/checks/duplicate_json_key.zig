@@ -675,6 +675,9 @@ test "keyAt reads both literal spellings and rejects non-keys" {
     try testing.expect(keyAt("\"mixed\\\":1", 0) == null);
     try testing.expect(keyAt("\"\":1", 0) == null);
     try testing.expect(keyAt("\"value\",", 0) == null);
+    // A backslash that is NOT escaping a quote opens nothing: `\nabc\":1` would
+    // otherwise read as the key `abc`, one character past a newline escape.
+    try testing.expect(keyAt("\\nabc\\\":1", 0) == null);
 }
 
 // spec: Duplicate JSON Key - Keeps two functions' keys apart
