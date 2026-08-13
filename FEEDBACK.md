@@ -5380,3 +5380,6 @@ manifests instead.
 
 - **good:** The `spec` and `test-no-conditional` checks caught unlinked browser contracts and a two-loop asset test during the first focused run; both diagnostics named the exact issue and were fixed before commit.
 - **friction:** The focused viewer and assembly tests passed, but the first 85-second full release suite alone exposed a stale selection-filter assertion in a different test file; fixing that one expected string required amending the commit and rerunning the 242-second exact-commit release preparation.
+
+## 2026-08-13 · codex · eda — start RF tapers at pad edges
+- **good:** The diff-scoped, commit-time, and release-preparation Guardian gates all completed 71 checks with zero blockers; exact-commit preparation ran the full Debug suite and produced the ReleaseSafe candidate used by the health-checked deployment.
