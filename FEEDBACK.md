@@ -5366,3 +5366,7 @@ manifests instead.
 ## 2026-08-13 · codex · eda — rounded-outline viewer performance
 - **good:** The focused browser-contract test, commit-time whole-tree gate, and release-preparation gate all completed with 71 checks and zero blockers; exact-commit preparation ran the full suite in 81 seconds and produced the ReleaseSafe candidate in 233 seconds for a health-checked deployment.
 - **friction:** The successful focused run again printed `failed command:` for the custom runner while the enclosing build exited 0, requiring an extra process-status poll to establish that the test passed.
+
+## 2026-08-13 · codex · eda — import EAGLE-derived dollar-sign pad IDs
+- **good:** The diff-scoped, commit-time, and release-preparation Guardian gates all completed 71 checks with zero blockers; the exact uploaded connector ZIP then passed the real library endpoint, and the verified candidate deployed with green health probes.
+- **friction:** The successful `dollar-sign` focused test again printed `failed command:` for the custom runner despite the enclosing build exiting 0, so the result required an extra status poll to trust.
