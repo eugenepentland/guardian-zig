@@ -5326,3 +5326,8 @@ manifests instead.
 ## 2026-08-13 · codex · eda — exact rendering for every custom pad
 
 - **good:** The linked SPEC/tagged browser-asset regression made the WebGPU/Canvas2D ownership change explicit, and the whole-tree 71-check gate completed with zero blockers. Exact-commit preparation then executed the full suite (82 seconds) and produced the ReleaseSafe candidate (230 seconds) used by the health-checked deployment.
+
+## 2026-08-13 · codex · eda — deterministic RF port-frame routing
+
+- **good:** `file-size` held the 10,000-line optimizer ceiling and pushed route-result/support types into cycle-free leaf modules; `spec`, `pub-api-surface`, `type-size`, and `function-size` then caught the missing pad-taper contract, intentional RF APIs, combined RF record growth, and a seven-parameter DRC helper. The final whole-tree run passed all 71 checks, and exact-commit preparation executed the full suite in 80 seconds plus the ReleaseSafe build in 226 seconds.
+- **friction:** Every green filtered test still printed `failed command:` for its successful custom runner even though the enclosing build exited 0. This affected more than a dozen RF geometry/DRC/report checks and repeatedly required polling the process exit status to distinguish a real test failure from the runner label.
