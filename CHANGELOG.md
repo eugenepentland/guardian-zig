@@ -34,6 +34,39 @@ sibling checkout.
   and TOML string escapes are resolved (`\"`, `\\`, `\n`, `\r`, `\t`), so
   `literals = ["\"track_track\""]` names a spelling that contains a quote
   instead of matching nothing. An unrecognized escape keeps its backslash.
+- Add three RELATIONAL checks — findings that exist only *between* files or
+  *between* two writes, which no per-item rule can see:
+  - `divergent-const`: one file-scope `const NAME` holding **different** values
+    in two or more files. Measured in eda: 10 names in the default mode,
+    including `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the
+    `.kicad_mod` writer (two silkscreens from one board) and
+    `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two (loads in the
+    editor, fails in the preview). The polarity is the opposite of
+    `repeated-string-literal`'s cross-file rule: same name + same value is
+    harmless, same name + different value is the risk. Values are compared
+    FOLDED, so `16 << 20`, `16 * 1024 * 1024` and `16_777_216` are one value; an
+    initializer that does not fold to a number is skipped. Default
+    `[divergent_const] mode = "units"` groups only unit-suffixed names, `"all"`
+    widens, `ignore_names` exempts. A `/// mirror-of: <path>.zig.<name>`
+    annotation converts a deliberate copy into a CHECKED one — exempt from the
+    divergence rule, required to equal its referent.
+  - `twin-referent`: a comment claiming `mirrors` / `same as` / `verified
+    against` a named piece of code that no longer resolves. Measured in eda:
+    eight, including a file named after it was split into a directory, a
+    hard-coded `file.zig:529-562` line range, and `optimizer.INNER_LAYER_COLORS`
+    where the symbol is lowercase. The claim phrase alone is never reported —
+    only one followed, in the same sentence, by something code-shaped (a `.zig`
+    path, or a dotted chain rooted in a module of the tree). `[twin_referent]
+    ignore` silences one claim.
+  - `duplicate-json-key`: one function writing the same `"key":` twice into the
+    same JSON object — last-wins today, a `SyntaxError` under a strict reader.
+    Scoped by object SEGMENT (an emitted `{`/`}`, a call it cannot read, an
+    `else` / switch `=>` / `return`) so a function writing two sibling objects,
+    or two branches writing one key, stays silent; a literal must also be an
+    argument to a call that writes.
+  Each runs clean on Guardian's own tree and adds under 40 ms to a whole-tree
+  gate. Guardian's own `max_file_bytes` was two different read caps in two
+  files; both are now named for what they bound.
 - Add the `concept` check and `[[concept]]` config entries: a project names a
   concept (`name`), the literal spellings that model it (`literals`, plus `*`
   wildcard `patterns`), the module those spellings belong to (`owner`), and

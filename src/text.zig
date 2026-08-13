@@ -13,6 +13,29 @@ pub fn lineOf(source: []const u8, byte_offset: usize) u32 {
     return line;
 }
 
+/// Forward-only line counter for a scan that visits ascending byte offsets.
+/// `lineOf` restarts at byte 0 every call, so a check asking for the line of
+/// each of a file's declarations is quadratic in file size; this walks the
+/// source once. Offsets must not go backwards — `at` asserts it.
+pub const LineCursor = struct {
+    offset: usize = 0,
+    line: u32 = 1,
+
+    /// The 1-indexed line containing `byte_offset`, advancing the cursor to it.
+    ///
+    /// Asserts `byte_offset` is at or after the previous query: this counts
+    /// newlines forward only, so a backwards offset would report a line number
+    /// that is silently too high.
+    pub fn at(self: *LineCursor, source: []const u8, byte_offset: usize) u32 {
+        std.debug.assert(byte_offset >= self.offset);
+        const end = @min(byte_offset, source.len);
+        while (self.offset < end) : (self.offset += 1) {
+            if (source[self.offset] == '\n') self.line += 1;
+        }
+        return self.line;
+    }
+};
+
 /// Brace-depth tracker for inline `test { ... }` scope. Feed every token tag
 /// to `update`; `in_test` is true while the tokenizer is inside a test body.
 /// Discipline checks use this to exempt idiomatic test assertions like
@@ -55,6 +78,21 @@ test "lineOf counts newlines up to the offset" {
     try std.testing.expectEqual(@as(u32, 3), lineOf(s, 5));
     // Past the end clamps to the last line rather than overrunning.
     try std.testing.expectEqual(@as(u32, 3), lineOf(s, 999));
+}
+
+// spec: Text Helpers - Counts lines forward across ascending offsets in one pass
+
+test "LineCursor reports the same lines as lineOf while walking forward" {
+    const s = "a\nbb\nccc\ndddd";
+    var cursor: LineCursor = .{};
+    try std.testing.expectEqual(lineOf(s, 0), cursor.at(s, 0));
+    try std.testing.expectEqual(lineOf(s, 2), cursor.at(s, 2));
+    // Repeating an offset is allowed and does not advance the count.
+    try std.testing.expectEqual(lineOf(s, 2), cursor.at(s, 2));
+    try std.testing.expectEqual(lineOf(s, 5), cursor.at(s, 5));
+    try std.testing.expectEqual(lineOf(s, 9), cursor.at(s, 9));
+    // Past the end clamps to the last line, exactly as lineOf does.
+    try std.testing.expectEqual(lineOf(s, 999), cursor.at(s, 999));
 }
 
 test "TestScope is in_test only inside a test body" {

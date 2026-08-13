@@ -49,7 +49,7 @@ const root_files = [_][]const u8{ "build.zig", "build.zig.zon" };
 
 /// Upper bound on one covered file. Guardian's largest source is two orders of
 /// magnitude under it; exceeding it is a source-root problem, not a digest one.
-const max_file_bytes = 4 * 1024 * 1024;
+const max_source_bytes = 4 * 1024 * 1024;
 
 /// Width of the length prefix that frames every hashed field.
 const Len = u64;
@@ -65,7 +65,7 @@ pub fn compute(io: std.Io, allocator: std.mem.Allocator, root: std.Io.Dir) Error
     var hasher = Sha256.init(.{});
     hasher.update(format_tag);
     for (paths) |path| {
-        const content = root.readFileAlloc(io, path, allocator, .limited64(max_file_bytes)) catch
+        const content = root.readFileAlloc(io, path, allocator, .limited64(max_source_bytes)) catch
             return error.SourceRootUnreadable;
         defer allocator.free(content);
         updateField(&hasher, path);

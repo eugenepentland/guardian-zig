@@ -196,8 +196,12 @@ src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: s
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/deprecated_alias.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/deprecated_alias.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/divergent_const.zig::analyzeIndex | fn analyzeIndex( allocator: Allocator, files: []const ast_index.Entry, cfg: config.DivergentConstCfg, ) Allocator.Error![]const reporter.Violation
+src/checks/divergent_const.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/doc_comments.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, cfg: config_mod.DocQualityCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/doc_comments.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/duplicate_json_key.zig::analyzeFile | fn analyzeFile( allocator: Allocator, entry: *const ast_index.Entry, ) Allocator.Error![]const reporter.Violation
+src/checks/duplicate_json_key.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/errdefer_in_init.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -273,6 +277,11 @@ src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry
 src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/twin_referent.zig::NameSet value
+src/checks/twin_referent.zig::Resolver struct_
+src/checks/twin_referent.zig::analyzeFile | fn analyzeFile( allocator: Allocator, entry: *const ast_index.Entry, resolver: *const Resolver, ignore: []const []const u8, ) Allocator.Error![]const reporter.Violation
+src/checks/twin_referent.zig::buildResolver | fn buildResolver( allocator: Allocator, files: []const ast_index.Entry, extra_paths: []const []const u8, ) Allocator.Error!Resolver
+src/checks/twin_referent.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -378,6 +387,8 @@ src/config.zig::ComplexityCfg struct_
 src/config.zig::ConceptRule struct_
 src/config.zig::Config struct_
 src/config.zig::DeadPubCfg struct_
+src/config.zig::DivergentConstCfg struct_
+src/config.zig::DivergentConstMode enum_
 src/config.zig::DocQualityCfg struct_
 src/config.zig::DoctorCfg struct_
 src/config.zig::DoraCfg struct_
@@ -405,6 +416,7 @@ src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
+src/config.zig::TwinReferentCfg struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
@@ -869,7 +881,9 @@ src/testing/golden_runner.zig::Scenario struct_
 src/testing/golden_runner.zig::run | fn run(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype) GoldenError!void
 src/testing/golden_runner.zig::runWithCfg | fn runWithCfg(allocator: Allocator, s: Scenario, comptime analyzeFn: anytype, cfg: anytype) GoldenError!void
 src/testing/golden_runner.zig::update_env value
+src/text.zig::LineCursor struct_
 src/text.zig::TestScope struct_
+src/text.zig::at | fn at(self: *LineCursor, source: []const u8, byte_offset: usize) u32
 src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/version.zig::string value

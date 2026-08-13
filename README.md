@@ -427,6 +427,9 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
 | **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace or a quote, so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens or a newline; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`) and a hit inside a comment counts. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, the occurrence lines, the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+| **divergent-const** | One file-scope `const NAME` holding **different** values in 2+ files — `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the `.kicad_mod` writer, `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two. Note the polarity against repeated-string-literal: same name + same value is harmless here, same name + DIFFERENT value is the risk. Values are compared FOLDED (`16 << 20` = `16 * 1024 * 1024` = `16_777_216`, `1_000_000` = `1_000_000.0`); an initializer that does not fold to a number is skipped. Default `mode = "units"` groups only names whose trailing `_` segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …); `mode = "all"` groups every name and `ignore_names` exempts the generic ones. A `/// mirror-of: <path>.zig.<name>` doc annotation exempts a const from the divergence rule and instead requires it to EQUAL that referent. Keyed by the NAME |
+| **twin-referent** | A comment CLAIMING a relationship (`mirrors`, `same as`, `twin of`, `in lockstep with`, `verified against`, `matches`) whose named referent does not resolve — a doc pointing at a deleted function, a file that was split into a directory, `optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Precision by construction: the phrase alone is never reported, only a phrase followed IN THE SAME SENTENCE by something code-shaped — a word ending in `.zig` (no glob, non-empty basename) or a dotted chain rooted in a module of the tree. Resolution is containment, not semantics: a path must name an indexed file (exactly or as a tail at `/`), a chain's final symbol must be declared, named as a field, or dereferenced anywhere in the tree; `std.*` / `builtin.*` are skipped. A hard-coded `file.zig:120-160` range is reported outright. Keyed `<file>|<referent>` |
+| **duplicate-json-key** | One function writing the same `"key":` twice into the same JSON object — last-wins today, a `SyntaxError` under any strict reader. Scoped by OBJECT SEGMENT so a function writing two sibling objects is silent: a `{`/`}` a literal actually emits (`{{`/`}}` included) ends a segment, and so does a completed call between two literals, an `else` / switch `=>` / `return` (alternatives, not a sequence). A format placeholder (`{d}`, `{s}`) is a value, not a brace. A literal must also be an argument to a call that WRITES (`print`/`write`/`format`/`append`), so `std.mem.indexOf(u8, body, "\"dnp\":true")` is not a write. Test blocks are never scanned. Keyed `<file>|<fn>|<key>` |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
 | **stringly-typed-switches** | `switch` whose case keys are string literals |
@@ -752,7 +755,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 76 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 79 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1357,6 +1360,20 @@ patterns = ["In*.Cu"]
 owner = ["src/board_layers.zig"]
 files = ["src/*.zig", "assets/*.css"]
 reason = "layer names come from board_layers.LayerTable"
+
+# divergent-const: one file-scope const NAME holding DIFFERENT values in two
+# files. Default `mode = "units"` groups only names whose trailing `_` segment
+# is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, ...) — a physical quantity is where
+# a silent disagreement actually ships; `"all"` groups every name.
+# `ignore_names` exempts generic names that legitimately differ per module.
+[divergent_const]
+mode = "units"
+ignore_names = ["eps", "margin"]
+
+# twin-referent: globs silencing one "mirrors X / same as Y" claim, matched
+# against the commenting file's path AND the referent text.
+[twin_referent]
+ignore = ["src/vendor/*"]
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
@@ -1413,6 +1430,8 @@ include comments and trailing commas.
 | `[fuzz_presence]` | `modules` |
 | `[int_from_float]` | `guard_fns`, `require_guard` |
 | `[measurement]` | `paths` |
+| `[divergent_const]` | `ignore_names`, `mode` (`"units"` (default) \| `"all"`) |
+| `[twin_referent]` | `ignore` |
 
 ## Measurement mode (`[measurement]`)
 
@@ -1565,8 +1584,8 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 72 check(s) passed
-  run-all: 72 checks — 0 blocking, 3 report-only
+  run-all: 75 check(s) passed
+  run-all: 75 checks — 0 blocking, 3 report-only
   run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```

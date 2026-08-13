@@ -82,6 +82,12 @@ const patterns_key = "patterns";
 const owner_key = "owner";
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
+const ignore_names_key = "ignore_names";
+const mode_key = "mode";
+/// The two `[divergent_const] mode` spellings; `units` is the default, so only
+/// the widening one needs a named const for the validator and the applier.
+const units_mode = "units";
+const all_mode = "all";
 const benchmark_key = "benchmark";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
@@ -144,6 +150,8 @@ const Section = enum {
     dora,
     fuzz_presence,
     int_from_float,
+    divergent_const,
+    twin_referent,
     measurement,
     policy,
     doctor,
@@ -695,7 +703,9 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .mutation => if (key[0] == 's') .string else .unsigned,
         .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
-        .fuzz_presence, .int_from_float, .measurement => .string_array,
+        .fuzz_presence, .int_from_float, .measurement, .twin_referent => .string_array,
+        // `mode` is prose; `ignore_names` is an array.
+        .divergent_const => if (key[0] == 'm') .string else .string_array,
         .policy => if (std.mem.eql(u8, key, "profile") or std.mem.eql(u8, key, lock_against_key))
             .string
         else if (std.mem.eql(u8, key, lock_enabled_key))
@@ -743,6 +753,13 @@ fn validateValue(
         }
     }
 
+    if (st.array_kind == .none and st.section == .divergent_const and std.mem.eql(u8, kv.key, mode_key)) {
+        const mode = parseString(kv.val).?;
+        if (!std.mem.eql(u8, mode, units_mode) and !std.mem.eql(u8, mode, all_mode)) {
+            try setDiag(allocator, diag, line_no, "invalid divergent_const mode '{s}' (want units or all)", .{mode});
+            return error.InvalidValue;
+        }
+    }
     if (st.array_kind == .none and st.section == .measurement) {
         try validateMeasurementPaths(allocator, kv, line_no, diag);
     }
@@ -961,6 +978,8 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
         .int_from_float => &.{ "guard_fns", "require_guard" },
+        .divergent_const => &.{ ignore_names_key, mode_key },
+        .twin_referent => &.{"ignore"},
         .measurement => &.{"paths"},
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
         .doctor => &.{ "zig_cache_warn_mib", "guardian_cache_warn_mib" },
@@ -1013,6 +1032,8 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .dora => applyDoraKey(ctx, kv),
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
         .int_from_float => try applyIntFromFloatKey(ctx, kv),
+        .divergent_const => try applyDivergentConstKey(ctx, kv),
+        .twin_referent => try applyTwinReferentKey(ctx, kv),
         .measurement => try applyMeasurementKey(ctx, kv),
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
         .doctor => config_policy.applyDoctor(ctx.cfg, kv.key, kv.val),
@@ -1072,6 +1093,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
         .{ "int_from_float", Section.int_from_float },
+        .{ "divergent_const", Section.divergent_const },
+        .{ "twin_referent", Section.twin_referent },
         .{ "measurement", Section.measurement },
         .{ "policy", Section.policy },
         .{ "doctor", Section.doctor },
@@ -1266,6 +1289,26 @@ fn applyIntFromFloatKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.guard_fns = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, "require_guard")) {
         g.require_guard = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies one `[divergent_const]` key: `ignore_names` (generic const names the
+/// same-name-different-value rule skips) and `mode` (already value-checked
+/// against the two spellings, so an unrecognized one cannot reach here).
+fn applyDivergentConstKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.divergent_const;
+    if (std.mem.eql(u8, kv.key, ignore_names_key)) {
+        g.ignore_names = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, mode_key)) {
+        if (parseString(kv.val)) |v| g.mode = if (std.mem.eql(u8, v, all_mode)) .all else .units;
+    }
+}
+
+/// Applies the `[twin_referent] ignore` globs — the per-claim silencer for the
+/// "mirrors X / same as Y" comment scan.
+fn applyTwinReferentKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, "ignore")) {
+        ctx.cfg.twin_referent.ignore = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -2264,6 +2307,55 @@ test "load hard-fails when guardian.toml exists but cannot be read" {
     try std.testing.expectError(error.ConfigUnreadable, load(a, dir));
     // The diagnostic carries exactly one "guardian: " prefix (reporter adds it).
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: guardian:") == null);
+}
+
+// spec: Divergent Const - Parses the ignore-names list and the grouping mode
+
+test "parse divergent_const keys and default the mode to units" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const default_cfg = try parse(a, "");
+    try std.testing.expectEqual(config.DivergentConstMode.units, default_cfg.divergent_const.mode);
+    try std.testing.expectEqual(@as(usize, 0), default_cfg.divergent_const.ignore_names.len);
+    const cfg = try parse(a,
+        \\[divergent_const]
+        \\mode = "all"
+        \\ignore_names = ["eps", "margin"]
+    );
+    try std.testing.expectEqual(config.DivergentConstMode.all, cfg.divergent_const.mode);
+    try std.testing.expectEqual(@as(usize, 2), cfg.divergent_const.ignore_names.len);
+    try std.testing.expectEqualStrings("margin", cfg.divergent_const.ignore_names[1]);
+}
+
+// spec: Divergent Const - Hard-fails a grouping mode that is neither units nor all
+
+test "parse rejects an unknown divergent_const mode" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content =
+        \\[divergent_const]
+        \\mode = "everything"
+    ;
+    try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "want units or all") != null);
+}
+
+// spec: Twin Referent - Parses the ignore globs
+
+test "parse twin_referent ignore globs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqual(@as(usize, 0), (try parse(a, "")).twin_referent.ignore.len);
+    const cfg = try parse(a,
+        \\[twin_referent]
+        \\ignore = ["src/vendor/*", "legacy.zig"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.twin_referent.ignore.len);
+    try std.testing.expectEqualStrings("src/vendor/*", cfg.twin_referent.ignore[0]);
 }
 
 // Hand-picked malformed inputs so the default `zig build test` smoke run — which

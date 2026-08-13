@@ -35,7 +35,11 @@ const cache_version = "guardian-cache-v4";
 // cache_version so the two digests can never collide even over an identical item set.
 const suite_version = "guardian-mutation-suite-v1";
 const cache_leaf = ".guardian/cache/inputs.sha256";
-const max_file_bytes = 16 * 1024 * 1024;
+// Read cap for ONE hashed cache input. Deliberately not the same number as
+// source_digest.max_source_bytes or walk.WalkOpts.max_file_bytes: this reads
+// project inputs (assets, embedded files), not Zig source, so the names say
+// which population each bounds.
+const max_input_bytes = 16 * 1024 * 1024;
 // Two hex lines (input digest + binary-identity hash) plus their newlines.
 const stored_max_bytes = 256;
 const hex_len = Sha256.digest_length * 2;
@@ -66,7 +70,7 @@ fn readSingle(
     leaf: []const u8,
 ) Error!void {
     const p = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, leaf });
-    const content = fs.cwd().readFileAlloc(arena, p, max_file_bytes) catch return;
+    const content = fs.cwd().readFileAlloc(arena, p, max_input_bytes) catch return;
     try items.append(arena, .{ .path = try arena.dupe(u8, leaf), .content = content });
 }
 
