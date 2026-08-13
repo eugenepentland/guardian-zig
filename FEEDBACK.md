@@ -5319,3 +5319,6 @@ manifests instead.
 ## 2026-08-13 · claude · eda — RF mask relief merge/release
 - good: change-classification caught a 1-line rebase repair being amended without its tests in the diff scope; folding the fix into the full commit (soft reset + recommit) satisfied it naturally — the check pushed toward the better history, not a workaround.
 - good: prepare-release candidate adoption worked exactly as documented — freshly rebased branch, --no-ff merge, identical tree adopted in 11s with health probes green.
+
+## 2026-08-13 · claude · eda — Antipads viewer overlay
+- good: spec bullet + tagged test + implementation landed in one commit with zero blocking findings first try; the counting test runner's "17 selected — 1 match by name" line made the filtered tier trustworthy at a glance.
