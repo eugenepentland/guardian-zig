@@ -5331,3 +5331,7 @@ manifests instead.
 
 - **good:** `file-size` held the 10,000-line optimizer ceiling and pushed route-result/support types into cycle-free leaf modules; `spec`, `pub-api-surface`, `type-size`, and `function-size` then caught the missing pad-taper contract, intentional RF APIs, combined RF record growth, and a seven-parameter DRC helper. The final whole-tree run passed all 71 checks, and exact-commit preparation executed the full suite in 80 seconds plus the ReleaseSafe build in 226 seconds.
 - **friction:** Every green filtered test still printed `failed command:` for its successful custom runner even though the enclosing build exited 0. This affected more than a dozen RF geometry/DRC/report checks and repeatedly required polling the process exit status to distinguish a real test failure from the runner label.
+
+## 2026-08-13 · codex · eda — preserve selected PCB layout in Assembly view
+- **friction:** The first focused test filter matched a spec/comment phrase but no test name; Guardian failed closed with “NOTHING YOU ASKED FOR RAN,” making the mistake clear but costing one compile/test cycle to correct.
+- **good:** The corrected diff-scoped filters reported their selected test counts, and the commit-time whole-tree 71-check gate passed with zero blocking findings.
