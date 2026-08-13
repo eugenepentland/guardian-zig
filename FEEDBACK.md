@@ -5400,3 +5400,8 @@ manifests instead.
 
 - **good:** The focused browser contracts, commit-time gate, and two exact-commit release gates all completed 71 checks with zero blockers; the final candidate passed the full Debug suite in 82 seconds, built ReleaseSafe in 251 seconds, and deployed with all health probes green.
 - **friction:** Successful focused tests again streamed `failed command:` before the enclosing build reported all 17 selected tests passed. Also, `main` advanced during the first 248-second exact-commit preparation, forcing a rebase and a second 254-second full preparation for a three-file UI-only change.
+
+## 2026-08-13 · codex · eda — route subcircuits before the global board
+
+- **good:** `file-size` rejected growing the already-ratcheted PCB handler, so the isolated routing phase moved into a cycle-free leaf module and left the handler ten code lines smaller; `spec` caught the initially misnamed contract tags, and the final whole-tree gate completed all 71 checks with zero blockers.
+- **good:** The counting test runner failed closed when the new leaf module was not yet rooted in the aggregate test graph; adding the explicit import turned the derived focused filters into two real matches. Exact-commit preparation then passed the full suite in 85 seconds and produced the ReleaseSafe candidate in 243 seconds.
