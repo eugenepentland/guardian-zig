@@ -5342,3 +5342,8 @@ manifests instead.
 
 ## 2026-08-13 · claude (2 opus subagents) · eda — starved-antipad overlay + pour-clearance knob
 - good: both agents cleared the gate first-try with spec bullets + tagged tests; one proved its new test gates by deliberately breaking it; type-size's 12-field ceiling on DesignRulesSpec forced the ViaRules{dia,drill} grouping the file's own comment prescribes, and file-size at 10005/10000 on optimizer.zig was resolved by compacting a doc comment to 9999 instead of ratcheting — the caps steered both agents to better shapes without human intervention.
+
+## 2026-08-13 · codex · eda — minimum-width and rounded copper pours
+- **friction:** The first focused test run exposed the worktree cache as read-only; using isolated `/tmp` Debug caches fixed it. The full suite then crashed 40 HTTP tests in the sandbox on `setsockopt(SO_RCVTIMEO)`, requiring one approved unsandboxed retry; 2,639 tests passed there.
+- **good:** `spec` caught the two missing contract bullets, and `pub-api-surface`/`type-size` precisely identified the intentional pour settings API and grouped rule growth; after surgical acceptance, the gate reported 0 blocking checks.
+- **wish:** Include the repo-wired unsandboxed test command in the server-test failure hint when `setsockopt` is denied, so agents do not need a separate sandbox diagnosis and approval cycle.
