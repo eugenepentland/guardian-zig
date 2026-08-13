@@ -426,6 +426,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
+| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace or a quote, so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens or a newline; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`) and a hit inside a comment counts. One violation per (file, concept) naming the count, the occurrence lines, the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
 | **stringly-typed-switches** | `switch` whose case keys are string literals |
@@ -751,7 +752,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 74 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 76 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1337,6 +1338,23 @@ chain = ["optimizer", "placeFromPoses"]
 paths = ["src/serve/*"]
 allow = ["src/serve/route_seed.zig"]
 reason = "call through RouteSeed instead"
+
+# Your own owned concepts, enforced by the `concept` check. Use one when a set
+# of magic spellings models ONE domain fact and keeps getting hand-copied —
+# layer names, their colours, the file suffixes they map to — until the copies
+# disagree. name: kebab-case and unique; it names every violation and is half of
+# its baseline key. literals: exact substrings. patterns: `*` matches one or
+# more characters that are not whitespace or a quote. owner: where the spelling
+# is allowed to live. files: what to scan (any extension — this is how a .css
+# copy is reachable at all); omit for the source set Guardian already walks.
+# reason: where the value comes from, appended to every violation.
+[[concept]]
+name = "layer-names"
+literals = ["F.Cu", "B.Cu"]
+patterns = ["In*.Cu"]
+owner = ["src/board_layers.zig"]
+files = ["src/*.zig", "assets/*.css"]
+reason = "layer names come from board_layers.LayerTable"
 ```
 
 Patterns use `*` as a wildcard; without `*`, substring matching is used.
@@ -1348,10 +1366,12 @@ commit, nightly, or mutation can update metadata.
 ### Complete key reference
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
-unknown names, malformed values, incomplete `[[boundary]]`/`[[allow]]`/`[[ban]]`
-entries, a `[[ban]]` chain segment that isn't a bare identifier, and unsafe
-mutation ranges are hard errors with a `guardian.toml:line:` diagnostic). String
-arrays may span lines and include comments and trailing commas.
+unknown names, malformed values, incomplete
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]` entries, a `[[ban]]` chain
+segment that isn't a bare identifier, a `[[concept]]` name that isn't kebab-case
+or that a previous entry already used, and unsafe mutation ranges are hard errors
+with a `guardian.toml:line:` diagnostic). String arrays may span lines and
+include comments and trailing commas.
 
 | Scope | Keys |
 |---|---|
@@ -1359,6 +1379,7 @@ arrays may span lines and include comments and trailing commas.
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
+| `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns` (at least one of the two required), `owner`, `files`, `reason` |
 | `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1542,9 +1563,9 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 70 check(s) passed
-  run-all: 70 checks — 0 blocking, 3 report-only
-  run-all: 2/70 failed (type-size, naming) — 3 report-only
+  run-all: 72 check(s) passed
+  run-all: 72 checks — 0 blocking, 3 report-only
+  run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```
 

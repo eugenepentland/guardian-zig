@@ -6,6 +6,18 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Add the `concept` check and `[[concept]]` config entries: a project names a
+  concept (`name`), the literal spellings that model it (`literals`, plus `*`
+  wildcard `patterns`), the module those spellings belong to (`owner`), and
+  optionally the file set to scan (`files`, any extension) — and every
+  occurrence outside an owner is reported as drift. This is Guardian's first
+  RELATIONAL check: every other one judges a single item (a file, a function),
+  while a duplicated domain constant is only wrong relative to where it belongs
+  — which no per-item rule and no `[[ban]]` (Zig identifier chains, no notion of
+  a home, never opens a `.css`) can express. Matching is deliberately lexical,
+  so one rule reaches the Zig, JS and CSS copies of a single spelling. One
+  violation per (file, concept), keyed `<file>|<name>`. No entries = a trivial
+  pass.
 - Make `debt` decision-ready: send `--json` to stdout instead of stderr (so
   `debt --json | jq` receives it), group rows into violation-debt, inventory
   and score sections carrying explicit `kind`/`direction`/`unit` fields, replace
