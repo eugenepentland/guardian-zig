@@ -5409,3 +5409,7 @@ manifests instead.
 ## 2026-08-13 · codex · eda — fix RF taper DRC and switch launches
 - **good:** `bool-ops-per-condition` and `spec` caught overgrown RF-path predicates and an unlinked persistence contract on the first focused run; after splitting the predicates and adding a direct gate-removed polygon test, the diff-scoped, commit-time, and three release/deploy whole-tree gates completed all 71 checks with zero blockers.
 - **friction:** `main` advanced during each of two roughly four-minute exact-commit preparations, invalidating both candidates; merging the tested branch then required a third full preparation on the merge commit, adding about eight minutes despite unchanged feature code.
+
+## 2026-08-13 · codex · eda — keep RF fence vias out of footprint rule areas
+- **good:** `spec` caught both a split multiline tag and its missing contract bullet; after linking the exact-rotation regression, the diff-scoped and commit-time gates completed all 71 checks with zero blockers. Each of three exact-commit release preparations also passed the full Debug suite and ReleaseSafe build.
+- **friction:** Two concurrent `main` advances invalidated verified candidates after roughly four minutes each, forcing three full release preparations for unchanged via-keepout code. Successful focused tests also printed `failed command:` for the custom runner despite exiting 0, so every result required a separate status poll.
