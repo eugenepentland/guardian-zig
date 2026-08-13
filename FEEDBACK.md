@@ -5447,3 +5447,8 @@ manifests instead.
 - **good:** `spec`, `doc-comments`, and `pub-api-surface` caught an initially unlinked geometry contract, a missing public-function comment, and the new shared terminal-finish surface before commit; the final whole-tree gates completed all 71 checks with zero blockers.
 - **friction:** Successful focused geometry, Gerber, and browser-contract tests continued to stream `failed command:` even though the enclosing builds exited 0, so each result required a separate status poll.
 - **good:** The exact-commit gate passed the full Debug suite in 81 seconds and built the ReleaseSafe candidate in 231 seconds; an actual-board Playwright comparison confirmed 1,696 changed pixels between 0.25 mm and 1 mm terminal radii.
+
+## 2026-08-13 · codex · eda — continuous RF mask-opening polygons
+- **good:** `function-size` and `cognitive-complexity` pushed run-outline emission out of the exposure sampler, while `spec` caught both the renamed viewer contract and the new geometry contract before commit; the final diff-scoped gate completed all 71 checks with zero blockers.
+- **friction:** Successful focused tests again streamed `failed command:` before the enclosing build exited 0, requiring a separate process-status poll to distinguish green runs from failures.
+- **good:** The focused mask-relief suite and Debug application build passed; actual-board browser inspection confirmed three continuous openings at a 1 mm radius, with 4/58/58 exact fillet arcs, before the saved design value was restored.
