@@ -59,6 +59,31 @@ pub const ConceptRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// How wide `divergent-const` casts its net. `units` (the default) groups only
+/// names whose trailing `_`-separated segment is a unit (`_mm`, `_bytes`,
+/// `_ms`, `_hz`, …) — a physical quantity is where a silent disagreement
+/// actually ships, and the filter keeps the zero-config run near-silent. `all`
+/// groups every file-scope numeric const name.
+pub const DivergentConstMode = enum { units, all };
+
+/// Per-check config for divergent-const, the same-name-different-value scan.
+/// `ignore_names` exempts generic names that legitimately differ per module
+/// (`eps`, `margin`), matched on the whole const name; `mode` widens the
+/// grouping past unit-suffixed names. Neither affects the `mirror-of:`
+/// annotation rule, which is an explicit author claim and is always verified.
+pub const DivergentConstCfg = struct {
+    ignore_names: []const []const u8 = &.{},
+    mode: DivergentConstMode = .units,
+};
+
+/// Per-check config for twin-referent, the "mirrors X / same as Y" comment
+/// scan. `ignore` holds path globs (Guardian's ordinary `*` syntax) matched
+/// against the commenting file's path AND against the referent text, so a
+/// project can silence one stale claim without disabling the check.
+pub const TwinReferentCfg = struct {
+    ignore: []const []const u8 = &.{},
+};
+
 /// One project-defined command that participates in Guardian's `all` gate.
 /// `command` is an argv array (no shell interpolation); `inputs` are exact or
 /// `*`-globbed project-relative files mixed into the green-run cache digest so
@@ -568,6 +593,8 @@ pub const Config = struct {
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
+    divergent_const: DivergentConstCfg = .{},
+    twin_referent: TwinReferentCfg = .{},
     measurement: MeasurementCfg = .{},
     policy: PolicyCfg = .{},
     doctor: DoctorCfg = .{},

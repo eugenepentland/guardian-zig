@@ -1007,3 +1007,59 @@ without an explained `--force`.
 - Reports a section absent from the spec as needing every category
 - Treats an unreadable spec file as an absent section report
 - Refuses a section query aimed at a check with no section report
+
+## Divergent Const
+
+- Flags one const name holding different values in two files
+- Ignores a name whose copies all hold the same value
+- Treats folded integer expressions of one value as equal
+- Skips a const whose initializer is not a numeric literal expression
+- Groups only unit-suffixed names in the default units mode
+- Skips a name the ignore list names
+- Ignores two same-named consts declared in one file
+- Exempts an annotated mirror from the divergence rule
+- Fails an annotated mirror whose value drifted from its referent
+- Fails an annotated mirror whose referent does not resolve
+- Resolves a mirror referent by exact path or path tail
+- Elides the site list past a cap while keeping the exact count
+- Skips a file an allow entry exempts
+- Parses the ignore-names list and the grouping mode
+- Hard-fails a grouping mode that is neither units nor all
+
+## Twin Referent
+
+- Flags a claim naming a file that is not in the source tree
+- Resolves a file referent by exact path or path tail
+- Ignores a claim phrase with no code-shaped referent
+- Flags a hard-coded line-range referent outright
+- Flags a dotted chain whose final symbol is not in the tree
+- Treats a dotted word as prose unless its root names a module
+- Skips a chain rooted in a namespace it cannot index
+- Resolves a claim naming a root-level file outside the index
+- Reads a claim spanning two lines of one comment block
+- Never reads a comment marker inside a string literal
+- Reports one claim once however many phrases introduce it
+- Skips a claim an ignore glob names
+- Ends a claim sentence at a period that prose follows
+- Matches a claim phrase only at a word boundary
+- Indexes declared, field and dereferenced names as the tree's symbols
+- Parses the ignore globs
+
+## Duplicate JSON Key
+
+- Flags one key written twice by two prints into one open object
+- Flags one key written twice inside a single literal
+- Ignores the same key in two sibling objects
+- Suppresses a duplicate separated by a call it cannot read
+- Ignores two branches of one conditional writing the same key
+- Ignores a key fragment in a call that reads rather than writes
+- Names the enclosing call a literal is written by
+- Treats a format placeholder as a value rather than a brace
+- Reads a key in both the escaped and multiline literal forms
+- Keeps two functions' keys apart
+- Reports a repeatedly duplicated key once per function
+- Names a completed call between two literals as unreadable
+
+## Text Helpers
+
+- Counts lines forward across ascending offsets in one pass

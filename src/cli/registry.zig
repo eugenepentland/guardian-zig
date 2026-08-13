@@ -44,6 +44,9 @@ const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
 const check_ban = @import("../checks/ban.zig");
 const check_concept = @import("../checks/concept.zig");
+const check_divergent_const = @import("../checks/divergent_const.zig");
+const check_twin_referent = @import("../checks/twin_referent.zig");
+const check_duplicate_json_key = @import("../checks/duplicate_json_key.zig");
 const check_ban_time = @import("../checks/ban_time.zig");
 const check_ban_rng = @import("../checks/ban_rng.zig");
 const check_ban_fs = @import("../checks/ban_fs.zig");
@@ -341,6 +344,34 @@ pub const all: []const Command = &.{
         // of one check disagree about how much they read.
         .scope = .whole_tree,
         .run = check_concept.run,
+    },
+    .{
+        .name = "divergent-const",
+        .summary = "Flag one file-scope const name holding different values in two or more files",
+        .needs_ast = .yes,
+        // The subject is a NAME across the whole tree: a file the diff never
+        // touched is half of every finding, and narrowing the scan would report
+        // a divergence as resolved because its other side went out of view.
+        .scope = .whole_tree,
+        .run = check_divergent_const.run,
+    },
+    .{
+        .name = "twin-referent",
+        .summary = "Flag a mirrors/same-as comment whose named file or symbol does not resolve",
+        .needs_ast = .yes,
+        // Resolution reads the whole tree's files and declared identifiers, so a
+        // narrowed index would report every referent outside the diff as dangling.
+        .scope = .whole_tree,
+        .run = check_twin_referent.run,
+    },
+    .{
+        .name = "duplicate-json-key",
+        .summary = "Flag one JSON key written twice into the same object by one function",
+        .needs_ast = .yes,
+        // Each verdict is a property of the one function that wrote both keys,
+        // so a diff-scoped run may narrow it like any other per-file check.
+        .scope = .per_file,
+        .run = check_duplicate_json_key.run,
     },
     .{
         .name = "ban-time",
@@ -657,6 +688,7 @@ const inherently_whole_tree = [_][]const u8{
     "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
     "fuzz-presence",           "external-gates",          "policy-drift",
     "test-reachability",       "merge-state",             "concept",
+    "divergent-const",         "twin-referent",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

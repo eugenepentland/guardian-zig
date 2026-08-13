@@ -419,6 +419,96 @@ const entries = [_]Entry{
     \\already-frozen file stays frozen. Freeze the counts too with
     \\`[baseline] deny_growth = ["concept"]`.
     },
+    .{ .name = "divergent-const", .text =
+    \\Why: one file-scope const NAME holds DIFFERENT values in two files, so two
+    \\call sites that read as one fact do not behave as one. Measured in eda:
+    \\`silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the .kicad_mod
+    \\writer (two silkscreens from one board), `max_footprint_bytes` 1 MiB in
+    \\four readers and 256 KiB in two (loads in the editor, fails in the
+    \\preview), `max_board_bytes` 64 vs 48 MiB — 24 names in all. Guardian helps
+    \\create this debt: `magic-number` pushes a literal into a named const and
+    \\nothing then looks across files. Note the POLARITY — unlike
+    \\repeated-string-literal's cross-file rule, same name + same value is the
+    \\harmless case here; same name + different value is the risk.
+    \\Fix: give the two files one const and import it from the module that owns
+    \\the fact. If the copy is deliberate (a dependency-light mirror), annotate
+    \\it and it becomes a CHECKED copy instead:
+    \\  /// mirror-of: src/board/limits.zig.max_blob_bytes
+    \\  const max_blob_bytes = 1024;
+    \\An annotated const is exempt from the divergence rule and must instead
+    \\EQUAL its referent — a stronger guarantee, verified whatever the mode and
+    \\ignore list say.
+    \\Exempt: `[divergent_const] ignore_names = ["eps", "margin"]` for generic
+    \\names that legitimately differ per module, `[[allow]] check =
+    \\"divergent-const"` for a path, or the `disabled` list.
+    \\Limits: only FILE-SCOPE consts are read — a const inside a container is
+    \\namespaced by it, and a const inside a function is local by construction.
+    \\Values are compared FOLDED, so `16 << 20`, `16 * 1024 * 1024` and
+    \\`16_777_216` are one value and `1_000_000` equals `1_000_000.0`; an
+    \\initializer that does not fold to a number (a call, an identifier, a
+    \\division — which means different things to ints and floats) is skipped
+    \\entirely. Default `mode = "units"` groups only names whose trailing
+    \\`_`-separated segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …), which
+    \\is where a silent disagreement actually ships; `mode = "all"` groups every
+    \\name.
+    \\Baseline: one violation per NAME, keyed `const <name>` — not per file, so a
+    \\third disagreeing copy joins the existing row instead of arriving as a new
+    \\violation. A broken mirror is keyed `mirror <file>|<name>` instead: that
+    \\one IS a single site's own claim.
+    },
+    .{ .name = "twin-referent", .text =
+    \\Why: a comment claiming "mirrors X" / "same as Y" / "verified against Z" is
+    \\a maintenance contract written in prose, and prose does not move when code
+    \\does. Measured in eda: a doc naming a deleted function now sits on an
+    \\unrelated one, `render_svg.zig` named after it was split into a directory,
+    \\a hard-coded `file.zig:120-160` range pointing at unrelated code, and
+    \\`optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Each reads as
+    \\verified and is not.
+    \\Fix: repoint the comment at a name that exists, or drop the claim. For a
+    \\line range, name the symbol instead — the numbers rot on the next edit
+    \\above them, so there is nothing to repoint them to.
+    \\Exempt: `[twin_referent] ignore = ["src/vendor/*", "legacy.zig"]` (globs,
+    \\matched against the commenting file's path AND the referent text),
+    \\`[[allow]] check = "twin-referent"`, or the `disabled` list.
+    \\Limits: a claim phrase alone is NEVER reported — English is full of
+    \\"matches the filter". The phrase must be followed IN THE SAME SENTENCE by
+    \\something code-shaped: a word ending in `.zig` (no glob, non-empty
+    \\basename), or a dotted chain whose first segment names a module in the
+    \\tree. Backticks are stripped as punctuation and do not by themselves make
+    \\a word a referent — that rule produced false positives on prose about
+    \\wildcards. Resolution is containment, not semantics: a path must name an
+    \\indexed file (exactly or as a tail starting at `/`, so a bare `limits.zig`
+    \\resolves), a chain's final symbol must be declared, named as a field, or
+    \\dereferenced ANYWHERE in the tree, and a chain rooted in `std`/`builtin` is
+    \\skipped since this check has no index of them.
+    \\Baseline: one violation per `<file>|<referent>`, so rewording the sentence
+    \\around a claim — or moving it down the file — keeps its key.
+    },
+    .{ .name = "duplicate-json-key", .text =
+    \\Why: one function writes the same JSON key twice into the same object, so
+    \\the blob is last-wins today and a SyntaxError under any strict reader.
+    \\Measured in eda: one serializer emitted "pour_min_width" and
+    \\"pour_corner_radius" twice into a single "rules" object, from two
+    \\`w.print` format strings fourteen lines apart — nothing in either line
+    \\looks wrong, they are simply too far apart to hold in one head.
+    \\Fix: write the key once. The second write is the one the reader gets, so
+    \\deleting the WRONG one changes the payload — check which value is current
+    \\before removing either.
+    \\Exempt: `[[allow]] check = "duplicate-json-key"` for a path, or the
+    \\`disabled` list. There is no per-key knob: a duplicate key is never
+    \\intentional.
+    \\Limits: precision is bought with recall, deliberately. Keys are compared
+    \\only inside one OBJECT SEGMENT: a `{` or `}` a literal actually emits
+    \\(including the `{{`/`}}` escapes of a format string) ends the segment, and
+    \\so does a completed call between two literals — a write this check cannot
+    \\see inside. So `{"a":1}` then `{"a":2}` is silent (sibling objects), and a
+    \\duplicate separated by `try writeNested(w)` is silent too. A format
+    \\PLACEHOLDER (`{d}`, `{s}`) is a value, not a brace — which is exactly what
+    \\makes the motivating case reachable. Test blocks are never scanned, so a
+    \\test's own JSON fixtures cannot fire it.
+    \\Baseline: one violation per `<file>|<fn>|<key>`, so the line pair may move
+    \\freely.
+    },
     .{ .name = "ban-time", .text =
     \\Why: reading the wall clock inline makes behavior time-dependent and
     \\untestable — an agent grabbing `std.time.timestamp()` where it's handy.
