@@ -5395,3 +5395,8 @@ manifests instead.
 ## 2026-08-13 · codex · eda — exact rotated-pad clearance halos
 - **good:** The diff-scoped, commit-time, and release-preparation Guardian gates completed all 71 checks with zero blockers; the focused browser contract pinned the exact custom-pad path and explicitly rejected the old world-axis-aligned bounding-box fallback.
 - **friction:** The successful focused test still streamed `failed command:` for the custom runner before the enclosing build reported all 17 selected tests passed, requiring an extra status poll to establish the result.
+
+## 2026-08-13 · codex · eda — simplify PCB Appearance Objects tab
+
+- **good:** The focused browser contracts, commit-time gate, and two exact-commit release gates all completed 71 checks with zero blockers; the final candidate passed the full Debug suite in 82 seconds, built ReleaseSafe in 251 seconds, and deployed with all health probes green.
+- **friction:** Successful focused tests again streamed `failed command:` before the enclosing build reported all 17 selected tests passed. Also, `main` advanced during the first 248-second exact-commit preparation, forcing a rebase and a second 254-second full preparation for a three-file UI-only change.
