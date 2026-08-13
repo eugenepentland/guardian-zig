@@ -5362,3 +5362,7 @@ manifests instead.
 ## 2026-08-13 · codex · eda — editable board-outline dimensions and square edge slides
 - **good:** The spec check caught the new browser regression test's missing contract bullet on the first focused run; after linking it, the diff-scoped, commit-time, and release-preparation gates all completed 71 checks with zero blockers, and the exact-commit candidate passed the full suite in 80 seconds.
 - **friction:** The successful broad `outline` test run still printed `failed command:` for the custom runner despite the enclosing build exiting 0, so the streamed line looked like a failure until the process status arrived.
+
+## 2026-08-13 · codex · eda — rounded-outline viewer performance
+- **good:** The focused browser-contract test, commit-time whole-tree gate, and release-preparation gate all completed with 71 checks and zero blockers; exact-commit preparation ran the full suite in 81 seconds and produced the ReleaseSafe candidate in 233 seconds for a health-checked deployment.
+- **friction:** The successful focused run again printed `failed command:` for the custom runner while the enclosing build exited 0, requiring an extra process-status poll to establish that the test passed.
