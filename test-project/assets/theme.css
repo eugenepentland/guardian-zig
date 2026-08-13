@@ -1,0 +1,6 @@
+/* Fixture asset for the concept check: a stylesheet that hand-copies a layer
+   colour the Zig source owns. Not a .zig file, so only a [[concept]] rule's
+   `files` glob can reach it. */
+.layer-front {
+  color: #C83434;
+}

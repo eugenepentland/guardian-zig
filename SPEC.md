@@ -857,6 +857,30 @@ without an explained `--force`.
 - Hard-fails a ban entry whose chain is missing or empty
 - Hard-fails a ban chain segment that is not a bare identifier
 
+## Concept Ownership
+
+- Flags a concept literal used outside its owner
+- Ignores a concept literal inside its owner file
+- Passes trivially when no concept rules are configured
+- Counts a match inside a comment as an occurrence
+- Reports one violation per file and concept with the occurrence count and lines
+- Names the missing owner and reason when a rule declares neither
+- Caps the listed occurrence lines and keeps the full count
+- Exempts guardian.toml and the .guardian directory from every rule
+- Applies a rule to only its own concept when several are declared
+- Matches a wildcard against one or more non-space, non-quote characters
+- Treats a run of wildcards as one and matches leading and trailing wildcards
+- Resumes scanning after a candidate start that does not match
+- Skips a path an allow entry or a top-level exclude glob names
+- Splits rules by whether they declare a files glob
+- Skips build output and dot directories when expanding a files glob
+- Scans a globbed non-Zig file and ignores paths no glob names
+- Parses concept entries with name, literals, patterns, owner, files and reason keys
+- Hard-fails a concept entry that declares no name
+- Hard-fails a concept entry with neither literals nor patterns
+- Hard-fails a second concept entry reusing an existing name
+- Hard-fails a concept name that is not kebab-case
+
 ## Fakes
 
 - FakeClock reads back its start time

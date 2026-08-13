@@ -38,6 +38,27 @@ pub const BanRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// One [[concept]] entry — a named concept whose literal spellings belong to one
+/// owner module, enforced by the `concept` check. `literals` are exact
+/// substrings and `patterns` are minimal `*` wildcards (see
+/// `checks/concept.zig`); `owner` lists the files/dirs where an occurrence is
+/// legal; `files` optionally replaces the default source scan with path globs
+/// (any extension, so JS/CSS drift is reachable); `reason` names where the
+/// spelling comes from and is appended to every violation.
+///
+/// Every other check is per-item — one file, one function. This one is
+/// relational: it says a literal BELONGS somewhere, and anywhere else is a
+/// duplicate that will drift. `[[ban]]` cannot express it (it matches Zig
+/// identifier chains, not text, and has no notion of a home).
+pub const ConceptRule = struct {
+    name: []const u8,
+    literals: []const []const u8 = &.{},
+    patterns: []const []const u8 = &.{},
+    owner: []const []const u8 = &.{},
+    files: []const []const u8 = &.{},
+    reason: ?[]const u8 = null,
+};
+
 /// One project-defined command that participates in Guardian's `all` gate.
 /// `command` is an argv array (no shell interpolation); `inputs` are exact or
 /// `*`-globbed project-relative files mixed into the green-run cache digest so
@@ -556,6 +577,9 @@ pub const Config = struct {
     /// [[ban]] entries: project-declared banned symbol chains (see BanRule).
     /// Empty (the default) makes the `ban` check a trivial pass.
     ban_rules: []const BanRule = &.{},
+    /// [[concept]] entries: project-declared owned concepts (see ConceptRule).
+    /// Empty (the default) makes the `concept` check a trivial pass.
+    concept_rules: []const ConceptRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.

@@ -381,6 +381,44 @@ const entries = [_]Entry{
     \\import (`const opt = @import("optimizer.zig"); opt.placeFromPoses()`) needs
     \\its own rule for that spelling. Chains inside strings/comments never match.
     },
+    .{ .name = "concept", .text =
+    \\Why: a set of magic spellings that model ONE domain fact gets hand-copied
+    \\outward until the copies disagree. The motivating case: a PCB tool's layer
+    \\names ("F.Cu", "In1.Cu"), the hexes its viewer paints them with, and the
+    \\Gerber suffixes it writes them to, duplicated across ~40 sites in Zig, JS
+    \\and CSS. Every other check here is per-item (one file, one function); this
+    \\one is relational — the literal has a HOME, and anywhere else is drift.
+    \\`[[ban]]` cannot say it: it matches Zig identifier chains, not text, and
+    \\never opens a .css file. Declare one:
+    \\  [[concept]]
+    \\  name = "layer-names"               # kebab-case, unique; names the violation
+    \\  literals = ["F.Cu", "B.Cu"]        # exact substrings
+    \\  patterns = ["In*.Cu"]              # `*` = 1+ non-space, non-quote chars
+    \\  owner = ["src/board_layers.zig"]   # where the spelling is allowed to live
+    \\  files = ["src/*.zig", "*.css"]     # optional scan set (any extension)
+    \\  reason = "layer names come from board_layers.LayerTable"
+    \\Fix: import the value from the owner module instead of respelling it. The
+    \\violation names the concept, the first spelling found, every occurrence
+    \\line (up to five), the owner, and the rule's `reason` — which is the half
+    \\worth reading, so a rule without one says so in every violation.
+    \\Exempt: add the path to that rule's `owner`, narrow its `literals` /
+    \\`patterns` / `files`, exempt a file from every rule with
+    \\`[[allow]] check = "concept"`, or delete the rule. guardian.toml itself and
+    \\`.guardian/` are always exempt — the declaration names its own literals.
+    \\Limits: matching is LEXICAL (plain text), on purpose — drift crosses
+    \\languages and no parser spans them. A hit inside a comment or a string
+    \\counts. `*` matches one or more characters that are not whitespace or a
+    \\quote, so a pattern never spans two tokens or a newline; `*` is the only
+    \\metacharacter (`.` and `#` are literal), and a run of them collapses to one.
+    \\A `files` glob never descends into a dot-directory, `zig-out`, or
+    \\`node_modules`, and a glob that names nothing is silence — a project may
+    \\declare the concept before the owner exists.
+    \\Baseline: one violation per (file, concept), keyed `<file>|<name>` — NOT by
+    \\the literal or the count. So a baselined offender file is frozen as a
+    \\whole, a NEW file fails, and a second drifted literal inside an
+    \\already-frozen file stays frozen. Freeze the counts too with
+    \\`[baseline] deny_growth = ["concept"]`.
+    },
     .{ .name = "ban-time", .text =
     \\Why: reading the wall clock inline makes behavior time-dependent and
     \\untestable — an agent grabbing `std.time.timestamp()` where it's handy.

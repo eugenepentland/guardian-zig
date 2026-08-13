@@ -610,6 +610,7 @@ test {
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/compile_error_explanation.zig");
     _ = @import("checks/completeness.zig");
+    _ = @import("checks/concept.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/deprecated_alias.zig");

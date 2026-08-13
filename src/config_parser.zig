@@ -19,6 +19,7 @@ const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
 const BanRule = config.BanRule;
+const ConceptRule = config.ConceptRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -75,6 +76,9 @@ const hard_max_lines_key = "hard_max_lines";
 const max_len_key = "max_len";
 const hard_max_len_key = "hard_max_len";
 const required_inputs_key = "required_inputs";
+const literals_key = "literals";
+const patterns_key = "patterns";
+const owner_key = "owner";
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
 const benchmark_key = "benchmark";
@@ -157,7 +161,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, external };
+const ArrayKind = enum { none, boundary, allow, ban, concept, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -173,6 +177,12 @@ const ParseState = struct {
     cur_ban_allow: std.ArrayList([]const u8) = .empty,
     cur_reason: ?[]const u8 = null,
     bans: std.ArrayList(BanRule) = .empty,
+    cur_concept_name: ?[]const u8 = null,
+    cur_literals: std.ArrayList([]const u8) = .empty,
+    cur_patterns: std.ArrayList([]const u8) = .empty,
+    cur_owner: std.ArrayList([]const u8) = .empty,
+    cur_concept_files: std.ArrayList([]const u8) = .empty,
+    concepts: std.ArrayList(ConceptRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -244,6 +254,7 @@ const ParseState = struct {
                 });
             },
             .ban => try self.flushBan(allocator, diag),
+            .concept => try self.flushConcept(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -302,6 +313,43 @@ const ParseState = struct {
         });
     }
 
+    /// Closes a `[[concept]]` entry. Three ways to be inert are refused rather
+    /// than stored, because each one reads in the config like an enforced
+    /// ownership rule while enforcing nothing: no `name` (the violation and its
+    /// baseline key are named after it), no `literals` and no `patterns` (there
+    /// is nothing to look for), and a `name` a previous entry already used
+    /// (identity is `<file>|<name>`, so a second rule under one name would share
+    /// — and silently freeze with — the first one's baseline keys).
+    fn flushConcept(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const name = self.cur_concept_name orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[concept]]: missing required key 'name'", .{});
+            return error.IncompleteTable;
+        };
+        if (self.cur_literals.items.len == 0 and self.cur_patterns.items.len == 0) {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[concept]] '{s}': needs a non-empty 'literals' or 'patterns' array",
+                .{name},
+            );
+            return error.IncompleteTable;
+        }
+        for (self.concepts.items) |existing| {
+            if (!std.mem.eql(u8, existing.name, name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[concept]] name '{s}'", .{name});
+            return error.InvalidConfig;
+        }
+        try self.concepts.append(allocator, .{
+            .name = name,
+            .literals = try self.cur_literals.toOwnedSlice(allocator),
+            .patterns = try self.cur_patterns.toOwnedSlice(allocator),
+            .owner = try self.cur_owner.toOwnedSlice(allocator),
+            .files = try self.cur_concept_files.toOwnedSlice(allocator),
+            .reason = self.cur_reason,
+        });
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -319,6 +367,11 @@ const ParseState = struct {
         self.cur_ban_paths = .empty;
         self.cur_ban_allow = .empty;
         self.cur_reason = null;
+        self.cur_concept_name = null;
+        self.cur_literals = .empty;
+        self.cur_patterns = .empty;
+        self.cur_owner = .empty;
+        self.cur_concept_files = .empty;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -345,6 +398,7 @@ const ParseState = struct {
             .boundary => try self.setBoundaryKey(allocator, kv),
             .allow => try self.setAllowKey(allocator, kv),
             .ban => try self.setBanKey(allocator, kv),
+            .concept => try self.setConceptKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -375,6 +429,22 @@ const ParseState = struct {
             self.cur_ban_paths = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "allow")) {
             self.cur_ban_allow = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = parseString(kv.val);
+        }
+    }
+
+    fn setConceptKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "name")) {
+            self.cur_concept_name = parseString(kv.val);
+        } else if (std.mem.eql(u8, kv.key, literals_key)) {
+            self.cur_literals = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, patterns_key)) {
+            self.cur_patterns = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, owner_key)) {
+            self.cur_owner = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "files")) {
+            self.cur_concept_files = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
             self.cur_reason = parseString(kv.val);
         }
@@ -427,6 +497,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "boundary")) return .boundary;
     if (std.mem.eql(u8, name, "allow")) return .allow;
     if (std.mem.eql(u8, name, "ban")) return .ban;
+    if (std.mem.eql(u8, name, "concept")) return .concept;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -482,6 +553,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.boundary_rules = try st.boundaries.toOwnedSlice(allocator);
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     cfg.ban_rules = try st.bans.toOwnedSlice(allocator);
+    cfg.concept_rules = try st.concepts.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -578,6 +650,8 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .allow => if (key[0] == 'c') .string else .string_array,
         // chain / paths / allow are arrays; only `reason` is prose.
         .ban => if (key[0] == 'r') .string else .string_array,
+        // literals / patterns / owner / files are arrays; name and reason are prose.
+        .concept => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
         .external => if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, benchmark_key))
             .string
         else if (std.mem.eql(u8, key, "command") or std.mem.eql(u8, key, "inputs") or std.mem.eql(u8, key, "paths"))
@@ -672,6 +746,7 @@ fn validateValue(
         try validateMeasurementPaths(allocator, kv, line_no, diag);
     }
     if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
+    if (st.array_kind == .concept) try validateConceptName(allocator, kv, line_no, diag);
 
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
@@ -737,6 +812,42 @@ fn validateBanChain(
         );
         return error.InvalidValue;
     }
+}
+
+/// Rejects a `[[concept]] name` that is not kebab-case. The name is what every
+/// violation says out loud and — as `<file>|<name>` — what its baseline key is
+/// built from, so it is an identifier a reader and a `.guardian/` diff both have
+/// to live with, not free-form prose. `reason` is where prose belongs.
+fn validateConceptName(
+    allocator: Allocator,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (!std.mem.eql(u8, kv.key, "name")) return;
+    const name = parseString(kv.val) orelse return;
+    if (isKebabCase(name)) return;
+    try setDiag(
+        allocator,
+        diag,
+        line_no,
+        "invalid concept name '{s}' (kebab-case: lowercase letters, digits and single inner '-')",
+        .{name},
+    );
+    return error.InvalidValue;
+}
+
+/// True when `text` is kebab-case: lowercase letters and digits separated by
+/// single `-`, never leading, trailing, or doubled.
+fn isKebabCase(text: []const u8) bool {
+    if (text.len == 0) return false;
+    if (text[0] == '-' or text[text.len - 1] == '-') return false;
+    if (std.mem.indexOf(u8, text, "--") != null) return false;
+    for (text) |c| {
+        if (c == '-') continue;
+        if (!std.ascii.isLower(c) and !std.ascii.isDigit(c)) return false;
+    }
+    return true;
 }
 
 /// True when `text` is a bare Zig identifier (leading letter or `_`, then
@@ -865,6 +976,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         .boundary => &.{ "module", "forbidden" },
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
+        .concept => &.{ "name", literals_key, patterns_key, owner_key, "files", "reason" },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -1590,6 +1702,123 @@ test "parse rejects a dotted ban chain segment" {
     try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
     try std.testing.expectEqual(@as(u32, 2), diag.line);
     try std.testing.expect(std.mem.indexOf(u8, diag.message, "one identifier per segment") != null);
+}
+
+// spec: Concept Ownership - Parses concept entries with name, literals, patterns, owner, files and reason keys
+
+test "parse concept array tables with every key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[concept]]
+        \\name = "layer-names"
+        \\literals = ["F.Cu", "B.Cu"]
+        \\patterns = ["In*.Cu"]
+        \\owner = ["src/board_layers.zig"]
+        \\files = [
+        \\  "src/*.zig", # the Zig side
+        \\  "assets/*.css",
+        \\]
+        \\reason = "layer names come from board_layers.LayerTable"
+        \\
+        \\[[concept]]
+        \\name = "gerber-suffixes"
+        \\literals = ["-F_Cu.gbr"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.concept_rules.len);
+    try std.testing.expectEqualStrings("layer-names", cfg.concept_rules[0].name);
+    try std.testing.expectEqualStrings("B.Cu", cfg.concept_rules[0].literals[1]);
+    try std.testing.expectEqualStrings("In*.Cu", cfg.concept_rules[0].patterns[0]);
+    try std.testing.expectEqualStrings("src/board_layers.zig", cfg.concept_rules[0].owner[0]);
+    try std.testing.expectEqual(@as(usize, 2), cfg.concept_rules[0].files.len);
+    try std.testing.expectEqualStrings("assets/*.css", cfg.concept_rules[0].files[1]);
+    try std.testing.expectEqualStrings(
+        "layer names come from board_layers.LayerTable",
+        cfg.concept_rules[0].reason.?,
+    );
+    // The optional keys default to "no patterns, no owner, the default source
+    // scan, no reason" — literals alone is a complete rule.
+    try std.testing.expectEqual(@as(usize, 0), cfg.concept_rules[1].patterns.len);
+    try std.testing.expectEqual(@as(usize, 0), cfg.concept_rules[1].owner.len);
+    try std.testing.expectEqual(@as(usize, 0), cfg.concept_rules[1].files.len);
+    try std.testing.expectEqual(@as(?[]const u8, null), cfg.concept_rules[1].reason);
+}
+
+// spec: Concept Ownership - Hard-fails a concept entry that declares no name
+
+test "parse rejects a concept entry with no name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content =
+        \\[[concept]]
+        \\literals = ["F.Cu"]
+    ;
+    try std.testing.expectError(error.IncompleteTable, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 1), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "'name'") != null);
+}
+
+// spec: Concept Ownership - Hard-fails a concept entry with neither literals nor patterns
+
+test "parse rejects a concept entry with nothing to look for" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // A rule with no spellings would sit in the config reading like an enforced
+    // ownership guarantee while matching nothing at all.
+    const content =
+        \\[[concept]]
+        \\name = "layer-names"
+        \\owner = ["src/board_layers.zig"]
+    ;
+    try std.testing.expectError(error.IncompleteTable, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 1), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "layer-names") != null);
+}
+
+// spec: Concept Ownership - Hard-fails a second concept entry reusing an existing name
+
+test "parse rejects a duplicate concept name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // Identity is `<file>|<name>`, so two rules under one name would share — and
+    // silently freeze under — each other's baseline keys.
+    const content =
+        \\[[concept]]
+        \\name = "layer-names"
+        \\literals = ["F.Cu"]
+        \\
+        \\[[concept]]
+        \\name = "layer-names"
+        \\literals = ["B.Cu"]
+    ;
+    try std.testing.expectError(error.InvalidConfig, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 5), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "duplicate") != null);
+}
+
+// spec: Concept Ownership - Hard-fails a concept name that is not kebab-case
+
+test "parse rejects a concept name that is not kebab-case" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_][]const u8{
+        "[[concept]]\nname = \"Layer Names\"\nliterals = [\"F.Cu\"]",
+        "[[concept]]\nname = \"layer_names\"\nliterals = [\"F.Cu\"]",
+        "[[concept]]\nname = \"-layer\"\nliterals = [\"F.Cu\"]",
+        "[[concept]]\nname = \"layer--names\"\nliterals = [\"F.Cu\"]",
+    };
+    for (cases) |content| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
+        try std.testing.expectEqual(@as(u32, 2), diag.line);
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, "kebab-case") != null);
+    }
+    // Digits and single inner dashes are the accepted shape.
+    const ok = try parse(arena.allocator(), "[[concept]]\nname = \"layer-2-names\"\nliterals = [\"F.Cu\"]");
+    try std.testing.expectEqualStrings("layer-2-names", ok.concept_rules[0].name);
 }
 
 test "parse rejects unsafe mutation invariants" {

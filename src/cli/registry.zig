@@ -43,6 +43,7 @@ const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
 const check_ban = @import("../checks/ban.zig");
+const check_concept = @import("../checks/concept.zig");
 const check_ban_time = @import("../checks/ban_time.zig");
 const check_ban_rng = @import("../checks/ban_rng.zig");
 const check_ban_fs = @import("../checks/ban_fs.zig");
@@ -329,6 +330,17 @@ pub const all: []const Command = &.{
         // the file it matched in, so a diff-scoped run may narrow it.
         .scope = .per_file,
         .run = check_ban.run,
+    },
+    .{
+        .name = "concept",
+        .summary = "Flag a [[concept]] literal used outside the module that owns it",
+        // Whole-tree even though each verdict is one file's: a rule's `files`
+        // globs reach paths the parsed source index does not hold at all (JS,
+        // CSS, TOML), so there is nothing for a diff-scoped run to narrow them
+        // to — and narrowing only the source-set half would make the two halves
+        // of one check disagree about how much they read.
+        .scope = .whole_tree,
+        .run = check_concept.run,
     },
     .{
         .name = "ban-time",
@@ -644,7 +656,7 @@ const inherently_whole_tree = [_][]const u8{
     "int-from-float-budget",   "unsafe-ops-budget",       "test-coverage",
     "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
     "fuzz-presence",           "external-gates",          "policy-drift",
-    "test-reachability",       "merge-state",
+    "test-reachability",       "merge-state",             "concept",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

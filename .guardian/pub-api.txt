@@ -177,6 +177,8 @@ src/checks/completeness.zig::reportSection | fn reportSection( arena: Allocator,
 src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
+src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, rules: []const config.ConceptRule, ) Allocator.Error![]const reporter.Violation
+src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -360,6 +362,7 @@ src/config.zig::BoundaryRule struct_
 src/config.zig::ChangeClassificationCfg struct_
 src/config.zig::CompletenessCfg struct_
 src/config.zig::ComplexityCfg struct_
+src/config.zig::ConceptRule struct_
 src/config.zig::Config struct_
 src/config.zig::DeadPubCfg struct_
 src/config.zig::DocQualityCfg struct_
