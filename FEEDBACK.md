@@ -5391,3 +5391,7 @@ manifests instead.
 ## 2026-08-13 · codex · eda — simplified autorouter sidebar and Barracuda net classes
 - **good:** The `spec` check immediately caught a renamed saved-version browser contract whose old `SPEC.md` bullet had gone stale; after linking it, diff-scoped, commit-time, and release-preparation gates completed all 71 checks with zero blockers. Exact-commit preparation ran the full Debug suite in 83 seconds, produced the ReleaseSafe candidate in 232 seconds, and the post-merge health checks passed.
 - **friction:** Successful focused sidebar tests still streamed `failed command:` for the custom runner even though the enclosing build exited 0, requiring an extra status poll for each filter to distinguish green results from real failures.
+
+## 2026-08-13 · codex · eda — exact rotated-pad clearance halos
+- **good:** The diff-scoped, commit-time, and release-preparation Guardian gates completed all 71 checks with zero blockers; the focused browser contract pinned the exact custom-pad path and explicitly rejected the old world-axis-aligned bounding-box fallback.
+- **friction:** The successful focused test still streamed `failed command:` for the custom runner before the enclosing build reported all 17 selected tests passed, requiring an extra status poll to establish the result.
