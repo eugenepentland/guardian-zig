@@ -5315,3 +5315,7 @@ wish: the counting runner could also print the source identity it ran for
 (commit/tree hash) next to the count, so a test log is self-describing when
 audited later; the sham logs had to be tied back to trees via Zig cache
 manifests instead.
+
+## 2026-08-13 · claude · eda — RF mask relief merge/release
+- good: change-classification caught a 1-line rebase repair being amended without its tests in the diff scope; folding the fix into the full commit (soft reset + recommit) satisfied it naturally — the check pushed toward the better history, not a workaround.
+- good: prepare-release candidate adoption worked exactly as documented — freshly rebased branch, --no-ff merge, identical tree adopted in 11s with health probes green.
