@@ -5383,3 +5383,7 @@ manifests instead.
 
 ## 2026-08-13 · codex · eda — start RF tapers at pad edges
 - **good:** The diff-scoped, commit-time, and release-preparation Guardian gates all completed 71 checks with zero blockers; exact-commit preparation ran the full Debug suite and produced the ReleaseSafe candidate used by the health-checked deployment.
+
+## 2026-08-13 · codex · eda — footprint copper-pour keepouts
+- **good:** `type-size` rejected an early implementation that added independent slices to both `Geom` and the hot `Part` record; grouping silkscreen and copper constraints into one footprint-feature bundle preserved both ratchet ceilings. The final diff-scoped, commit-time, and release-preparation gates completed all 71 checks with zero blockers.
+- **friction:** Successful focused tests again streamed a `failed command:` line from the custom runner even though the enclosing build summary reported all selected tests passed, so each result required waiting for the final build status to disambiguate it.
