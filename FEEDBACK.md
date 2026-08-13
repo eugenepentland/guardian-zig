@@ -5375,3 +5375,8 @@ manifests instead.
 - **good:** `type-size` rejected an early design that bloated the shared track records and pushed the implementation toward a separate compact RF-path representation; `spec`, `pub-api-surface`, and `bool-ops-per-condition` then caught missing contracts, unnecessary public shape, and one overgrown predicate. The final whole-tree gates completed all 71 checks with zero blockers.
 - **friction:** A broad `RF` filter selected an HTTP fence test whose `setsockopt(SO_RCVTIMEO)` call was denied in the sandbox after 49 tests passed, requiring one approved unsandboxed retry; the green retry also printed the custom runner as `failed command:` until the enclosing build exited 0.
 - **friction:** `main` advanced during the 237-second exact-commit release preparation, so the required rebase invalidated that candidate and forced a second 233-second full preparation even though the feature tree itself was unchanged.
+
+## 2026-08-13 · codex · eda — ordinary fence vias and assembly soldermask
+
+- **good:** The `spec` and `test-no-conditional` checks caught unlinked browser contracts and a two-loop asset test during the first focused run; both diagnostics named the exact issue and were fixed before commit.
+- **friction:** The focused viewer and assembly tests passed, but the first 85-second full release suite alone exposed a stale selection-filter assertion in a different test file; fixing that one expected string required amending the commit and rerunning the 242-second exact-commit release preparation.
