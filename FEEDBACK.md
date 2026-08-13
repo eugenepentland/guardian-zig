@@ -5358,3 +5358,7 @@ manifests instead.
 
 ## 2026-08-13 · codex · eda — quiet-period design checkpoints
 - **good:** The commit-time and release-preparation whole-tree gates both completed all 71 checks with zero blockers on a Python/systemd/documentation-only operations change; the gate stayed appropriately quiet while the separate integration test exercised the checkpoint behavior.
+
+## 2026-08-13 · codex · eda — editable board-outline dimensions and square edge slides
+- **good:** The spec check caught the new browser regression test's missing contract bullet on the first focused run; after linking it, the diff-scoped, commit-time, and release-preparation gates all completed 71 checks with zero blockers, and the exact-commit candidate passed the full suite in 80 seconds.
+- **friction:** The successful broad `outline` test run still printed `failed command:` for the custom runner despite the enclosing build exiting 0, so the streamed line looked like a failure until the process status arrived.
