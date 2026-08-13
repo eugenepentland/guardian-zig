@@ -5347,3 +5347,8 @@ manifests instead.
 - **friction:** The first focused test run exposed the worktree cache as read-only; using isolated `/tmp` Debug caches fixed it. The full suite then crashed 40 HTTP tests in the sandbox on `setsockopt(SO_RCVTIMEO)`, requiring one approved unsandboxed retry; 2,639 tests passed there.
 - **good:** `spec` caught the two missing contract bullets, and `pub-api-surface`/`type-size` precisely identified the intentional pour settings API and grouped rule growth; after surgical acceptance, the gate reported 0 blocking checks.
 - **wish:** Include the repo-wired unsandboxed test command in the server-test failure hint when `setsockopt` is denied, so agents do not need a separate sandbox diagnosis and approval cycle.
+
+## 2026-08-13 · codex · eda — fixed-launch RF fallback routing
+- **friction:** A green filtered run still printed `failed command:` for the successful custom test runner, so the only reliable verdict was the enclosing build's exit code; a direct `zig test` fallback was not viable because the target imports above its module root.
+- **good:** The diff-scoped and commit-time whole-tree gates both reported 71 checks with zero blockers, and two exact-commit release preparations ran the full suite after concurrent `main` movement required a final rebase.
+- **wish:** Label successful custom-runner command lines as completed rather than failed, or include the child exit status on that line so a green filtered run is self-evident in streamed logs.
