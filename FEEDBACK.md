@@ -5405,3 +5405,7 @@ manifests instead.
 
 - **good:** `file-size` rejected growing the already-ratcheted PCB handler, so the isolated routing phase moved into a cycle-free leaf module and left the handler ten code lines smaller; `spec` caught the initially misnamed contract tags, and the final whole-tree gate completed all 71 checks with zero blockers.
 - **good:** The counting test runner failed closed when the new leaf module was not yet rooted in the aggregate test graph; adding the explicit import turned the derived focused filters into two real matches. Exact-commit preparation then passed the full suite in 85 seconds and produced the ReleaseSafe candidate in 243 seconds.
+
+## 2026-08-13 · codex · eda — fix RF taper DRC and switch launches
+- **good:** `bool-ops-per-condition` and `spec` caught overgrown RF-path predicates and an unlinked persistence contract on the first focused run; after splitting the predicates and adding a direct gate-removed polygon test, the diff-scoped, commit-time, and three release/deploy whole-tree gates completed all 71 checks with zero blockers.
+- **friction:** `main` advanced during each of two roughly four-minute exact-commit preparations, invalidating both candidates; merging the tested branch then required a third full preparation on the merge commit, adding about eight minutes despite unchanged feature code.
