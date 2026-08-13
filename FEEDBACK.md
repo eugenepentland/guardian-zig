@@ -5322,3 +5322,7 @@ manifests instead.
 
 ## 2026-08-13 · claude · eda — Antipads viewer overlay
 - good: spec bullet + tagged test + implementation landed in one commit with zero blocking findings first try; the counting test runner's "17 selected — 1 match by name" line made the filtered tier trustworthy at a glance.
+
+## 2026-08-13 · codex · eda — exact rendering for every custom pad
+
+- **good:** The linked SPEC/tagged browser-asset regression made the WebGPU/Canvas2D ownership change explicit, and the whole-tree 71-check gate completed with zero blockers. Exact-commit preparation then executed the full suite (82 seconds) and produced the ReleaseSafe candidate (230 seconds) used by the health-checked deployment.
