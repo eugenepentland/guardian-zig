@@ -5355,3 +5355,6 @@ manifests instead.
 
 ## 2026-08-13 · codex · eda — ignore local Reasonix metadata and merge copper pours
 - **good:** The commit-time Guardian check and whole-tree release gate both completed with 71 checks and zero blockers; the verified candidate was installed by the post-merge hook and all health probes passed.
+
+## 2026-08-13 · codex · eda — quiet-period design checkpoints
+- **good:** The commit-time and release-preparation whole-tree gates both completed all 71 checks with zero blockers on a Python/systemd/documentation-only operations change; the gate stayed appropriately quiet while the separate integration test exercised the checkpoint behavior.
