@@ -22,11 +22,14 @@ src/ast/decls.zig::collectDecls | fn collectDecls(arena: Allocator, tree: *const
 src/ast/decls.zig::isContainerNode | fn isContainerNode(tree: *const Ast, node: Ast.Node.Index) bool
 src/ast/decls.zig::precedingDocText | fn precedingDocText(arena: Allocator, tree: *const Ast, decl: Ast.Node.Index) AstError!?[]const u8
 src/ast/import_graph.zig::BuildError value
+src/ast/import_graph.zig::EdgeKind enum_
 src/ast/import_graph.zig::Node struct_
 src/ast/import_graph.zig::build | fn build(allocator: Allocator, project_dir: []const u8) BuildError![]const Node
 src/ast/import_graph.zig::buildDirs | fn buildDirs( allocator: Allocator, project_dir: []const u8, dirs: []const []const u8, ) BuildError![]const Node
+src/ast/import_graph.zig::buildDirsExcluding | fn buildDirsExcluding( allocator: Allocator, project_dir: []const u8, dirs: []const []const u8, excludes: []const []const u8, ) BuildError![]const Node
 src/ast/import_graph.zig::findCycle | fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]const []const u8
 src/ast/import_graph.zig::reachableFrom | fn reachableFrom( allocator: Allocator, nodes: []const Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
+src/ast/import_graph.zig::reachableVia | fn reachableVia( allocator: Allocator, nodes: []const Node, roots: []const []const u8, kind: EdgeKind, ) Allocator.Error![]const []const u8
 src/ast/index.zig::Entry struct_
 src/ast/index.zig::Index struct_
 src/ast/index.zig::build | fn build(arena: Allocator, project_dir: []const u8, excludes: []const []const u8) walk.WalkError!Index
@@ -56,6 +59,15 @@ src/ast/parser.zig::pubContainers value
 src/ast/parser.zig::pubContainersFromTree value
 src/ast/parser.zig::pubFns | fn pubFns(arena: Allocator, source: []const u8) AstError![]const PubFn
 src/ast/parser.zig::pubFnsFromTree | fn pubFnsFromTree(arena: Allocator, tree_ptr: *const Ast) AstError![]const PubFn
+src/ast/test_reach.zig::Analysis struct_
+src/ast/test_reach.zig::analyze | fn analyze( allocator: Allocator, project_dir: []const u8, configured_roots: []const []const u8, excludes: []const []const u8, ) walk.WalkError!Analysis
+src/ast/test_reach.zig::default_root_files value
+src/ast/test_reach.zig::graph_dirs value
+src/ast/test_reach.zig::isDead | fn isDead(analysis: *const Analysis, path: []const u8) bool
+src/ast/test_reach.zig::resolveRoots | fn resolveRoots( allocator: Allocator, configured: []const []const u8, nodes: []const import_graph.Node, ) Allocator.Error![]const []const u8
+src/ast/test_reach.zig::scanDead | fn scanDead( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error!?[]const import_graph.Node
+src/ast/test_reach.zig::testBearingCount | fn testBearingCount(nodes: []const import_graph.Node) usize
+src/ast/test_refs.zig::referenced | fn referenced(arena: Allocator, source: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
@@ -352,6 +364,7 @@ src/cli/types.zig::complete | fn complete(self: MergeInputs) bool
 src/cli/types.zig::hint | fn hint(self: MergeInputs) ?[]const u8
 src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8) bool
 src/cli/types.zig::takePositional | fn takePositional(self: *MergeInputs, arg: []const u8) bool
+src/cli/types.zig::testReach | fn testReach(self: *RunCtx) walk.WalkError!*const test_reach_mod.Analysis
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
 src/config.zig::BanRule struct_
@@ -418,12 +431,14 @@ src/config_value.zig::isValidString | fn isValidString(val: []const u8) bool
 src/config_value.zig::isValidStringArray | fn isValidStringArray(val: []const u8) bool
 src/config_value.zig::parseBool | fn parseBool(val: []const u8) ?bool
 src/config_value.zig::parseString | fn parseString(val: []const u8) ?[]const u8
+src/config_value.zig::parseStringAlloc | fn parseStringAlloc(allocator: Allocator, val: []const u8) Allocator.Error!?[]const u8
 src/config_value.zig::parseStringArray | fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.ArrayList([]const u8)
 src/config_value.zig::parseU32 | fn parseU32(val: []const u8, default: u32) u32
 src/config_value.zig::startsMultilineArray | fn startsMultilineArray(line: []const u8) bool
 src/config_value.zig::stripInlineComment | fn stripInlineComment(val: []const u8) []const u8
 src/config_value.zig::tableName | fn tableName(line: []const u8) ?[]const u8
 src/config_value.zig::toStrings | fn toStrings(allocator: Allocator, val: []const u8) Allocator.Error![]const []const u8
+src/config_value.zig::unescape | fn unescape(allocator: Allocator, raw: []const u8) Allocator.Error![]const u8
 src/dora.zig::Outcome enum_
 src/dora.zig::RunRecord struct_
 src/dora.zig::Stopwatch struct_
@@ -804,6 +819,12 @@ src/spec/parser.zig::parseContent | fn parseContent(allocator: Allocator, conten
 src/spec/parser.zig::parseFile | fn parseFile(allocator: Allocator, path: []const u8) ParseError![]const Section
 src/spec/parser.zig::resolveProjectDir | fn resolveProjectDir(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8
 src/spec/parser.zig::tagKey | fn tagKey(allocator: Allocator, tag: []const u8) Allocator.Error![]const u8
+src/test_count.zig::Record struct_
+src/test_count.zig::leaf value
+src/test_count.zig::parseSelected | fn parseSelected(output: []const u8) ?u32
+src/test_count.zig::read | fn read(a: Allocator, project_dir: []const u8) ?Record
+src/test_count.zig::record | fn record(a: Allocator, project_dir: []const u8, output: []const u8, tests_in_tree: u32) void
+src/test_count.zig::version value
 src/test_filter.zig::Derivation struct_
 src/test_filter.zig::FileTests struct_
 src/test_filter.zig::Inputs struct_

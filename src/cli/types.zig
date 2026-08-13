@@ -6,6 +6,7 @@
 const std = @import("std");
 const config_mod = @import("../config.zig");
 const ast_index = @import("../ast/index.zig");
+const test_reach_mod = @import("../ast/test_reach.zig");
 const walk = @import("../walk.zig");
 const snapshot = @import("../snapshot.zig");
 const git = @import("../git.zig");
@@ -115,11 +116,33 @@ pub const RunCtx = struct {
     /// Parsed argv for the `merge-file` command (the three files git hands a
     /// merge driver, plus its pathname hint). Empty for every other command.
     merge: MergeInputs = .{},
+    /// Run-scoped test-reachability analysis, built on first use by
+    /// `testReach`. Two checks read it — `test-reachability` reports the files
+    /// whose tests never compile, `spec` refuses to count a `// spec:` tag in
+    /// one — and sharing it here keeps them independent of each other while the
+    /// src+test walk behind it is paid once per run.
+    test_reach: ?*const test_reach_mod.Analysis = null,
 
     /// True when the explicit `accept` refresh set contains `check_name`.
     pub fn refreshes(self: RunCtx, check_name: []const u8) bool {
         for (self.refresh) |name| if (std.mem.eql(u8, name, check_name)) return true;
         return false;
+    }
+
+    /// The shared test-reachability analysis, walking the tree the first time it
+    /// is asked for. Always whole-tree: reachability is a property of the whole
+    /// module graph, so a diff-scoped run may not narrow it.
+    pub fn testReach(self: *RunCtx) walk.WalkError!*const test_reach_mod.Analysis {
+        if (self.test_reach) |built| return built;
+        const built = try self.allocator.create(test_reach_mod.Analysis);
+        built.* = try test_reach_mod.analyze(
+            self.allocator,
+            self.project_dir,
+            self.cfg.test_reachability.roots,
+            self.cfg.exclude,
+        );
+        self.test_reach = built;
+        return built;
     }
 };
 
@@ -240,6 +263,25 @@ test "MergeInputs fills the positionals in git placeholder order" {
 }
 
 // spec: Maintenance - Run context recognizes only explicitly named accept refreshes
+
+// spec: Test Reachability - Builds the shared reachability analysis once per run and hands out the same one
+
+test "testReach walks the tree once and returns the cached analysis after that" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg: config_mod.Config = .{};
+    var ctx: RunCtx = .{
+        .allocator = arena.allocator(),
+        .project_dir = "test-project",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    const first = try ctx.testReach();
+    try std.testing.expect(first.nodes.len > 0);
+    // Two checks read this analysis; rebuilding it per check would pay the
+    // src+test walk twice for one answer.
+    try std.testing.expectEqual(first, try ctx.testReach());
+}
 
 test "refreshes matches the explicit command-local refresh set" {
     const cfg: config_mod.Config = .{};

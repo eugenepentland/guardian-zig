@@ -2,14 +2,22 @@
 //! the importable `.zig` files it pulls in (std/builtin/root and off-tree paths
 //! filtered out). Backs the import-cycle, orphan-file, and test-reachability
 //! checks.
+//!
+//! Two edge sets per node, because "A mentions B" and "A makes B's tests
+//! compile" are different relations. `edges` is every textual `@import` — what
+//! the cycle and orphan checks reason over. `test_edges` is the subset that
+//! actually REFERENCES the imported file (see `test_refs.zig`), which is the
+//! relation Zig compiles tests by.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const walk = @import("../walk.zig");
 const ast = @import("parser.zig");
+const test_refs = @import("test_refs.zig");
 
 /// One node in the import graph: a source file's outgoing edges (each edge is
 /// a normalized rel_path of an importable .zig under one of the walked trees),
+/// the subset of those edges that reference the imported file (`test_edges`),
 /// plus how many `test` blocks the file declares.
 /// Edges to "std", "builtin", "root", or any path not in the walk set are
 /// already filtered out by the builder.
@@ -21,7 +29,17 @@ const ast = @import("parser.zig");
 pub const Node = struct {
     path: []const u8,
     edges: []const []const u8,
+    test_edges: []const []const u8 = &.{},
     test_count: u32 = 0,
+};
+
+/// Which edge set a traversal follows.
+pub const EdgeKind = enum {
+    /// Every textual `@import` — "this file mentions that one".
+    textual,
+    /// Only the imports the file references, so the imported file's `test`
+    /// blocks are compiled (`test_refs.referenced`).
+    test_compiling,
 };
 
 const CollectCtx = struct {
@@ -36,21 +54,36 @@ fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const raw = ast.imports(a, entry.content);
     var edges: std.ArrayList([]const u8) = .empty;
     for (raw) |imp| {
-        if (std.mem.eql(u8, imp.path, "std")) continue;
-        if (std.mem.eql(u8, imp.path, "builtin")) continue;
-        if (std.mem.eql(u8, imp.path, "root")) continue;
-        const resolved = if (std.mem.lastIndexOfScalar(u8, entry.rel_path, '/')) |slash| blk: {
-            const joined = try std.fmt.allocPrint(a, "{s}/{s}", .{ entry.rel_path[0..slash], imp.path });
-            break :blk try walk.normalizePath(a, joined);
-        } else imp.path;
+        const resolved = try resolveImport(a, entry.rel_path, imp.path) orelse continue;
         try edges.append(a, resolved);
+    }
+    var test_edges: std.ArrayList([]const u8) = .empty;
+    for (try test_refs.referenced(a, entry.content)) |path| {
+        const resolved = try resolveImport(a, entry.rel_path, path) orelse continue;
+        try test_edges.append(a, resolved);
     }
 
     try ctx.nodes.append(a, .{
         .path = entry.rel_path,
         .edges = try edges.toOwnedSlice(a),
+        .test_edges = try test_edges.toOwnedSlice(a),
         .test_count = countTestBlocks(entry.content),
     });
+}
+
+/// Normalizes one import path against the importing file's directory, or null
+/// for the module names that are never files in the walk set.
+fn resolveImport(
+    a: Allocator,
+    rel_path: []const u8,
+    imp_path: []const u8,
+) Allocator.Error!?[]const u8 {
+    if (std.mem.eql(u8, imp_path, "std")) return null;
+    if (std.mem.eql(u8, imp_path, "builtin")) return null;
+    if (std.mem.eql(u8, imp_path, "root")) return null;
+    const slash = std.mem.lastIndexOfScalar(u8, rel_path, '/') orelse return imp_path;
+    const joined = try std.fmt.allocPrint(a, "{s}/{s}", .{ rel_path[0..slash], imp_path });
+    return try walk.normalizePath(a, joined);
 }
 
 /// How many `test` blocks `z` declares. Token-based, so a `test` inside a
@@ -94,12 +127,23 @@ pub fn buildDirs(
     project_dir: []const u8,
     dirs: []const []const u8,
 ) BuildError![]const Node {
+    return buildDirsExcluding(allocator, project_dir, dirs, &.{});
+}
+
+/// Same as `buildDirs`, but drops every file a config `exclude` glob names, so
+/// a graph-based verdict never reasons about a file no other check may see.
+pub fn buildDirsExcluding(
+    allocator: Allocator,
+    project_dir: []const u8,
+    dirs: []const []const u8,
+    excludes: []const []const u8,
+) BuildError![]const Node {
     var nodes: std.ArrayList(Node) = .empty;
     var ctx: CollectCtx = .{ .allocator = allocator, .nodes = &nodes };
 
     for (dirs) |dir| {
         const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
-        const opts: walk.WalkOpts = .{ .display_root = dir };
+        const opts: walk.WalkOpts = .{ .display_root = dir, .excludes = excludes };
         try walk.walkZigFiles(allocator, path, opts, .{ .ctx = &ctx, .visit = collectVisit });
     }
     return nodes.toOwnedSlice(allocator);
@@ -192,23 +236,41 @@ fn indicesToPaths(
     return out.toOwnedSlice(allocator);
 }
 
-/// Returns the set of node paths reachable from any of `roots` via BFS.
-/// Roots that don't exist in the node set are silently skipped. The
-/// returned slice is sorted for stable output.
+/// Returns the set of node paths reachable from any of `roots` via BFS over
+/// every textual `@import`. Roots that don't exist in the node set are silently
+/// skipped. The returned slice is sorted for stable output.
 pub fn reachableFrom(
     allocator: Allocator,
     nodes: []const Node,
     roots: []const []const u8,
 ) Allocator.Error![]const []const u8 {
+    return reachableVia(allocator, nodes, roots, .textual);
+}
+
+/// Same BFS over the chosen edge set. `.test_compiling` answers the question the
+/// test-reachability check asks — whose `test` blocks does a test root's module
+/// graph actually compile — which a textual walk over-states.
+pub fn reachableVia(
+    allocator: Allocator,
+    nodes: []const Node,
+    roots: []const []const u8,
+    kind: EdgeKind,
+) Allocator.Error![]const []const u8 {
     const visited = try allocator.alloc(bool, nodes.len);
     @memset(visited, false);
 
-    var bfs: Bfs = .{ .allocator = allocator, .nodes = nodes, .visited = visited, .queue = .empty };
+    var bfs: Bfs = .{
+        .allocator = allocator,
+        .nodes = nodes,
+        .visited = visited,
+        .queue = .empty,
+        .kind = kind,
+    };
     for (roots) |r| try bfs.enqueueByPath(r);
 
     while (bfs.queue.items.len > 0) {
         const idx = bfs.queue.orderedRemove(0);
-        for (nodes[idx].edges) |edge| try bfs.enqueueByPath(edge);
+        for (bfs.edgesOf(idx)) |edge| try bfs.enqueueByPath(edge);
     }
 
     var out: std.ArrayList([]const u8) = .empty;
@@ -220,12 +282,21 @@ pub fn reachableFrom(
     return slice;
 }
 
-// Mutable BFS traversal state for reachableFrom.
+// Mutable BFS traversal state for reachableVia.
 const Bfs = struct {
     allocator: Allocator,
     nodes: []const Node,
     visited: []bool,
     queue: std.ArrayList(usize),
+    kind: EdgeKind = .textual,
+
+    /// The outgoing edges this traversal follows for node `idx`.
+    fn edgesOf(self: *const Bfs, idx: usize) []const []const u8 {
+        return switch (self.kind) {
+            .textual => self.nodes[idx].edges,
+            .test_compiling => self.nodes[idx].test_edges,
+        };
+    }
 
     // Marks and enqueues the first unvisited node whose path equals `path`.
     fn enqueueByPath(self: *Bfs, path: []const u8) Allocator.Error!void {
@@ -267,6 +338,63 @@ test "buildDirs graphs the named trees and counts every file's test blocks" {
     // reads to decide whether unreachability costs anything.
     const helpers = nodeAt(nodes, "src/utils/helpers.zig") orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u32, 0), helpers.test_count);
+}
+
+// spec: Test Reachability - Records each file's test edges beside its plain import edges while building the graph
+
+test "buildDirs records the referencing edges beside the textual ones" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = try buildDirs(a, "test-project", &.{ "src", "test" });
+    const root = nodeAt(nodes, "src/main.zig") orelse return error.TestUnexpectedResult;
+    // The fixture's root aggregates its two modules with `_ = @import(...)`, so
+    // both relations hold for them — and `std`, which is neither a file in the
+    // walk set nor an edge, is filtered out of both.
+    try std.testing.expect(hasEdge(root.edges, "src/core/math.zig"));
+    try std.testing.expect(hasEdge(root.test_edges, "src/core/math.zig"));
+    try std.testing.expect(!hasEdge(root.test_edges, "std"));
+    // A config `exclude` glob drops the file from the graph entirely, so a
+    // reachability verdict never reasons about a file no other check may see.
+    const filtered = try buildDirsExcluding(a, "test-project", &.{"src"}, &.{"core/"});
+    try std.testing.expect(filtered.len < nodes.len);
+    try std.testing.expect(nodeAt(filtered, "src/core/math.zig") == null);
+}
+
+// spec: Test Reachability - Walks reachability over the referencing edges when asked for the test-compiled set
+
+test "reachableVia follows only the referencing edges for the test-compiled set" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = &[_]Node{
+        // The root mentions both files but only references one of them.
+        .{ .path = "src/root.zig", .edges = &.{ "src/a.zig", "src/b.zig" }, .test_edges = &.{"src/a.zig"} },
+        .{ .path = "src/a.zig", .edges = &.{}, .test_edges = &.{} },
+        .{ .path = "src/b.zig", .edges = &.{}, .test_edges = &.{} },
+    };
+    const roots = &[_][]const u8{"src/root.zig"};
+    // The textual walk keeps the unused import alive; the test-compiling walk
+    // does not, which is the whole difference between "mentioned" and "its
+    // tests are compiled".
+    try std.testing.expectEqual(@as(usize, 3), (try reachableFrom(a, nodes, roots)).len);
+    const compiled = try reachableVia(a, nodes, roots, .test_compiling);
+    try std.testing.expectEqual(@as(usize, 2), compiled.len);
+    try std.testing.expect(!containsPath(compiled, "src/b.zig"));
+}
+
+/// True when `edges` holds `needle` (test-local, so assertions stay loop-free).
+fn hasEdge(edges: []const []const u8, needle: []const u8) bool {
+    for (edges) |e| {
+        if (std.mem.eql(u8, e, needle)) return true;
+    }
+    return false;
+}
+
+/// True when `paths` holds `needle`.
+fn containsPath(paths: []const []const u8, needle: []const u8) bool {
+    return hasEdge(paths, needle);
 }
 
 test "findCycle returns null for acyclic graph" {

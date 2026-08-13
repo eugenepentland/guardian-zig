@@ -285,8 +285,20 @@ const ScanCtx = struct {
     violations: *std.ArrayList(reporter.Violation),
 
     fn scan(self: *ScanCtx, rel_path: []const u8, content: []const u8) Allocator.Error!void {
+        return self.scanWith(rel_path, content, self.rules);
+    }
+
+    /// Judges one file against exactly `rules` — the subset that claims it. The
+    /// glob scan hands its own per-file subset here; the source scan hands the
+    /// whole set, which is what "no `files` key" means.
+    fn scanWith(
+        self: *ScanCtx,
+        rel_path: []const u8,
+        content: []const u8,
+        rules: []const config.ConceptRule,
+    ) Allocator.Error!void {
         if (skipPath(self.skip, rel_path)) return;
-        const found = try analyzeFile(self.allocator, rel_path, content, self.rules);
+        const found = try analyzeFile(self.allocator, rel_path, content, rules);
         try self.violations.appendSlice(self.allocator, found);
     }
 };
@@ -306,23 +318,42 @@ fn skipDir(name: []const u8) bool {
     return false;
 }
 
-/// True when `rel_path` is named by any `files` glob of any rule in `ctx`.
-fn globbed(ctx: *const ScanCtx, rel_path: []const u8) bool {
-    for (ctx.rules) |rule| {
-        for (rule.files) |pattern| {
-            if (walk.matchGlob(rel_path, pattern)) return true;
-        }
+/// True when one of `rule`'s own `files` globs names `rel_path`.
+fn namesPath(rule: config.ConceptRule, rel_path: []const u8) bool {
+    for (rule.files) |pattern| {
+        if (walk.matchGlob(rel_path, pattern)) return true;
     }
     return false;
 }
 
-/// Reads and scans one globbed file. Matching happens BEFORE the read, so a
-/// glob that names `*.css` never opens the repository's binaries — and a file a
-/// rule did name is read whatever its extension.
+/// The rules whose own `files` globs name `rel_path`.
+///
+/// A rule's `files` scopes THAT rule. Previously every rule declaring the key
+/// was applied to the UNION of their globs, so a JS-only rule reported Zig
+/// offenders and a Zig-only rule reported CSS ones — the file set read as "also
+/// scan these" rather than as the rule's own domain, which is what a per-rule
+/// key can only mean.
+fn rulesNaming(
+    allocator: Allocator,
+    rules: []const config.ConceptRule,
+    rel_path: []const u8,
+) Allocator.Error![]const config.ConceptRule {
+    var out: std.ArrayList(config.ConceptRule) = .empty;
+    for (rules) |rule| {
+        if (namesPath(rule, rel_path)) try out.append(allocator, rule);
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+/// Reads and scans one globbed file against the rules that named it. Matching
+/// happens BEFORE the read, so a glob that names `*.css` never opens the
+/// repository's binaries — and a file a rule did name is read whatever its
+/// extension.
 fn scanGlobbedFile(ctx: *ScanCtx, dir: fs.Dir, name: []const u8, rel_path: []const u8) !void {
-    if (!globbed(ctx, rel_path)) return;
+    const rules = try rulesNaming(ctx.allocator, ctx.rules, rel_path);
+    if (rules.len == 0) return;
     const content = try dir.readFileAlloc(ctx.allocator, name, glob_read_limit);
-    try ctx.scan(rel_path, content);
+    try ctx.scanWith(rel_path, content, rules);
 }
 
 /// Walks `dir` recursively, scanning every file a `files` glob names. A glob
@@ -675,6 +706,31 @@ test "rulesFor partitions the configured rules by scan set" {
     const glob_set = try rulesFor(a, &rules, .globs);
     try testing.expectEqual(@as(usize, 1), glob_set.len);
     try testing.expectEqualStrings("layer-colors", glob_set[0].name);
+}
+
+// spec: Concept Ownership - Scopes each rule's files glob to that rule alone
+
+test "scanGlobs never judges a file against another rule's files glob" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rules = [_]config.ConceptRule{
+        // A CSS-scoped rule whose spelling occurs only in the fixture's Zig
+        // source, and a Zig-scoped rule whose spelling occurs only in its CSS.
+        // Under the old union scan each fired on the OTHER rule's file.
+        .{ .name = "css-only", .literals = &.{"std.debug.print"}, .files = &.{"assets/*.css"} },
+        .{ .name = "zig-only", .literals = &.{"#C83434"}, .files = &.{"src/*.zig"} },
+        // A correctly scoped rule, so a green result cannot come from the scan
+        // simply reading nothing.
+        .{ .name = "layer-colors", .literals = &.{"#C83434"}, .files = &.{"assets/*.css"} },
+    };
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .rules = &rules, .skip = &.{}, .violations = &violations };
+    var root = try fs.cwd().openDir("test-project", .{ .iterate = true });
+    defer root.close();
+    try scanGlobs(&ctx, root, "");
+    try testing.expectEqual(@as(usize, 1), violations.items.len);
+    try testing.expectEqualStrings("assets/theme.css|layer-colors", violations.items[0].identity.?);
 }
 
 // spec: Concept Ownership - Scans a globbed non-Zig file and ignores paths no glob names
