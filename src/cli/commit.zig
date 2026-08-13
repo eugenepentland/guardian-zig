@@ -32,6 +32,7 @@ const git = @import("../git.zig");
 const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const external_inputs = @import("../external_inputs.zig");
+const test_count = @import("../test_count.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -181,7 +182,23 @@ fn runTests(ctx: *types.RunCtx) types.RunError!void {
         reporter.detail("{s}\n", .{outcome.output});
         return error.CheckFailed;
     }
+    recordTestCount(ctx, outcome.output);
     reporter.ok("commit: tests passed", .{});
+}
+
+/// Records how many tests the run just executed, from the runner's own
+/// `guardian/test: N test(s) selected` line in the captured output.
+///
+/// This is the one place in Guardian that watches a real test run, so it is the
+/// only place that can turn reachability from a model into a measurement: the
+/// `test-reachability` check later holds its import-graph closure against this
+/// number and reports the tests the model promised that nothing compiled. Fully
+/// best-effort — a project not wired to Guardian's runner prints no count and
+/// records nothing, and a walk failure leaves the record untouched rather than
+/// failing a commit whose gate and tests are green.
+fn recordTestCount(ctx: *types.RunCtx, output: []const u8) void {
+    const analysis = ctx.testReach() catch return;
+    test_count.record(ctx.allocator, ctx.project_dir, output, analysis.tests_in_tree);
 }
 
 /// The default whole-suite command `commit` assumes when nothing overrides it.
@@ -558,6 +575,29 @@ fn containsAny(s: []const u8, needles: []const []const u8) bool {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
+const fs = @import("../fs.zig");
+
+// spec: Commit - Records the test count its own passing test run reported
+
+test "recordTestCount stores the runner's count from the captured test output" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-commit-count";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+
+    const cfg: config.Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
+    // This is the only place in Guardian that watches a real test run, so it is
+    // where reachability stops being a model and becomes a measurement.
+    recordTestCount(&ctx, "guardian/test: 42 test(s) selected\nAll tests passed.\n");
+    const rec = test_count.read(a, dir) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u32, 42), rec.selected);
+    // The empty fixture directory holds no `test` block at all, and the record
+    // says so — that count is what a later run compares against for staleness.
+    try testing.expectEqual(@as(u32, 0), rec.tests_in_tree);
+}
 
 // spec: Commit - Reports up front when the change set contains no gate inputs
 

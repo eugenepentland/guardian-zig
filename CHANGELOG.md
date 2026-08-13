@@ -6,6 +6,34 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Fix `test-reachability`'s edge model and add a ground-truth counter. Zig
+  compiles a file's `test` blocks only when the file's namespace is REFERENCED
+  from something the test build analyzes (measured on the pinned toolchain: an
+  import bound to an alias the file never mentions compiles no tests), yet the
+  check walked every textual `@import` — under which a file counts as reachable
+  because some other file merely names it. Reachability now walks the
+  referencing edges (`src/ast/test_refs.zig`: `_ = @import(...)`, `_ = alias`,
+  `@import(...).member`, `refAllDecls`, and any alias the file uses), the
+  default root list gains the conventional dedicated test roots
+  (`src/test_root.zig`, `src/tests.zig` — a project that roots its suite apart
+  from its executable had its real root read as an unreachable file), and the
+  config `exclude` globs now apply to the graph. Because no lexical model can
+  see whether the referencing code is itself analyzed, `guardian-check commit`
+  records what the suite ACTUALLY ran (the runner's `guardian/test: N test(s)
+  selected` line, `src/test_count.zig`) and the check reports the gap between
+  that measurement and the model — ground truth, not a second opinion.
+- Close the spec check's laundering loophole: a `// spec:` tag in a file whose
+  tests never compile no longer satisfies its SPEC.md bullet. Such tags are held
+  out of the coverage map (so the bullet reads unverified) and reported as
+  `tag in a never-compiled file`. Both checks read one shared analysis
+  (`src/ast/test_reach.zig`) rather than each other, and a project where nothing
+  was measured — no test root resolved — keeps every tag.
+- Fix two `[[concept]]` limitations found while adopting the check: a rule's
+  `files` globs now scope THAT rule (previously every rule declaring `files` was
+  applied to the union of them all, so a JS-only rule reported Zig offenders),
+  and TOML string escapes are resolved (`\"`, `\\`, `\n`, `\r`, `\t`), so
+  `literals = ["\"track_track\""]` names a spelling that contains a quote
+  instead of matching nothing. An unrecognized escape keeps its backslash.
 - Add the `concept` check and `[[concept]]` config entries: a project names a
   concept (`name`), the literal spellings that model it (`literals`, plus `*`
   wildcard `patterns`), the module those spellings belong to (`owner`), and

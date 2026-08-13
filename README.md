@@ -338,7 +338,7 @@ discoverable only by reading the check's source.
 | **imports** | Cycles in the `@import` graph |
 | **boundaries** | Forbidden `@import` paths per module rules |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
-| **test-reachability** | A .zig file that declares `test` blocks but sits outside every test root's `@import` chain — Zig never compiles those tests, yet the spec check still counts their `// spec:` tags as covered. The finding names how many test blocks are dead. Roots come from `[test_reachability] roots`, else `src/main.zig` / `src/root.zig` / each `.zig` directly under `test/`; when no root resolves the check skips instead of blocking |
+| **test-reachability** | A .zig file that declares `test` blocks no test root REFERENCES — Zig never compiles those tests, and the spec check no longer counts their `// spec:` tags as covered (it reports them instead). Reachability follows the referencing edges, not every textual `@import`: `_ = @import("x.zig")`, `_ = alias`, `@import("x.zig").member`, `refAllDecls`, and any import alias the file actually uses — an import nobody mentions compiles nothing. Roots come from `[test_reachability] roots`, else `src/main.zig` / `src/root.zig` / `src/test_root.zig` / `src/tests.zig` / each `.zig` directly under `test/`; when no root resolves the check skips instead of blocking. It also holds that model against ground truth: `guardian-check commit` records how many tests its own run selected (the runner's `guardian/test: N test(s) selected` line), and a run that compiled FEWER tests than the roots reach is reported as a count gap — the model cannot see a reference sitting in code no test analyzes, and the measurement can |
 | **test-coverage** *(opt-in)* | A pub fn with no identifier reference from any test block |
 
 ### Public API
@@ -426,7 +426,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
-| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace or a quote, so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens or a newline; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`) and a hit inside a comment counts. One violation per (file, concept) naming the count, the occurrence lines, the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace or a quote, so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens or a newline; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`) and a hit inside a comment counts. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, the occurrence lines, the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
 | **stringly-typed-switches** | `switch` whose case keys are string literals |
@@ -1345,9 +1345,11 @@ reason = "call through RouteSeed instead"
 # disagree. name: kebab-case and unique; it names every violation and is half of
 # its baseline key. literals: exact substrings. patterns: `*` matches one or
 # more characters that are not whitespace or a quote. owner: where the spelling
-# is allowed to live. files: what to scan (any extension — this is how a .css
-# copy is reachable at all); omit for the source set Guardian already walks.
-# reason: where the value comes from, appended to every violation.
+# is allowed to live. files: what THIS rule scans (any extension — this is how a
+# .css copy is reachable at all), scoping that rule alone; omit for the source
+# set Guardian already walks. Escapes resolve inside any value, so a literal may
+# carry a quote: literals = ["\"track_track\""]. reason: where the value comes
+# from, appended to every violation.
 [[concept]]
 name = "layer-names"
 literals = ["F.Cu", "B.Cu"]

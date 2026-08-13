@@ -15,6 +15,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Hard-fails on malformed values and bare non-key lines with a located diagnostic
 - Hard-fails on incomplete boundary and allow array tables
 - Supports multiline string arrays with comments and trailing commas
+- Resolves escaped quotes and backslashes inside a configured string
+- Rejects a string value that ends in a lone backslash
 - Rejects unsafe mutation ranges and zero timeouts
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
@@ -68,6 +70,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Requires each spec tag to sit directly on a test
 - Links stable behavior IDs independently of specification wording
 - Allows additional spec-case tests without weakening the required primary link
+- Refuses to count a spec tag whose file's tests never compile
+- Keeps every spec tag when test reachability measured nothing
 
 ## Spec Lifecycle
 
@@ -233,6 +237,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports a gate and test timing split
 - Reports up front when the change set contains no gate inputs
 - Treats paths matched by external input globs as gate inputs
+- Records the test count its own passing test run reported
 
 ## Commit Hygiene
 
@@ -875,6 +880,7 @@ without an explained `--force`.
 - Splits rules by whether they declare a files glob
 - Skips build output and dot directories when expanding a files glob
 - Scans a globbed non-Zig file and ignores paths no glob names
+- Scopes each rule's files glob to that rule alone
 - Parses concept entries with name, literals, patterns, owner, files and reason keys
 - Hard-fails a concept entry that declares no name
 - Hard-fails a concept entry with neither literals nor patterns
@@ -959,12 +965,27 @@ without an explained `--force`.
 ## Test Reachability
 
 - Counts each graphed file's test blocks while building the import graph
+- Reads an import bound to an alias the file never mentions as no test edge
+- Reads a discarded or member-accessed import as a test edge
+- Reads a discarded alias as a test edge to that import
+- Reads refAllDecls as a test edge to every import the file binds
+- Ignores an import spelled inside a comment or a string
+- Records each file's test edges beside its plain import edges while building the graph
+- Walks reachability over the referencing edges when asked for the test-compiled set
+- Builds the shared reachability analysis once per run and hands out the same one
 - Passes a test-bearing file that a test root transitively imports
 - Reports a file with test blocks that no test root transitively imports
 - Ignores an unreachable file that declares no test blocks
-- Defaults the roots to src/main.zig, src/root.zig, and each .zig directly under test/
+- Defaults the roots to the conventional module and test-root names plus test/*.zig
 - Uses the configured roots and drops any that name no graphed file
 - Skips the scan when no test root resolves
+- Measures the tests the largest single root closure holds
+- Answers dead-file membership as false whenever nothing was measured
+- Parses the runner's selected-test count out of a captured test run
+- Discards a filtered test run rather than recording it as a measurement
+- Reads back a recorded measurement and treats a missing or partial record as unmeasured
+- Reports how many reachable tests the recorded run never compiled
+- Ignores a recorded run taken when the tree held a different test count
 - Labels the unconfigured-roots notice so it is not scraped as a violation
 
 ## size introspection

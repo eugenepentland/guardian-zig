@@ -18,6 +18,8 @@ const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const snapshot = @import("../snapshot.zig");
 const baseline = @import("../baseline.zig");
+const test_reach = @import("../ast/test_reach.zig");
+const import_graph = @import("../ast/import_graph.zig");
 
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
@@ -41,7 +43,39 @@ const TagScan = struct {
     tags: []const spec_matcher.SpecTag,
     malformed: std.ArrayList(spec_matcher.MalformedTag),
     unattached: std.ArrayList(spec_matcher.MalformedTag),
+    /// Tags found in files whose `test` blocks never compile. Held out of
+    /// `tags`, so they cover no behavior, and reported in their own right.
+    dead: []const spec_matcher.SpecTag = &.{},
 };
+
+/// A tag list split by whether the file it sits in is compiled at all.
+const TagSplit = struct {
+    live: []const spec_matcher.SpecTag,
+    dead: []const spec_matcher.SpecTag,
+};
+
+/// Splits `tags` on the test-reachability analysis: a tag in a file no test root
+/// references marks a test that never compiles, and counting it would let the
+/// 1:1 map read covered while nothing verifies the behavior — the exact
+/// laundering this check exists to prevent, done to itself.
+///
+/// `analysis.dead` is null when nothing was measured (no test root resolved), in
+/// which case every tag stays live: an unmeasured project must never have its
+/// coverage silently withdrawn.
+fn splitDeadTags(
+    allocator: Allocator,
+    tags: []const spec_matcher.SpecTag,
+    analysis: *const test_reach.Analysis,
+) Allocator.Error!TagSplit {
+    if (analysis.dead == null) return .{ .live = tags, .dead = &.{} };
+    var live: std.ArrayList(spec_matcher.SpecTag) = .empty;
+    var dead: std.ArrayList(spec_matcher.SpecTag) = .empty;
+    for (tags) |t| {
+        const target = if (test_reach.isDead(analysis, t.file)) &dead else &live;
+        try target.append(allocator, t);
+    }
+    return .{ .live = try live.toOwnedSlice(allocator), .dead = try dead.toOwnedSlice(allocator) };
+}
 
 /// Entry point for the spec coverage check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
@@ -56,6 +90,11 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     };
 
     var scan = try collectTags(allocator, project_dir);
+    if (cfg.test_reachability.enabled) {
+        const split = try splitDeadTags(allocator, scan.tags, try ctx.testReach());
+        scan.tags = split.live;
+        scan.dead = split.dead;
+    }
     const result = try spec_matcher.analyze(allocator, sections, scan.tags);
 
     if (result.total_behaviors == 0) {
@@ -69,7 +108,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         result.duplicate_tags.len > 0 or
         result.duplicate_behaviors.len > 0 or
         scan.malformed.items.len > 0 or
-        scan.unattached.items.len > 0;
+        scan.unattached.items.len > 0 or
+        scan.dead.len > 0;
 
     if (has_failures) {
         reportFailures(result, &scan);
@@ -127,7 +167,7 @@ fn collectTags(allocator: std.mem.Allocator, project_dir: []const u8) !TagScan {
 /// Prints the failure header, per-item detail lines, and fix hints.
 fn reportFailures(result: spec_matcher.CoverageResult, scan: *const TagScan) void {
     fail("spec coverage FAILED ({d}/{d} covered, {d} unverified, {d} unlinked, {d} dup-tag, " ++
-        "{d} dup-behavior, {d} malformed, {d} unattached)", .{
+        "{d} dup-behavior, {d} malformed, {d} unattached, {d} never-compiled)", .{
         result.covered_behaviors,
         result.total_behaviors,
         result.unverified_behaviors.len,
@@ -136,6 +176,7 @@ fn reportFailures(result: spec_matcher.CoverageResult, scan: *const TagScan) voi
         result.duplicate_behaviors.len,
         scan.malformed.items.len,
         scan.unattached.items.len,
+        scan.dead.len,
     });
     for (result.unverified_behaviors) |b| {
         print("  unverified: {s} - {s}\n", .{ b.section, b.statement });
@@ -158,7 +199,15 @@ fn reportFailures(result: spec_matcher.CoverageResult, scan: *const TagScan) voi
     for (scan.unattached.items) |u| {
         print("  tag not on a test: {s}:{d}: {s}\n", .{ u.file, u.line, u.text });
     }
+    for (scan.dead) |t| {
+        print("  tag in a never-compiled file: {s} in {s}\n", .{ t.tag, t.file });
+    }
     print("\n", .{});
+    if (scan.dead.len > 0) {
+        print("  fix: these tags cover nothing — their file's tests never compile. " ++
+            "Reference it from a test root (see the test-reachability check), " ++
+            "or the bullets above stay unverified.\n", .{});
+    }
     for (result.unverified_behaviors) |b| {
         print("  add: // spec: {s} - {s}\n", .{ b.section, b.statement });
     }
@@ -341,6 +390,58 @@ fn unlinkedResult(tags: []const spec_matcher.SpecTag) spec_matcher.CoverageResul
         .duplicate_tags = &.{},
         .duplicate_behaviors = &.{},
     };
+}
+
+/// The analysis the laundering tests reason over: `src/dead.zig` is a file no
+/// test root references, `src/live.zig` is one that is compiled.
+fn analysisWithDead(dead: []const import_graph.Node) test_reach.Analysis {
+    return .{ .nodes = &.{}, .roots = &.{"src/check.zig"}, .dead = dead, .expected = 0, .tests_in_tree = 0 };
+}
+
+// spec: Spec Coverage - Refuses to count a spec tag whose file's tests never compile
+
+test "splitDeadTags holds back the tags in a file that never compiles" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const tags = [_]spec_matcher.SpecTag{
+        .{ .file = "src/live.zig", .tag = "Widgets - Alpha behavior", .key = "widgets - alpha behavior" },
+        .{ .file = "src/dead.zig", .tag = "Widgets - Bravo behavior", .key = "widgets - bravo behavior" },
+    };
+    const dead_nodes = [_]import_graph.Node{
+        .{ .path = "src/dead.zig", .edges = &.{}, .test_count = 1 },
+    };
+    const analysis = analysisWithDead(&dead_nodes);
+    const split = try splitDeadTags(a, &tags, &analysis);
+    // The tag on the never-compiled test verifies nothing, so it may not satisfy
+    // its bullet: the bullet reads unverified and the tag is reported instead.
+    try testing.expectEqual(@as(usize, 1), split.live.len);
+    try testing.expectEqualStrings("src/live.zig", split.live[0].file);
+    try testing.expectEqual(@as(usize, 1), split.dead.len);
+    try testing.expectEqualStrings("src/dead.zig", split.dead[0].file);
+}
+
+// spec: Spec Coverage - Keeps every spec tag when test reachability measured nothing
+
+test "splitDeadTags withdraws no coverage when no test root resolved" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const tags = [_]spec_matcher.SpecTag{
+        .{ .file = "src/live.zig", .tag = "Widgets - Alpha behavior", .key = "widgets - alpha behavior" },
+    };
+    // Null dead set = nothing measured. Reading that as "everything is dead"
+    // would fail a whole project's spec map over an unset config key.
+    const unmeasured: test_reach.Analysis = .{
+        .nodes = &.{},
+        .roots = &.{},
+        .dead = null,
+        .expected = 0,
+        .tests_in_tree = 0,
+    };
+    const split = try splitDeadTags(a, &tags, &unmeasured);
+    try testing.expectEqual(@as(usize, 1), split.live.len);
+    try testing.expectEqual(@as(usize, 0), split.dead.len);
 }
 
 // spec: Spec Reporting - Guides every unlinked tag the run found rather than only the first

@@ -562,6 +562,9 @@ test {
     _ = @import("ast/containers.zig");
     _ = @import("ast/index.zig");
     _ = @import("ast/import_graph.zig");
+    _ = @import("ast/test_refs.zig");
+    _ = @import("ast/test_reach.zig");
+    _ = @import("test_count.zig");
     _ = @import("cache.zig");
     _ = @import("external_inputs.zig");
     _ = @import("budget_runner.zig");

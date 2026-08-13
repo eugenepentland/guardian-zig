@@ -28,6 +28,7 @@ const isValidString = value.isValidString;
 const isValidStringArray = value.isValidStringArray;
 const inList = value.inList;
 const parseString = value.parseString;
+const parseStringAlloc = value.parseStringAlloc;
 const parseStringArray = value.parseStringArray;
 const parseBool = value.parseBool;
 const parseU32 = value.parseU32;
@@ -406,7 +407,7 @@ const ParseState = struct {
 
     fn setBoundaryKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
         if (std.mem.eql(u8, kv.key, "module")) {
-            self.cur_module = parseString(kv.val);
+            self.cur_module = try parseStringAlloc(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "forbidden")) {
             self.cur_forbidden = try parseStringArray(allocator, kv.val);
             self.boundary_forbidden_set = true;
@@ -415,7 +416,7 @@ const ParseState = struct {
 
     fn setAllowKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
         if (std.mem.eql(u8, kv.key, "check")) {
-            self.cur_check = parseString(kv.val);
+            self.cur_check = try parseStringAlloc(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "paths")) {
             self.cur_paths = try parseStringArray(allocator, kv.val);
             self.allow_paths_set = true;
@@ -430,13 +431,13 @@ const ParseState = struct {
         } else if (std.mem.eql(u8, kv.key, "allow")) {
             self.cur_ban_allow = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
-            self.cur_reason = parseString(kv.val);
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
         }
     }
 
     fn setConceptKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
         if (std.mem.eql(u8, kv.key, "name")) {
-            self.cur_concept_name = parseString(kv.val);
+            self.cur_concept_name = try parseStringAlloc(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, literals_key)) {
             self.cur_literals = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, patterns_key)) {
@@ -446,13 +447,13 @@ const ParseState = struct {
         } else if (std.mem.eql(u8, kv.key, "files")) {
             self.cur_concept_files = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
-            self.cur_reason = parseString(kv.val);
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
         }
     }
 
     fn setExternalKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
         if (std.mem.eql(u8, kv.key, "name")) {
-            self.cur_name = parseString(kv.val);
+            self.cur_name = try parseStringAlloc(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "command")) {
             self.cur_command = try parseStringArray(allocator, kv.val);
             self.external_command_set = true;
@@ -461,7 +462,7 @@ const ParseState = struct {
         } else if (std.mem.eql(u8, kv.key, "paths")) {
             self.cur_external_paths = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, benchmark_key)) {
-            self.cur_benchmark = parseString(kv.val);
+            self.cur_benchmark = try parseStringAlloc(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "max_regression_pct")) {
             self.cur_max_regression_pct = parseU32(kv.val, self.cur_max_regression_pct);
         } else if (std.mem.eql(u8, kv.key, timeout_secs_key)) {
