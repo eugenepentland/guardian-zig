@@ -21,6 +21,7 @@ const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
 const BanRule = config.BanRule;
 const ConceptRule = config.ConceptRule;
+const IdiomRule = config.IdiomRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -82,6 +83,7 @@ const required_inputs_key = "required_inputs";
 const literals_key = "literals";
 const patterns_key = "patterns";
 const owner_key = "owner";
+const fragments_key = "fragments";
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
 const ignore_names_key = "ignore_names";
@@ -173,7 +175,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, concept, external };
+const ArrayKind = enum { none, boundary, allow, ban, concept, idiom, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -195,6 +197,11 @@ const ParseState = struct {
     cur_owner: std.ArrayList([]const u8) = .empty,
     cur_concept_files: std.ArrayList([]const u8) = .empty,
     concepts: std.ArrayList(ConceptRule) = .empty,
+    cur_idiom_name: ?[]const u8 = null,
+    cur_fragments: std.ArrayList([]const u8) = .empty,
+    cur_idiom_files: std.ArrayList([]const u8) = .empty,
+    cur_idiom_allow: std.ArrayList([]const u8) = .empty,
+    idioms: std.ArrayList(IdiomRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -209,6 +216,7 @@ const ParseState = struct {
     threshold_lines: ThresholdLines = .{},
     boundary_forbidden_set: bool = false,
     allow_paths_set: bool = false,
+    idiom_files_set: bool = false,
     external_command_set: bool = false,
 
     fn flush(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
@@ -267,6 +275,7 @@ const ParseState = struct {
             },
             .ban => try self.flushBan(allocator, diag),
             .concept => try self.flushConcept(allocator, diag),
+            .idiom => try self.flushIdiom(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -362,6 +371,82 @@ const ParseState = struct {
         });
     }
 
+    /// Closes an `[[idiom]]` entry. Every way to be inert is refused rather than
+    /// stored, because each reads in the config like an enforced rule while
+    /// enforcing nothing: no `name` (the violation and its baseline key are
+    /// named after it), no `fragments` (nothing to look for), no `reason` (an
+    /// idiom finding is unactionable without the canonical helper's name — which
+    /// is why it is required here and merely recommended for `[[ban]]` /
+    /// `[[concept]]`), an explicitly EMPTY `files` (a scan set naming no file),
+    /// and a `name` a previous entry already used (identity is `<name>|<file>`,
+    /// so a second rule under one name would share — and silently freeze with —
+    /// the first one's baseline keys).
+    fn flushIdiom(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const name = self.cur_idiom_name orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[idiom]]: missing required key 'name'", .{});
+            return error.IncompleteTable;
+        };
+        const reason = try self.idiomReason(allocator, name, diag);
+        for (self.idioms.items) |existing| {
+            if (!std.mem.eql(u8, existing.name, name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[idiom]] name '{s}'", .{name});
+            return error.InvalidConfig;
+        }
+        try self.idioms.append(allocator, .{
+            .name = name,
+            .fragments = try self.cur_fragments.toOwnedSlice(allocator),
+            .files = if (self.idiom_files_set)
+                try self.cur_idiom_files.toOwnedSlice(allocator)
+            else
+                &IdiomRule.default_files,
+            .allow = try self.cur_idiom_allow.toOwnedSlice(allocator),
+            .reason = reason,
+        });
+    }
+
+    /// The three `[[idiom]]` completeness rules that need a name to report
+    /// against, split out so `flushIdiom` stays one straight-line append.
+    /// Returns the validated `reason` so the required key is proven present by
+    /// the value that flows into the rule, not by an `unreachable` after a
+    /// separate check.
+    fn idiomReason(
+        self: *ParseState,
+        allocator: Allocator,
+        name: []const u8,
+        diag: *Diagnostic,
+    ) ParseError![]const u8 {
+        if (self.cur_fragments.items.len == 0) {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[idiom]] '{s}': needs a non-empty 'fragments' array",
+                .{name},
+            );
+            return error.IncompleteTable;
+        }
+        if (self.idiom_files_set and self.cur_idiom_files.items.len == 0) {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[idiom]] '{s}': 'files' must not be empty (omit the key for the default src/*.zig)",
+                .{name},
+            );
+            return error.IncompleteTable;
+        }
+        return self.cur_reason orelse {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[idiom]] '{s}': missing required key 'reason' (name the canonical helper)",
+                .{name},
+            );
+            return error.IncompleteTable;
+        };
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -384,6 +469,10 @@ const ParseState = struct {
         self.cur_patterns = .empty;
         self.cur_owner = .empty;
         self.cur_concept_files = .empty;
+        self.cur_idiom_name = null;
+        self.cur_fragments = .empty;
+        self.cur_idiom_files = .empty;
+        self.cur_idiom_allow = .empty;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -394,6 +483,7 @@ const ParseState = struct {
         self.cur_max_rss_mib = 0;
         self.boundary_forbidden_set = false;
         self.allow_paths_set = false;
+        self.idiom_files_set = false;
         self.external_command_set = false;
         self.array_line = line_no;
         self.section = .top;
@@ -411,6 +501,7 @@ const ParseState = struct {
             .allow => try self.setAllowKey(allocator, kv),
             .ban => try self.setBanKey(allocator, kv),
             .concept => try self.setConceptKey(allocator, kv),
+            .idiom => try self.setIdiomKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -457,6 +548,21 @@ const ParseState = struct {
             self.cur_owner = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "files")) {
             self.cur_concept_files = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
+    fn setIdiomKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "name")) {
+            self.cur_idiom_name = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, fragments_key)) {
+            self.cur_fragments = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "files")) {
+            self.cur_idiom_files = try parseStringArray(allocator, kv.val);
+            self.idiom_files_set = true;
+        } else if (std.mem.eql(u8, kv.key, "allow")) {
+            self.cur_idiom_allow = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
             self.cur_reason = try parseStringAlloc(allocator, kv.val);
         }
@@ -510,6 +616,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "allow")) return .allow;
     if (std.mem.eql(u8, name, "ban")) return .ban;
     if (std.mem.eql(u8, name, "concept")) return .concept;
+    if (std.mem.eql(u8, name, "idiom")) return .idiom;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -566,6 +673,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     cfg.ban_rules = try st.bans.toOwnedSlice(allocator);
     cfg.concept_rules = try st.concepts.toOwnedSlice(allocator);
+    cfg.idiom_rules = try st.idioms.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -664,6 +772,8 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .ban => if (key[0] == 'r') .string else .string_array,
         // literals / patterns / owner / files are arrays; name and reason are prose.
         .concept => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
+        // fragments / files / allow are arrays; name and reason are prose.
+        .idiom => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
         .external => if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, benchmark_key))
             .string
         else if (std.mem.eql(u8, key, "command") or std.mem.eql(u8, key, "inputs") or std.mem.eql(u8, key, "paths"))
@@ -776,7 +886,8 @@ fn validateValue(
         try validateHysteresis(allocator, kv, line_no, diag);
     }
     if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
-    if (st.array_kind == .concept) try validateConceptName(allocator, kv, line_no, diag);
+    if (st.array_kind == .concept) try validateKebabName(allocator, kv, line_no, diag, "concept");
+    if (st.array_kind == .idiom) try validateKebabName(allocator, kv, line_no, diag, "idiom");
 
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
@@ -893,15 +1004,18 @@ fn validateBanChain(
     }
 }
 
-/// Rejects a `[[concept]] name` that is not kebab-case. The name is what every
-/// violation says out loud and — as `<file>|<name>` — what its baseline key is
-/// built from, so it is an identifier a reader and a `.guardian/` diff both have
-/// to live with, not free-form prose. `reason` is where prose belongs.
-fn validateConceptName(
+/// Rejects a `[[concept]]` / `[[idiom]]` `name` that is not kebab-case. The
+/// name is what every violation says out loud and — as half of the rule's
+/// baseline key — what a `.guardian/` diff is read by, so it is an identifier a
+/// reader has to live with, not free-form prose. `reason` is where prose
+/// belongs. `table` names the array table in the diagnostic, so the two callers
+/// share one rule without sharing one misleading message.
+fn validateKebabName(
     allocator: Allocator,
     kv: KeyVal,
     line_no: u32,
     diag: *Diagnostic,
+    table: []const u8,
 ) ParseError!void {
     if (!std.mem.eql(u8, kv.key, "name")) return;
     const name = parseString(kv.val) orelse return;
@@ -910,8 +1024,8 @@ fn validateConceptName(
         allocator,
         diag,
         line_no,
-        "invalid concept name '{s}' (kebab-case: lowercase letters, digits and single inner '-')",
-        .{name},
+        "invalid {s} name '{s}' (kebab-case: lowercase letters, digits and single inner '-')",
+        .{ table, name },
     );
     return error.InvalidValue;
 }
@@ -1059,6 +1173,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
         .concept => &.{ "name", literals_key, patterns_key, owner_key, "files", "reason" },
+        .idiom => &.{ "name", fragments_key, "files", "allow", "reason" },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -1941,6 +2056,129 @@ test "parse rejects a concept name that is not kebab-case" {
     // Digits and single inner dashes are the accepted shape.
     const ok = try parse(arena.allocator(), "[[concept]]\nname = \"layer-2-names\"\nliterals = [\"F.Cu\"]");
     try std.testing.expectEqualStrings("layer-2-names", ok.concept_rules[0].name);
+}
+
+// spec: Canonical Idiom - Parses idiom entries with name, fragments, files, allow and reason keys
+
+test "parse idiom array tables with every key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[idiom]]
+        \\name = "subblock-leaf-split"
+        \\fragments = ["lastIndexOfScalar", "'/'"]
+        \\files = ["src/*.zig", "tools/*.zig"]
+        \\allow = ["src/subblock.zig"]
+        \\reason = "call subblock.leafOf()"
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.idiom_rules.len);
+    const rule = cfg.idiom_rules[0];
+    try std.testing.expectEqualStrings("subblock-leaf-split", rule.name);
+    try std.testing.expectEqual(@as(usize, 2), rule.fragments.len);
+    try std.testing.expectEqualStrings("lastIndexOfScalar", rule.fragments[0]);
+    try std.testing.expectEqualStrings("'/'", rule.fragments[1]);
+    try std.testing.expectEqual(@as(usize, 2), rule.files.len);
+    try std.testing.expectEqualStrings("tools/*.zig", rule.files[1]);
+    try std.testing.expectEqualStrings("src/subblock.zig", rule.allow[0]);
+    try std.testing.expectEqualStrings("call subblock.leafOf()", rule.reason);
+}
+
+// spec: Canonical Idiom - Defaults an idiom's scan set to the source tree when no files key is given
+
+test "parse gives an idiom with no files key the default source scan set" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[idiom]]
+        \\name = "atomic-write"
+        \\fragments = ["makeTmp", "rename"]
+        \\reason = "use atomic.writeFile"
+    );
+    // Guardian's `*` spans `/`, so this one pattern already means every .zig
+    // file in the whole src subtree — a `**` spelling would not.
+    try std.testing.expectEqual(@as(usize, 1), cfg.idiom_rules[0].files.len);
+    try std.testing.expectEqualStrings("src/*.zig", cfg.idiom_rules[0].files[0]);
+    try std.testing.expectEqual(@as(usize, 0), cfg.idiom_rules[0].allow.len);
+}
+
+// spec: Canonical Idiom - Hard-fails an idiom entry missing its name, fragments, reason, or naming an empty files set
+
+test "parse rejects every inert shape of an idiom entry" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Each of these reads in the config like an enforced rule and enforces
+    // nothing, so each is a config error rather than a stored no-op.
+    const cases = [_]struct { content: []const u8, want: []const u8 }{
+        .{ .content = "[[idiom]]\nfragments = [\"a\"]\nreason = \"r\"", .want = "missing required key 'name'" },
+        .{ .content = "[[idiom]]\nname = \"leaf\"\nreason = \"r\"", .want = "non-empty 'fragments' array" },
+        .{ .content = "[[idiom]]\nname = \"leaf\"\nfragments = [\"a\"]", .want = "missing required key 'reason'" },
+        .{
+            .content = "[[idiom]]\nname = \"leaf\"\nfragments = [\"a\"]\nfiles = []\nreason = \"r\"",
+            .want = "'files' must not be empty",
+        },
+    };
+    for (cases) |case| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(error.IncompleteTable, parseInto(a, case.content, &diag));
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, case.want) != null);
+    }
+    // An empty reason STRING is caught by the shared non-empty-string rule, so a
+    // blank sign-off cannot stand in for the missing one either.
+    var blank: Diagnostic = .{};
+    const empty_reason = "[[idiom]]\nname = \"leaf\"\nfragments = [\"a\"]\nreason = \"\"";
+    try std.testing.expectError(error.InvalidValue, parseInto(a, empty_reason, &blank));
+}
+
+// spec: Canonical Idiom - Hard-fails a second idiom entry reusing an existing name
+
+test "parse rejects a duplicate idiom name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // Identity is `<name>|<file>`, so two rules under one name would share — and
+    // silently freeze with — the first one's baseline keys.
+    const content =
+        \\[[idiom]]
+        \\name = "leaf-split"
+        \\fragments = ["a"]
+        \\reason = "first"
+        \\
+        \\[[idiom]]
+        \\name = "leaf-split"
+        \\fragments = ["b"]
+        \\reason = "second"
+    ;
+    try std.testing.expectError(error.InvalidConfig, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "duplicate [[idiom]] name") != null);
+}
+
+// spec: Canonical Idiom - Hard-fails an idiom name that is not kebab-case
+
+test "parse rejects an idiom name that is not kebab-case" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content = "[[idiom]]\nname = \"Leaf_Split\"\nfragments = [\"a\"]\nreason = \"r\"";
+    try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
+    // The shared kebab rule names the table it rejected, so the two callers
+    // cannot hand a reader the wrong one.
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "invalid idiom name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "kebab-case") != null);
+}
+
+// spec: Canonical Idiom - Names an unknown key inside an idiom entry
+
+test "parse rejects an unknown key inside an idiom entry" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // `owner` is [[concept]]'s spelling of the same idea; naming it here is the
+    // typo an adopting project actually makes, and a silently dropped key would
+    // leave the rule enforcing something else than it reads like.
+    const content = "[[idiom]]\nname = \"leaf\"\nfragments = [\"a\"]\nowner = [\"src/x.zig\"]\nreason = \"r\"";
+    try std.testing.expectError(error.UnknownKey, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "owner") != null);
 }
 
 test "parse rejects unsafe mutation invariants" {

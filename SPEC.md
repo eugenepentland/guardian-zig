@@ -967,9 +967,7 @@ without an explained `--force`.
 - Matches a wildcard against one or more characters that are not whitespace, quotes or structural punctuation
 - Treats a run of wildcards as one and matches leading and trailing wildcards
 - Resumes scanning after a candidate start that does not match
-- Skips a path an allow entry or a top-level exclude glob names
 - Splits rules by whether they declare a files glob
-- Skips build output and dot directories when expanding a files glob
 - Scans a globbed non-Zig file and ignores paths no glob names
 - Scopes each rule's files glob to that rule alone
 - Parses concept entries with name, literals, patterns, owner, files and reason keys
@@ -977,6 +975,41 @@ without an explained `--force`.
 - Hard-fails a concept entry with neither literals nor patterns
 - Hard-fails a second concept entry reusing an existing name
 - Hard-fails a concept name that is not kebab-case
+
+## Canonical Idiom
+
+- Flags a line carrying every fragment outside the allow list
+- Requires every fragment on one line before reporting
+- Ignores the idiom inside a file the rule's allow list names
+- Ignores a path no files glob of the rule names
+- Skips a line-leading comment and a Zig test block when counting lines
+- Reports one violation per rule and file with the matching-line count and first position
+- Reports the leftmost fragment's column regardless of the declared order
+- Passes trivially when no idiom rules are configured
+- Names the missing canonical home when a rule declares no allow list
+- Applies a rule to only its own idiom when several are declared
+- Exempts guardian.toml and the .guardian directory from every rule
+- Scans a globbed non-Zig file and ignores paths no glob names
+- Skips a path an allow entry or a top-level exclude glob names
+- Parses a globbed Zig file so its test blocks are exempt there too
+- Freezes a baselined file by rule and keeps a new file failing
+- Explains the fragment conjunction, the required reason and the rule-first baseline key
+- Parses idiom entries with name, fragments, files, allow and reason keys
+- Defaults an idiom's scan set to the source tree when no files key is given
+- Hard-fails an idiom entry missing its name, fragments, reason, or naming an empty files set
+- Hard-fails a second idiom entry reusing an existing name
+- Hard-fails an idiom name that is not kebab-case
+- Names an unknown key inside an idiom entry
+
+## Lexical Scan
+
+- Blanks a comment line to spaces without moving any later byte
+- Blanks a line-leading CSS block comment only in a css file
+- Blanks a Zig test declaration's whole span when a parse tree is supplied
+- Skips a path an allow entry or a top-level exclude glob names
+- Exempts guardian.toml and the .guardian directory from every relational rule
+- Skips build output and dot directories when expanding a files glob
+- Yields every extension under a walked directory and prunes skipped ones
 
 ## Fakes
 

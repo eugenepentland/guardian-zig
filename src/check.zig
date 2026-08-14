@@ -733,12 +733,14 @@ test {
     _ = @import("checks/boolean_param_ban.zig");
     _ = @import("checks/bool_ops_per_condition.zig");
     _ = @import("checks/boundaries.zig");
+    _ = @import("checks/canonical_idiom.zig");
     _ = @import("checks/catch_discipline.zig");
     _ = @import("checks/change_classification.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/compile_error_explanation.zig");
     _ = @import("checks/completeness.zig");
     _ = @import("checks/concept.zig");
+    _ = @import("checks/lexical_scan.zig");
     _ = @import("checks/dead_pub.zig");
     _ = @import("checks/debug_print_ban.zig");
     _ = @import("checks/deprecated_alias.zig");

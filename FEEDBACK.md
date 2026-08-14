@@ -6497,3 +6497,36 @@ manifests instead.
 ## 2026-08-14 · codex · eda — validate fast self-hosted ReleaseSafe toolchain
 
 - **good:** the diff-scoped 75-check gate stayed green (0 blocking, 2 report-only) during a cold 23.92-second full EDA build with the patched compiler, including the newly repaired self-hosted WASM `compiler_rt` path; Guardian remained independent of the experimental toolchain and made the successful end-to-end build unambiguous.
+## 2026-08-14 · Claude · guardian-zig — new `canonical-idiom` check with `[[idiom]]` rules
+- **good:** self-hosting made this a clean loop. `zig build test-compile` (~30 s)
+  caught every type error before any test ran, `zig build` reported the two
+  snapshot deltas the new code legitimately caused (pub-api-surface +12 symbols,
+  unsafe-ops-budget +3 `@ptrCast`/`@alignCast` from three new visitor callbacks),
+  and `guardian-check accept <check> .` applied exactly the named refresh with a
+  preview first. `guardian-check commit --intent "..."` then re-gated, ran the
+  suite, staged modified + untracked, and committed — nothing to sequence by hand.
+- **good:** `guardian-check <check> . --dry-run` is the right tool for tuning a
+  brand-new config rule and I reached for it without being told; it made the
+  self-run evidence trivial (temporarily append an `[[idiom]]` to guardian.toml,
+  dry-run, revert). Worth keeping prominent in `explain` for every configured check.
+- **friction:** `walk.matchGlob`'s `*` spans `/`, so `src/*.zig` already means the
+  whole `src` subtree — but the natural `src/**/*.zig` spelling silently means
+  something ELSE (it requires an intermediate directory, so it misses
+  `src/main.zig`). I nearly shipped it as the new check's default `files` value.
+  Nothing in the config docs warns about this and no validation rejects a `**`
+  pattern; a project adopting `[[concept]]`/`[[idiom]]` from muscle memory will
+  write `**` and get a rule that is quietly narrower than it reads. Either
+  normalize `**/` to `*` in `matchGlob`, or reject a literal `**` in a path glob
+  with a diagnostic naming the right spelling.
+- **friction:** advisory (report-only) findings are diff-scoped in a plain
+  `zig build`, so the first run after touching 8 files showed `line-length: 4
+  finding(s)` and a whole-tree run showed 48. Proving "my change added no new
+  advisories" therefore needs two `--full --verbose` runs (one on the base, one
+  on the branch) plus a hand diff, and the second one hit the green cache and
+  printed nothing at all — which reads exactly like "zero warnings". A
+  `--since <ref>` or a per-check advisory delta line ("48 line-length, +0 vs
+  <base>") would turn a five-command investigation into one number.
+- **wish:** the check-count prose in README.md and CLAUDE.md ("75 checks gate the
+  build", "79 registry entries") is hand-maintained and drifts silently when a
+  check is added. A `registry`-derived assertion (or a doc-sync check like eda's
+  `gen-language-docs --check`) would keep those numbers honest for free.

@@ -59,6 +59,37 @@ pub const ConceptRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// One [[idiom]] entry — a named EXPRESSION SHAPE that belongs to one canonical
+/// implementation, enforced by the `canonical-idiom` check. A LINE matches when
+/// every one of `fragments` (plain substrings, no regex) appears on it; `files`
+/// scopes the scan (default `src/*.zig`); `allow` lists the globs where the
+/// idiom is legal — its canonical home; `reason` names what to call instead and
+/// closes every violation.
+///
+/// `[[ban]]` owns a named call chain and `[[concept]]` owns a literal spelling.
+/// Neither can express a SHAPE built out of ordinary std calls: nothing in
+/// `std.mem.lastIndexOfScalar(u8, ref, '/')` is bannable — that ban would fire
+/// on every legitimate use of the same std function — and there is no single
+/// literal to own. The fragment conjunction is what narrows it back to the one
+/// expression: `lastIndexOfScalar` AND `'/'` on one line.
+///
+/// `reason` has NO default: an idiom violation is unactionable without the name
+/// of the canonical helper, so the type refuses a rule that omits it rather than
+/// printing a placeholder the way `[[ban]]` and `[[concept]]` do for theirs.
+pub const IdiomRule = struct {
+    /// The scan set a rule that names no `files` gets. Guardian's `*` spans `/`
+    /// (see `walk.matchGlob`), so `src/*.zig` already means every `.zig` file in
+    /// the whole `src` subtree — a `**` spelling would instead read as "requires
+    /// an intermediate directory" and silently miss `src/main.zig`.
+    pub const default_files = [_][]const u8{"src/*.zig"};
+
+    name: []const u8,
+    fragments: []const []const u8,
+    files: []const []const u8 = &default_files,
+    allow: []const []const u8 = &.{},
+    reason: []const u8,
+};
+
 /// How wide `divergent-const` casts its net. `units` (the default) groups only
 /// names whose trailing `_`-separated segment is a unit (`_mm`, `_bytes`,
 /// `_ms`, `_hz`, …) — a physical quantity is where a silent disagreement
@@ -629,6 +660,9 @@ pub const Config = struct {
     /// [[concept]] entries: project-declared owned concepts (see ConceptRule).
     /// Empty (the default) makes the `concept` check a trivial pass.
     concept_rules: []const ConceptRule = &.{},
+    /// [[idiom]] entries: project-declared owned expression shapes (see
+    /// IdiomRule). Empty (the default) makes `canonical-idiom` a trivial pass.
+    idiom_rules: []const IdiomRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.
