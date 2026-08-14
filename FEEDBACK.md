@@ -6544,3 +6544,8 @@ manifests instead.
 
 - **good:** The first full test tier caught both totality omissions for the new `ground_via_distance` DRC kind: its warning-severity fixture and settings-drawer help entry. The focused feature tests had passed, so this was useful whole-suite coverage that prevented an incompletely integrated enum from reaching main.
 - **friction:** Running `guardian-check commit` inside the managed filesystem sandbox produced 41 unrelated HTTP-test crashes because `httpz.testing.init` could not set socket options (`PermissionDenied`). The required `prepare-release.sh` run outside that restriction passed the authoritative full suite; recognizing the sandbox artifact still cost one multi-minute full run and substantial diagnostic output.
+
+## 2026-08-14 · codex · eda — flag ineffective bypass connections
+
+- **good:** Guardian caught three real integration mistakes on the first focused run: two unlinked bypass-connectivity requirements and a test fixture returning slices backed by stack storage. The spec links and caller-owned fixture were fixed before the feature test ran, and the final whole-tree 75-check release gate passed with zero blocking findings.
+- **good:** The public-API ratchet made the new final-state `bypass_open.check` entry point explicit; the named acceptance flow previewed, applied, and verified the single-symbol addition cleanly.
