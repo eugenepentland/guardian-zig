@@ -6110,3 +6110,40 @@ manifests instead.
 - good: five parallel agent branches all gated green through `scripts/gate.sh`
   queueing without a single lock collision, and the merge-commit gates caught
   nothing because each branch had already run the same 75 checks.
+
+## 2026-08-14 · Claude · eda — merging two branches while `mutate-full` held the main checkout
+
+- **friction (the expensive one):** a LIVE `zig build mutate-full` keeps the main
+  checkout permanently dirty — it mutates a tracked file, tests, reverts, moves
+  on — and nothing anywhere says that is what is happening. I found
+  `src/eval/env.zig` with `containsString`'s `return false` flipped to `return
+  true`, which reads exactly like a human's abandoned debugging edit. I only got
+  the right answer by finding `.guardian/cache/mutant-in-flight.json` and
+  matching its `rel_path`/offsets. Then I reverted the file, and a DIFFERENT file
+  went dirty two seconds later — which is how I finally worked out a mutation
+  run was live rather than crashed. Cost: ~10 minutes of investigation, one
+  pointless `git checkout --` that raced the running tool, and a genuinely
+  dangerous near-miss (that mutant was one `git merge` away from landing on
+  main, and `containsString` has eight call sites).
+- **wish:** make a running mutation run announce itself in a way a human or
+  agent trips over BEFORE touching the tree. Two cheap options, either would
+  have saved the whole detour: (a) a lock/marker file with a human-readable
+  name — `.guardian/MUTATION-RUN-IN-PROGRESS` containing pid, start time and
+  the file currently mutated — since anyone confused by a dirty tree greps
+  `.guardian/` early; or (b) have `guardian-check` refuse/warn on `commit` and
+  have `prepare-release`-style callers detect it, with the message "a mutation
+  run owns this working tree (pid N, started HH:MM) — its dirty files are
+  mutants, do not commit them". Right now the only in-tree evidence is a 140 KB
+  JSON blob whose name (`mutant-in-flight`) is accurate but which nobody thinks
+  to look at when the symptom is "why is main dirty".
+- **good:** `SIGINT` to the run's process group was completely clean. Every
+  process exited, the in-flight mutant was restored, and `git status` came back
+  empty with `env.zig` back to `return false` — no manual repair, no stale
+  partial file. For a tool that edits tracked source in place, that is exactly
+  the behaviour you want and it is worth protecting with a test.
+- **good:** the tree-keyed release candidate did its job twice. Both merges
+  adopted the branch's own candidate for an identical tree
+  (`adopted verified candidate for identical tree eab6c576ebce`) and prod was
+  restarted and health-checked in about one second instead of a ~4 minute
+  rebuild. The whole-tree `--full` gate inside `prepare-release` was 4 s of the
+  244 s wall, so the gate is now free relative to the build it guards.
