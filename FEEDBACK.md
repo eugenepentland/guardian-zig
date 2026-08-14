@@ -6833,3 +6833,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — merge overlapping subcircuit silkscreen brackets
 - **good:** Diff-scoped Guardian caught new spec-link, function-size, type-size, nesting-depth, and boolean-complexity regressions during the overlap-clustering implementation; refactoring cleared all 79 blocking checks before the exact-commit release gate.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, which repeatedly makes green focused runs look failed and requires checking the enclosing build result.
+
+## 2026-08-14 · codex · eda — open RF soldermask around transition antipads
+- **good:** The `spec`, `function-size`, and `test-no-conditional` checks immediately identified the missing contract bullet, an over-wide geometry helper, and an assertion-free test loop; after those direct refactors, selective `pub-api-surface` acceptance recorded only the intended shared routed-relief entry point and the full 79-check release gate passed.
