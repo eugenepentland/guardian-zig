@@ -6323,3 +6323,8 @@ manifests instead.
 - **good:** main advanced six times mid-wave (all FEEDBACK.md appends from
   other live sessions) and the integration absorbed it without drama — pure
   bottom-of-file appends, no source drift, one `git merge main` at the end.
+
+## 2026-08-14 · codex · eda — capped dynamic CPWG ground-pour gaps
+
+- **good:** the diff-scoped 75-check gate and the final whole-tree gate both accepted the inverse CPWG solver, pour-generation change, JSON contract, and UI work with zero blocking findings; the public-API snapshot preview isolated exactly the intended solver type and function.
+- **friction:** `prepare-release.sh` failed before tests because Guardian's installed checker was stale after Guardian source changed concurrently. Retrying with `GUARDIAN_PREBUILT=off` reused Zig's cached configure-time prebuilt choice and failed identically; only combining the override with a fresh `ZIG_LOCAL_CACHE_DIR` forced the documented from-source path, costing two failed release attempts before the five-minute gate could start.
