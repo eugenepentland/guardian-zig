@@ -6856,3 +6856,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — print deterministic PCB fabrication identities
 - **good:** The `function-size` gate caught a seven-parameter collision-placement API before commit, selective `pub-api-surface` acceptance recorded exactly the new identity and placement entry points, and the exact-commit release gate passed all 79 checks before deployment.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, making each green focused run look contradictory until the outer Zig exit status is checked.
+
+## 2026-08-14 · codex · eda — preserve authored custom-pad fabrication contours
+- **good:** Exact spec linking and the focused Gerber regression made the fabrication/collision split explicit: routing may simplify dense pad outlines, while shipped copper and mask retain every authored vertex; the 79-check whole-tree release gate passed without broadening a ratchet.
