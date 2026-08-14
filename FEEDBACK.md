@@ -6487,3 +6487,52 @@ manifests instead.
 ## 2026-08-14 · codex · eda — benchmark patched self-hosted Zig ReleaseSafe
 
 - **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
+
+## 2026-08-14 · Opus agent · guardian-zig — new `twin-parity` check + `[[concept]]` require_in/literals_from
+
+- **bug:** `zig build mutate` **silently reverted a source edit made while it
+  was running.** The mutation runner journals a file's original bytes before
+  splicing a mutant; I edited `src/checks/concept.zig` during the run, and when
+  I SIGINT'd the run the journal restored the pre-run snapshot — wiping ~10
+  lines I had just written, with no warning and a clean-looking `git status`
+  (the file was still "modified", just modified to the wrong content). I only
+  noticed because `git diff --stat` reported 5 fewer inserted lines than the
+  edit should have produced. The journal is doing exactly what it documents;
+  what is missing is that nothing tells a concurrent editor the tree is
+  hazardous. Suggestions, cheapest first: `mutate` could print a one-line
+  "source files are spliced in place — do not edit the tree until this
+  finishes" banner at start; `recover`/`finish` could compare the file's
+  current mtime/hash against the recorded MUTATED bytes and, when it matches
+  neither the mutant nor the original, refuse to restore and say so rather
+  than overwriting third-party edits.
+- **friction:** the fast mutation tier is unusably slow on this repo because
+  each mutant rebuilds `guardian-check` at **ReleaseSafe** (`zig build-exe
+  -OReleaseSafe ... --cache-dir .guardian/cache/zig-mutate`). With
+  `fast_max_mutants = 8` the run had produced no output after 15 minutes and I
+  abandoned it. Guardian's own docs are emphatic that a debug `guardian-check`
+  is a 40x gate tax, so the ReleaseSafe default makes sense for the INSTALLED
+  binary — but the mutation child build is a throwaway that only has to run
+  tests, and debug there would trade ~90 s of LLVM per mutant for a few
+  hundred ms of extra test time.
+- **good:** the check-authoring path is genuinely additive: one file in
+  `src/checks/`, one registry entry, one `check.zig` import, one `explain`
+  entry, SPEC bullets. `Command.scope` having no default forced the
+  whole-tree/per-file decision at compile time, and the `inherently_whole_tree`
+  assertion caught that I had to declare it in two places. Nothing else in the
+  suite needed touching to get baselining, `--list`/`--dry-run`, the JSONL
+  sink, `deny_growth` and the accept flow for free.
+- **good:** `Violation.identity` made the "two rules, one check" design safe.
+  `twin-parity` reports both a missing-parity-test failure (must always block)
+  and an uncovered-twin row (must freeze and ratchet down); keying them
+  `parity <name>` / `uncovered <name>` instead of sharing `<name>` is what
+  stops a FROZEN uncovered row from absorbing the missing-test failure. I
+  verified it end-to-end against a scratch project: with `uncovered
+  fab-package` in the baseline, adding a `parity_test` naming a nonexistent
+  test still produced "1 new violation(s) above baseline of 2" and exit 1.
+- **good:** `deny_growth` behaved exactly as documented on the new check — a
+  twin that LOSES its `parity_test` both fails the plain gate and is refused by
+  `accept` ("acceptance refused because the configured deny_growth policy would
+  grow recorded debt: twin-parity|uncovered fab-package"), with the pre-run
+  `.guardian` state restored. Worth knowing (and correctly documented) that the
+  guard compares COUNTS, so a swap — one row resolving while another appears —
+  is not growth.
