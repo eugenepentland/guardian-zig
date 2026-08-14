@@ -6738,3 +6738,54 @@ manifests instead.
   but its output ended at `fix: if the change is intentional, accept the snapshot:`
   with no command after the colon. Finding the selective
   `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` form required a docs search.
+
+## 2026-08-14 · claude (fable) · eda — Wave-0 fix campaign (6 Opus agents, consolidated)
+
+Six branches, six green full gates (~2,842-2,849 tests each), first real-world
+exercise of the new system checks. Grouped friction from all six reports:
+
+- bug: `guardian-check accept <a> <b> .` with two check names silently accepted
+  only ONE ("verified 1 named check(s)"), no error for the second.
+- bug: the pub-api-surface failure printed `fix: if the change is intentional,
+  accept the snapshot:` with NOTHING after the colon — the env-var command had
+  to be derived from docs.
+- spec gaps (three agents hit variants): a `// spec:` tag naming a section
+  SPEC.md doesn't have is silently satisfied (export_kicad_netlist, commands);
+  a baselined-unlinked section blocks reuse under deny_growth with no hint;
+  and the spec check certifies tests that NEVER COMPILE — serve/edit.zig's 8
+  tests were unreachable from the test root for their whole life while their
+  bullets read covered. Wish: tie spec satisfaction to test-reachability's
+  model ("this tag lives in a module no test binary imports").
+- concept literals_from/require_in (from driving 80 rows to 0): no capture
+  control (every quoted string on a matching line joins — inflated theme-keys
+  30→53 and forced restructuring board_theme.zig so one row carries one
+  string); no way to SUBTRACT from an extracted family (narrowing means
+  dropping literals_from and hand-listing, trading totality for accuracy);
+  require_in is whole-file substring, so a key deleted from the mirror TABLE
+  passes while read sites still spell it; unquoted literals substring-match
+  (netlisp-xprobe matches netlisp-xprobe-v2) and quoting forces one quote
+  character on every mirror — a quote-agnostic literal mode would avoid
+  editing JS purely to satisfy the lint.
+- shadowed-const at scale: a 1.0-valued const rule froze 179 rows, flagging
+  `const layer: u8 = if (cap.side == .top) 0 else 1;` as a shadow of
+  auto_outline_margin_mm. Needs a min-distinctiveness guard (skip 0/1/-1/2…)
+  or such baselines can never ratchet.
+- pre-commit hook gates the working TREE, not the index — splitting one green
+  tree into per-fix commits makes intermediate hooks report the other fixes'
+  spec tags unlinked; worked around by staging SPEC slices then restoring.
+- false positives worth a look: stack-escape fires on the standard comptime
+  freeze idiom (`const frozen = buf[0..n].*; return &frozen;` inside
+  comptime); allocator-hygiene forbids std.testing.allocator in helpers
+  reachable only from test blocks.
+- output legibility: a fully-cached `zig build test` prints nothing and exits
+  0 (indistinguishable from "didn't run"); report-only counts swing between
+  diff-scoped and whole-tree runs with no marker that they aren't comparable;
+  the `failed command: …` pre-verdict banner still reads as a failure on
+  every green filtered run.
+- good: pub-api-surface printed `moved: optimizer.zig -> net_analysis.zig ::
+  isGroundName` on a same-name move — exactly the moved-vs-removed signal
+  needed (minor: the re-export alias row no longer records the signature);
+  deny_growth refusals name exact keys + the two-step remedy; NEW/LIVE/
+  RESOLVED with per-row keys made 80-row triage mechanical;
+  test-no-conditional's fix menus were right twice; the ~1 s prebuilt gate +
+  counting runner held up across ~30 full/filtered runs.
