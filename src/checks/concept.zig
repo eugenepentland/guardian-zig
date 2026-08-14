@@ -18,23 +18,11 @@
 //! the `owner` list or a narrower `literals` entry is meant to absorb.
 //!
 //! Two contexts are exempt, and the exemption is what keeps the frozen ledger
-//! REAL. A comment line cannot disagree with the owner at runtime, and a Zig
+//! REAL: a comment line cannot disagree with the owner at runtime, and a Zig
 //! `test` block's literal is the independent golden a sync-triangle test is
-//! supposed to spell (deriving the expectation from the owner would make the
-//! test circular). Counting either forced whole files into the baseline — and
-//! because a violation's identity is `<file>|<concept>`, a file frozen over a
-//! doc comment is a file whose REAL drift the gate can never see again.
-//!
-//! Exactly what is blanked, since a `files` glob reaches languages no Zig lexer
-//! sees: a line whose first non-whitespace opens `//` (so `///` and `//!` too),
-//! in every file; a line-leading `/* … */` block through its closing delimiter,
-//! in `.css` files; and a Zig `test` declaration's whole span, wherever a parse
-//! tree was available. Nothing else. A TRAILING comment of either shape shares
-//! a code line, and judging one needs the per-language string lexer this check
-//! refuses to be (`"https://…"`), so a code line always counts whole. Blanking
-//! writes spaces over the bytes and never over a newline, so every surviving
-//! occurrence keeps its exact offset AND its exact source line — a reported
-//! line is one a reader can jump to, not one they have to re-grep for.
+//! supposed to spell. Both — and the every-extension file walk a `files` glob
+//! needs — live in `lexical_scan.zig`, shared with `canonical-idiom`, so the two
+//! relational checks can never disagree about what a lexical scan may judge.
 //!
 //! Zero `[[concept]]` entries is the zero-config default: the check passes
 //! without reading a single file.
@@ -45,7 +33,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
-const decls = @import("../ast/decls.zig");
+const lexical = @import("lexical_scan.zig");
 const config = @import("../config.zig");
 const lineOf = @import("../text.zig").lineOf;
 
@@ -76,23 +64,6 @@ const max_reported_lines = 5;
 /// token it landed in, and in a minified bundle that token can be the width of
 /// a terminal several times over.
 const max_spelling_bytes = 40;
-
-/// Read cap for a file pulled in by a `files` glob. Above this the read fails
-/// loud (as the source walker does) rather than skipping the file: a silently
-/// unscanned file is exempt from the gate, which is the failure this check is
-/// least able to afford.
-const glob_read_limit = 10 * 1024 * 1024;
-
-/// Paths exempt from every concept rule, always. The declaration names its own
-/// literals, and Guardian's own metadata records the violations verbatim — a
-/// rule that flagged either would flag the act of declaring or recording it.
-const always_exempt = [_][]const u8{ "guardian.toml", ".guardian/" };
-
-/// Directory names a `files` glob never descends into: dot-directories (VCS
-/// metadata, Guardian state, editor and agent scratch) and build output. None
-/// of them is project source, and on a real repo `.git` / `.zig-cache` /
-/// `zig-out` dwarf everything a rule could legitimately name.
-const skip_dir_names = [_][]const u8{ "zig-out", "zig-cache", "node_modules" };
 
 // ── Wildcard matching ───────────────────────────────────────────────────
 
@@ -164,113 +135,6 @@ fn findPattern(text: []const u8, pattern: []const u8, from: usize) ?Span {
     return null;
 }
 
-// ── Scrubbing: the contexts the scan must not judge ─────────────────────
-
-/// A copy of `content` with the exempt contexts blanked to spaces: every line
-/// whose first non-whitespace bytes open a `//` comment, every line-leading
-/// `/* … */` block in a `.css` file, and — when a Zig parse `tree` is supplied
-/// — every `test` declaration's span. Bytes are replaced, never removed, and a
-/// newline is never one of them, so each surviving occurrence keeps its exact
-/// offset AND its exact source line.
-fn scrubbed(
-    allocator: Allocator,
-    rel_path: []const u8,
-    content: []const u8,
-    tree: ?*const Ast,
-) Allocator.Error![]u8 {
-    const out = try allocator.dupe(u8, content);
-    blankCommentLines(out);
-    if (std.mem.endsWith(u8, rel_path, ".css")) blankCssCommentLines(out);
-    if (tree) |t| try blankTestBlocks(allocator, out, t);
-    return out;
-}
-
-/// Overwrites `span` with spaces, leaving its newlines in place. A blanked
-/// region that swallowed its newlines would shift every LATER occurrence's
-/// reported line up by the number it ate — which is how a hit at source line
-/// 3951 once got reported as 3820, past a file's worth of blanked test blocks.
-fn blankSpan(span: []u8) void {
-    for (span) |*byte| {
-        if (byte.* != '\n') byte.* = ' ';
-    }
-}
-
-/// Blanks each line that IS a `//` comment — first non-whitespace is `//`
-/// (which covers `///` and `//!`). Run over every file: a line-leading `//` is
-/// unambiguous in each `//` language a rule can glob (Zig, JS, TS), and in a
-/// language without `//` comments it simply matches nothing. CSS is the
-/// exception worth naming — its only comment syntax is `/* … */`, handled by
-/// `blankCssCommentLines`. Trailing comments are left alone: whether a mid-line
-/// `//` opens a comment or sits inside a string is a per-language question. A
-/// hash-comment language gets no skip at all — `#` opens the very hex literals
-/// a palette rule exists to match.
-fn blankCommentLines(text: []u8) void {
-    var line_start: usize = 0;
-    while (line_start < text.len) {
-        const line_end = std.mem.indexOfScalarPos(u8, text, line_start, '\n') orelse text.len;
-        var i = line_start;
-        while (i < line_end and (text[i] == ' ' or text[i] == '\t')) i += 1;
-        if (i + 1 < line_end and text[i] == '/' and text[i + 1] == '/') {
-            @memset(text[i..line_end], ' ');
-        }
-        line_start = line_end + 1;
-    }
-}
-
-/// Blanks every line-leading CSS block comment, `/*` through the `*/` that
-/// closes it — including the lines between, since a prose header comment is
-/// usually several. CSS has no `//`, so without this a `.css` file pulled in by
-/// a `files` glob had NO comment exemption at all, and a pure-prose comment
-/// above a rule froze the stylesheet into the ledger.
-fn blankCssCommentLines(text: []u8) void {
-    var line_start: usize = 0;
-    var open = false;
-    while (line_start < text.len) {
-        const line_end = std.mem.indexOfScalarPos(u8, text, line_start, '\n') orelse text.len;
-        open = blankCssCommentOnLine(text, line_start, line_end, open);
-        line_start = line_end + 1;
-    }
-}
-
-/// Blanks one line's share of a line-leading CSS comment and returns whether
-/// the comment is still open on the next line. `open` says an earlier line
-/// opened one. Bytes after the closing `*/` are left alone, exactly as a
-/// trailing `//` is: what follows on that line is code and counts. A block
-/// opened MID-line is not tracked at all, for the same reason — deciding
-/// whether that `/*` is a comment or string content needs the per-language
-/// lexer this check refuses to be.
-fn blankCssCommentOnLine(text: []u8, line_start: usize, line_end: usize, open: bool) bool {
-    const from = if (open) line_start else cssCommentStart(text, line_start, line_end) orelse return false;
-    // `/*/` does not close itself, so a fresh opener starts looking past its
-    // own delimiter; a continuation line looks from its first byte.
-    const search = if (open) from else from + 2;
-    const close = std.mem.indexOfPos(u8, text[0..line_end], search, "*/");
-    @memset(text[from..(if (close) |at| at + 2 else line_end)], ' ');
-    return close == null;
-}
-
-/// The offset of a `/*` that OPENS the line — first non-whitespace — or null.
-fn cssCommentStart(text: []const u8, line_start: usize, line_end: usize) ?usize {
-    var i = line_start;
-    while (i < line_end and (text[i] == ' ' or text[i] == '\t')) i += 1;
-    if (i + 1 < line_end and text[i] == '/' and text[i + 1] == '*') return i;
-    return null;
-}
-
-/// Blanks every `test` declaration's whole span. `decls.collectDecls` descends
-/// into container members, so a test nested inside a struct is blanked too.
-/// The bounds guard is defensive only: the tree was parsed from these bytes.
-fn blankTestBlocks(allocator: Allocator, text: []u8, tree: *const Ast) Allocator.Error!void {
-    for (try decls.collectDecls(allocator, tree)) |decl| {
-        if (tree.nodeTag(decl) != .test_decl) continue;
-        const last = tree.lastToken(decl);
-        const start = tree.tokenStart(tree.firstToken(decl));
-        const end = tree.tokenStart(last) + tree.tokenSlice(last).len;
-        if (start >= end or end > text.len) continue;
-        blankSpan(text[start..end]);
-    }
-}
-
 // ── Per-file analysis ───────────────────────────────────────────────────
 
 /// One match of one declared spelling: where it starts in the file and how many
@@ -318,16 +182,6 @@ fn occurrencesOf(
 fn owns(rule: config.ConceptRule, rel_path: []const u8) bool {
     for (rule.owner) |pattern| {
         if (walk.matchGlob(rel_path, pattern)) return true;
-    }
-    return false;
-}
-
-/// True when `rel_path` is exempt from every rule by construction — the
-/// guardian.toml that declares the literals, or Guardian's own `.guardian/`
-/// state that records the findings.
-fn selfExempt(rel_path: []const u8) bool {
-    for (always_exempt) |prefix| {
-        if (std.mem.startsWith(u8, rel_path, prefix)) return true;
     }
     return false;
 }
@@ -422,8 +276,8 @@ pub fn analyzeFile(
     tree: ?*const Ast,
     rules: []const config.ConceptRule,
 ) Allocator.Error![]const reporter.Violation {
-    if (selfExempt(rel_path) or rules.len == 0) return &.{};
-    const text = try scrubbed(allocator, rel_path, content, tree);
+    if (lexical.selfExempt(rel_path) or rules.len == 0) return &.{};
+    const text = try lexical.scrubbed(allocator, rel_path, content, tree);
     var violations: std.ArrayList(reporter.Violation) = .empty;
     for (rules) |rule| {
         if (owns(rule, rel_path)) continue;
@@ -435,15 +289,6 @@ pub fn analyzeFile(
 }
 
 // ── Run: the default source set plus any `files` globs ──────────────────
-
-/// True when a configured path glob names `rel_path`. Both skip lists this
-/// check honors are path globs of the same shape, so they share one matcher.
-fn skipPath(patterns: []const []const u8, rel_path: []const u8) bool {
-    for (patterns) |pattern| {
-        if (walk.matchGlob(rel_path, pattern)) return true;
-    }
-    return false;
-}
 
 /// Shared across both scans: where findings land, and the paths this check
 /// never judges.
@@ -469,7 +314,7 @@ const ScanCtx = struct {
         tree: ?*const Ast,
         rules: []const config.ConceptRule,
     ) Allocator.Error!void {
-        if (skipPath(self.skip, rel_path)) return;
+        if (lexical.skipPath(self.skip, rel_path)) return;
         const found = try analyzeFile(self.allocator, rel_path, content, tree, rules);
         try self.violations.appendSlice(self.allocator, found);
     }
@@ -478,16 +323,6 @@ const ScanCtx = struct {
 fn sourceVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     try ctx.scanWith(entry.rel_path, entry.content, entry.tree, ctx.rules);
-}
-
-/// True when a directory is never descended into while expanding a `files`
-/// glob (see `skip_dir_names`; every dot-directory is skipped too).
-fn skipDir(name: []const u8) bool {
-    if (name.len > 0 and name[0] == '.') return true;
-    for (skip_dir_names) |skip| {
-        if (std.mem.eql(u8, name, skip)) return true;
-    }
-    return false;
 }
 
 /// True when one of `rule`'s own `files` globs names `rel_path`.
@@ -526,7 +361,7 @@ fn rulesNaming(
 fn scanGlobbedFile(ctx: *ScanCtx, dir: fs.Dir, name: []const u8, rel_path: []const u8) !void {
     const rules = try rulesNaming(ctx.allocator, ctx.rules, rel_path);
     if (rules.len == 0) return;
-    const content = try dir.readFileAlloc(ctx.allocator, name, glob_read_limit);
+    const content = try dir.readFileAlloc(ctx.allocator, name, lexical.read_limit);
     if (std.mem.endsWith(u8, rel_path, ".zig")) {
         const source = try ctx.allocator.dupeSentinel(u8, content, 0);
         var tree = try Ast.parse(ctx.allocator, source, .{});
@@ -535,27 +370,16 @@ fn scanGlobbedFile(ctx: *ScanCtx, dir: fs.Dir, name: []const u8, rel_path: []con
     try ctx.scanWith(rel_path, content, null, rules);
 }
 
+fn globVisit(raw_ctx: *anyopaque, dir: fs.Dir, name: []const u8, rel_path: []const u8) walk.WalkError!void {
+    const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
+    try scanGlobbedFile(ctx, dir, name, rel_path);
+}
+
 /// Walks `dir` recursively, scanning every file a `files` glob names. A glob
 /// matching nothing is silence, not an error: a project may declare the concept
 /// before the owner or the drifting asset exists.
 fn scanGlobs(ctx: *ScanCtx, dir: fs.Dir, prefix: []const u8) walk.WalkError!void {
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        const rel = if (prefix.len > 0)
-            try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ prefix, entry.name })
-        else
-            try ctx.allocator.dupe(u8, entry.name);
-        switch (entry.kind) {
-            .directory => {
-                if (skipDir(entry.name)) continue;
-                var sub = try dir.openDir(entry.name, .{ .iterate = true });
-                defer sub.close();
-                try scanGlobs(ctx, sub, rel);
-            },
-            .file => try scanGlobbedFile(ctx, dir, entry.name, rel),
-            else => {},
-        }
-    }
+    try lexical.walkFiles(ctx.allocator, dir, prefix, .{ .ctx = ctx, .visit = globVisit });
 }
 
 /// Which file set a rule is judged against: the source set Guardian already
@@ -991,33 +815,6 @@ test "analyzeFile keeps two concepts' findings apart" {
     , null, &rules);
     try testing.expectEqual(@as(usize, 1), out.len);
     try testing.expectEqualStrings("src/palette.zig|layer-names", out[0].identity.?);
-}
-
-// spec: Concept Ownership - Skips build output and dot directories when expanding a files glob
-
-test "skipDir prunes VCS, Guardian state and build output" {
-    try testing.expect(skipDir(".git"));
-    try testing.expect(skipDir(".zig-cache"));
-    try testing.expect(skipDir(".guardian"));
-    try testing.expect(skipDir("zig-out"));
-    try testing.expect(skipDir("node_modules"));
-    // Ordinary source directories are walked.
-    try testing.expect(!skipDir("src"));
-    try testing.expect(!skipDir("assets"));
-}
-
-// spec: Concept Ownership - Skips a path an allow entry or a top-level exclude glob names
-
-test "skipPath drops a path either skip list names" {
-    // Both lists reaching this check are ordinary path globs: `[[allow]] check =
-    // "concept"` (this check's own exemptions) and the top-level `exclude`
-    // (files no check may see at all), concatenated by `run`.
-    const skip = [_][]const u8{ "src/vendor/*", "src/generated/*" };
-    try testing.expect(skipPath(&skip, "src/vendor/theirs.zig"));
-    try testing.expect(skipPath(&skip, "src/generated/tables.zig"));
-    try testing.expect(!skipPath(&skip, "src/render.zig"));
-    // An empty list — the zero-config default — skips nothing.
-    try testing.expect(!skipPath(&.{}, "src/render.zig"));
 }
 
 // spec: Concept Ownership - Splits rules by whether they declare a files glob

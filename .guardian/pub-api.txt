@@ -168,6 +168,8 @@ src/checks/bool_ops_per_condition.zig::run | fn run(ctx: *registry.RunCtx) regis
 src/checks/boolean_param_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/boolean_param_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/boundaries.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/canonical_idiom.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.IdiomRule, ) Allocator.Error![]const reporter.Violation
+src/checks/canonical_idiom.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/catch_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/change_classification.zig::LineCounts struct_
 src/checks/change_classification.zig::Totals struct_
@@ -228,6 +230,14 @@ src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registr
 src/checks/init_hygiene.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/init_hygiene.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/int_from_float_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/lexical_scan.zig::VisitFn value
+src/checks/lexical_scan.zig::Visitor struct_
+src/checks/lexical_scan.zig::read_limit value
+src/checks/lexical_scan.zig::scrubbed | fn scrubbed( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, ) Allocator.Error![]u8
+src/checks/lexical_scan.zig::selfExempt | fn selfExempt(rel_path: []const u8) bool
+src/checks/lexical_scan.zig::skipDir | fn skipDir(name: []const u8) bool
+src/checks/lexical_scan.zig::skipPath | fn skipPath(patterns: []const []const u8, rel_path: []const u8) bool
+src/checks/lexical_scan.zig::walkFiles | fn walkFiles( allocator: Allocator, dir: fs.Dir, prefix: []const u8, visitor: Visitor, ) walk.WalkError!void
 src/checks/line_length.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_len: u32, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -408,6 +418,7 @@ src/config.zig::FuzzPresenceCfg struct_
 src/config.zig::GateCfg struct_
 src/config.zig::GateMode enum_
 src/config.zig::HysteresisCfg struct_
+src/config.zig::IdiomRule struct_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::MagicNumberCfg struct_
@@ -427,6 +438,7 @@ src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TwinReferentCfg struct_
 src/config.zig::TypeSizeCfg struct_
+src/config.zig::default_files value
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
 src/config.zig::usesBaselineFor | fn usesBaselineFor(self: PolicyCfg, check_name: []const u8, global: BaselineCfg) bool

@@ -6,6 +6,34 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
+  ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
+  chain and `[[concept]]` owns a literal spelling; neither can express an
+  EXPRESSION SHAPE built out of ordinary std calls, which is the form an agent
+  re-derives from scratch every time because there is no name to search for.
+  Measured in the flagship consumer on 2026-08-14, each with a canonical
+  implementation already in the tree: 51 sites hand-rolling a sub-block leaf
+  split as `lastIndexOfScalar(u8, <x>, '/')` under 8 different function names,
+  6 byte-identical `urlDecodeAlloc` wrappers around
+  `std.Uri.percentDecodeInPlace`, 8 private tmp+rename atomic writes, and ~24
+  private JSON escaper loops in 7 incompatible tiers despite `json_writer.zig`.
+  A rule declares `fragments`, and the CONJUNCTION is the design: a LINE matches
+  only when every fragment appears on it, which narrows a legitimate std call
+  back down to the one expression that means the idiom. `files` scopes the scan
+  (default `["src/*.zig"]` — Guardian's `*` spans `/`, so that is already the
+  whole subtree), `allow` names the canonical home, and `reason` is REQUIRED
+  (an idiom finding is unactionable without the name of the thing to call, so a
+  rule omitting it is a config error rather than a violation with a
+  placeholder). One violation per (rule, file) keyed `<name>|<file>` — rule
+  first, because an idiom's ledger is read as "which files still hand-roll THIS
+  shape", so a sorted baseline groups one rule's whole cleanup campaign.
+  Multi-line idioms are deliberately out of scope.
+- The comment/`test`-block blanking and the every-extension glob walk that
+  `concept` introduced move to `src/checks/lexical_scan.zig`, shared with
+  `canonical-idiom`. The two relational checks now cannot disagree about what a
+  lexical scan may judge, and the second one gains the exemptions that made the
+  first one's frozen ledger real instead of re-deriving them.
+
 - The `concept` scan no longer judges comment lines or Zig `test` blocks. The
   first real branch composition on the flagship consumer produced 16 findings
   of which 15 were doc comments and golden-value test assertions — and because

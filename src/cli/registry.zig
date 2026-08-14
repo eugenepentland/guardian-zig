@@ -44,6 +44,7 @@ const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
 const check_ban = @import("../checks/ban.zig");
 const check_concept = @import("../checks/concept.zig");
+const check_canonical_idiom = @import("../checks/canonical_idiom.zig");
 const check_divergent_const = @import("../checks/divergent_const.zig");
 const check_twin_referent = @import("../checks/twin_referent.zig");
 const check_duplicate_json_key = @import("../checks/duplicate_json_key.zig");
@@ -344,6 +345,16 @@ pub const all: []const Command = &.{
         // of one check disagree about how much they read.
         .scope = .whole_tree,
         .run = check_concept.run,
+    },
+    .{
+        .name = "canonical-idiom",
+        .summary = "Flag an [[idiom]] expression shape hand-rolled outside its canonical home",
+        // Whole-tree for the same reason `concept` is: every rule carries a
+        // `files` glob set, which reaches paths the parsed source index does not
+        // hold at all (JS, CSS, TOML), so there is nothing for a diff-scoped run
+        // to narrow the scan to.
+        .scope = .whole_tree,
+        .run = check_canonical_idiom.run,
     },
     .{
         .name = "divergent-const",
@@ -691,7 +702,7 @@ const inherently_whole_tree = [_][]const u8{
     "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
     "fuzz-presence",           "external-gates",          "policy-drift",
     "test-reachability",       "merge-state",             "concept",
-    "divergent-const",         "twin-referent",
+    "canonical-idiom",         "divergent-const",         "twin-referent",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

@@ -450,6 +450,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
 | **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+| **canonical-idiom** *(configured)* | An EXPRESSION SHAPE named by an `[[idiom]]` entry, found on a line of a file the rule's `allow` list doesn't cover. The gap between the other two ownership checks: `[[ban]]` owns a NAME and `[[concept]]` owns a LITERAL, and neither can express a shape assembled out of ordinary std calls — which is exactly the form an agent re-derives from scratch every time, because it has no name to search for. Measured in the flagship consumer (2026-08-14), each with the canonical version already in the tree: **51** sites hand-rolling a sub-block leaf split as `lastIndexOfScalar(u8, <x>, '/')` under **8** different function names, **6** byte-identical `urlDecodeAlloc` wrappers around `std.Uri.percentDecodeInPlace`, **8** private tmp+rename atomic writes, and **~24** private JSON escaper loops in **7** incompatible tiers despite `json_writer.zig`. `fragments` is a **conjunction** — a LINE matches only when EVERY fragment appears on it — and that is the whole design: it narrows a legitimate std call back down to the one expression that means the idiom, where banning `lastIndexOfScalar` outright would reject every honest use of it. Plain substrings, no regex, and **single-line only** (multi-line shapes are deliberately out of scope: fragments satisfied on adjacent lines never match). `files` scopes the scan, default `["src/*.zig"]` — note Guardian's `*` spans `/`, so that already means the whole `src` subtree while a `src/**/*.zig` spelling would read as "requires an intermediate directory". `allow` names the canonical home (somebody has to write the shape once). `reason` is **required**, unlike `[[ban]]`/`[[concept]]`: "you hand-rolled a shape" is unactionable without the name of the thing to call, so omitting it is a config error rather than a violation with a placeholder. Comment lines and Zig `test` blocks are blanked before matching (shared with `concept` via `lexical_scan.zig`), so the migration note quoting the idiom and the golden test pinning the canonical helper are not themselves reported. One violation per (rule, file) naming the matching-line count and the first line + column; keyed `<name>|<file>` — rule FIRST, because an idiom's ledger is read as "which files still hand-roll THIS shape", so a sorted baseline groups one rule's whole cleanup campaign. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
 | **divergent-const** | One file-scope `const NAME` holding **different** values in 2+ files — `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the `.kicad_mod` writer, `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two. Note the polarity against repeated-string-literal: same name + same value is harmless here, same name + DIFFERENT value is the risk. Values are compared FOLDED (`16 << 20` = `16 * 1024 * 1024` = `16_777_216`, `1_000_000` = `1_000_000.0`); an initializer that does not fold to a number is skipped. Default `mode = "units"` groups only names whose trailing `_` segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …); `mode = "all"` groups every name and `ignore_names` exempts the generic ones. A `/// mirror-of: <path>.zig.<name>` doc annotation exempts a const from the divergence rule and instead requires it to EQUAL that referent. Keyed by the NAME |
 | **twin-referent** | A comment CLAIMING a relationship (`mirrors`, `same as`, `twin of`, `in lockstep with`, `verified against`, `matches`) whose named referent does not resolve — a doc pointing at a deleted function, a file that was split into a directory, `optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Precision by construction: the phrase alone is never reported, only a phrase followed IN THE SAME SENTENCE by something code-shaped — a word ending in `.zig` (no glob, non-empty basename) or a dotted chain rooted in a module of the tree. Resolution is containment, not semantics: a path must name an indexed file (exactly or as a tail at `/`), a chain's final symbol must be declared, named as a field, or dereferenced anywhere in the tree; `std.*` / `builtin.*` are skipped. A hard-coded `file.zig:120-160` range is reported outright. Keyed `<file>|<referent>` |
 | **duplicate-json-key** | One function writing the same `"key":` twice into the same JSON object — last-wins today, a `SyntaxError` under any strict reader. Scoped by OBJECT SEGMENT so a function writing two sibling objects is silent: a `{`/`}` a literal actually emits (`{{`/`}}` included) ends a segment, and so does a completed call between two literals, an `else` / switch `=>` / `return` (alternatives, not a sequence). A format placeholder (`{d}`, `{s}`) is a value, not a brace. A literal must also be an argument to a call that WRITES (`print`/`write`/`format`/`append`), so `std.mem.indexOf(u8, body, "\"dnp\":true")` is not a write. Test blocks are never scanned. Keyed `<file>|<fn>|<key>` |
@@ -778,7 +779,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 79 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 80 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1453,6 +1454,24 @@ owner = ["src/board_layers.zig"]
 files = ["src/*.zig", "assets/*.css"]
 reason = "layer names come from board_layers.LayerTable"
 
+# Your own owned expression shapes, enforced by the `canonical-idiom` check. Use
+# one when a SHAPE — not a name, not a literal — has a canonical implementation
+# and keeps getting re-derived: a leaf split, a percent-decode wrapper, a
+# tmp+rename atomic write, a JSON escaper. name: kebab-case and unique; it names
+# every violation and is half of its baseline key. fragments: plain substrings,
+# ALL of which must appear on ONE line — the conjunction is what separates the
+# idiom from every honest use of the same std call. files: what THIS rule scans
+# (any extension), default ["src/*.zig"], which under Guardian's `/`-spanning
+# `*` already means the whole src subtree. allow: where the canonical
+# implementation lives, and anywhere else the shape is blessed. reason:
+# REQUIRED — name what to call instead; it closes every violation.
+[[idiom]]
+name = "subblock-leaf-split"
+fragments = ["lastIndexOfScalar", "'/'"]
+files = ["src/*.zig"]
+allow = ["src/subblock.zig"]
+reason = "call subblock.leafOf() — 51 sites hand-rolled this under 8 names"
+
 # divergent-const: one file-scope const NAME holding DIFFERENT values in two
 # files. Default `mode = "units"` groups only names whose trailing `_` segment
 # is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, ...) — a physical quantity is where
@@ -1478,9 +1497,10 @@ commit, nightly, or mutation can update metadata.
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
 unknown names, malformed values, incomplete
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]` entries, a `[[ban]]` chain
-segment that isn't a bare identifier, a `[[concept]]` name that isn't kebab-case
-or that a previous entry already used, and unsafe mutation ranges are hard errors
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[idiom]]` entries, a `[[ban]]`
+chain segment that isn't a bare identifier, a `[[concept]]`/`[[idiom]]` name that
+isn't kebab-case or that a previous entry already used, an `[[idiom]]` missing its
+required `reason`, and unsafe mutation ranges are hard errors
 with a `guardian.toml:line:` diagnostic). String arrays may span lines and
 include comments and trailing commas.
 
@@ -1491,6 +1511,7 @@ include comments and trailing commas.
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
 | `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns` (at least one of the two required), `owner`, `files`, `reason` |
+| `[[idiom]]` | `name` (required, kebab-case, unique), `fragments` (required, non-empty), `files` (default `["src/*.zig"]`; may not be an empty array), `allow`, `reason` (**required**) |
 | `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1695,8 +1716,8 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 75 check(s) passed
-  run-all: 75 checks — 0 blocking, 3 report-only
+  run-all: 76 check(s) passed
+  run-all: 76 checks — 0 blocking, 3 report-only
   run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```

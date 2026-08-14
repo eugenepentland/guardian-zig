@@ -468,6 +468,66 @@ const entries = [_]Entry{
     \\already-frozen file stays frozen. Freeze the counts too with
     \\`[baseline] deny_growth = ["concept"]`.
     },
+    .{ .name = "canonical-idiom", .text =
+    \\Why: an EXPRESSION SHAPE with one canonical implementation gets re-derived
+    \\from scratch everywhere else, because the shape has no name to search for.
+    \\Measured in eda on 2026-08-14, every one of them with the canonical version
+    \\already in the tree: 51 sites splitting a sub-block leaf by hand with
+    \\`lastIndexOfScalar(u8, <x>, '/')` under 8 different function names, 6
+    \\byte-identical `urlDecodeAlloc` wrappers around
+    \\`std.Uri.percentDecodeInPlace`, 8 private tmp+rename atomic writes, and ~24
+    \\private JSON escaper loops in 7 incompatible tiers despite json_writer.zig.
+    \\`[[ban]]` owns a NAME and cannot say it — banning `lastIndexOfScalar` would
+    \\reject every legitimate use of the same std call — and `[[concept]]` owns a
+    \\LITERAL, of which there is none here. Declare one:
+    \\  [[idiom]]
+    \\  name = "subblock-leaf-split"          # kebab-case, unique; names the violation
+    \\  fragments = ["lastIndexOfScalar", "'/'"]   # ALL must appear on ONE line
+    \\  files = ["src/*.zig"]                 # optional scan set; this is the default
+    \\  allow = ["src/subblock.zig"]          # the canonical implementation's home
+    \\  reason = "call subblock.leafOf()"     # REQUIRED — names what to call instead
+    \\Fix: call what the `reason` names. The violation gives the file, the first
+    \\matching line, the column the leftmost fragment starts at, and how many
+    \\lines in that file match, so a 51-site cleanup can be worked file by file.
+    \\Writing a rule: `fragments` is a CONJUNCTION, and that is the whole design.
+    \\One fragment is nearly always either too broad to turn on (`lastIndexOfScalar`
+    \\alone) or so specific it is really a `[[concept]]` literal; two narrow a
+    \\common std call back down to the one expression that means the idiom. Tune a
+    \\new rule with `guardian-check canonical-idiom . --dry-run`, which prints
+    \\every current finding and writes no baseline.
+    \\`reason` is required here, unlike `[[ban]]`/`[[concept]]` where it is merely
+    \\recommended: "you hand-rolled a shape" is unactionable without the name of
+    \\the thing to call, so a rule omitting it is a config error, not a violation
+    \\with a placeholder.
+    \\Exempt: add the path to that rule's `allow` (which is also where the
+    \\canonical implementation itself must be listed — somebody has to write the
+    \\shape once), narrow its `fragments` / `files`, exempt a file from every rule
+    \\with `[[allow]] check = "canonical-idiom"`, or delete the rule.
+    \\guardian.toml and `.guardian/` are always exempt — the rule's own
+    \\declaration writes its fragments on one line.
+    \\Limits: matching is LEXICAL (plain text) and SINGLE-LINE. No regex — a rule
+    \\a reader cannot evaluate in their head is a rule they cannot trust — so
+    \\every fragment is a plain substring. Multi-line idioms are deliberately out
+    \\of scope: a shape spread over four lines has no stable textual form, and the
+    \\scan splits on `\n` before looking, so fragments satisfied on ADJACENT lines
+    \\never match. Blanked before matching, exactly as in `concept`: a line whose
+    \\first non-whitespace opens `//`, a line-leading `/* … */` block in a `.css`
+    \\file, and a whole Zig `test { … }` block wherever a parse tree was available
+    \\— so the migration comment that quotes the idiom, and the golden test that
+    \\pins the canonical helper against it, are not themselves reported. A
+    \\TRAILING comment shares a code line and that line counts whole. `files`
+    \\defaults to `["src/*.zig"]`, and note Guardian's `*` spans `/`: `src/*.zig`
+    \\already means the whole `src` subtree, while a `src/**/*.zig` spelling would
+    \\read as "requires an intermediate directory" and miss `src/main.zig`.
+    \\Baseline: one violation per (rule, file), keyed `<name>|<file>` — NOT by the
+    \\line or the count, so moving a site down a file never churns the ledger. The
+    \\rule comes FIRST (where `concept` puts the file first) because an idiom's
+    \\ledger is read the other way round: "which files still hand-roll THIS
+    \\shape", 51 of them at a time, so a sorted baseline groups one rule's whole
+    \\cleanup campaign together. A baselined file is frozen as a whole and a NEW
+    \\file fails; freeze the counts too with
+    \\`[baseline] deny_growth = ["canonical-idiom"]`.
+    },
     .{ .name = "divergent-const", .text =
     \\Why: one file-scope const NAME holds DIFFERENT values in two files, so two
     \\call sites that read as one fact do not behave as one. Measured in eda:
@@ -1264,6 +1324,22 @@ test "explain concept states what is blanked and where a fix may land" {
     try std.testing.expect(std.mem.indexOf(u8, text, "LEAF of the import graph") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "minified bundle") != null);
+}
+
+// spec: Canonical Idiom - Explains the fragment conjunction, the required reason and the rule-first baseline key
+
+test "explain canonical-idiom states why one fragment is not a rule" {
+    const text = lookup("canonical-idiom").?;
+    // The conjunction IS the design: a reader who takes this for a one-fragment
+    // grep writes a rule that bans an ordinary std call tree-wide.
+    try std.testing.expect(std.mem.indexOf(u8, text, "CONJUNCTION") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "lastIndexOfScalar") != null);
+    // The two things an adopting project otherwise learns by failing: reason is
+    // required here, and the baseline key puts the RULE first.
+    try std.testing.expect(std.mem.indexOf(u8, text, "`reason` is required here") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "keyed `<name>|<file>`") != null);
+    // And the glob trap: `src/**/*.zig` is not this engine's spelling.
+    try std.testing.expect(std.mem.indexOf(u8, text, "src/**/*.zig") != null);
 }
 
 // spec: Explain - Documents the commit meta command
