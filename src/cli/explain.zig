@@ -393,22 +393,47 @@ const entries = [_]Entry{
     \\  [[concept]]
     \\  name = "layer-names"               # kebab-case, unique; names the violation
     \\  literals = ["F.Cu", "B.Cu"]        # exact substrings
-    \\  patterns = ["In*.Cu"]              # `*` = 1+ non-space, non-quote chars
+    \\  patterns = ["In*.Cu"]              # `*` = 1+ chars, never leaving one token
     \\  owner = ["src/board_layers.zig"]   # where the spelling is allowed to live
     \\  files = ["src/*.zig", "*.css"]     # optional scan set (any extension)
     \\  reason = "layer names come from board_layers.LayerTable"
     \\Fix: import the value from the owner module instead of respelling it. The
-    \\violation names the concept, the first spelling found, every occurrence
-    \\line (up to five), the owner, and the rule's `reason` — which is the half
-    \\worth reading, so a rule without one says so in every violation.
+    \\violation names the concept, every occurrence line (up to five) WITH the
+    \\text that matched on each — the concrete `In1.Cu`, not the `In*.Cu` that
+    \\found it — the owner, and the rule's `reason`, which is the half worth
+    \\reading, so a rule without one says so in every violation.
+    \\Choosing `owner`: the vocabulary has to physically live where every
+    \\consumer can IMPORT it, so pick a LEAF of the import graph — usually NOT
+    \\the module with the best-known predicate. A module the predicate's home
+    \\already imports cannot import it back (the `imports` check fails the
+    \\cycle), so the obvious owner is often the one half the tree cannot reach.
+    \\`owner` is a LIST: naming both the predicate's home and the leaf that
+    \\physically holds the literals is the intended shape, not a loosened rule.
+    \\Under `[baseline] deny_growth = ["concept"]`, plan the landing site BEFORE
+    \\the refactor: a fix must land in an owner or in a file already baselined
+    \\for that rule, because extracting a shared helper into a FRESH file adds a
+    \\baseline row, which is growth, and the gate refuses it.
+    \\A vendored or minified bundle a rule keeps matching belongs in that rule's
+    \\`owner` list (or in `[[allow]] check = "concept"`) — the owner list doubles
+    \\as the exclusion list, and nobody edits three.min.js to stop a wildcard
+    \\from matching it.
     \\Exempt: add the path to that rule's `owner`, narrow its `literals` /
     \\`patterns` / `files`, exempt a file from every rule with
     \\`[[allow]] check = "concept"`, or delete the rule. guardian.toml itself and
     \\`.guardian/` are always exempt — the declaration names its own literals.
     \\Limits: matching is LEXICAL (plain text), on purpose — drift crosses
-    \\languages and no parser spans them. A hit inside a comment or a string
-    \\counts. `*` matches one or more characters that are not whitespace or a
-    \\quote, so a pattern never spans two tokens or a newline; `*` is the only
+    \\languages and no parser spans them. Exactly three contexts are blanked
+    \\before matching: a line whose first non-whitespace opens `//` (so `///`
+    \\and `//!`), a line-leading `/* … */` block in a `.css` file, and a whole
+    \\Zig `test { … }` block wherever a parse tree was available. Nothing else —
+    \\a TRAILING comment of either shape shares a code line and that line counts
+    \\whole, because judging it needs the per-language string lexer this check
+    \\refuses to be (`"https://…"`). String CONTENTS always count: a spelling
+    \\inside a quoted string is the main thing this check exists to find. A
+    \\rule's `files` globs scope THAT rule alone — they are its domain, not
+    \\"also scan these". `*` matches one or more characters that are not
+    \\whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so a pattern
+    \\never spans two tokens, a newline, or minified code; `*` is the only
     \\metacharacter (`.` and `#` are literal), and a run of them collapses to one.
     \\A `files` glob never descends into a dot-directory, `zig-out`, or
     \\`node_modules`, and a glob that names nothing is silence — a project may
@@ -622,9 +647,10 @@ const entries = [_]Entry{
     \\Why: `if`/`while`/`switch` (or extra `for`) at a test's top level usually
     \\means the test only checks one branch, or skips silently.
     \\Fix: split into separate tests, or drive inputs table-style with asserts.
-    \\For the multi-loop case the finding names the loop that asserts nothing —
-    \\that fixture-building loop is the one to lift into a helper, leaving the
-    \\asserting loop in the test.
+    \\A test may keep ONE top-level loop; every further loop belongs in a named
+    \\helper. The multi-loop finding names the loop to hoist: the assertion-free
+    \\fixture builder when there is one, otherwise the extra loop itself (which
+    \\can also be merged into the first, table-style).
     \\Exempt: none — restructure the test. Disable only as a last resort.
     },
     .{ .name = "test-skip-ban", .text =
@@ -1197,6 +1223,22 @@ test "explain entries lead with the disambiguation each check is misread on" {
     try std.testing.expect(std.mem.indexOf(u8, lookup("init-hygiene").?, "setupBoard") != null);
     // change-classification: name the flow that does NOT clear it.
     try std.testing.expect(std.mem.indexOf(u8, lookup("change-classification").?, "not baseline churn") != null);
+}
+
+// spec: Concept Ownership - Explains the concept check's real exemptions and its owner, deny_growth and vendored-bundle guidance
+
+test "explain concept states what is blanked and where a fix may land" {
+    const text = lookup("concept").?;
+    // The entry used to claim "A hit inside a comment or a string counts",
+    // which stopped being true for comments the day the exemptions landed. A
+    // reader planned around that model and then re-derived every site by hand.
+    try std.testing.expect(std.mem.indexOf(u8, text, "A hit inside a comment") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "`test { \u{2026} }` block") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "`/* \u{2026} */` block in a `.css` file") != null);
+    // The three lessons an adopting project pays for the hard way otherwise.
+    try std.testing.expect(std.mem.indexOf(u8, text, "LEAF of the import graph") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "minified bundle") != null);
 }
 
 // spec: Explain - Documents the commit meta command

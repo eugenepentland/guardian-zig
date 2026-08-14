@@ -549,6 +549,7 @@ const pidfile_tries: u32 = 100;
 const pidfile_poll_ms: u64 = 20;
 const reap_tries: u32 = 200;
 const reap_poll_ms: u64 = 20;
+const sentinel_secs: u32 = 30;
 
 /// Waits `ns` without a banned wall-clock sleep: an event that is never set, so
 /// `timedWait` always times out after exactly `ns`.
@@ -570,16 +571,46 @@ fn waitForPidfile(a: Allocator, pidfile: []const u8) ![]u8 {
     return error.NoPidFile;
 }
 
+/// True while `pid` still exists — kill(pid, 0) succeeds. Read once, never
+/// polled: proving a process SURVIVED something needs no wait, and polling for
+/// four seconds to conclude "still there" would make the test a slow one.
+fn pidAlive(pid: i32) bool {
+    const rc = std.posix.system.kill(pid, @fromBackingInt(@intCast(0)));
+    return std.posix.errno(rc) == .SUCCESS;
+}
+
 /// True once `pid` no longer exists — kill(pid, 0) errors (ESRCH). Polls a few
 /// ticks to let the SIGKILL land and the orphan be reaped.
 fn pidReaped(pid: i32) bool {
     var tries: u32 = 0;
     while (tries < reap_tries) : (tries += 1) {
-        const rc = std.posix.system.kill(pid, @fromBackingInt(@intCast(0)));
-        if (std.posix.errno(rc) != .SUCCESS) return true; // ESRCH / gone
+        if (!pidAlive(pid)) return true; // ESRCH / gone
         testTick(ns_per_ms * reap_poll_ms);
     }
     return false;
+}
+
+/// Starts a process in the TEST's own process group and returns its pid.
+///
+/// `sh` inherits this process's group (no `.pgid` is set, which is what fork
+/// means), the backgrounded `sleep` inherits it from `sh`, and `sh` then exits
+/// — so the survivor is in our group but is NOT our child, and therefore can
+/// never linger as a zombie that `kill(pid, 0)` would report as alive.
+fn spawnGroupSentinel(a: Allocator, pidfile: []const u8) !i32 {
+    const script = try std.fmt.allocPrint(
+        a,
+        "sleep {d} & echo $! > {s}",
+        .{ sentinel_secs, pidfile },
+    );
+    var sh = try std.process.spawn(std.testing.io, .{
+        .argv = &.{ "sh", "-c", script },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
+    _ = sh.wait(std.testing.io) catch null;
+    const raw = try waitForPidfile(a, pidfile);
+    return std.fmt.parseInt(i32, std.mem.trim(u8, raw, &std.ascii.whitespace), 10);
 }
 
 // spec: Mutation Testing - Kills the whole child process group when a mutant run exceeds its deadline
@@ -593,6 +624,17 @@ test "superviseArgv kills the whole process group on timeout" {
     try fs.cwd().makePath(dir);
     defer fs.cwd().deleteTree(dir) catch |e| std.log.warn("group-kill cleanup: {s}", .{@errorName(e)});
     const pidfile = dir ++ "/grandchild.pid";
+
+    // A bystander in the TEST's own process group. The blast radius of the
+    // watchdog's kill(-pgid) has to stop at the supervised child's group: under
+    // a piped `zig build test` this process shares its group with the pipeline,
+    // so a kill that reached our group would take out `tail`/`grep` and make
+    // the build system report a phantom step failure on a green run — reported
+    // repeatedly by consumers, and the reason `superviseArgv` spawns with
+    // `.pgid = 0`. Asserting the survivor is what keeps that line honest.
+    const sentinel = try spawnGroupSentinel(a, dir ++ "/sentinel.pid");
+    defer std.posix.kill(sentinel, std.posix.SIG.KILL) catch |e|
+        std.log.warn("sentinel cleanup: {s}", .{@errorName(e)});
 
     // sh (the direct child) forks a never-ending grandchild, records its pid,
     // then waits forever. Killing only the direct child would orphan the
@@ -610,4 +652,8 @@ test "superviseArgv kills the whole process group on timeout" {
     const gpid = try std.fmt.parseInt(i32, std.mem.trim(u8, raw, &std.ascii.whitespace), 10);
     // The grandchild must be dead: proof the whole group was killed, not just sh.
     try testing.expect(pidReaped(gpid));
+    // And our own group must be untouched. The two assertions together pin the
+    // radius exactly: had the child shared our group, `kill(-child_pid)` would
+    // have named no group at all and the grandchild above would have survived.
+    try testing.expect(pidAlive(sentinel));
 }

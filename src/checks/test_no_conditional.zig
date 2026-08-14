@@ -91,10 +91,15 @@ const BodyScan = struct {
     /// Index into `loops` of the loop currently being scanned for assertions,
     /// or null between loops.
     active_loop: ?usize = null,
-    /// Indices into `ctx.violations` of this body's extra-loop findings, whose
-    /// message is finalized once every loop's assertion status is known.
-    extra_loops: std.ArrayList(usize) = .empty,
+    /// This body's extra-loop findings, whose message is finalized once every
+    /// loop's assertion status is known.
+    extra_loops: std.ArrayList(ExtraLoop) = .empty,
 };
+
+/// One flagged extra loop: where its record sits in `ctx.violations`, and the
+/// line of the loop it flagged — the one to hoist when no loop stands out as a
+/// fixture builder.
+const ExtraLoop = struct { violation: usize, line: u32 };
 
 fn scanBody(ctx: *ScanCtx, z: []const u8, tok: *std.zig.Tokenizer, test_name: []const u8) Allocator.Error!void {
     var bs: BodyScan = .{ .ctx = ctx, .z = z, .tok = tok, .test_name = test_name };
@@ -138,31 +143,55 @@ fn closeLoopIfEnded(bs: *BodyScan, tag: std.zig.Token.Tag) void {
 /// body has been scanned (see `nameExtractionCandidate`).
 fn handleLoop(bs: *BodyScan, byte: usize) Allocator.Error!void {
     if (bs.depth != 1) return;
-    try bs.loops.append(bs.ctx.allocator, .{ .line = lineOf(bs.z, byte) });
+    const line = lineOf(bs.z, byte);
+    try bs.loops.append(bs.ctx.allocator, .{ .line = line });
     bs.active_loop = bs.loops.items.len - 1;
     if (bs.loops.items.len > 1) {
         try report(bs, byte, "loop", multi_loop_reason);
-        try bs.extra_loops.append(bs.ctx.allocator, bs.ctx.violations.items.len - 1);
+        try bs.extra_loops.append(bs.ctx.allocator, .{
+            .violation = bs.ctx.violations.items.len - 1,
+            .line = line,
+        });
     }
 }
 
-/// The bare finding text, used when no loop stands out as the fixture builder.
+/// The bare finding text: the count, with no remedy attached. Kept as the opener
+/// of both finalized messages so the historical wording still greps.
 const multi_loop_reason = "more than one top-level loop";
 
-/// Points the reader at the loop to extract. A test with one loop that asserts
-/// and another that does not is the fixture-builder shape: the assertion-free
-/// loop is setup, and moving *that* one into a helper leaves the assertions
-/// where they belong. Naming it costs nothing here and saves a gate cycle spent
-/// guessing which loop the check meant.
+/// The rule the count is measured against, stated in the finding itself. Six
+/// separate reports read the bare count as "loops are banned here" or went
+/// looking for the wrong loop, because the message never said what the budget is.
+const loop_rule = multi_loop_reason ++ " — a test may keep one; ";
+
+/// Fixture-split shape: one loop asserts and another does not, so the
+/// assertion-free one is setup and is the one to move out.
+const fixture_loop_fmt = loop_rule ++ "the loop at line {d} asserts nothing, so hoist that one into a named helper";
+
+/// Every top-level loop asserts (or none does): nothing is a fixture builder, so
+/// the finding names its OWN loop instead of claiming a loop asserts nothing —
+/// a claim that was simply false when both loops carried expects.
+const extra_loop_fmt = loop_rule ++ "hoist the loop at line {d} into a named helper, " ++
+    "or merge the loops into one table-driven loop";
+
+/// States the rule and points the reader at the loop to move. A test with one
+/// loop that asserts and another that does not is the fixture-builder shape: the
+/// assertion-free loop is setup, and moving *that* one into a helper leaves the
+/// assertions where they belong. When every loop asserts there is no such split,
+/// so each finding names its own loop rather than a loop that "asserts nothing".
+/// Naming both the rule and the target costs nothing here and saves the gate
+/// cycle otherwise spent guessing what the check meant.
 fn nameExtractionCandidate(bs: *BodyScan) Allocator.Error!void {
     if (bs.extra_loops.items.len == 0) return;
-    const candidate = fixtureLoop(bs.loops.items) orelse return;
-    const msg = try std.fmt.allocPrint(
-        bs.ctx.allocator,
-        multi_loop_reason ++ " — the loop at line {d} asserts nothing; extract that one into a fixture helper",
-        .{candidate.line},
-    );
-    for (bs.extra_loops.items) |i| bs.ctx.violations.items[i].message = msg;
+    if (fixtureLoop(bs.loops.items)) |candidate| {
+        const msg = try std.fmt.allocPrint(bs.ctx.allocator, fixture_loop_fmt, .{candidate.line});
+        for (bs.extra_loops.items) |extra| bs.ctx.violations.items[extra.violation].message = msg;
+        return;
+    }
+    for (bs.extra_loops.items) |extra| {
+        const msg = try std.fmt.allocPrint(bs.ctx.allocator, extra_loop_fmt, .{extra.line});
+        bs.ctx.violations.items[extra.violation].message = msg;
+    }
 }
 
 /// The first assertion-free loop, but only when another loop in the same test
@@ -331,7 +360,8 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         "silently skip the assertion it was meant to pin.\n", .{});
     detail("  fix: one top-level loop is fine; merge multiple loops into one table-driven " ++
         "loop, split a branch into two independent tests, or hoist the computation into a helper. " ++
-        "A multi-loop finding names the loop that asserts nothing — that is the one to extract.\n", .{});
+        "A multi-loop finding names the loop to hoist — the assertion-free one when there is one, " ++
+        "otherwise the extra loop itself.\n", .{});
     return error.CheckFailed;
 }
 
@@ -460,16 +490,32 @@ test "analyzeRecords points a multi-loop finding at the fixture loop" {
     try std.testing.expectEqual(@as(u32, 6), recs[0].line.?);
     try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "line 3") != null);
     try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "asserts nothing") != null);
+}
 
-    // With no fixture/assertion split there is nothing to single out, so the
-    // check makes no claim it cannot back up.
-    const both_assert = try analyzeRecords(a, "src/x.zig",
+// spec: Test Hygiene - Names a loop to hoist when every top-level loop asserts
+
+test "analyzeRecords states the rule and names its own loop when both loops assert" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Two asserting loops: the old message claimed one of them "asserts nothing",
+    // which was simply false, and never said what the budget was.
+    const recs = try analyzeRecords(a, "src/x.zig",
         \\test "both assert" {
         \\    for (a1) |x| try std.testing.expect(x > 0);
         \\    for (b1) |y| try std.testing.expect(y > 0);
         \\}
     );
-    try std.testing.expectEqualStrings(multi_loop_reason, both_assert[0].message);
+    try std.testing.expectEqual(@as(usize, 1), recs.len);
+    // The rule is in the finding: one top-level loop is the budget.
+    try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "a test may keep one") != null);
+    // It names the extra loop (line 3) as the one to hoist, and claims nothing
+    // about assertions it cannot back up.
+    try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "line 3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, recs[0].message, "asserts nothing") == null);
+    // Identity is unchanged by the rewording — a consumer's baseline keys on the
+    // file, the test and the keyword, never on this prose.
+    try std.testing.expectEqualStrings("src/x.zig|both assert|loop", recs[0].identity.?);
 }
 
 test "analyzeContent allows nested if inside for" {

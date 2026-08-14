@@ -250,6 +250,35 @@ test "analyzeContent flags 75% optional" {
     try std.testing.expect(out.len >= 1);
 }
 
+// spec: Tier 2 Anti-patterns - Skips a struct with fewer than four fields
+
+test "analyzeContent ignores a fully optional struct below the field floor" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 2-of-2 optional carries no god-object signal, and the cheapest way past a
+    // finding on a tiny struct is a sentinel (`[]const u8 = ""`) — modelling
+    // absence WORSE, which is the opposite of what the check wants.
+    const tiny = try analyzeContent(a, "src/x.zig",
+        \\pub const Service = struct {
+        \\    name: ?[]const u8,
+        \\    url: ?[]const u8,
+        \\};
+    );
+    try std.testing.expectEqual(@as(usize, 0), tiny.len);
+    // The floor is a divisor floor, not a blanket pass: at four fields the
+    // ratio means something again and the check still bites.
+    const at_floor = try analyzeContent(a, "src/x.zig",
+        \\pub const Service = struct {
+        \\    name: ?[]const u8,
+        \\    url: ?[]const u8,
+        \\    port: ?u16,
+        \\    tag: ?u8,
+        \\};
+    );
+    try std.testing.expectEqual(@as(usize, 1), at_floor.len);
+}
+
 test "analyzeContent allows 25% optional" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

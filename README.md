@@ -220,6 +220,29 @@ progress display, per-test failure attribution, and `--fuzz` support. Set
 `GUARDIAN_TEST_ALLOW_EMPTY=1` for the one legitimate empty case — a project that
 genuinely has no tests yet.
 
+**Every run ends on a verdict.** The runner's last line, on every exit path and
+in both modes, is one of:
+
+```
+guardian/test: PASS — 1019 passed
+guardian/test: PASS — 1016 passed, 3 skipped
+guardian/test: FAIL — 2 failed of 1019
+guardian/test: FAIL — 0 failed of 1019, 1 leaked, over an opt-in time cap
+guardian/test: FAIL — nothing the filter named ran
+```
+
+It exists because a `zig build test` transcript otherwise never states its own
+answer. Zig's build runner records a run step's child argv as
+`failed command: …` **before** the pass/fail verdict exists and erases it only on
+the success path, so under a pipe (`| tail`, `| grep`) that pre-verdict line
+survives into the stream and a *green* run ends looking failed. Guardian cannot
+unprint another program's line; it can be the last word, and `grep 'guardian/test:
+\(PASS\|FAIL\)'` answers the question without reading anything else. One seam
+worth knowing: under `zig build test` a failing test still exits the runner
+process 0, because the build system already holds that test's result and treats a
+nonzero runner exit as "the runner itself broke", discarding every per-test
+result — the verdict line reports the run, the build system reports the status.
+
 `enableTestDiagnostics` sets Zig's error-return tracing on the test module. It
 is what keeps the assertion source location behind a plain `testing.expect`
 when tests use `safe`/`fast`; without it the compiler discards that
@@ -426,7 +449,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
-| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`; a trailing comment shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, the occurrence lines, the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
 | **divergent-const** | One file-scope `const NAME` holding **different** values in 2+ files — `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the `.kicad_mod` writer, `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two. Note the polarity against repeated-string-literal: same name + same value is harmless here, same name + DIFFERENT value is the risk. Values are compared FOLDED (`16 << 20` = `16 * 1024 * 1024` = `16_777_216`, `1_000_000` = `1_000_000.0`); an initializer that does not fold to a number is skipped. Default `mode = "units"` groups only names whose trailing `_` segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …); `mode = "all"` groups every name and `ignore_names` exempts the generic ones. A `/// mirror-of: <path>.zig.<name>` doc annotation exempts a const from the divergence rule and instead requires it to EQUAL that referent. Keyed by the NAME |
 | **twin-referent** | A comment CLAIMING a relationship (`mirrors`, `same as`, `twin of`, `in lockstep with`, `verified against`, `matches`) whose named referent does not resolve — a doc pointing at a deleted function, a file that was split into a directory, `optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Precision by construction: the phrase alone is never reported, only a phrase followed IN THE SAME SENTENCE by something code-shaped — a word ending in `.zig` (no glob, non-empty basename) or a dotted chain rooted in a module of the tree. Resolution is containment, not semantics: a path must name an indexed file (exactly or as a tail at `/`), a chain's final symbol must be declared, named as a field, or dereferenced anywhere in the tree; `std.*` / `builtin.*` are skipped. A hard-coded `file.zig:120-160` range is reported outright. Keyed `<file>|<referent>` |
 | **duplicate-json-key** | One function writing the same `"key":` twice into the same JSON object — last-wins today, a `SyntaxError` under any strict reader. Scoped by OBJECT SEGMENT so a function writing two sibling objects is silent: a `{`/`}` a literal actually emits (`{{`/`}}` included) ends a segment, and so does a completed call between two literals, an `else` / switch `=>` / `return` (alternatives, not a sequence). A format placeholder (`{d}`, `{s}`) is a value, not a brace. A literal must also be an argument to a call that WRITES (`print`/`write`/`format`/`append`), so `std.mem.indexOf(u8, body, "\"dnp\":true")` is not a write. Test blocks are never scanned. Keyed `<file>|<fn>|<key>` |
@@ -1545,6 +1568,8 @@ guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, the
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
 guardian-check install-merge-driver . # Teach this clone's git to merge .guardian/ metadata
 guardian-check merge-file %O %A %B --path %P  # The driver itself (git calls this; base, ours, theirs)
+guardian-check concept . --list      # One check's rows: NEW / LIVE / RESOLVED against its baseline (read-only)
+guardian-check concept . --dry-run   # One check's current findings, unfiltered by any baseline; writes nothing
 guardian-check size src/parser.zig . # One file's current measurements vs its caps and ratchet ceilings
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
 guardian-check debt . --live         # Measure now: every ratcheted key vs its ceiling, + what is nearest a blocking limit
@@ -1579,6 +1604,22 @@ guardian-check version               # Print the guardian version + source diges
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **`--list` / `--dry-run`** introspect ONE check, read-only. Under baseline
+  mode a check reports only `N resolved` / `N violation(s) …`, so there is no
+  way to ask *which frozen rows still fire*; `--list` answers that by splitting
+  the check's current findings into **NEW** (firing, unrecorded — what would
+  block), **LIVE** (firing AND frozen, printed as the check's own
+  `file:line: message` plus the baseline key) and **RESOLVED** (recorded keys
+  nothing fires behind), closing with `<check>: N new, N live, N resolved
+  (baseline unchanged)`. For a threshold check the same three groups list each
+  key's value measured now against its frozen ceiling. `--dry-run` prints every
+  current finding in the check's own rendering with no baseline filtering — the
+  loop for tuning a new `[[ban]]`/`[[concept]]` rule, whose first ordinary run
+  would otherwise freeze exactly what you wanted to read. Both are strictly
+  read-only: no baseline is created or pruned, no v1→v3 re-key is persisted, no
+  snapshot is written, nothing stamps the green cache. They apply to a single
+  registered check; on `all` or another composed command they are an error, not
+  a silent no-op.
 - **The `run-all:` verdict line** closes *every* exit path — green, blocking,
   and cache-skipped — on the always-visible channel, so one grep covers all
   three and "no guardian output" is never a possible reading:

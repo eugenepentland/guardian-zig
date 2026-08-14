@@ -69,6 +69,19 @@ prove the suite compiles. `zig build test-compile` is that missing tier —
 whole-suite, no filter, `-fno-emit-bin`, so it type-checks everything and runs
 nothing. It is deliberately not a dependency of `test`.
 
+**Every run ends on a verdict line.** The runner's last output, on every exit
+path and in both modes, is `guardian/test: PASS — N passed` (`, K skipped` when
+nonzero) or `guardian/test: FAIL — F failed of N` (plus the leak count, the
+logged-error count, or `over an opt-in time cap`), and `FAIL — <reason>` when a
+run ends before its suite finished (the zero-match guard, an aborted runner).
+The line and the exit status are read off one `timing.Verdict`, so they cannot
+disagree — with one documented seam: under `zig build test` a failing test still
+exits the runner 0, because Zig's Run step discards every per-test result when a
+test runner exits nonzero ("the test runner itself broke"). The verdict exists
+because a piped `zig build test` ends on Zig's own `failed command: …` banner —
+recorded before any verdict exists and erased only on the success path, so a
+GREEN piped run reads as failed. Guardian cannot unprint it; it outranks it.
+
 **The runner also guards what the suite COSTS.** After the last test it prints
 `guardian/test: test wall <t>s` plus the slowest tests over a floor
 (`GUARDIAN_TEST_TIMINGS` widens both). On top of that, a test whose own wall
@@ -160,6 +173,8 @@ guardian-check all . --summary       # verdict line + blocking detail only (advi
 guardian-check all . --verbose       # replay every check in full (overrides --summary and scope-collapse)
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
+guardian-check <check> . --list      # one check's rows: NEW / LIVE / RESOLVED vs its baseline (read-only)
+guardian-check <check> . --dry-run   # one check's current findings, no baseline filtering, writes NOTHING
 guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps + frozen ratchet ceilings
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating); --json goes to stdout
 guardian-check debt . --live         # + each ratcheted key vs its ceiling AND what is nearest a blocking limit

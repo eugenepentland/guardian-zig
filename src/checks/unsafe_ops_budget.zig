@@ -56,6 +56,41 @@ const Counts = struct {
 const ScanCtx = struct {
     allocator: std.mem.Allocator,
     totals: *Counts,
+    sites: *SiteList,
+};
+
+/// The finding text under a blown `undefined_reassign` budget. One line per
+/// site, so the failure is greppable.
+const undefined_site_message = "undefined re-assigned to a live lvalue";
+
+/// Collector for `undefined` re-assignment locations. The count used to be
+/// reported as a bare total: a consumer that tripped it had nothing to grep for
+/// and paid a full gate cycle plus a bisect to find the line. Every site is
+/// recorded as a Violation instead, so the failure prints — and logs to
+/// last-run.jsonl — a file:line like every other check.
+const SiteList = struct {
+    allocator: std.mem.Allocator,
+    /// The file currently being scanned; set per visit before the token walk.
+    rel_path: []const u8 = "",
+    items: std.ArrayList(reporter.Violation) = .empty,
+
+    /// Records one re-assignment site in the file being scanned.
+    fn add(self: *SiteList, line: u32) std.mem.Allocator.Error!void {
+        try self.items.append(self.allocator, .{
+            .check = check_name,
+            .file = self.rel_path,
+            .line = line,
+            .message = undefined_site_message,
+        });
+    }
+};
+
+/// Per-file token-walk state: the running counts, a forward-only line cursor
+/// (the token walk visits ascending offsets), and the optional site collector.
+const Scan = struct {
+    counts: Counts = .{},
+    cursor: text.LineCursor = .{},
+    sites: ?*SiteList = null,
 };
 
 /// Per-statement state used to classify an `= undefined`: `is_decl` is true
@@ -75,6 +110,12 @@ const StmtState = struct {
                 self.* = .{};
                 return;
             },
+            // A `///` doc comment IS a token (a plain `//` comment is not), but
+            // it never STARTS a statement. Letting it claim first-token position
+            // set `is_decl = false` on the `var x: [N]T = undefined;` beneath it,
+            // so documenting a buffer declaration turned it into a counted
+            // re-assignment — the check silently rewarded the `//` spelling.
+            .doc_comment, .container_doc_comment => return,
             else => {},
         }
         if (!self.seen_first) {
@@ -89,8 +130,7 @@ const StmtState = struct {
 /// (tests legitimately poke unsafe corners). Token-based ⇒ strings and
 /// comments never match; `tokenSlice` is called only for builtins and the
 /// few identifiers that follow an `=`.
-fn countFromTree(tree: *const std.zig.Ast) Counts {
-    var c: Counts = .{};
+fn countFromTree(tree: *const std.zig.Ast, scan: *Scan) std.mem.Allocator.Error!void {
     var scope: text.TestScope = .{};
     var stmt: StmtState = .{};
     const tags = tree.tokens.items(.tag);
@@ -98,26 +138,30 @@ fn countFromTree(tree: *const std.zig.Ast) Counts {
         if (tag == .eof) break;
         scope.update(tag);
         stmt.advance(tag);
-        if (!scope.in_test) tallyToken(&c, tree, @intCast(i), stmt);
+        if (!scope.in_test) try tallyToken(scan, tree, @intCast(i), stmt);
         stmt.prev_equal = tag == .equal;
     }
-    return c;
 }
 
 /// Tallies one non-test token: a tracked builtin, or `undefined` assigned to
 /// an existing lvalue.
-fn tallyToken(c: *Counts, tree: *const std.zig.Ast, i: u32, stmt: StmtState) void {
+fn tallyToken(scan: *Scan, tree: *const std.zig.Ast, i: u32, stmt: StmtState) std.mem.Allocator.Error!void {
     switch (tree.tokens.items(.tag)[i]) {
-        .builtin => tallyBuiltin(c, tree.tokenSlice(i)),
-        .identifier => {
-            if (stmt.prev_equal and !stmt.is_decl and
-                std.mem.eql(u8, tree.tokenSlice(i), "undefined"))
-            {
-                c.undefined_reassign += 1;
-            }
-        },
+        .builtin => tallyBuiltin(&scan.counts, tree.tokenSlice(i)),
+        .identifier => try tallyUndefined(scan, tree, i, stmt),
         else => {},
     }
+}
+
+/// Counts an `undefined` that re-poisons a live lvalue and records where it is.
+/// Declaration-init (`var x: T = undefined;`) never reaches here — `stmt.is_decl`
+/// excludes it.
+fn tallyUndefined(scan: *Scan, tree: *const std.zig.Ast, i: u32, stmt: StmtState) std.mem.Allocator.Error!void {
+    if (!stmt.prev_equal or stmt.is_decl) return;
+    if (!std.mem.eql(u8, tree.tokenSlice(i), "undefined")) return;
+    scan.counts.undefined_reassign += 1;
+    const sites = scan.sites orelse return;
+    try sites.add(scan.cursor.at(tree.source, tree.tokenStart(i)));
 }
 
 /// Increments the matching builtin counter when `slice` names a tracked op.
@@ -135,13 +179,22 @@ fn countFromContent(allocator: std.mem.Allocator, content: [:0]const u8) std.mem
     // Propagate OOM: zeroed counts on allocation failure would let a new unsafe
     // op or undefined re-assignment slip past the snapshot budget.
     var tree = try std.zig.Ast.parse(allocator, content, .{});
-    return countFromTree(&tree);
+    var scan: Scan = .{};
+    try countFromTree(&tree, &scan);
+    return scan.counts;
 }
 
 fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    const c = if (entry.tree) |t| countFromTree(t) else try countFromContent(ctx.allocator, entry.content);
-    ctx.totals.add(c);
+    ctx.sites.rel_path = entry.rel_path;
+    var scan: Scan = .{ .sites = ctx.sites };
+    if (entry.tree) |t| {
+        try countFromTree(t, &scan);
+    } else {
+        var tree = try std.zig.Ast.parse(ctx.allocator, entry.content, .{});
+        try countFromTree(&tree, &scan);
+    }
+    ctx.totals.add(scan.counts);
 }
 
 fn countsToLines(allocator: std.mem.Allocator, c: Counts) ![][]const u8 {
@@ -193,17 +246,27 @@ fn collectFailures(allocator: std.mem.Allocator, totals: Counts, budget: Counts)
     return failures.toOwnedSlice(allocator);
 }
 
-fn reportFailures(failures: []const []const u8) void {
+/// Prints the blown budgets, then every `undefined` re-assignment site when
+/// that is one of them — a bare "N found, M budgeted" total is the one finding
+/// in the suite a reader cannot grep for.
+fn reportFailures(failures: []const []const u8, sites: []const reporter.Violation) void {
     fail("unsafe-ops budget FAILED", .{});
     for (failures) |line| print("  {s}\n", .{line});
+    for (sites) |v| reporter.emit(v);
     print("  fix: justify the new unsafe op, or accept the new budget:\n", .{});
     snapshot_helper.printAcceptPaths(check_name);
 }
 
-fn scanTotals(ctx_param: *registry.RunCtx) registry.RunError!Counts {
+/// The re-assignment sites to print: the whole list when that budget is the one
+/// that broke, nothing when only a cast budget did (an unrelated wall of lines).
+fn sitesFor(over_budget: bool, sites: []const reporter.Violation) []const reporter.Violation {
+    return if (over_budget) sites else &.{};
+}
+
+fn scanTotals(ctx_param: *registry.RunCtx, sites: *SiteList) registry.RunError!Counts {
     const allocator = ctx_param.allocator;
     var totals: Counts = .{};
-    var scan_ctx: ScanCtx = .{ .allocator = allocator, .totals = &totals };
+    var scan_ctx: ScanCtx = .{ .allocator = allocator, .totals = &totals, .sites = sites };
     try ast_index.runSrc(ctx_param.source_index, allocator, ctx_param.project_dir, .{
         .ctx = &scan_ctx,
         .visit = visit,
@@ -265,7 +328,8 @@ fn handleReadError(
 /// Entry point for the unsafe-ops-budget check.
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
-    const totals = try scanTotals(ctx_param);
+    var sites: SiteList = .{ .allocator = allocator };
+    const totals = try scanTotals(ctx_param, &sites);
 
     const snap_path = try snapshot_helper.snapshotPath(allocator, ctx_param.project_dir, snapshot_leaf);
     const new_lines = try countsToLines(allocator, totals);
@@ -280,7 +344,7 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         });
         return;
     }
-    reportFailures(failures);
+    reportFailures(failures, sitesFor(totals.undefined_reassign > budget.undefined_reassign, sites.items.items));
     return error.CheckFailed;
 }
 
@@ -332,6 +396,61 @@ test "countFromContent skips declaration-init undefined but counts re-assignment
     const c = try countFromContent(arena.allocator(), content);
     // The two declaration-inits are exempt; the two lvalue re-assignments count.
     try std.testing.expectEqual(@as(u32, 2), c.undefined_reassign);
+}
+
+// spec: Unsafe Ops Budget - Counts a doc-commented declaration init as a declaration
+
+test "countFromContent exempts a declaration init carrying a /// doc comment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The reported repro: `///` is a TOKEN, so it used to claim the statement's
+    // first-token slot and cost the declaration its exemption. `//` never did,
+    // which meant the check rewarded the less documented spelling.
+    const documented =
+        \\/// Scratch space reused across calls.
+        \\var buf: [16]u8 = undefined;
+    ;
+    const doc_counts = try countFromContent(a, documented);
+    try std.testing.expectEqual(@as(u32, 0), doc_counts.undefined_reassign);
+    // The same declaration under a plain comment always passed; both spellings
+    // now agree, and a real re-assignment beneath one still counts.
+    const mixed =
+        \\// Scratch space reused across calls.
+        \\var buf: [16]u8 = undefined;
+        \\/// Doc on the next declaration.
+        \\var other: [4]u8 = undefined;
+        \\fn reset() void { buf[0] = undefined; }
+    ;
+    const mixed_counts = try countFromContent(a, mixed);
+    try std.testing.expectEqual(@as(u32, 1), mixed_counts.undefined_reassign);
+}
+
+// spec: Unsafe Ops Budget - Reports the file and line of each undefined re-assignment
+
+test "the scan records a file and line for every undefined re-assignment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        \\fn f() void {
+        \\    var buf: [16]u8 = undefined;
+        \\    buf[0] = undefined;
+        \\}
+    ;
+    var tree = try std.zig.Ast.parse(a, content, .{});
+    var sites: SiteList = .{ .allocator = a, .rel_path = "src/x.zig" };
+    var scan: Scan = .{ .sites = &sites };
+    try countFromTree(&tree, &scan);
+    // One re-assignment, located: the totals-only report cost a reporter a full
+    // gate cycle plus a bisect because there was nothing to grep for.
+    try std.testing.expectEqual(@as(usize, 1), sites.items.items.len);
+    try std.testing.expectEqualStrings("src/x.zig", sites.items.items[0].file.?);
+    try std.testing.expectEqual(@as(?u32, 3), sites.items.items[0].line);
+    // A cast-only budget failure prints no site list — those lines would be
+    // about a different counter entirely.
+    try std.testing.expectEqual(@as(usize, 0), sitesFor(false, sites.items.items).len);
+    try std.testing.expectEqual(@as(usize, 1), sitesFor(true, sites.items.items).len);
 }
 
 test "countFromContent excludes unsafe ops inside test blocks" {

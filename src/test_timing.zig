@@ -1,4 +1,5 @@
-//! Per-test wall-time reporting for Guardian's test runner.
+//! Everything Guardian's test runner prints after the last test: the run's
+//! cost, the caps that guard it, and the one closing verdict line.
 //!
 //! The runner exists to make a run's honesty visible; this module makes its
 //! COST visible the same way. Motivation (eda, 2026-08-10): a consumer suite's
@@ -28,6 +29,16 @@
 //! A cap is NOT A WATCHDOG. It is measured from a test that FINISHED, so a test
 //! that hangs still hangs forever and no cap fires — the caps catch a
 //! regression in a test's cost, never a deadlock.
+//!
+//! Last comes the VERDICT (`Verdict`, `renderVerdict`): one PASS/FAIL line that
+//! is the final thing the runner writes on every exit path. It exists because
+//! nothing else in a `zig build test` transcript states the answer. Zig's build
+//! runner records a run step's child argv as `failed command: …` BEFORE the
+//! pass/fail verdict exists and only erases it on the success path, so under a
+//! pipe (`| tail`, `| grep`) the pre-verdict line survives into the stream and a
+//! GREEN run ends looking failed. Guardian cannot unprint another program's
+//! line — fifteen-plus reports from six agents in two days say so — but it can
+//! make the last Guardian line say what actually happened.
 //!
 //! Same constraint as the runner itself: this file is compiled into the root
 //! module of a consumer's test binary, so `std` only, no Guardian imports. In
@@ -257,6 +268,93 @@ pub fn renderSlowLine(buf: []u8, entry: Slow) []const u8 {
     return w.buffered();
 }
 
+// ── Run verdict ────────────────────────────────────────────────────────
+
+/// What one finished test reported — the same three outcomes the build
+/// system's test protocol carries, so both of the runner's modes fold their
+/// results in through one shape.
+pub const Status = enum { pass, skip, fail };
+
+/// What a whole run produced. `leak` counts the TESTS that leaked rather than
+/// the allocations they leaked (matching the terminal summary's wording), and
+/// `log_err` is the run's total logged-error count, because a test that only
+/// logged an error still fails.
+pub const Tally = struct {
+    ok: usize = 0,
+    skip: usize = 0,
+    fail: usize = 0,
+    leak: usize = 0,
+    log_err: usize = 0,
+
+    /// Folds one finished test's status in. Saturating: a counter that wrapped
+    /// could turn a red run green, which is the one bug this file exists to
+    /// prevent.
+    pub fn record(self: *Tally, status: Status) void {
+        switch (status) {
+            .pass => self.ok +|= 1,
+            .skip => self.skip +|= 1,
+            .fail => self.fail +|= 1,
+        }
+    }
+
+    /// Tests that reported a result, whatever it was.
+    pub fn total(self: Tally) usize {
+        return self.ok +| self.skip +| self.fail;
+    }
+
+    /// True when the tests themselves were not all clean — the same three
+    /// conditions the stock runner exits nonzero on.
+    pub fn failed(self: Tally) bool {
+        return self.fail != 0 or self.leak != 0 or self.log_err != 0;
+    }
+};
+
+/// A run's closing verdict: what ran, whether an opt-in time cap broke, and —
+/// when the run ended before its suite finished — the reason that replaces the
+/// counts. One value, so the line the reader sees and the status the runner
+/// exits with are read off the same thing and cannot disagree.
+pub const Verdict = struct {
+    tally: Tally = .{},
+    /// An opt-in time cap was broken: the run fails though every test passed.
+    caps_broken: bool = false,
+    /// Why the run ended without a finished suite — the zero-match filter
+    /// guard, or a runner that aborted. Null for an ordinary run.
+    aborted: ?[]const u8 = null,
+
+    /// True when this run must not be reported as green.
+    pub fn failed(self: Verdict) bool {
+        return self.aborted != null or self.caps_broken or self.tally.failed();
+    }
+};
+
+/// Renders the one line every run ends with, whichever way it ended. Overflow
+/// truncates rather than dropping the line, as everywhere else here: a verdict
+/// that disappeared would be worse than a short one.
+pub fn renderVerdict(buf: []u8, verdict: Verdict) []const u8 {
+    var w = std.Io.Writer.fixed(buf);
+    writeVerdictLine(&w, verdict) catch return w.buffered();
+    return w.buffered();
+}
+
+/// The verdict's wording. An aborted run states its reason instead of counts,
+/// which would read as a meaningless `0 failed of 0`; a failing run names every
+/// reason it failed, since a leak or a logged error can red a run in which no
+/// test failed at all.
+fn writeVerdictLine(w: *std.Io.Writer, verdict: Verdict) std.Io.Writer.Error!void {
+    const tally = verdict.tally;
+    if (verdict.aborted) |reason| return w.print("{s}FAIL — {s}\n", .{ prefix, reason });
+    if (!verdict.failed()) {
+        try w.print("{s}PASS — {d} passed", .{ prefix, tally.ok });
+        if (tally.skip != 0) try w.print(", {d} skipped", .{tally.skip});
+        return w.writeByte('\n');
+    }
+    try w.print("{s}FAIL — {d} failed of {d}", .{ prefix, tally.fail, tally.total() });
+    if (tally.leak != 0) try w.print(", {d} leaked", .{tally.leak});
+    if (tally.log_err != 0) try w.print(", {d} error(s) logged", .{tally.log_err});
+    if (verdict.caps_broken) try w.writeAll(", over an opt-in time cap");
+    try w.writeByte('\n');
+}
+
 /// Hundredths of a second below the whole seconds already printed.
 fn centis(ns: u64) u64 {
     return (ns % std.time.ns_per_s) / (std.time.ns_per_s / 100);
@@ -409,4 +507,101 @@ test "an absent, blank, zero or unparseable cap variable is no cap at all" {
     // A cap so large it would overflow nanoseconds saturates rather than wrapping.
     const huge = Caps.fromSeconds(std.math.maxInt(u64), null);
     try testing.expect(!huge.overPerTest(std.math.maxInt(u64) - 1));
+}
+
+// spec: Test Runner Verdict - Ends a green run with a PASS line stating the passed count, and the skipped count when any were skipped
+
+test "the green verdict states the passed count and any skips" {
+    var tally: Tally = .{};
+    for (0..3) |_| tally.record(.pass);
+    var buf: [128]u8 = undefined;
+    try testing.expectEqualStrings(
+        "guardian/test: PASS — 3 passed\n",
+        renderVerdict(&buf, .{ .tally = tally }),
+    );
+
+    // A skip is not a failure, but a green line that hid them would overstate
+    // what the run proved.
+    tally.record(.skip);
+    tally.record(.skip);
+    try testing.expectEqual(@as(usize, 5), tally.total());
+    try testing.expectEqualStrings(
+        "guardian/test: PASS — 3 passed, 2 skipped\n",
+        renderVerdict(&buf, .{ .tally = tally }),
+    );
+}
+
+// spec: Test Runner Verdict - Ends a failing run with a FAIL line stating how many tests failed of how many ran
+
+test "the failing verdict states the failures against the total" {
+    var tally: Tally = .{};
+    for (0..7) |_| tally.record(.pass);
+    tally.record(.fail);
+    tally.record(.fail);
+    var buf: [128]u8 = undefined;
+    try testing.expect(tally.failed());
+    try testing.expectEqualStrings(
+        "guardian/test: FAIL — 2 failed of 9\n",
+        renderVerdict(&buf, .{ .tally = tally }),
+    );
+}
+
+// spec: Test Runner Verdict - Adds a leak count, a logged-error count, or a broken time cap to the failing verdict
+
+test "leaks, logged errors and a broken cap each red an otherwise-passing run" {
+    var buf: [160]u8 = undefined;
+    // Every test passed in all three cases: without the extra clause the line
+    // would read `0 failed of 4` and leave the reader guessing why it is FAIL.
+    var leaked: Tally = .{ .ok = 4, .leak = 1 };
+    try testing.expect(leaked.failed());
+    try testing.expectEqualStrings(
+        "guardian/test: FAIL — 0 failed of 4, 1 leaked\n",
+        renderVerdict(&buf, .{ .tally = leaked }),
+    );
+    const logged: Tally = .{ .ok = 4, .log_err = 3 };
+    try testing.expectEqualStrings(
+        "guardian/test: FAIL — 0 failed of 4, 3 error(s) logged\n",
+        renderVerdict(&buf, .{ .tally = logged }),
+    );
+    // A broken cap fails a tally that is itself entirely clean.
+    const clean: Tally = .{ .ok = 4 };
+    try testing.expect(!clean.failed());
+    try testing.expectEqualStrings(
+        "guardian/test: FAIL — 0 failed of 4, over an opt-in time cap\n",
+        renderVerdict(&buf, .{ .tally = clean, .caps_broken = true }),
+    );
+    // All of them at once, in one line.
+    leaked.log_err = 3;
+    try testing.expectEqualStrings(
+        "guardian/test: FAIL — 0 failed of 4, 1 leaked, 3 error(s) logged, over an opt-in time cap\n",
+        renderVerdict(&buf, .{ .tally = leaked, .caps_broken = true }),
+    );
+}
+
+// spec: Test Runner Verdict - States the reason instead of the counts when a run ends before its suite finished
+
+test "an aborted run states its reason in place of counts" {
+    var buf: [128]u8 = undefined;
+    // The zero-match filter guard exits before a single test runs, so
+    // `0 failed of 0` would be true and useless.
+    try testing.expectEqualStrings(
+        "guardian/test: FAIL — nothing the filter named ran\n",
+        renderVerdict(&buf, .{ .aborted = "nothing the filter named ran" }),
+    );
+}
+
+// spec: Test Runner Verdict - Reads the printed verdict and the run's exit status off one predicate
+
+test "the verdict's pass/fail is the single predicate the exit status uses" {
+    // Green only when nothing at all went wrong: this is the predicate the
+    // runner exits on, so a PASS line can never accompany a nonzero status.
+    try testing.expect(!(Verdict{ .tally = .{ .ok = 9, .skip = 2 } }).failed());
+    try testing.expect((Verdict{ .tally = .{ .ok = 9, .fail = 1 } }).failed());
+    try testing.expect((Verdict{ .tally = .{ .ok = 9, .leak = 1 } }).failed());
+    try testing.expect((Verdict{ .tally = .{ .ok = 9, .log_err = 1 } }).failed());
+    try testing.expect((Verdict{ .tally = .{ .ok = 9 }, .caps_broken = true }).failed());
+    try testing.expect((Verdict{ .aborted = "the runner aborted" }).failed());
+    // An empty run is not a failure here: the zero-match guard decides that
+    // upstream and hands down an `aborted` reason when it applies.
+    try testing.expect(!(Verdict{}).failed());
 }

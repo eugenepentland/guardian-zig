@@ -70,12 +70,15 @@ src/ast/test_reach.zig::testBearingCount | fn testBearingCount(nodes: []const im
 src/ast/test_refs.zig::referenced | fn referenced(arena: Allocator, source: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
+src/baseline.zig::Split struct_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::firstFixHint | fn firstFixHint(captured: []const u8) ?[]const u8
+src/baseline.zig::keyedViolations | fn keyedViolations( arena: Allocator, check_name: []const u8, captured: []const u8, records: []const reporter.Violation, ) Allocator.Error![]const Keyed
 src/baseline.zig::legacy_version value
 src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: []const Keyed, force_refresh: bool, write_allowed: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
+src/baseline.zig::splitAgainst | fn splitAgainst(arena: Allocator, stored: []const []const u8, current: []const Keyed) Allocator.Error!Split
 src/baseline.zig::version value
 src/benchmark.zig::Args struct_
 src/benchmark.zig::Direction enum_
@@ -313,6 +316,7 @@ src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/cli/install_hook.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/introspect.zig::run | fn run(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/cli/merge_driver.zig::command_name value
 src/cli/merge_driver.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/merge_driver.zig::isInstalled | fn isInstalled(allocator: Allocator, project_dir: []const u8) bool
@@ -336,9 +340,11 @@ src/cli/registry.zig::all value
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/registry.zig::summaryFor | fn summaryFor(name: []const u8) ?[]const u8
+src/cli/run_all.zig::PassSummary struct_
 src/cli/run_all.zig::command_name value
 src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/run_all.zig::runCollecting | fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
 src/cli/run_view.zig::BinaryAge enum_
@@ -627,6 +633,7 @@ src/merge/three_way.zig::CounterResult struct_
 src/merge/three_way.zig::mergeCounters | fn mergeCounters( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error!CounterResult
 src/merge/three_way.zig::mergeRatchets | fn mergeRatchets( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error![]const []const u8
 src/merge/three_way.zig::mergeRows | fn mergeRows( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error![]const []const u8
+src/metadata_transaction.zig::Original struct_
 src/metadata_transaction.zig::RollbackError value
 src/metadata_transaction.zig::Transaction struct_
 src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction
@@ -771,6 +778,7 @@ src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
 src/snapshot.zig::magic_prefix value
 src/snapshot.zig::parse | fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
+src/snapshot.zig::readOptional | fn readOptional(arena: Allocator, path: []const u8, expected_version: u32) ReadError!?Snapshot
 src/snapshot.zig::regen_marker value
 src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
 src/snapshot.zig::writeChecked | fn writeChecked(arena: Allocator, path: []const u8, version: u32, lines: [][]const u8) WriteError!bool
@@ -852,9 +860,14 @@ src/test_timing.zig::Detail enum_
 src/test_timing.zig::Limits struct_
 src/test_timing.zig::Over struct_
 src/test_timing.zig::Slow struct_
+src/test_timing.zig::Status enum_
+src/test_timing.zig::Tally struct_
+src/test_timing.zig::Verdict struct_
 src/test_timing.zig::default_floor_ns value
 src/test_timing.zig::default_max_lines value
 src/test_timing.zig::dropped | fn dropped(self: Over) usize
+src/test_timing.zig::failed | fn failed(self: Tally) bool
+src/test_timing.zig::failed | fn failed(self: Verdict) bool
 src/test_timing.zig::forDetail | fn forDetail(detail: Detail) Limits
 src/test_timing.zig::fromSeconds | fn fromSeconds(per_test_s: ?u64, wall_s: ?u64) Caps
 src/test_timing.zig::insertSlow | fn insertSlow(list: []Slow, len: *usize, cap: usize, entry: Slow) void
@@ -867,13 +880,16 @@ src/test_timing.zig::overPerTest | fn overPerTest(self: Caps, ns: u64) bool
 src/test_timing.zig::overWall | fn overWall(self: Caps, total_ns: u64) bool
 src/test_timing.zig::parseSeconds | fn parseSeconds(value: ?[]const u8) ?u64
 src/test_timing.zig::prefix value
+src/test_timing.zig::record | fn record(self: *Tally, status: Status) void
 src/test_timing.zig::recordOffender | fn recordOffender(list: []Slow, over: *Over, entry: Slow) void
 src/test_timing.zig::renderSlowLine | fn renderSlowLine(buf: []u8, entry: Slow) []const u8
 src/test_timing.zig::renderSlowWarning | fn renderSlowWarning(buf: []u8, entry: Slow) []const u8
 src/test_timing.zig::renderTestCapFailure | fn renderTestCapFailure(buf: []u8, over: Over, cap_ns: u64) []const u8
+src/test_timing.zig::renderVerdict | fn renderVerdict(buf: []u8, verdict: Verdict) []const u8
 src/test_timing.zig::renderWall | fn renderWall(buf: []u8, total_ns: u64, slow_count: usize, floor_ns: u64) []const u8
 src/test_timing.zig::renderWallCapFailure | fn renderWallCapFailure(buf: []u8, total_ns: u64, cap_ns: u64) []const u8
 src/test_timing.zig::slow_warn_ns value
+src/test_timing.zig::total | fn total(self: Tally) usize
 src/test_timing.zig::wide_floor_ns value
 src/test_timing.zig::wide_max_lines value
 src/testing/golden_runner.zig::GoldenError value

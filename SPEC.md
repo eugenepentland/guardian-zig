@@ -121,6 +121,7 @@ blocking correctness checks and advisory maintainability guidance.
 - camelCase pub fn must not return type
 - snake_case pub fn is rejected
 - pub const struct/enum/union with fields must be PascalCase
+- Exempts a field-less namespace struct from the PascalCase rule
 - SCREAMING_SNAKE container-scope const is rejected
 
 ## Function Size
@@ -209,6 +210,13 @@ blocking correctness checks and advisory maintainability guidance.
 ## Migrate
 
 - Persists a deferred metadata format re-key as one deliberate step
+
+## Command Ergonomics
+
+- Names an unrecognized command in an error line before the help listing
+- Suggests the direct check spelling after a run or check verb
+- Reports a quiet accept as before and after counts with the metadata paths that moved
+- Parses the tree once for every pass of one accept
 
 ## Explain
 
@@ -465,6 +473,8 @@ lives in a fixed-size buffer.
 - Tracks unsafe-cast builtin counts against a snapshot
 - Tracks undefined re-assignment count against a snapshot
 - Excludes declaration-init undefined and test blocks from counts
+- Counts a doc-commented declaration init as a declaration
+- Reports the file and line of each undefined re-assignment
 
 ## Type Size
 
@@ -522,6 +532,7 @@ lives in a fixed-size buffer.
 - Identifies a repeated literal by the literal itself
 - Caps pub fn methods per pub struct/enum/union
 - Caps the percentage of optional fields in a public struct
+- Skips a struct with fewer than four fields
 - Rejects switch expressions whose case keys are string literals
 
 ## Tier 3 Architectural Fitness
@@ -555,6 +566,19 @@ lives in a fixed-size buffer.
 - Preserves the count of same-key violations across a stored baseline
 - Skips findings whose file is missing and gitignored instead of counting them
 - Forwards a newly reported violation to the sink with its location and fix hint
+
+## Baseline Introspection
+
+- Splits a check's current findings into new, live, and resolved rows
+- Matches a v1 text baseline by rendered line instead of identity key
+- Lists a threshold check's keys with each live value against its frozen ceiling
+- Names the baseline file a listing is split against
+- Reads a stored metadata file as absent when it is missing or in another format version
+- Writes no baseline ratchet or snapshot on an introspection run
+- Refuses the introspection flags on a command that is not a single gate check
+- Words a first-run baseline or ratchet creation as a recorded starting set
+- Names the keys a refused deny_growth refresh would add
+- Names the sanctioned two-step for a deliberately declared new rule
 
 ## Violation Identity
 
@@ -689,6 +713,14 @@ lives in a fixed-size buffer.
 - Fails the run when the total test time exceeds the opt-in wall cap
 - Leaves both caps disabled when their variables are absent, empty, or zero
 
+## Test Runner Verdict
+
+- Ends a green run with a PASS line stating the passed count, and the skipped count when any were skipped
+- Ends a failing run with a FAIL line stating how many tests failed of how many ran
+- Adds a leak count, a logged-error count, or a broken time cap to the failing verdict
+- States the reason instead of the counts when a run ends before its suite finished
+- Reads the printed verdict and the run's exit status off one predicate
+
 ## Build Helper
 
 - Points a consumer test binary at the runner file that ships with Guardian
@@ -806,6 +838,7 @@ without an explained `--force`.
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
 - Names the assertion-free loop as the one to extract
+- Names a loop to hoist when every top-level loop asserts
 - Identifies a flagged construct by its test and keyword
 - Rejects production code @import-ing test files
 
@@ -871,7 +904,13 @@ without an explained `--force`.
 - Counts a trailing comment on a code line as an occurrence
 - Skips a Zig test block's occurrences when a parse tree is available
 - Parses a globbed Zig file so its test blocks are exempt there too
+- Reports an occurrence line in source coordinates past every blanked span
+- Skips a line-leading CSS block comment but counts the code after its close
+- Counts a trailing CSS block comment on a code line as an occurrence
 - Reports one violation per file and concept with the occurrence count and lines
+- Quotes the text matched at each reported occurrence line
+- Elides a matched text longer than the quoted cap
+- Explains the concept check's real exemptions and its owner, deny_growth and vendored-bundle guidance
 - Names the missing owner and reason when a rule declares neither
 - Caps the listed occurrence lines and keeps the full count
 - Exempts guardian.toml and the .guardian directory from every rule
