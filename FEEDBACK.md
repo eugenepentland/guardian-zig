@@ -6534,3 +6534,8 @@ manifests instead.
 ## 2026-08-14 · codex · eda — repair Barracuda own-land copper transit
 
 - **good:** The diff-scoped gate caught an unlinked land-transit behavior, a 32-point repair-command complexity spike, seven-level nesting, excessive boolean operators, and repeated board parameters before commit. Splitting the transactional repair into focused helpers and adding exact SPEC-linked seed/junction regressions brought all 75 checks green; the whole-tree prepare-release gate then passed without further changes.
+
+## 2026-08-14 · codex · eda — fold PCB annotations into physical silk layers
+
+- **good:** The spec-link check immediately caught the stale requirement for a separate board-silkscreen Appearance row after the implementation moved text and generated annotations onto F./B.Silkscreen; updating the exact contract made the UI behavior and regression test agree before commit, and the whole-tree commit/release gates then passed with zero blocking findings.
+- **bug:** A successful focused `zig build test -Dtest-filter=...` reported `guardian/test: PASS`, returned exit 0, and still printed `failed command: ...` for the passing test executable. That contradictory diagnostic required an extra exit-status check and made a green run look suspect.
