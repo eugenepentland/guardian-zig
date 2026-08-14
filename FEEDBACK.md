@@ -6849,3 +6849,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — cancel ReleaseSafe when Debug tests fail
 - **good:** The exact-commit suite found two stale source-contract assertions in `test_root.zig`; the new fail-fast path immediately stopped the concurrent LLVM build at the 94-second test failure instead of waiting for its usual 250-second completion, directly validating the time-saving behavior under the real gate.
 - **good:** Exact spec linking required a contract for whole-process-group cancellation, while the final whole-tree gate passed all 79 checks and all 2,879 tests after the assertions were updated.
+
+## 2026-08-14 · codex · eda — preserve concave custom-pad soldermask openings
+- **good:** The exact `spec` check rejected duplicate links when the general mask-dilation test and the TPSM84 concave regression both named one contract bullet; keeping one authoritative tag plus both focused tests cleared all 79 checks before the exact-commit release gate.
