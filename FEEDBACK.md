@@ -5800,3 +5800,53 @@ manifests instead.
   literal per line would have made the irreducible files self-evident: five of
   my nine remaining offenders are 100% bare-identifier hits that no wire-format
   work can ever clear.
+
+## 2026-08-14 · Claude · eda — clear the frozen `concept` layer-name debt (layer-names + kicad-tech-layer-names)
+
+- **good:** the two-context exemption (line-leading comments, Zig `test` spans)
+  is what made this task finishable. 79 frozen identities carried only **158**
+  live occurrences between them; the other 52 identities were already comment-
+  or golden-only. A rule that counted goldens would have made this a rewrite of
+  every test fixture in the tree instead of a two-hour refactor.
+- **friction:** but there is no way to SEE that split from the tool. `concept`
+  reports "N resolved" and nothing else once a file is frozen, so to know which
+  of the 79 identities still had real drift I had to re-implement the scrubber
+  (comment blanking + `test` decl blanking + the `*` wildcard matcher) in Python
+  against `checks/concept.zig` and diff it against raw grep to trust it. That
+  was ~40 minutes before the first line of real work. A `guardian-check concept
+  . --show-frozen` (or `--verbose` actually printing the frozen hits) would have
+  been the whole reconnaissance step.
+- **wish:** same as the previous entry, from the other side — a per-line
+  matched-literal in the report. My scanner had to print it for me to triage
+  `In*.Cu` hits: the ONE genuinely irreducible finding in 79 identities is the
+  vendored `three.min.js`, where `In*.Cu` matches `t.CubicInterpolant=jo,t.Cu`
+  in minified three.js. `*` excludes whitespace and quotes but not `,`/`=`/`.`,
+  so it crosses token boundaries inside minified code. Two possible fixes, both
+  cheap: let `*` stop at more punctuation, or note in `explain concept` that a
+  vendored bundle belongs in the rule's `owner` list (the fix-hint already says
+  "add this path to that rule's owner list" but it reads as being about a real
+  owner, not an exclusion).
+- **friction:** `.css` files get no comment exemption at all — `blankCommentLines`
+  only knows `//`, and CSS has only `/* */`. One offender in this task
+  (`pcb_layout.css`) was a pure prose comment above a rule that keys on a class
+  name, i.e. exactly the "cannot disagree with the owner at runtime" case the
+  exemption exists for. I reworded it, which is fine, but the module doc claims
+  the skip covers "every `//` language the check reads" — CSS is globbed and is
+  not one of them. Worth either handling `/* */` on a whole line or saying so.
+- **good:** `change-classification` fired exactly once mid-task, on a four-file
+  chunk of pure derivation refactor, and the test it forced was the useful one —
+  nothing covered the `(layer "F.Cu")` header line or an SMD pad's
+  copper/mask/paste set in a generated `.kicad_mod`, so the byte format those
+  exporters write had no oracle at all. Second time in two sessions this check
+  has paid for itself.
+- **good:** `test-no-conditional` caught a two-top-level-loop test I would have
+  shipped, and its message ("a multi-loop finding names the loop that asserts
+  nothing — that is the one to extract") told me precisely which loop to fold
+  into a table. Fixed in one pass with no guessing.
+- **good:** `pub-api-surface` + `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` is the
+  right shape for this work — 18 new pub constants across two accepts, each one
+  a deliberate widening of an owner module's surface, each one reviewed as a
+  diff of `.guardian/pub-api.txt`. No friction; it did what it says.
+- **good:** the prebuilt ReleaseSafe `guardian-check` again — whole-tree
+  `all . --gate --full` in ~1 s made it cheap to re-verify after every chunk
+  rather than only at the end. Final: 75 checks, 0 blocking, 2782 tests green.
