@@ -20,6 +20,7 @@ const merge_file = @import("cli/merge_file.zig");
 const merge_driver = @import("cli/merge_driver.zig");
 const merge_state = @import("checks/merge_state.zig");
 const explain = @import("cli/explain.zig");
+const introspect = @import("cli/introspect.zig");
 const doctor = @import("cli/doctor.zig");
 const spec_sync = @import("cli/spec_sync.zig");
 const test_filter_cmd = @import("cli/test_filter.zig");
@@ -136,6 +137,8 @@ pub fn main(process_init: std.process.Init) !void {
         .summary = parsed.summary,
         .verbose = parsed.verbose,
         .json = parsed.json,
+        .list = parsed.list,
+        .dry_run = parsed.dry_run,
         .args_only = parsed.args_only,
         .check_filter = parsed.check_filter,
         .target_path = parsed.target_path,
@@ -185,6 +188,10 @@ const ParsedArgs = struct {
     /// `--verbose`: replay every check's output in full (overrides --summary).
     verbose: bool = false,
     json: bool = false,
+    /// `--list`: report one check's baselined rows (NEW / LIVE / RESOLVED).
+    list: bool = false,
+    /// `--dry-run`: print one check's current findings and write nothing.
+    dry_run: bool = false,
     /// `--args`: `test-filter` writes its derived argument string to stdout.
     args_only: bool = false,
     check_filter: ?[]const u8 = null,
@@ -281,6 +288,10 @@ fn takeToggle(parsed: *ParsedArgs, arg: []const u8) bool {
         parsed.show_version = true;
     } else if (std.mem.eql(u8, arg, "--json")) {
         parsed.json = true;
+    } else if (std.mem.eql(u8, arg, "--list")) {
+        parsed.list = true;
+    } else if (std.mem.eql(u8, arg, "--dry-run")) {
+        parsed.dry_run = true;
     } else if (std.mem.eql(u8, arg, "--prune-stale")) {
         parsed.prune_stale = true;
     } else if (std.mem.eql(u8, arg, "--yes")) {
@@ -399,6 +410,17 @@ fn nonEmpty(value: ?[]const u8) ?[]const u8 {
 // Routes the parsed command to `all`, or to a registered command (optionally
 // wrapped in baseline mode). Propagates error.CheckFailed to the caller.
 fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []const u8) !void {
+    // `--list` / `--dry-run` introspect ONE check's rows and write nothing.
+    // Refusing them on a composed command is deliberate: silently ignoring a
+    // flag is exactly the failure mode this pair exists to remove.
+    if (introspectionUnsupported(ctx, command)) {
+        reporter.fail("--list / --dry-run introspect one check; `{s}` is not a single gate check", .{command});
+        reporter.detail(
+            "  fix: guardian-check <check> {s} --list   (run `guardian-check explain` to list check names)\n",
+            .{ctx.project_dir},
+        );
+        return error.CheckFailed;
+    }
     if (needsRequiredInputs(command)) try required_inputs.validate(ctx);
     if (std.mem.eql(u8, command, run_all.command_name)) {
         return run_all.run(ctx);
@@ -453,6 +475,10 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // a single-check run (e.g. `guardian-check pub-api-surface`, `mutate`) has
     // to validate them here so a typo'd GUARDIAN_UPDATE_SNAPSHOT still hard-fails.
     try run_all.validateSelectiveConfig(ctx);
+    // Read-only introspection short-circuits the whole baseline lifecycle: it
+    // reports the check's rows (and, for --dry-run, its unfiltered findings)
+    // and never creates, prunes, re-keys or stamps anything.
+    if (ctx.list or ctx.dry_run) return introspect.run(ctx, cmd);
     // Baseline mode only wraps real gate checks. Non-gates (spec-init, mutate,
     // debt — the run_all SKIP set) must run raw: baseline-wrapping a report like
     // `debt` would capture its own output as "violations" and baseline it.
@@ -468,6 +494,14 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
         },
         else => return e,
     };
+}
+
+/// True when an introspection flag was given for a command that cannot honor
+/// it — `all`, `commit`, `debt`, a typo. Both flags read ONE registered gate
+/// check's rows, so anything else has to be an error rather than a no-op.
+fn introspectionUnsupported(ctx: *const registry.RunCtx, command: []const u8) bool {
+    if (!ctx.list and !ctx.dry_run) return false;
+    return !run_all.isAllCheck(command);
 }
 
 fn needsRequiredInputs(command: []const u8) bool {
@@ -553,6 +587,7 @@ test {
     _ = @import("merge/three_way.zig");
     _ = @import("merge/scan.zig");
     _ = @import("cli/explain.zig");
+    _ = @import("cli/introspect.zig");
     _ = @import("version.zig");
     _ = @import("reporter.zig");
     _ = @import("sink.zig");
@@ -749,6 +784,41 @@ test "parseArgs reads --summary and --verbose" {
     const plain = try a.alloc([:0]u8, 1);
     plain[0] = try a.dupeSentinel(u8, "all", 0);
     try std.testing.expect(parseArgs(plain).summary);
+}
+
+// spec: Baseline Introspection - Refuses the introspection flags on a command that is not a single gate check
+
+test "the introspection flags parse and are refused on a composed command" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const args = try a.alloc([:0]u8, 4);
+    args[0] = try a.dupeSentinel(u8, "all", 0);
+    args[1] = try a.dupeSentinel(u8, ".", 0);
+    args[2] = try a.dupeSentinel(u8, "--list", 0);
+    args[3] = try a.dupeSentinel(u8, "--dry-run", 0);
+    const parsed = parseArgs(args);
+    try std.testing.expect(parsed.list);
+    try std.testing.expect(parsed.dry_run);
+
+    const cfg: config_mod.Config = .{};
+    const ctx: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .list = parsed.list,
+        .dry_run = parsed.dry_run,
+    };
+    // `all` composes the whole suite: there is no single row set to list, so
+    // the flag has to be an error rather than a silent no-op — a flag that
+    // reads as accepted and does nothing is the failure this pair removes.
+    try std.testing.expect(introspectionUnsupported(&ctx, "all"));
+    // A registered gate check is exactly what the flags are for.
+    try std.testing.expect(!introspectionUnsupported(&ctx, "concept"));
+    // Without either flag nothing is refused.
+    const plain: registry.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+    try std.testing.expect(!introspectionUnsupported(&plain, "all"));
 }
 
 // spec: Configuration - Parses the intent flag for the commit command

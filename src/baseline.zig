@@ -142,48 +142,83 @@ fn isHintStart(trimmed: []const u8) bool {
     return false;
 }
 
-/// Multiset diff of a stored v3 baseline (identity keys) against the current
+/// A check's current violations split three ways against a stored key set.
+///
+/// The gate needs two of the three (`added` fails a run, `removed` prunes), and
+/// read-only introspection needs the third: `live` is the frozen debt that is
+/// STILL REAL, which a baselined check's `N resolved` summary can't express.
+/// One split serves both, so a `--list` can never disagree with the gate about
+/// which row is new.
+pub const Split = struct {
+    /// Firing with no recorded counterpart — the violations that fail a run.
+    added: []const Keyed,
+    /// Firing AND recorded: grandfathered debt that still fires today.
+    live: []const Keyed,
+    /// Recorded keys with nothing firing behind them any more.
+    removed: []const []const u8,
+};
+
+/// Accumulators for `splitAgainst`, held together so the merge stays one loop.
+const Groups = struct {
+    added: std.ArrayList(Keyed) = .empty,
+    live: std.ArrayList(Keyed) = .empty,
+    removed: std.ArrayList([]const u8) = .empty,
+};
+
+/// Multiset split of a stored v3 baseline (identity keys) against the current
 /// violations. Matching is by `Keyed.key` alone, so anything the key ignores —
 /// source line numbers, counts and caps, and (for a check that sets an explicit
-/// `identity`) the entire message wording — is neither added nor removed.
-/// Multiplicity is preserved: N hits sharing one key still diff correctly, and a
-/// genuinely new violation still surfaces as `added`, reported as its rendered
-/// line rather than its key.
-fn diffKeys(arena: Allocator, old: snapshot.Snapshot, current: []const Keyed) Allocator.Error!snapshot.Diff {
-    const order = struct {
-        fn lt(_: void, a: Keyed, b: Keyed) bool {
-            const c = std.mem.order(u8, a.key, b.key);
-            return if (c != .eq) c == .lt else std.mem.order(u8, a.line, b.line) == .lt;
-        }
-    }.lt;
-    const olds = try arena.dupe([]const u8, old.lines);
+/// `identity`) the entire message wording — lands in `live` rather than moving
+/// between added and removed. Multiplicity is preserved: N hits sharing one key
+/// still split correctly.
+pub fn splitAgainst(arena: Allocator, stored: []const []const u8, current: []const Keyed) Allocator.Error!Split {
+    const olds = try arena.dupe([]const u8, stored);
     const news = try arena.dupe(Keyed, current);
     std.mem.sort([]const u8, olds, {}, lessThan);
-    std.mem.sort(Keyed, news, {}, order);
+    std.mem.sort(Keyed, news, {}, keyedLessThan);
 
-    var added: std.ArrayList([]const u8) = .empty;
-    var removed: std.ArrayList([]const u8) = .empty;
+    var groups: Groups = .{};
     var i: usize = 0;
     var j: usize = 0;
     while (i < olds.len and j < news.len) {
         switch (std.mem.order(u8, olds[i], news[j].key)) {
             .eq => {
+                try groups.live.append(arena, news[j]);
                 i += 1;
                 j += 1;
             },
             .lt => {
-                try removed.append(arena, olds[i]);
+                try groups.removed.append(arena, olds[i]);
                 i += 1;
             },
             .gt => {
-                try added.append(arena, news[j].line);
+                try groups.added.append(arena, news[j]);
                 j += 1;
             },
         }
     }
-    while (i < olds.len) : (i += 1) try removed.append(arena, olds[i]);
-    while (j < news.len) : (j += 1) try added.append(arena, news[j].line);
-    return .{ .added = try added.toOwnedSlice(arena), .removed = try removed.toOwnedSlice(arena) };
+    while (i < olds.len) : (i += 1) try groups.removed.append(arena, olds[i]);
+    while (j < news.len) : (j += 1) try groups.added.append(arena, news[j]);
+    return .{
+        .added = try groups.added.toOwnedSlice(arena),
+        .live = try groups.live.toOwnedSlice(arena),
+        .removed = try groups.removed.toOwnedSlice(arena),
+    };
+}
+
+fn keyedLessThan(_: void, a: Keyed, b: Keyed) bool {
+    const c = std.mem.order(u8, a.key, b.key);
+    return if (c != .eq) c == .lt else std.mem.order(u8, a.line, b.line) == .lt;
+}
+
+/// The lifecycle's view of `splitAgainst`: additions reported as their rendered
+/// lines (a failure reads as a diagnostic, not as a key) and removals as the
+/// stored keys the prune drops.
+fn diffKeys(arena: Allocator, old: snapshot.Snapshot, current: []const Keyed) Allocator.Error!snapshot.Diff {
+    const parts = try splitAgainst(arena, old.lines, current);
+    const added = try arena.alloc([]const u8, parts.added.len);
+    for (parts.added, 0..) |k, i| added[i] = k.line;
+    return .{ .added = added, .removed = parts.removed };
 }
 
 /// Writes `current`'s identity keys as the baseline file contents. Uses the
@@ -406,7 +441,12 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
 /// paths produce the same `<check>|<file>|<discriminator>` key shape, so a check
 /// gains precision by adding an identity without any baseline disruption beyond
 /// that check's own re-key.
-fn keyedViolations(
+///
+/// Public so read-only introspection (`--list` / `--dry-run`, cli/introspect.zig)
+/// keys a check's current findings through the SAME function the gate does — a
+/// listing derived any other way could disagree with the gate about which row
+/// is new, which is the one thing it must never do.
+pub fn keyedViolations(
     arena: Allocator,
     check_name: []const u8,
     captured: []const u8,
@@ -487,7 +527,7 @@ fn processOutcome(
     // deny_growth: a refresh (global or selective) may only rewrite this
     // check's baseline if it doesn't grow. Guards the flagship 1:1 spec map —
     // today's fastest-growing frozen debt — from being ratified upward.
-    try denyGrowthGuard(a, ctx, check_name, path, violations.len, force_refresh);
+    try denyGrowthGuard(a, ctx, check_name, path, violations, force_refresh);
 
     const outcome = lifecycle(a, path, violations, force_refresh and may_write, may_write) catch |e| {
         reporter.fail("{s}: baseline I/O failed: {s}", .{ check_name, @errorName(e) });
@@ -871,8 +911,40 @@ fn ratchetDenyGrowthGuard(
             "fix the regressions or remove {s} from deny_growth",
         .{ check_name, check_name },
     );
-    emitDenyGrowthDetail(check_name);
+    const names = try ratchetGrowthNames(a, check_name, old, entries);
+    reportGrowthNames(names);
+    reportGrowthEscape(check_name);
+    try emitDenyGrowthDetail(a, check_name, names);
     return error.CheckFailed;
+}
+
+/// The ratchet keys a refused refresh would raise or add, each rendered with
+/// what changed about it. The ratchet twin of `growthNames`: without it the
+/// refusal says only that *something* would grow, which is not enough to decide
+/// whether lifting the policy is legitimate.
+fn ratchetGrowthNames(
+    a: std.mem.Allocator,
+    check_name: []const u8,
+    old: []const ratchet.Entry,
+    new: []const ratchet.Entry,
+) Allocator.Error![]const []const u8 {
+    const reg = switch (try ratchet.classify(a, old, new)) {
+        .regressed => |r| r,
+        else => return &.{},
+    };
+    const unit = ratchet.unitLabel(check_name);
+    var names: std.ArrayList([]const u8) = .empty;
+    for (reg.grown) |g| try names.append(a, try std.fmt.allocPrint(
+        a,
+        "{s} ({d} -> {d} {s})",
+        .{ g.key, g.old, g.new, unit },
+    ));
+    for (reg.new_offenders) |o| try names.append(a, try std.fmt.allocPrint(
+        a,
+        "{s} (a new key at {d} {s})",
+        .{ o.key, o.value, unit },
+    ));
+    return names.toOwnedSlice(a);
 }
 
 /// What `reportRatchet` needs beyond the outcome itself: the run allocator (for
@@ -893,8 +965,15 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
     // On a read-only run the create/migrate/improve outcomes were classified but
     // not persisted — word them as pending, all green.
     if (!write_allowed) switch (outcome) {
+        // "no ratchet exists" rather than "grandfathered": a first run says in
+        // words that it is RECORDING a starting set, so a deliberate probe of a
+        // new rule cannot read as an established, matched ratchet.
         .created => |n| {
-            reporter.ok("ok: {s}: {d} key(s) grandfathered (run `guardian-check accept {s} .` to record)", .{ check_name, n, check_name });
+            reporter.ok(
+                "ok: {s}: no ratchet exists — {d} key(s) would be recorded as the starting set " ++
+                    "(`--list` to see them; `guardian-check accept {s} .` to record)",
+                .{ check_name, n, check_name },
+            );
             return;
         },
         .migrated => |n| {
@@ -908,7 +987,10 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
         else => {},
     };
     switch (outcome) {
-        .created => |n| reporter.ok("{s}: ratchet baselined ({d} key(s))", .{ check_name, n }),
+        .created => |n| reporter.ok(
+            "{s}: no ratchet existed — recording {d} key(s) as the starting set",
+            .{ check_name, n },
+        ),
         .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
         .matched => |n| reporter.ok("ok: {s}: ratchet matches ({d} key(s))", .{ check_name, n }),
         .improved => |imp| reporter.ok(
@@ -1068,6 +1150,12 @@ pub fn firstFixHint(captured: []const u8) ?[]const u8 {
     return null;
 }
 
+/// How many offending keys a deny_growth refusal names before collapsing to a
+/// `(+N more)` tail. Bounded because a refusal on a wide new rule can involve
+/// hundreds of rows and the point is to make the growth *identifiable*, not to
+/// reprint the baseline.
+const max_listed_growth: usize = 10;
+
 /// Fails the run when `check_name` is in `[baseline] deny_growth` and a refresh
 /// would grow its baseline. Only fires on the refresh path; an existing
 /// baseline is required (initial creation is not "growth"). A no-op otherwise.
@@ -1076,31 +1164,112 @@ fn denyGrowthGuard(
     ctx: *types.RunCtx,
     check_name: []const u8,
     path: []const u8,
-    new_count: usize,
+    violations: []const Keyed,
     force_refresh: bool,
 ) types.RunError!void {
     const old_count = baselineViolationCount(arena, path);
-    if (!growthDenied(ctx.cfg.baseline.deny_growth, check_name, old_count, new_count, force_refresh)) return;
+    if (!growthDenied(ctx.cfg.baseline.deny_growth, check_name, old_count, violations.len, force_refresh)) return;
     reporter.fail(
         "refusing to refresh {s}: baseline would grow {d}→{d}; " ++
             "fix the new violations or remove {s} from deny_growth",
-        .{ check_name, old_count.?, new_count, check_name },
+        .{ check_name, old_count.?, violations.len, check_name },
     );
-    emitDenyGrowthDetail(check_name);
+    const names = try growthNames(arena, path, violations);
+    reportGrowthNames(names);
+    reportGrowthEscape(check_name);
+    try emitDenyGrowthDetail(arena, check_name, names);
     return error.CheckFailed;
 }
 
-/// A structured, allocation-free copy of the policy reason. `run-all` keeps
-/// structured records in concise mode, so an `accept` refusal can never
-/// collapse to "zero findings / no structured detail" while its useful prose
-/// is hidden behind `--verbose`.
-fn emitDenyGrowthDetail(check_name: []const u8) void {
+/// The identity keys a refused refresh would ADD. Returned rather than printed
+/// because the same set has to ride BOTH channels — the bounded detail block and
+/// the structured record concise `accept` output replays — and a refusal that
+/// names its keys on only one of them names them to only half its readers.
+/// Best-effort on the read: an unreadable baseline just yields no names.
+fn growthNames(arena: Allocator, path: []const u8, violations: []const Keyed) Allocator.Error![]const []const u8 {
+    const snap = snapshot.read(arena, path, version) catch return &.{};
+    const parts = try splitAgainst(arena, snap.lines, violations);
+    const out = try arena.alloc([]const u8, parts.added.len);
+    for (parts.added, 0..) |k, i| out[i] = k.key;
+    return out;
+}
+
+/// Names what a refusal would record, bounded. The refusal used to print only a
+/// count, so a reader could not tell a deliberately declared new rule from an
+/// accidental regression without re-deriving the diff by hand — which is the
+/// whole cost this removes.
+fn reportGrowthNames(names: []const []const u8) void {
+    if (names.len == 0) return;
+    reporter.detail("  {d} key(s) would be added or raised:\n", .{names.len});
+    for (names, 0..) |n, i| {
+        if (i == max_listed_growth) {
+            reporter.detail("    (+{d} more)\n", .{names.len - max_listed_growth});
+            break;
+        }
+        reporter.detail("    {s}\n", .{n});
+    }
+}
+
+/// The sanctioned way out for a DELIBERATELY declared new rule, named at the
+/// point of failure. The two-step is defensible policy, but an agent meeting the
+/// refusal cold cannot tell it from "you are being told no", and editing
+/// guardian.toml unprompted reads as gate-tampering rather than as the
+/// documented path — so the refusal has to say which it is.
+fn reportGrowthEscape(check_name: []const u8) void {
+    reporter.detail(
+        "  if this growth is a deliberately DECLARED new rule (not a regression), the sanctioned two-step is:\n" ++
+            "    1. remove \"{s}\" from [baseline] deny_growth in guardian.toml\n" ++
+            "    2. guardian-check accept {s} .\n" ++
+            "    3. restore the deny_growth entry, in the same commit\n",
+        .{ check_name, check_name },
+    );
+}
+
+/// A structured copy of the policy reason. `run-all` keeps structured records in
+/// concise mode, so an `accept` refusal can never collapse to "zero findings /
+/// no structured detail" while its useful prose is hidden behind `--verbose` —
+/// which is why the offending keys are named HERE too and not only in the
+/// detail block above.
+fn emitDenyGrowthDetail(
+    arena: Allocator,
+    check_name: []const u8,
+    names: []const []const u8,
+) Allocator.Error!void {
     reporter.emit(.{
         .check = check_name,
-        .message = "acceptance refused because the configured deny_growth policy would grow recorded debt",
-        .fix_hint = "fix the new violations, or deliberately remove this check from [baseline] deny_growth",
+        .message = try refusalMessage(arena, names),
+        .fix_hint = "fix the new violations, or — for a deliberately declared new rule — remove this check " ++
+            "from [baseline] deny_growth, run the accept, and restore the entry in the same commit",
         .identity = "deny-growth-refusal",
     });
+}
+
+/// The frozen half of the refusal message. Split out so the identity-keyed
+/// record keeps one reason string whether or not any key could be named.
+const refusal_reason = "acceptance refused because the configured deny_growth policy would grow recorded debt";
+
+/// How many keys the one-line refusal record names inline. Short, because it
+/// rides a summary line; the full bounded list is in the detail block.
+const max_named_growth: usize = 3;
+
+/// The refusal line with a bounded sample of the keys it refuses appended.
+/// Concise output replays this record rather than the detail block, so a
+/// refusal that names nothing here names nothing at all to the reader who did
+/// not think to add `--verbose`.
+fn refusalMessage(arena: Allocator, names: []const []const u8) Allocator.Error![]const u8 {
+    if (names.len == 0) return refusal_reason;
+    const shown = @min(names.len, max_named_growth);
+    var buf: std.ArrayList(u8) = .empty;
+    try buf.appendSlice(arena, refusal_reason ++ ": ");
+    for (names[0..shown], 0..) |n, i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        try buf.appendSlice(arena, n);
+    }
+    if (names.len > shown) try buf.appendSlice(
+        arena,
+        try std.fmt.allocPrint(arena, " (+{d} more)", .{names.len - shown}),
+    );
+    return buf.toOwnedSlice(arena);
 }
 
 /// Pure decision for denyGrowthGuard: a refresh of a deny_growth check with an
@@ -1139,8 +1308,18 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
     // "run accept to record it" instead of a "baselined/pruned/re-keyed" that
     // never touched disk. All stay green.
     if (!write_allowed) switch (outcome) {
+        // A CREATION must not read like a match. `grandfathered` said only that
+        // the findings were accepted, so a deliberate probe of a brand-new
+        // [[ban]] / [[concept]] rule — the run where "did my rule fire?" is the
+        // whole question — was indistinguishable from an established baseline
+        // holding steady. Say instead that there is no baseline yet and that
+        // these N findings are what would be frozen.
         .created => |n| {
-            reporter.ok("ok: {s}: {d} violation(s) grandfathered (run `guardian-check accept {s} .` to record)", .{ check_name, n, check_name });
+            reporter.ok(
+                "ok: {s}: no baseline exists — {d} violation(s) would be recorded as the starting set " ++
+                    "(`--list` to see them; `guardian-check accept {s} .` to record)",
+                .{ check_name, n, check_name },
+            );
             return;
         },
         .shrunk => |s| {
@@ -1154,7 +1333,10 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
         else => {},
     };
     switch (outcome) {
-        .created => |n| reporter.ok("{s}: baselined {d} violation(s)", .{ check_name, n }),
+        .created => |n| reporter.ok(
+            "{s}: no baseline existed — recording {d} violation(s) as the starting set",
+            .{ check_name, n },
+        ),
         .matched => |n| reporter.ok("ok: {s}: baseline matches ({d} violation(s))", .{ check_name, n }),
         .shrunk => |s| reporter.ok(
             "{s}: {d} resolved, baseline pruned (now {d})",
@@ -2152,6 +2334,116 @@ test "growthDenied blocks refresh growth only for a listed check with a prior ba
     try std.testing.expect(!growthDenied(deny, "spec", null, 5, true));
 }
 
+// spec: Baseline Introspection - Splits a check's current findings into new, live, and resolved rows
+
+test "splitAgainst separates unrecorded, still-firing, and resolved rows" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const stored = [_][]const u8{ "c|a.zig|one", "c|a.zig|one", "c|b.zig|two", "c|gone.zig|three" };
+    const current = [_]Keyed{
+        .{ .key = "c|a.zig|one", .line = "a.zig:1: one" },
+        .{ .key = "c|b.zig|two", .line = "b.zig:2: two" },
+        .{ .key = "c|new.zig|four", .line = "new.zig:4: four" },
+    };
+    const parts = try splitAgainst(a, &stored, &current);
+    // `live` is the group a baselined check could never report: frozen debt
+    // that STILL fires, as opposed to frozen debt something already fixed.
+    try std.testing.expectEqual(@as(usize, 2), parts.live.len);
+    // The second copy of the duplicated key has no current counterpart, so it
+    // resolves alongside the vanished one — multiplicity is consumed, not
+    // ignored, exactly as the gate's own pass/fail diff does it.
+    try std.testing.expectEqual(@as(usize, 2), parts.removed.len);
+    try std.testing.expectEqual(@as(usize, 1), parts.added.len);
+    try std.testing.expectEqualStrings("new.zig:4: four", parts.added[0].line);
+}
+
+// spec: Baseline Introspection - Names the keys a refused deny_growth refresh would add
+
+test "the deny-growth refusal names each key it would add, on both channels" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = "zig-cache/test-baseline-growth-keys.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+    _ = try lifecycle(a, path, try keyedLines(a, "concept", &.{"alpha"}), false, true);
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const grown = try keyedLines(a, "concept", &.{ "alpha", "beta", "gamma" });
+    const names = try growthNames(a, path, grown);
+    reportGrowthNames(names);
+    try emitDenyGrowthDetail(a, "concept", names);
+    // A count alone ("would grow 1→3") cannot tell a deliberately declared new
+    // rule from an accidental regression; the keys can. The already-recorded
+    // key is not growth, so it must not appear among them.
+    try std.testing.expectEqual(@as(usize, 2), names.len);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "2 key(s) would be added or raised") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "beta") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "gamma") != null);
+    // Concise `accept` output replays the RECORD, not the detail block, so the
+    // keys have to survive into the record's own message as well.
+    try std.testing.expect(std.mem.indexOf(u8, cap.records.items[0].message, "beta") != null);
+    // A bounded sample: three names inline, the rest counted.
+    const many = [_][]const u8{ "k1", "k2", "k3", "k4", "k5" };
+    try std.testing.expect(std.mem.endsWith(u8, try refusalMessage(a, &many), "k1, k2, k3 (+2 more)"));
+}
+
+// spec: Baseline Introspection - Names the sanctioned two-step for a deliberately declared new rule
+
+test "the deny-growth refusal spells out the declare-a-new-rule escape" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    reportGrowthEscape("concept");
+    // The refusal has to name the sanctioned path, not just say no: an agent
+    // meeting it cold cannot otherwise tell the documented two-step from
+    // routing around a real finding, and editing guardian.toml unprompted
+    // reads as gate-tampering.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "deny_growth in guardian.toml") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian-check accept concept .") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "restore the deny_growth entry") != null);
+}
+
+// spec: Baseline Introspection - Words a first-run baseline or ratchet creation as a recorded starting set
+
+test "a created baseline or ratchet says so instead of reporting a grandfathered set" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // Recorded (a metadata-writable run) and pending (an ordinary one) both say
+    // there was no baseline. "grandfathered" alone read as an established
+    // baseline holding steady, which is the opposite of what a first probe of a
+    // new [[ban]]/[[concept]] rule needs to hear.
+    try reportOutcome("ban", .{ .created = 2 }, true);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ban: no baseline existed — recording 2") != null);
+    cap.buf.clearRetainingCapacity();
+    try reportOutcome("ban", .{ .created = 2 }, false);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "no baseline exists") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "starting set") != null);
+    // The ratchet half of the same lifecycle carries the same wording.
+    cap.buf.clearRetainingCapacity();
+    try reportRatchet("file-size", .{ .created = 3 }, .{
+        .allocator = std.testing.allocator,
+        .fix_hint = null,
+        .records = &.{},
+        .write_allowed = true,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "no ratchet existed — recording 3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "grandfathered") == null);
+}
+
 // spec: Baseline Mode - Keeps the deny_growth policy reason visible in concise acceptance output
 test "deny-growth refusal emits structured diagnostic detail" {
     var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
@@ -2160,7 +2452,7 @@ test "deny-growth refusal emits structured diagnostic detail" {
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
 
-    emitDenyGrowthDetail("completeness");
+    try emitDenyGrowthDetail(std.testing.allocator, "completeness", &.{});
     try std.testing.expectEqual(@as(usize, 1), cap.records.items.len);
     try std.testing.expectEqualStrings("completeness", cap.records.items[0].check);
     try std.testing.expect(std.mem.indexOf(u8, cap.records.items[0].message, "deny_growth") != null);
