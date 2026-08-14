@@ -5955,3 +5955,56 @@ manifests instead.
 - **good:** selective `pub-api-surface` acceptance showed exactly the two
   retired synthetic-refdes helpers and six intentional stroke-font symbols,
   then reverified the refreshed snapshot without moving unrelated baselines.
+
+## 2026-08-14 · claude · eda — unify the two `lib/` read caps onto one owner
+
+- **good:** `change-classification` did exactly the job it exists for. I had
+  reasoned myself into "this is a pure refactor, the precedent commit added no
+  spec bullet, skip the test" — and `zig build test` agreed, exiting 0. The
+  commit-tier gate then refused with `11 findings … 3 behavioral line(s) added`
+  and named the fix. It was right: four of the touched lines RAISED a file-read
+  cap from 256 KiB to 1 MiB, which is a behavior change I had talked myself out
+  of testing. The test I then wrote pins the caps to their sizing evidence and
+  is the only thing standing between a future edit and a silent re-lowering.
+- **friction:** that same rung is invisible until `commit`. `zig build --seed=1
+  test` (the command the project's own docs name as the finishing gate) passed
+  green on a tree the commit gate refused, so I paid a full ~70 s suite run, wrote
+  a commit message, and only discovered the gap when the hook fired. A
+  `guardian-check change-classification .` exists and is instant — but nothing in
+  the green `zig build test` output hints that a stricter tier is still ahead.
+  A one-line note on a green non-commit run ("commit tier additionally enforces:
+  change-classification, …") would have saved the round trip.
+- **good:** `explain change-classification` earned its keep by pre-empting the
+  wrong move — `Not an accept: "N behavioral line(s) added" is not baseline churn
+  — there is no snapshot to ratify`, naming both `GUARDIAN_UPDATE_SNAPSHOT=` and
+  `accept` as things that will NOT clear it. That is the exact instinct an agent
+  reaches for first, and the check says "no" before the wasted attempt.
+- **good:** the `spec` unlinked-tag error is the best-worded diagnostic I hit:
+  `SPEC.md has no `## lib_limits` heading — add the heading, then the bullet
+  `- <the tag text verbatim>``. Copy-paste, one edit, done — no guessing at the
+  1:1 mapping's spelling rules.
+- **good:** selective `pub-api-surface` acceptance again — `delta: 2 new
+  symbol(s), 0 changed, 0 removed — pure additions, safe to accept` is the whole
+  decision in one line, and the accept run re-verified rather than trusting me.
+- **friction:** the `completeness` cost of declaring a new `## ` section is real
+  and is discovered only by trying it. A new top-level module here was two
+  comptime `usize` constants — no I/O, no parsing, no mutable state — and it still
+  owed all eight scenario categories. Writing eight `completeness-waiver:` bullets
+  for a file that declares two integers is more prose than the module, and the
+  honest ones all say the same thing ("this module has no runtime path"). A
+  recognized shape — a constants-only module, or a single waiver covering the
+  categories that are vacuous for one — would keep the ceremony proportional. I
+  am NOT asking for the gate to be loosened: the waivers are individually true
+  and I would rather write them than have the section silently exempt.
+- **wish:** `divergent-const` is keyed on file-scope const NAMES, which is what
+  made this follow-up necessary at all: the previous commit unified all ten
+  same-named consts and pruned the baseline to 0, and the tree still held six
+  more readers of the same two file classes spelling the cap as a bare literal
+  (`1024 * 1024`, `256 * 1024`, `1024 * 256`, and `1 << 18` — four spellings of
+  two numbers) plus a fourth NAME for one of them. The check reported a clean
+  0 rows the entire time. A companion that flags a bare integer literal in an
+  argument position where a named const of that value is already used elsewhere
+  in the tree would have found all six directly; as it stands the only way to
+  find them was to grep every `readFileAlloc` in `src/` by hand and read each
+  path. Worth saying plainly because the 0-row baseline actively reads as "this
+  fact is now consistent", and it was not.
