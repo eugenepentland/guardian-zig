@@ -6793,3 +6793,25 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — keep RF via soldermask relief face-specific
 - **good:** The diff-scoped `spec` gate caught that renaming the mask-relief behavior tag left the old SPEC bullet unverified; after updating the exact bullet, focused solver, Gerber, JSON, and viewer tests all passed, and the whole-tree commit/release gates completed with zero blocking findings.
 - **friction:** Every successful filtered test run prints `failed command: ...` immediately after `guardian/test: PASS`, which looks contradictory and required checking the enclosing Zig build exit code each time.
+
+## 2026-08-14 · claude (fable) · eda — Wave-0 integration merge + deploy
+
+- good: the whole ladder held — six branches → one integration worktree → one
+  prepare-release (tests 90 s / build 250 s concurrent) → merge → tree-keyed
+  candidate adoption → health-checked restart, prod never blinked. The new
+  system checks caught their own campaign twice during integration: the
+  corrected '/'-only split in critical_rough became a NEW canonical-idiom row,
+  and a keep-both SPEC.md resolution resurrected a bullet main had deleted,
+  which spec flagged as the single unverified row.
+- bug: the spec scanner walks every .zig under the PROJECT DIR including
+  .claude/worktrees/ — running `guardian-check spec .` against a checkout with
+  six live branch worktrees reported 95 "unlinked tags" that were really the
+  branches' own tagged tests seen against main's bullet-less SPEC. Cost a
+  full false-alarm investigation of main's health. The walker should skip
+  .claude/worktrees (or honor gitignore) like git itself does.
+- friction: the deploy log prints "no verified candidate for <merge-sha>;
+  preparing tests + build concurrently" BEFORE the tree-keyed lookup succeeds
+  — the adoption then logs "adopted verified candidate for identical tree".
+  The first line reads as adoption failure and triggered a needless
+  fallback-path analysis; naming the commit-keyed miss as "trying tree key
+  next" would keep the log honest about the ladder.
