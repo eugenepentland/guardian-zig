@@ -211,8 +211,56 @@ const entries = [_]Entry{
     .{ .name = "imports", .text =
     \\Why: a cycle in the `@import` graph makes modules impossible to reason about
     \\or reuse in isolation — an easy accident when an agent wires two files.
+    \\Scope: this is the CYCLE check — a structural illness, derived from the
+    \\graph alone, exempt from nothing. Directional layer rules ("core may not
+    \\import serve") are the separate, configured `import-layering` check.
     \\Fix: extract the shared types into a third module, or invert one edge.
     \\Exempt: none — cycles are always a defect. Break the loop.
+    },
+    .{ .name = "import-layering", .text =
+    \\Scope: this is the DIRECTION check, not the cycle one. A layering edge is
+    \\perfectly acyclic and compiles fine; it is wrong only because you declared
+    \\which way your layers point. `imports` (cycles) reads no config and exempts
+    \\nothing; this one reads `[[layering]]` and exempts what you say it may.
+    \\Why: an agent — or a hurried refactor — reaches UP a layer because the
+    \\helper it wants happens to live there. Measured in eda (2026-08-14): a
+    \\core-layer `src/kicad_pcb/import_layout_command.zig` importing
+    \\`src/serve/pcb_layout_import.zig`, because sidecar persistence lives in
+    \\serve/ — acyclic, so `imports` passed, and nothing else could say a word.
+    \\Declare one:
+    \\  [[layering]]
+    \\  name = "core-no-serve"          # kebab-case, unique; names the violation
+    \\  from = ["src/kicad_pcb/*"]      # the files the rule constrains
+    \\  to   = ["src/serve/*"]          # what they may not import
+    \\  allow = ["src/kicad_pcb/serve_adapter.zig"]  # the sanctioned adapter
+    \\  reason = "the format layer must not reach up into the web layer"
+    \\Every key but `allow` is required: a rule with no `from`/`to` matches no
+    \\edge and a rule with no `reason` leaves a violation nobody can act on, so
+    \\both are config errors rather than entries that sit there enforcing
+    \\nothing.
+    \\Fix: invert the dependency, or move the shared type into a module BOTH
+    \\layers may import — the same extraction the cycle check asks for, done
+    \\before there is a cycle. The rule's `reason` is the half of the message
+    \\worth reading, which is why a rule cannot omit it.
+    \\Matching: on RESOLVED, project-relative paths. `import_graph` normalizes
+    \\every edge against the importing file's directory, so the
+    \\`../serve/pcb_layout_import.zig` a core file actually writes is matched as
+    \\`src/serve/pcb_layout_import.zig` — the only spelling a `to` glob could be
+    \\written against. `std`, `builtin`, `root` and package imports are not
+    \\paths and are never candidates. Patterns are Guardian's ordinary globs:
+    \\`*` is the wildcard and a pattern without one is a plain substring.
+    \\Ratcheting a coupling surface down: this is what the per-EDGE baseline is
+    \\for. eda's serve/ imports placement internals across 38 files (35 of them
+    \\straight into a 12.3k-line optimizer.zig); declare the rule, let baseline
+    \\mode freeze today's 38 edges, and the 39th fails while the count only
+    \\falls as files move onto the extracted types.
+    \\Exempt: add the path to that rule's `allow`, narrow its `from` / `to`,
+    \\exempt a file from every rule with `[[allow]] check = "import-layering"`
+    \\(the top-level `exclude` list drops it too), or delete the rule.
+    \\Baseline: one violation per (rule, source file, target file), keyed
+    \\`<rule>|<from>|<to>` — the EDGE, not the file. A file with two forbidden
+    \\imports is two rows, so removing one lands green while the other stays
+    \\frozen; a per-file key would freeze the file whole and hide the second.
     },
     .{ .name = "pub-api-surface", .text =
     \\Why: an agent silently widens (or breaks) the public API — a new pub fn, a
@@ -1264,6 +1312,24 @@ test "explain concept states what is blanked and where a fix may land" {
     try std.testing.expect(std.mem.indexOf(u8, text, "LEAF of the import graph") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "minified bundle") != null);
+}
+
+// spec: Import Layering - Separates declared import direction from the cycle check in both explanations
+
+test "explain distinguishes the layering rule check from the cycle check" {
+    // The two read the same graph, so each entry has to say which question it
+    // answers or a reader takes the first one they find and stops.
+    const cycles = lookup("imports").?;
+    try std.testing.expect(std.mem.indexOf(u8, cycles, "this is the CYCLE check") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cycles, "import-layering") != null);
+    const layering = lookup("import-layering").?;
+    try std.testing.expect(std.mem.indexOf(u8, layering, "this is the DIRECTION check") != null);
+    // The three things an adopting project otherwise pays for the hard way: the
+    // exact TOML, that a resolved path is what a glob matches, and that the
+    // baseline freezes one EDGE at a time.
+    try std.testing.expect(std.mem.indexOf(u8, layering, "[[layering]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, layering, "RESOLVED, project-relative paths") != null);
+    try std.testing.expect(std.mem.indexOf(u8, layering, "the EDGE, not the file") != null);
 }
 
 // spec: Explain - Documents the commit meta command

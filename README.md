@@ -358,8 +358,9 @@ discoverable only by reading the check's source.
 | **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400); at ≥95% of the hard limit the function draws the same un-collapsible `NEAR HARD CAP` line |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
-| **imports** | Cycles in the `@import` graph |
-| **boundaries** | Forbidden `@import` paths per module rules |
+| **imports** | Cycles in the `@import` graph. The structural half of the import gate: derived from the graph alone, exempt from nothing, always a defect. Declared DIRECTION is the separate `import-layering` check below |
+| **import-layering** *(configured)* | An `@import` edge a `[[layering]]` entry forbids: the source file is covered by the rule's `from` globs, the RESOLVED target path is covered by its `to` globs, and no `allow` glob exempts the source. The declared-architecture half of the import gate — a layering edge is perfectly acyclic and compiles fine; it is wrong only because the project said which way its layers point. Motivating case (eda, 2026-08-14): a core-layer `src/kicad_pcb/import_layout_command.zig` importing `src/serve/pcb_layout_import.zig`, because the sidecar-persistence helper it wants lives in `serve/`. `[[boundary]]` cannot express it — its `forbidden` side is a bare substring with no allow list and no reason, so it cannot carve out the one sanctioned adapter every real layering rule needs. `name` (kebab-case, unique), `from`, `to` and `reason` are all required; a rule missing any of them is a config error rather than an entry that reads like an architecture while enforcing nothing. Targets are matched on resolved, project-relative paths (the `../serve/x.zig` a core file actually writes is judged as `src/serve/x.zig`), so a glob is written once; `std`/`builtin`/`root` and package imports are not paths and are never candidates. One violation per (rule, source file, target file), keyed `<rule>|<from>|<to>` — the EDGE, not the file, so a coupling surface under baseline mode falls one import at a time (eda's `serve/` → placement internals: 38 files, 35 of them straight into a 12.3k-line `optimizer.zig`) and a second forbidden import inside an already-frozen file still fails. Exempt a file from all rules with `[[allow]] check = "import-layering"`; no entries = a trivial pass |
+| **boundaries** | Forbidden `@import` paths per module rules. The older, narrower form of the same idea, kept as it is: one module glob and a bare substring `forbidden` list, no allow list and no reason |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
 | **test-reachability** | A .zig file that declares `test` blocks no test root REFERENCES — Zig never compiles those tests, and the spec check no longer counts their `// spec:` tags as covered (it reports them instead). Reachability follows the referencing edges, not every textual `@import`: `_ = @import("x.zig")`, `_ = alias`, `@import("x.zig").member`, `refAllDecls`, and any import alias the file actually uses — an import nobody mentions compiles nothing. Roots come from `[test_reachability] roots`, else `src/main.zig` / `src/root.zig` / `src/test_root.zig` / `src/tests.zig` / each `.zig` directly under `test/`; when no root resolves the check skips instead of blocking. It also holds that model against ground truth: `guardian-check commit` records how many tests its own run selected (the runner's `guardian/test: N test(s) selected` line), and a run that compiled FEWER tests than the roots reach is reported as a count gap — the model cannot see a reference sitting in code no test analyzes, and the measurement can |
 | **test-coverage** *(opt-in)* | A pub fn with no identifier reference from any test block |
@@ -778,7 +779,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 79 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 80 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1453,6 +1454,25 @@ owner = ["src/board_layers.zig"]
 files = ["src/*.zig", "assets/*.css"]
 reason = "layer names come from board_layers.LayerTable"
 
+# Your own import DIRECTIONS, enforced by the `import-layering` check. Use one
+# when a layer may only be depended on, never depend back — the edge is acyclic
+# and compiles fine, so the `imports` (cycle) check has nothing to say about it.
+# name: kebab-case and unique; it names every violation and leads its baseline
+# key. from: the source files the rule constrains. to: what they may not import,
+# matched on RESOLVED project-relative paths (the `../serve/x.zig` a core file
+# writes is judged as `src/serve/x.zig`). allow: the one sanctioned adapter
+# inside `from` that may cross. reason: which way the layer points and why —
+# appended to every violation. Everything but `allow` is required, because each
+# way of being incomplete reads like a declared architecture while enforcing
+# nothing. Under baseline mode each EDGE freezes on its own, which is what lets
+# a 38-file coupling surface fall one import at a time.
+[[layering]]
+name = "core-no-serve"
+from = ["src/kicad_pcb/*", "src/placement/*"]
+to = ["src/serve/*"]
+allow = ["src/kicad_pcb/serve_adapter.zig"]
+reason = "sidecar persistence lives in serve/; the format layer must not reach up into the web layer"
+
 # divergent-const: one file-scope const NAME holding DIFFERENT values in two
 # files. Default `mode = "units"` groups only names whose trailing `_` segment
 # is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, ...) — a physical quantity is where
@@ -1478,9 +1498,10 @@ commit, nightly, or mutation can update metadata.
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
 unknown names, malformed values, incomplete
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]` entries, a `[[ban]]` chain
-segment that isn't a bare identifier, a `[[concept]]` name that isn't kebab-case
-or that a previous entry already used, and unsafe mutation ranges are hard errors
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[layering]]` entries, a
+`[[ban]]` chain segment that isn't a bare identifier, a `[[concept]]` or
+`[[layering]]` name that isn't kebab-case or that a previous entry already used,
+and unsafe mutation ranges are hard errors
 with a `guardian.toml:line:` diagnostic). String arrays may span lines and
 include comments and trailing commas.
 
@@ -1491,6 +1512,7 @@ include comments and trailing commas.
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
 | `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns` (at least one of the two required), `owner`, `files`, `reason` |
+| `[[layering]]` | `name` (required, kebab-case, unique), `from` (required, non-empty), `to` (required, non-empty), `reason` (required), `allow` |
 | `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1695,8 +1717,8 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 75 check(s) passed
-  run-all: 75 checks — 0 blocking, 3 report-only
+  run-all: 76 check(s) passed
+  run-all: 76 checks — 0 blocking, 3 report-only
   run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```

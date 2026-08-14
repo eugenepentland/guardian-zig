@@ -143,6 +143,22 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Detects cycles in the @import graph
 
+## Import Layering
+
+- Flags an import from a rule's from set into its to set
+- Ignores a forbidden import from a file the rule's allow list exempts
+- Ignores an edge outside the rule's from or to sets
+- Matches a relative import against its resolved project-relative path
+- Passes trivially when no layering rules are configured
+- Reports one violation per rule, source file, and target file
+- Skips a finding whose source file an allow entry or top-level exclude glob names
+- Freezes each forbidden edge separately so only a new one fails
+- Parses layering entries with name, from, to, allow, and reason keys
+- Hard-fails a layering entry missing its name, from, to, or reason
+- Hard-fails a second layering entry reusing an existing name
+- Hard-fails a layering name that is not kebab-case
+- Separates declared import direction from the cycle check in both explanations
+
 ## AST Index
 
 - Builds a parsed-source index by reading and parsing each file once

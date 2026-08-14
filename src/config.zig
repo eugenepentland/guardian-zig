@@ -38,6 +38,34 @@ pub const BanRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// One [[layering]] entry — a DIRECTIONAL import rule this project declares,
+/// enforced by the `import-layering` check. `name` is a kebab-case id that
+/// names the rule in every violation and leads its baseline key; `from` globs
+/// the source files the rule constrains; `to` globs the import targets those
+/// files may not reach (matched on RESOLVED, project-relative paths); `allow`
+/// globs source files exempt from the rule (the one sanctioned adapter);
+/// `reason` says why the layer points this way and is appended to every
+/// violation.
+///
+/// `name`, `from`, `to` and `reason` are all required — a rule missing any of
+/// them is a config error rather than a stored entry, because each way of being
+/// incomplete reads in the config like an enforced architecture while enforcing
+/// nothing (no `from`/`to` matches no edge; no `reason` leaves a violation
+/// nobody can act on; no `name` leaves the finding and its baseline row
+/// anonymous).
+///
+/// `[[boundary]]` is the older, narrower form of the same idea and stays as it
+/// is: one module glob, a bare substring `forbidden` list, no allow list and no
+/// reason. That shape cannot express the carve-out every real layering rule
+/// needs, which is why this one exists beside it.
+pub const LayeringRule = struct {
+    name: []const u8,
+    from: []const []const u8,
+    to: []const []const u8,
+    allow: []const []const u8 = &.{},
+    reason: []const u8,
+};
+
 /// One [[concept]] entry — a named concept whose literal spellings belong to one
 /// owner module, enforced by the `concept` check. `literals` are exact
 /// substrings and `patterns` are minimal `*` wildcards (see
@@ -629,6 +657,10 @@ pub const Config = struct {
     /// [[concept]] entries: project-declared owned concepts (see ConceptRule).
     /// Empty (the default) makes the `concept` check a trivial pass.
     concept_rules: []const ConceptRule = &.{},
+    /// [[layering]] entries: project-declared import directions (see
+    /// LayeringRule). Empty (the default) makes the `import-layering` check a
+    /// trivial pass.
+    layering_rules: []const LayeringRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.

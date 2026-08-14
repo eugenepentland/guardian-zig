@@ -21,6 +21,7 @@ const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
 const BanRule = config.BanRule;
 const ConceptRule = config.ConceptRule;
+const LayeringRule = config.LayeringRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -82,6 +83,8 @@ const required_inputs_key = "required_inputs";
 const literals_key = "literals";
 const patterns_key = "patterns";
 const owner_key = "owner";
+const from_key = "from";
+const to_key = "to";
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
 const ignore_names_key = "ignore_names";
@@ -173,7 +176,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, concept, external };
+const ArrayKind = enum { none, boundary, allow, ban, concept, layering, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -195,6 +198,11 @@ const ParseState = struct {
     cur_owner: std.ArrayList([]const u8) = .empty,
     cur_concept_files: std.ArrayList([]const u8) = .empty,
     concepts: std.ArrayList(ConceptRule) = .empty,
+    cur_layering_name: ?[]const u8 = null,
+    cur_from: std.ArrayList([]const u8) = .empty,
+    cur_to: std.ArrayList([]const u8) = .empty,
+    cur_layering_allow: std.ArrayList([]const u8) = .empty,
+    layerings: std.ArrayList(LayeringRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -267,6 +275,7 @@ const ParseState = struct {
             },
             .ban => try self.flushBan(allocator, diag),
             .concept => try self.flushConcept(allocator, diag),
+            .layering => try self.flushLayering(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -362,6 +371,56 @@ const ParseState = struct {
         });
     }
 
+    /// Closes a `[[layering]]` entry. Four ways to be inert are refused rather
+    /// than stored, because each reads in the config like a declared
+    /// architecture while declaring nothing: no `name` (the violation and the
+    /// `<rule>|<from>|<to>` baseline key are built from it), no `from` and no
+    /// `to` (the rule matches no edge in either direction), no `reason` (the
+    /// violation would name a forbidden import with no statement of which way
+    /// the layer points), and a `name` a previous entry already used (two rules
+    /// under one name would share — and silently freeze with — each other's
+    /// baseline keys).
+    fn flushLayering(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const name = self.cur_layering_name orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[layering]]: missing required key 'name'", .{});
+            return error.IncompleteTable;
+        };
+        try self.requireLayeringRule(allocator, name, diag);
+        for (self.layerings.items) |existing| {
+            if (!std.mem.eql(u8, existing.name, name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[layering]] name '{s}'", .{name});
+            return error.InvalidConfig;
+        }
+        try self.layerings.append(allocator, .{
+            .name = name,
+            .from = try self.cur_from.toOwnedSlice(allocator),
+            .to = try self.cur_to.toOwnedSlice(allocator),
+            .allow = try self.cur_layering_allow.toOwnedSlice(allocator),
+            .reason = self.cur_reason.?,
+        });
+    }
+
+    /// Names the first missing required key of the `[[layering]]` entry being
+    /// closed, or returns cleanly when `from`, `to` and `reason` are all there.
+    fn requireLayeringRule(
+        self: *const ParseState,
+        allocator: Allocator,
+        name: []const u8,
+        diag: *Diagnostic,
+    ) ParseError!void {
+        const missing: ?[]const u8 = if (self.cur_from.items.len == 0)
+            "'from' must be a non-empty string array"
+        else if (self.cur_to.items.len == 0)
+            "'to' must be a non-empty string array"
+        else if (self.cur_reason == null)
+            "missing required key 'reason'"
+        else
+            null;
+        const detail = missing orelse return;
+        try setDiag(allocator, diag, self.array_line, "incomplete [[layering]] '{s}': {s}", .{ name, detail });
+        return error.IncompleteTable;
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -384,6 +443,10 @@ const ParseState = struct {
         self.cur_patterns = .empty;
         self.cur_owner = .empty;
         self.cur_concept_files = .empty;
+        self.cur_layering_name = null;
+        self.cur_from = .empty;
+        self.cur_to = .empty;
+        self.cur_layering_allow = .empty;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -411,6 +474,7 @@ const ParseState = struct {
             .allow => try self.setAllowKey(allocator, kv),
             .ban => try self.setBanKey(allocator, kv),
             .concept => try self.setConceptKey(allocator, kv),
+            .layering => try self.setLayeringKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -457,6 +521,20 @@ const ParseState = struct {
             self.cur_owner = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "files")) {
             self.cur_concept_files = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
+    fn setLayeringKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "name")) {
+            self.cur_layering_name = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, from_key)) {
+            self.cur_from = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, to_key)) {
+            self.cur_to = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "allow")) {
+            self.cur_layering_allow = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
             self.cur_reason = try parseStringAlloc(allocator, kv.val);
         }
@@ -510,6 +588,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "allow")) return .allow;
     if (std.mem.eql(u8, name, "ban")) return .ban;
     if (std.mem.eql(u8, name, "concept")) return .concept;
+    if (std.mem.eql(u8, name, "layering")) return .layering;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -566,6 +645,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     cfg.ban_rules = try st.bans.toOwnedSlice(allocator);
     cfg.concept_rules = try st.concepts.toOwnedSlice(allocator);
+    cfg.layering_rules = try st.layerings.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -664,6 +744,8 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .ban => if (key[0] == 'r') .string else .string_array,
         // literals / patterns / owner / files are arrays; name and reason are prose.
         .concept => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
+        // from / to / allow are arrays; name and reason are prose.
+        .layering => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
         .external => if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, benchmark_key))
             .string
         else if (std.mem.eql(u8, key, "command") or std.mem.eql(u8, key, "inputs") or std.mem.eql(u8, key, "paths"))
@@ -776,7 +858,8 @@ fn validateValue(
         try validateHysteresis(allocator, kv, line_no, diag);
     }
     if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
-    if (st.array_kind == .concept) try validateConceptName(allocator, kv, line_no, diag);
+    if (st.array_kind == .concept) try validateRuleName(allocator, "concept", kv, line_no, diag);
+    if (st.array_kind == .layering) try validateRuleName(allocator, "layering", kv, line_no, diag);
 
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
@@ -893,12 +976,14 @@ fn validateBanChain(
     }
 }
 
-/// Rejects a `[[concept]] name` that is not kebab-case. The name is what every
-/// violation says out loud and — as `<file>|<name>` — what its baseline key is
+/// Rejects a `[[concept]]` / `[[layering]]` `name` that is not kebab-case. The
+/// name is what every violation says out loud and — as `<file>|<name>` for a
+/// concept, `<name>|<from>|<to>` for a layering edge — what its baseline key is
 /// built from, so it is an identifier a reader and a `.guardian/` diff both have
 /// to live with, not free-form prose. `reason` is where prose belongs.
-fn validateConceptName(
+fn validateRuleName(
     allocator: Allocator,
+    kind: []const u8,
     kv: KeyVal,
     line_no: u32,
     diag: *Diagnostic,
@@ -910,8 +995,8 @@ fn validateConceptName(
         allocator,
         diag,
         line_no,
-        "invalid concept name '{s}' (kebab-case: lowercase letters, digits and single inner '-')",
-        .{name},
+        "invalid {s} name '{s}' (kebab-case: lowercase letters, digits and single inner '-')",
+        .{ kind, name },
     );
     return error.InvalidValue;
 }
@@ -1052,13 +1137,14 @@ fn validSectionKeys(section: Section) []const []const u8 {
 }
 
 /// Keys accepted inside a `[[boundary]]` / `[[allow]]` / `[[ban]]` /
-/// `[[external]]` array-of-tables entry.
+/// `[[concept]]` / `[[layering]]` / `[[external]]` array-of-tables entry.
 fn validArrayKeys(kind: ArrayKind) []const []const u8 {
     return switch (kind) {
         .boundary => &.{ "module", "forbidden" },
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
         .concept => &.{ "name", literals_key, patterns_key, owner_key, "files", "reason" },
+        .layering => &.{ "name", from_key, to_key, "allow", "reason" },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -1941,6 +2027,104 @@ test "parse rejects a concept name that is not kebab-case" {
     // Digits and single inner dashes are the accepted shape.
     const ok = try parse(arena.allocator(), "[[concept]]\nname = \"layer-2-names\"\nliterals = [\"F.Cu\"]");
     try std.testing.expectEqualStrings("layer-2-names", ok.concept_rules[0].name);
+}
+
+/// One complete `[[layering]]` entry, reused by the tests below so the shape a
+/// project actually writes is spelled once.
+const layering_toml =
+    \\[[layering]]
+    \\name = "core-no-serve"
+    \\from = ["src/kicad_pcb/*", "src/placement/*"]
+    \\to = ["src/serve/*"]
+    \\allow = ["src/kicad_pcb/serve_adapter.zig"]
+    \\reason = "the format layer must not reach up into the web layer"
+;
+
+// spec: Import Layering - Parses layering entries with name, from, to, allow, and reason keys
+
+test "parse layering array tables with every key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(), layering_toml ++
+        \\
+        \\
+        \\[[layering]]
+        \\name = "leaf-no-cli"
+        \\from = [
+        \\  "src/ast/*", # the parse layer
+        \\  "src/spec/*",
+        \\]
+        \\to = ["src/cli/"]
+        \\reason = "leaves stay reusable"
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.layering_rules.len);
+    const first = cfg.layering_rules[0];
+    try std.testing.expectEqualStrings("core-no-serve", first.name);
+    try std.testing.expectEqual(@as(usize, 2), first.from.len);
+    try std.testing.expectEqualStrings("src/placement/*", first.from[1]);
+    try std.testing.expectEqualStrings("src/serve/*", first.to[0]);
+    try std.testing.expectEqualStrings("src/kicad_pcb/serve_adapter.zig", first.allow[0]);
+    try std.testing.expectEqualStrings(
+        "the format layer must not reach up into the web layer",
+        first.reason,
+    );
+    // `allow` is the one optional key, and a multiline `from` (the shape a real
+    // rule grows into) must not silently parse EMPTY — that would be a rule
+    // reading as an enforced architecture while constraining nothing.
+    const second = cfg.layering_rules[1];
+    try std.testing.expectEqual(@as(usize, 0), second.allow.len);
+    try std.testing.expectEqual(@as(usize, 2), second.from.len);
+    try std.testing.expectEqualStrings("src/spec/*", second.from[1]);
+}
+
+// spec: Import Layering - Hard-fails a layering entry missing its name, from, to, or reason
+
+test "parse rejects a layering entry that would enforce nothing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Each way of being incomplete reads in the config like a declared
+    // architecture while declaring nothing, so all four fail closed and name
+    // the key that is missing.
+    const cases = [_]struct { toml: []const u8, names: []const u8 }{
+        .{ .toml = "[[layering]]\nfrom = [\"src/a/*\"]\nto = [\"src/b/*\"]\nreason = \"r\"", .names = "name" },
+        .{ .toml = "[[layering]]\nname = \"a-b\"\nto = [\"src/b/*\"]\nreason = \"r\"", .names = "'from'" },
+        .{ .toml = "[[layering]]\nname = \"a-b\"\nfrom = [\"src/a/*\"]\nto = []\nreason = \"r\"", .names = "'to'" },
+        .{ .toml = "[[layering]]\nname = \"a-b\"\nfrom = [\"src/a/*\"]\nto = [\"src/b/*\"]", .names = "'reason'" },
+    };
+    for (cases) |case| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(error.IncompleteTable, parseInto(arena.allocator(), case.toml, &diag));
+        try std.testing.expectEqual(@as(u32, 1), diag.line);
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, case.names) != null);
+    }
+}
+
+// spec: Import Layering - Hard-fails a second layering entry reusing an existing name
+
+test "parse rejects a duplicate layering name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // Identity is `<name>|<from>|<to>`, so two rules under one name would share
+    // — and silently freeze under — each other's baseline keys.
+    const content = layering_toml ++ "\n\n" ++ layering_toml;
+    try std.testing.expectError(error.InvalidConfig, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 8), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "duplicate") != null);
+}
+
+// spec: Import Layering - Hard-fails a layering name that is not kebab-case
+
+test "parse rejects a layering name that is not kebab-case" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // The name leads the baseline key and is what every violation says out
+    // loud, so it is an identifier a `.guardian/` diff has to live with.
+    const content = "[[layering]]\nname = \"Core No Serve\"\nfrom = [\"src/a/*\"]\nto = [\"src/b/*\"]\nreason = \"r\"";
+    try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "invalid layering name") != null);
 }
 
 test "parse rejects unsafe mutation invariants" {
