@@ -6815,3 +6815,7 @@ exercise of the new system checks. Grouped friction from all six reports:
   The first line reads as adoption failure and triggered a needless
   fallback-path analysis; naming the commit-keyed miss as "trying tree key
   next" would keep the log honest about the ladder.
+
+## 2026-08-14 · codex · eda — equalize Gerber alphanumeric font metrics
+- **good:** The diff-scoped `spec` check caught an exact-text mismatch after the silkscreen contract was strengthened, the panic-budget check rejected a new test-only `unreachable`, and both passed after direct fixes; the whole-tree commit and release gates then completed with zero blocking findings.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, forcing inspection of the enclosing build exit code to distinguish a green run from a failure.
