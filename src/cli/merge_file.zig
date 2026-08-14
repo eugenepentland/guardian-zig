@@ -359,6 +359,28 @@ test "merge-file resolves a ratchet conflict to the tighter ceilings" {
     try testing.expect(!snapshot.hasRegenMarker(merged));
 }
 
+// spec: Hysteresis - Merges two branches' progress on a tripped entry to the lower value
+
+test "merge-file keeps the deeper cut when both branches paid down a trip" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // A tripped file at 10273 (the eda case) that both branches shrank, and a
+    // second one only theirs carried past its recover line. Min-wins is already
+    // the right rule under hysteresis and this pins it: lower is closer to
+    // recovery, so the merge keeps the deeper cut — never the average, never
+    // ours — and a trip one side CLEARED stays cleared, because re-adding a key
+    // the base had and a side deleted would resurrect debt that is paid.
+    const merged = try runFixture(a, "trip", ".guardian/baselines/file-size.txt", .{
+        "# guardian-snapshot v2\n10273 src/router.zig\n8100 src/done.zig\n",
+        "# guardian-snapshot v2\n9500 src/router.zig\n8100 src/done.zig\n",
+        "# guardian-snapshot v2\n9200 src/router.zig\n",
+    });
+    try testing.expectEqualStrings("# guardian-snapshot v2\n9200 src/router.zig\n", merged);
+    try testing.expect(!snapshot.hasRegenMarker(merged));
+}
+
 // spec: Merge - Merges identity baselines and the public API surface as sets
 
 test "merge-file unions baseline and pub-api rows from real files" {

@@ -69,6 +69,16 @@ pub fn renderFor(v: Verbosity, o: Outcome) Render {
     return if (o.in_scope == 0) .collapsed else .full;
 }
 
+/// Whether a check's `alert` findings must be replayed separately under render
+/// `r`. Only `.full` prints the check's own captured output, which already
+/// contains them; every other fidelity drops that output, and an alert is
+/// precisely the finding that may not be dropped — it says something is one
+/// edit away from a BLOCKING limit (see `near_cap.zig`). So the two collapsing
+/// modes replay it on its own, and nothing is ever printed twice.
+pub fn showsAlerts(r: Render) bool {
+    return r != .full;
+}
+
 /// The single line that stands in for a collapsed check: its name, how many
 /// findings it has, whether any of them touch the diff, and where the detail
 /// went. Deliberately carries the count — "44 finding(s)" is the number the

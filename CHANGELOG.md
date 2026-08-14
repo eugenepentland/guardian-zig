@@ -93,6 +93,49 @@ sibling checkout.
   so one rule reaches the Zig, JS and CSS copies of a single spelling. One
   violation per (file, concept), keyed `<file>|<name>`. No entries = a trivial
   pass.
+- Add hysteresis to the hard-cap ratchets — trip → no accept → shrink to
+  recover — on by default for `file-size` and `function-length`
+  (`[hysteresis] enabled/recover_pct/checks`; `line-length` is supported but
+  opt-in). Crossing a hard cap now TRIPS the subject and cannot be accepted:
+  `accept` and `GUARDIAN_UPDATE_SNAPSHOT` refuse to record the new entry or to
+  raise an existing ceiling, and the failure names the recover line instead of
+  an accept command. The trip is then remembered below the cap — the entry
+  follows the advisory measurement down (every shrink lands green, even while
+  still over the cap), growth blocks, and the entry prunes only once the
+  subject reaches the recover line, `recover_pct` under the cap (10000 → 8000
+  at the default 20), printing a `recovered:` line when it does. Measured
+  motivation: one consumer's three largest files sat at 100–103% of the
+  10000-line cap with five ceiling-raising accepts on one file in nine days,
+  and a file that dipped under the cap had its entry pruned and regrew freely.
+  Relocations still transfer (a `git mv`ed tripped file keeps its entry),
+  first-record adoption still grandfathers over-cap subjects, session accept
+  notes never cover a trip, diff-scoped runs never clear one they could not
+  see, and `enabled = false` restores plain ratchet behavior exactly.
+  `debt --live` marks each tripped key with its recover line and what is left
+  to fall.
+- Stop counting comments and blank lines in the `file-size` metric: a code line
+  is now a non-blank, non-comment line outside `test { ... }` blocks. At a frozen
+  ceiling, deleting doc comments was the cheapest way to buy headroom, so the
+  gate rewarded removing explanation. One function measures it for the gate,
+  `size` and `debt`, and no ratchet migration is needed — values that drop
+  classify as `improved` and auto-lower on the next write-allowed run.
+- Add an un-collapsible pre-trip warning: a file (or function) at ≥95% of its
+  HARD cap emits one `NEAR HARD CAP` line, replayed by the run summary even when
+  the check's own output is collapsed to `N finding(s) — report-only` by
+  `--summary`, `--quiet`, or diff scoping. It is a warning, never a violation:
+  no baseline, ratchet or snapshot records it.
+- Report distance to a blocking limit as a percentage in `debt --live`'s
+  headroom list, and type its `--json` rows with `kind` (`measurement`),
+  `direction`, `unit` and `pct`.
+- Transfer ratchet entries when their subject relocates (`src/relocation.zig`):
+  a git-visible whole-file rename re-keys every entry under the old path, and a
+  uniquely-matched extracted item carries its ceiling to the file it moved into,
+  printing a `moved:` line. A transfer never raises a ceiling and never adds an
+  entry — above the candidate's ceiling, an ambiguous match, and a diff-scoped
+  run that cannot confirm the old key went quiet all stay failures, each naming
+  the recorded entry and its ceiling. `deny_growth` now compares against the
+  relocated recording, so a listed check may move an entry but still not raise
+  one.
 - Make `debt` decision-ready: send `--json` to stdout instead of stderr (so
   `debt --json | jq` receives it), group rows into violation-debt, inventory
   and score sections carrying explicit `kind`/`direction`/`unit` fields, replace

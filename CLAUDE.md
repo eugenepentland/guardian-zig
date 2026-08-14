@@ -466,6 +466,44 @@ refresh that would raise their count (or add a key) fails instead.
 File size, function length, and line length only emit ratchet records beyond
 their generous hard limits; their recommended-limit warnings never need acceptance.
 
+**Those three hard caps are also under hysteresis — trip → no accept → shrink
+to recover** (`[hysteresis]`, `src/hysteresis.zig`; `enabled` default true,
+`recover_pct` default 20 valid 1..90, `checks` default
+`["file-size", "function-length"]` — only the three two-tier names are legal
+and an unknown one hard-fails config parsing). Crossing a hard cap **cannot be
+accepted**: `accept`/`GUARDIAN_UPDATE_SNAPSHOT` refuse to create the entry or
+raise an existing ceiling (the deny_growth refusal path), and the failure drops
+every accept command and names the recover line instead. The entry then
+**remembers the trip**: below the cap it is reconciled against the check's
+*advisory* records (which carry `ratchet_key` + `metric` — the same seam
+`preserveAdvisoryRatchets` uses, so nothing re-measures the tree), so a shrink
+auto-lowers it, growth **fails** ("growth blocks until it reaches <=8000;
+shrinking commits land freely"), and it prunes only at the recover line —
+printing a `recovered:` line, beside relocation's `moved:` ones. Unratcheted
+subjects in the advisory band stay free; first-record adoption still
+grandfathers over-cap subjects (born tripped); relocation transfers still carry
+a tripped entry to its new key; a diff-scoped run holds an entry it did not see
+rather than clearing it; and a session accept note never covers a trip.
+`debt --live` marks each tripped key `TRIPPED — recover at <=N (M to go)`.
+Because the trip is what remains, the near-cap alert of a bound check ends
+`crossing cannot be accepted` instead of `crossing blocks the gate`.
+
+**The file-size metric counts code, and the last warning before a crossing is
+un-collapsible.** A *code line* is a **non-blank, non-comment line outside
+`test { ... }` blocks** — one function (`file_size.codeLines`) measures it for
+the gate, `guardian-check size`, and `debt`, so they cannot drift. Comments and
+blanks used to count, which made deleting doc comments the cheapest way to buy
+headroom at a frozen ceiling: the gate rewarded removing explanation. It no
+longer does, and no ratchet migration is needed — values that drop under the new
+metric classify as `improved` and auto-lower on the next write-allowed run. On
+top of that, a file (or function) at **≥95% of its hard cap** emits one
+`NEAR HARD CAP` line flagged `alert` on the Violation: `run_view.showsAlerts`
+replays it even when the check's own output is collapsed to
+`N finding(s) — report-only`, so `--summary`, `--quiet` and diff-scope collapsing
+can no longer bury the one file that is a line away from blocking. An alert is a
+warning, never a violation: no baseline, ratchet or snapshot records it, and it
+carries no `ratchet_key` of its own.
+
 Every `all`/`nightly` run also drops machine-readable JSONL under the
 git-ignored, digest-excluded `.guardian/cache/`: `last-run.jsonl` (structured
 violations + summary) and `dora.jsonl` (per-run delivery metrics); `mutate`

@@ -301,6 +301,27 @@ pub const BaselineCfg = struct {
     deny_growth: []const []const u8 = &.{},
 };
 
+/// `[hysteresis]` — trip → no accept → shrink to recover, for the two-tier
+/// hard-cap ratchets (see hysteresis.zig). On by default: a hard-cap crossing
+/// stops being one env var away from ratification, and the entry it creates
+/// survives the subject dipping back under the cap, so the prune-then-regrow
+/// loop closes. Everything below the cap is untouched — hysteresis binds only
+/// what crossed.
+pub const HysteresisCfg = struct {
+    enabled: bool = true,
+    /// How far under the hard cap a tripped subject must fall to clear the
+    /// trip, as a percentage of the cap (10000 → 8000 at the default 20).
+    /// Valid 1..90; anything else is a config error. 20 rather than 50 because
+    /// the observed cohesive-extraction quantum is 200–900 lines per module, so
+    /// a 2000-line band is an achievable campaign while a 5000-line one forces
+    /// cutting past the cohesion frontier into mechanical bisection.
+    recover_pct: u32 = 20,
+    /// Which checks the rule binds. Only the two-tier hard-cap checks are
+    /// valid (`hysteresis.supported`); an unknown or single-tier name is a
+    /// config error rather than a silently inert setting.
+    checks: []const []const u8 = &.{ "file-size", "function-length" },
+};
+
 /// How a build-wired gate behaves on a violation. `report` (the default) runs
 /// every check and prints all findings but exits 0, so a dev build always
 /// produces a binary; `block` fails the build on any violation (the historical
@@ -578,6 +599,7 @@ pub const Config = struct {
     bool_ops: BoolOpsCfg = .{},
     line_length: LineLengthCfg = .{},
     baseline: BaselineCfg = .{},
+    hysteresis: HysteresisCfg = .{},
     gate: GateCfg = .{},
     test_filter: TestFilterCfg = .{},
     escape_discipline: EscapeDisciplineCfg = .{},

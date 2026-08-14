@@ -28,6 +28,8 @@ const reporter = @import("../reporter.zig");
 const baseline = @import("../baseline.zig");
 const ratchet = @import("../ratchet.zig");
 const snapshot = @import("../snapshot.zig");
+const hysteresis = @import("../hysteresis.zig");
+const scope = @import("../scope.zig");
 
 /// Runs one check under capture and reports it read-only: `--dry-run` replays
 /// every finding, `--list` splits them against the baseline. Both flags may be
@@ -91,7 +93,7 @@ fn reportList(
         "  note: baseline mode is off for {s} in this project — every row below blocks\n",
         .{check_name},
     );
-    if (ratchet.metricMode(check_name) != null) return listRatchet(a, check_name, path, capture);
+    if (ratchet.metricMode(check_name) != null) return listRatchet(a, ctx, check_name, path, capture);
     return listIdentity(a, check_name, path, capture);
 }
 
@@ -191,17 +193,19 @@ fn printKeys(label: []const u8, meaning: []const u8, keys: []const []const u8) v
 
 /// The threshold-check (baseline v2) path. A ratchet stores a per-item CEILING
 /// rather than a violation, so the equivalent listing is per key: the value
-/// measured NOW against the value frozen for it. Advisory (recommended-limit)
-/// findings are excluded here exactly as they are from the ratchet lifecycle.
+/// measured NOW against the value frozen for it. Which findings count as "now"
+/// is decided exactly as the ratchet lifecycle decides it (`measuredNow`):
+/// blocking records ordinarily, the hysteresis reconciliation where a policy
+/// binds — so advisory findings enter the listing only where they enter the gate.
 fn listRatchet(
     a: Allocator,
+    ctx: *const types.RunCtx,
     check_name: []const u8,
     path: []const u8,
     capture: *const reporter.Capture,
 ) types.RunError!void {
-    const mode = ratchet.metricMode(check_name).?;
-    const current = try ratchet.aggregate(a, capture.records.items, mode);
     const stored = try readCeilings(a, path);
+    const current = try measuredNow(a, ctx, check_name, stored, capture);
     const parts = try splitCeilings(a, .{
         .stored = stored,
         .current = current,
@@ -215,6 +219,31 @@ fn listRatchet(
         "{s}: {d} new, {d} live, {d} resolved (ratchet unchanged; `guardian-check debt . --live` for headroom)",
         .{ check_name, parts.new.len, parts.live.len, parts.resolved.len },
     );
+}
+
+/// The values this run would compare against the recorded ceilings — the same
+/// set `processRatchet` builds, so a listing can never disagree with the gate.
+///
+/// Ordinarily that is the blocking records aggregated per key. Under a
+/// `[hysteresis]` policy it is the reconciliation, because a TRIPPED entry
+/// below the hard cap is measured by an ADVISORY record and blocks nothing:
+/// aggregating only the blocking records would file every held trip under
+/// RESOLVED — "recorded ceilings nothing measures any more" — which is the one
+/// reading that would send a reader to delete the entry hysteresis exists to
+/// keep. Pure: `reconcile` computes, it never writes.
+fn measuredNow(
+    a: Allocator,
+    ctx: *const types.RunCtx,
+    check_name: []const u8,
+    stored: []const ratchet.Entry,
+    capture: *const reporter.Capture,
+) Allocator.Error![]const ratchet.Entry {
+    const mode = ratchet.metricMode(check_name).?;
+    const blocking = try ratchet.aggregate(a, capture.records.items, mode);
+    const policy = hysteresis.policyFor(ctx.cfg, check_name) orelse return blocking;
+    const view: scope.View = if (ctx.scoped == null) .whole_tree else .partial;
+    const plan = try hysteresis.reconcile(a, policy, stored, blocking, capture.warnings.items, view);
+    return plan.entries;
 }
 
 /// The recorded per-item ceilings, or an empty set when the file is absent or
@@ -406,6 +435,46 @@ test "splitCeilings reports live values against ceilings and marks the ones over
     try std.testing.expect(std.mem.endsWith(u8, parts.live[0], " — OVER"));
     try std.testing.expect(!std.mem.endsWith(u8, parts.live[1], " — OVER"));
     try std.testing.expect(std.mem.indexOf(u8, parts.new[0], "no recorded ceiling") != null);
+}
+
+// spec: Hysteresis - Lists a held trip as a live ceiling rather than a resolved one
+
+test "measuredNow keeps a recovery-zone entry measured for the ratchet listing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg: config_mod.Config = .{};
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = "zig-cache/introspect-hysteresis",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    // A tripped file back under the hard cap blocks nothing, so its only
+    // measurement this run is the recommended-limit WARNING. Read the blocking
+    // records alone and the entry hysteresis is deliberately holding reads as
+    // "nothing measures it any more" — an invitation to delete it.
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    try cap.warnings.append(std.testing.allocator, .{
+        .check = "file-size",
+        .message = "advisory",
+        .ratchet_key = "src/big.zig",
+        .metric = 8900,
+    });
+    const stored = [_]ratchet.Entry{.{ .key = "src/big.zig", .value = 10_273 }};
+    const held = try measuredNow(a, &ctx, "file-size", &stored, &cap);
+    try std.testing.expectEqual(@as(usize, 1), held.len);
+    try std.testing.expectEqual(@as(u64, 8900), held[0].value);
+    const parts = try splitCeilings(a, .{ .stored = &stored, .current = held, .unit = "code lines" });
+    try std.testing.expectEqual(@as(usize, 0), parts.resolved.len);
+    try std.testing.expectEqual(@as(usize, 1), parts.live.len);
+
+    // With hysteresis off the listing must go back to reading exactly the
+    // blocking records — a subject under its cap has no ratchet standing.
+    const off: config_mod.Config = .{ .hysteresis = .{ .enabled = false } };
+    ctx.cfg = &off;
+    try std.testing.expectEqual(@as(usize, 0), (try measuredNow(a, &ctx, "file-size", &stored, &cap)).len);
 }
 
 // spec: Baseline Introspection - Names the baseline file a listing is split against

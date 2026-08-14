@@ -6,8 +6,9 @@
 //! a check prints a number only once an item is already over its cap. An agent
 //! trimming a file toward a ceiling therefore had to re-run the whole gate to
 //! read the number back — six ~90s cycles in one recorded case — and a
-//! hand-rolled `grep -c` disagrees with guardian by design (the file-size metric
-//! excludes `test { ... }` blocks, a 170-line gap in that same case).
+//! hand-rolled `grep -c` disagrees with guardian by design (a file-size code
+//! line is a non-blank, non-comment line outside `test { ... }` blocks; that
+//! exclusion alone was a 170-line gap in the same case).
 //!
 //! Every value below comes from the check's OWN measurement function
 //! (`file_size.codeLines`, `line_length.analyzeContentWithLimit`,
@@ -84,8 +85,9 @@ pub fn measureFile(
     return items.toOwnedSlice(arena);
 }
 
-/// file-size: production (non-test) line count, straight from the check's own
-/// `codeLines` — the number a `grep -c` cannot reproduce.
+/// file-size: production code lines (non-blank, non-comment, outside test
+/// blocks), straight from the check's own `codeLines` — the one measurement
+/// function, so the gate and this report cannot drift.
 fn appendFileSize(
     arena: Allocator,
     items: *std.ArrayList(Item),
@@ -306,10 +308,12 @@ test "measureFile reports file, function, and type metrics for one file" {
     const cfg: config_mod.Config = .{};
     const items = try measureFile(a, "src/sample.zig", sample_source, &cfg);
 
-    // file-size counts production lines only: the 3-line test block is excluded
-    // exactly as the gate excludes it (16 total - 3 in the test block).
+    // file-size counts production CODE lines, exactly as the gate counts them:
+    // of 16 source lines, 3 are the test block, 1 is the `//!` header and 3 are
+    // blank — leaving 9. Measured through the check's own function, so deleting
+    // that header would move this number by nothing here and nothing there.
     const fs_item = itemFor(items, "file-size", "src/sample.zig").?;
-    try testing.expectEqual(@as(u64, 13), fs_item.value);
+    try testing.expectEqual(@as(u64, 9), fs_item.value);
     try testing.expectEqual(@as(u32, 1000), fs_item.cap);
     try testing.expectEqual(@as(u32, 10_000), fs_item.hard_cap);
     // The key is the ratchet key the gate writes, so a ceiling lookup matches.

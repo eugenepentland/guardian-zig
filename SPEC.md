@@ -84,6 +84,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns above a configurable recommended line limit and fails above a generous hard limit
 - Respects file_size_exclude patterns
 - Excludes test-block lines from the line count
+- Excludes blank and comment-only lines from the code-line metric
+- Warns prominently when a file has reached 95% of the hard limit
 
 ## Required Inputs
 
@@ -190,6 +192,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Separates blocking failures from report-only findings in the summary
 - Replays blocking check output before advisory output
 - Collapses an out-of-scope report-only check to one counted line
+- Replays an alert finding when a check's own output is collapsed or hidden
 - Names the finding count and scope in a collapsed check line
 - Counts a finding as in scope when its file changed or it has no file
 - Counts a check's findings and their diff-scope overlap
@@ -309,6 +312,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Separates violation debt from inventories and scores into labelled sections
 - Labels the worst offender as the stored baseline rather than a live measurement
 - Renders JSON rows carrying a kind, a direction, and a structured worst offender
+- Renders JSON headroom rows carrying a kind, a direction, and a unit
 
 ## History
 
@@ -485,6 +489,12 @@ lives in a fixed-size buffer.
 ## Function Length
 
 - Warns on long functions and fails only above a configurable hard line limit
+- Warns prominently when a function has reached 95% of the hard line limit
+
+## Near Hard Cap
+
+- Flags a measurement that has reached 95% of its hard cap without crossing it
+- Renders one alert line naming the value, the cap, the share, and the remedy
 
 ## Nesting Depth
 
@@ -613,6 +623,44 @@ lives in a fixed-size buffer.
 - Names the offending file line and metric in the regression status line
 - Sends each regressed key to the sink with its record and the ceiling it broke
 
+## Ratchet Relocation
+
+- Reads rename pairs from git's name-status records
+- Re-keys every recorded entry under a file git reports as renamed
+- Transfers a recorded entry to the file its item was extracted into
+- Keeps the new-offender failure when several recorded entries share the item name
+- Keeps the new-offender failure when a moved item measures above its recorded ceiling
+- Withholds content-matched transfers from a diff-scoped run
+- Names the recorded candidate and its ceiling when a relocation is not transferred
+- Conserves the recorded entry count and never raises a transferred ceiling
+- Reports a detected move as pending on a read-only run and records it on a writable one
+- Prints each transferred entry as a moved line naming both files and the item
+- Allows a deny_growth refresh that only relocates recorded keys
+
+## Hysteresis
+
+- Derives each check's recover line from its hard cap and recover percentage
+- Parses the hysteresis section and defaults it on for the two volume caps
+- Hard-fails a recover percentage out of range or a check that is not two-tier
+- Restores plain ratchet behavior when hysteresis is disabled
+- Blocks a hard-cap crossing with the recover target and no accept command
+- Refuses an accept that records a crossing or raises a tripped ceiling
+- Fails an accept run rather than recording a refused crossing or raise
+- Keeps a tripped entry recorded while its subject stays above the recover line
+- Fails a tripped entry that grew while recovering below the hard cap
+- Clears the trip and prunes the entry at or below the recover line
+- Leaves an unratcheted subject in the advisory band untouched
+- Holds an entry that reported nothing on a diff-scoped run
+- Lists a held trip as a live ceiling rather than a resolved one
+- Grandfathers over-cap subjects when a tripped check first records its ratchet
+- Withholds this session's pending accept from a tripped check
+- Holds a legacy entry through the recovery zone from accept to recovered
+- Carries a tripped entry to the new key when git renames its file
+- Names the recover target in every blocked message and hint
+- Says a crossing cannot be accepted in a tripped check's near-cap alert
+- Marks a tripped key and its recover line in the live debt report
+- Merges two branches' progress on a tripped entry to the lower value
+
 ## Measurement Mode
 
 - Defers only the instrumentation-class checks
@@ -631,6 +679,7 @@ lives in a fixed-size buffer.
 - Renders a Violation to the same indented line the emitter prints
 - Writes a machine payload and one trailing newline to the stream a caller pipes
 - Keeps advisory warnings separate from blocking violation records
+- Marks an advisory finding that must survive a collapsed run summary
 - Prints a report-only verb instead of FAILED for a policy-demoted check
 - Records a violation for the sink without printing it
 - Prints a finding without the fix hint it keeps for the sink
@@ -1047,6 +1096,7 @@ without an explained `--force`.
 - Prints each ratchet's headroom split and its stuck keys
 - Picks the limit that would block an item and bands it by room left
 - Lists the items nearest a blocking limit with the least room first
+- Names the share of its blocking limit each headroom item has consumed
 - Keeps two checks' measurements of the same subject apart
 - Renders a ratcheted key's current value against its ceiling
 - Warns that accepting a grown ratchet key raises a frozen ceiling

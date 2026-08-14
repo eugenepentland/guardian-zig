@@ -97,10 +97,26 @@ const entries = [_]Entry{
     .{ .name = "file-size", .text =
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.
+    \\Metric: a CODE line is a non-blank, non-comment line outside `test { ... }`
+    \\blocks. Comments and blanks were counted once, which made deleting doc
+    \\comments the cheapest way to buy headroom — a gate that rewards removing
+    \\explanation. They no longer count, so only moving code moves the number
+    \\(`guardian-check size <file> .` reads it back without a gate run).
     \\Finding: files above `max_file_lines` warn; only files above
-    \\`hard_max_file_lines` block. Split along a cohesive module seam.
-    \\Exempt: adjust either limit, list a glob in `file_size_exclude`, or disable
-    \\via the top-level `disabled` list.
+    \\`hard_max_file_lines` block. Split along a cohesive module seam. At 95% of
+    \\the hard limit the file also draws one NEAR HARD CAP line, printed even
+    \\when the run collapses the advisory tier to a count — the last warning
+    \\before a crossing lands mid-feature on whoever adds the next line.
+    \\Hysteresis (on by default, `[hysteresis]`): crossing the hard cap TRIPS
+    \\this file and cannot be accepted — no env var, no ceiling raise. The trip
+    \\is then remembered below the cap: the entry follows the file down (every
+    \\shrink lands green, even while still over), growth blocks, and the trip
+    \\clears only at the recover line, `recover_pct` under the cap (10000 →
+    \\8000 at the default 20). `guardian-check debt . --live` prints each
+    \\tripped key and what is left to fall.
+    \\Exempt: adjust either limit, list a glob in `file_size_exclude`, drop the
+    \\check from `[hysteresis] checks` (or set `enabled = false`) to restore
+    \\plain ratchet behavior, or disable it via the top-level `disabled` list.
     },
     .{ .name = "boundaries", .text =
     \\Why: an agent reaches across an architectural layer (core importing utils),
@@ -338,8 +354,16 @@ const entries = [_]Entry{
     \\Why: an ever-longer function is where agents append logic rather than
     \\factor it — the hardest place to review a change safely.
     \\Finding: functions above `max_lines` warn; only those above
-    \\`hard_max_lines` block. Extract cohesive blocks into named helpers.
-    \\Exempt: adjust either `[function_length]` limit, or disable the check.
+    \\`hard_max_lines` block. Extract cohesive blocks into named helpers. At 95%
+    \\of the hard limit the function draws one NEAR HARD CAP line, printed even
+    \\when the run collapses the advisory tier to a count.
+    \\Hysteresis (on by default, `[hysteresis]`): crossing `hard_max_lines`
+    \\TRIPS the function and cannot be accepted. While tripped the entry only
+    \\ever shrinks — growth blocks with no accept to reach for — and the trip
+    \\clears at the recover line, `recover_pct` under the cap (400 → 320 at the
+    \\default 20).
+    \\Exempt: adjust either `[function_length]` limit, drop the check from
+    \\`[hysteresis] checks` to restore plain ratchet behavior, or disable it.
     },
     .{ .name = "nesting-depth", .text =
     \\Why: deep brace nesting hides the branch an agent forgot to handle.
@@ -955,8 +979,9 @@ const entries = [_]Entry{
     \\reported that value back — the checks print a number only once an item is
     \\already over its cap, and `debt` lists ceilings without the current value
     \\beside them. Reading the number back cost one consumer six ~90s gate runs for
-    \\a single file trim, with a 170-line disagreement against `grep -c` (guardian
-    \\excludes `test { ... }` blocks from the file-size metric; grep does not).
+    \\a single file trim, with a 170-line disagreement against `grep -c` (a
+    \\file-size code line is a non-blank, non-comment line outside
+    \\`test { ... }` blocks; grep counts all three).
     \\Fix: n/a — run `guardian-check size <path> [dir]`. It prints the file's code
     \\lines, per-fn length and runtime params, per-type field counts, and the count
     \\of over-long lines, each against the check's caps and its frozen ceiling with
