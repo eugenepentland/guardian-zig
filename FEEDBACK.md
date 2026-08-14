@@ -6852,3 +6852,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-14 · codex · eda — preserve concave custom-pad soldermask openings
 - **good:** The exact `spec` check rejected duplicate links when the general mask-dilation test and the TPSM84 concave regression both named one contract bullet; keeping one authoritative tag plus both focused tests cleared all 79 checks before the exact-commit release gate.
+
+## 2026-08-14 · codex · eda — print deterministic PCB fabrication identities
+- **good:** The `function-size` gate caught a seven-parameter collision-placement API before commit, selective `pub-api-surface` acceptance recorded exactly the new identity and placement entry points, and the exact-commit release gate passed all 79 checks before deployment.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, making each green focused run look contradictory until the outer Zig exit status is checked.
