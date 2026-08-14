@@ -6840,3 +6840,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — expand RF keepout and prioritize transition fence rings
 - **good:** The import-layering check rejected an otherwise convenient serve-to-placement-internal dependency while the exact spec links kept the router, fence generator, JSON payload, and viewer contracts synchronized; after using the sanctioned via-fence API instead, the whole-tree 79-check gate passed with zero blocking findings.
 - **good:** The exact-commit release suite caught one obsolete end-to-end router expectation that relied on a tiny authored fence shrinking a wider keepout. Updating that regression to require the wider corridor prevented the new geometry rule from shipping with a contradictory test contract.
+
+## 2026-08-14 · codex · eda — prune deletion-invariant Barracuda copper
+- **good:** The exact-commit release suite caught seven route-shape regressions that focused topology tests missed after cleanup was placed inside the router's internal finish path. Moving the broader pruning to the public persistence gate preserved byte-identical internal routing while retaining the connectivity and DRC rollback.
+- **good:** The `function-size` check rejected a seven-parameter cleanup helper and `debug-print-ban` rejected temporary diagnostics before commit; a context struct and structured MCP diagnostic fields cleared both without accepting a broader ratchet.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so every green focused run requires checking the outer Zig exit status.
