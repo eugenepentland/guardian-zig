@@ -6077,3 +6077,18 @@ manifests instead.
   all. For a change where the real risk was "does the systemd unit parse" and
   "does the debounce actually reset", the gate correctly cost nothing and left
   the attention budget where it belonged.
+
+## 2026-08-14 · codex · eda — click-to-inspect 2.5D trace analysis
+
+- **good:** the first diff-scoped gate found real structural debt in the new
+  solver before commit: `type-size` forced flat 18/11-field analysis records
+  into target/summary/electrical groups, `cognitive-complexity` split the
+  32-point `analyzeNet` into graph/build/order stages, and `function-size`
+  caught the resulting seven-parameter traversal helper. `spec`,
+  `doc-comments`, and formatting also supplied direct fixes; the selective
+  `pub-api-surface` acceptance then changed only the 13 intended declarations.
+- **friction:** Guardian's source and prebuilt binary changed during the task.
+  Selfcheck first rejected the stale binary, while a source-compiled run made
+  later matching-prebuilt runs warn that the matching binary was older than
+  the last gate. No correctness result was lost, but distinguishing repository
+  drift from task failures cost an extra source-compiled 75-check run.
