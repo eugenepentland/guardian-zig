@@ -5639,3 +5639,38 @@ manifests instead.
 - **good:** `duplicate-json-key`'s documented recall limit is accurate enough to design a probe against. My first deny_growth probe (a duplicate key added after a `w.print` whose arg tuple contained `violationId(v)` / `kindStr(...)`) did NOT fire — correctly, since a completed call between two literals ends the object segment. Re-shaping the probe to two literals with empty arg tuples fired immediately. The check behaving exactly as its `explain` text says is what let me tell "probe was wrong" from "ratchet is broken" in one step.
 - **good:** `guardian-check explain <check>` was the highest-value command of the session for the three new checks — the baseline KEY (per-name vs `<file>|<referent>` vs `<file>|<fn>|<key>`) is precisely what you need to reason about whether deny_growth is safe to enable, and it is right there. I enabled all three on the strength of those keys and then confirmed each with a probe; all three failed the gate as intended.
 - **friction:** the `failed command: ./.zig-cache/o/<hash>/test … --listen=-` line on a green run cost me a re-run here too — but the existing entry above (piped `zig build test`, `superviseArgv` killing the process group) predicted it exactly: my piped run showed it, the same command redirected to a file did not. Confirming an already-reported bug from its writeup is a good sign for this log; the `setpgid` fix suggested there would remove it.
+
+## 2026-08-14 · claude · eda — five-branch merge wave + concept-check composition
+
+- good: the first real branch composition (layer table + concept enforcement
+  merged into one tree) put `[[concept]]` + deny_growth to the test and it
+  caught every new `<file>|<concept>` identity exactly as designed — nothing
+  slipped, the failure surfaced in the plain `zig build` gate in seconds.
+- bug: of the 16 composition findings, 15 were doc comments and golden-value
+  test assertions. Counting those contexts actively weakened the gate: identity
+  is `<file>|<concept>`, so a file frozen over a comment is a file whose REAL
+  drift the check can never see again — and it pressured tests toward deriving
+  expectations from the owner (circular). Fixed on guardian main (7791dfc):
+  line-leading comments and Zig `test` blocks are now exempt; trailing
+  comments still count (no per-language string lexer).
+- bug: the `files`-glob scan path carried no parse tree, so the test-block
+  exemption silently never applied to a globbed `.zig` — which is every file a
+  cross-language rule names (`files = ["src/*.zig", "src/*.js"]`). A minimal
+  repro passed while the real tree failed; the tell was that ONLY comment
+  findings cleared. Fixed (93c1286): the glob path parses a named `.zig`
+  itself. Worth remembering: a rule with `files` takes a different scan path
+  than a rule without, so new per-file semantics must be tested through BOTH.
+- wish: `debt --prune-stale` / `--live` reported the relational baselines at
+  their frozen counts ("unchanged") with no per-entry live-vs-stale split, so
+  quantifying how much of the 140-row concept ledger the new semantics already
+  retired required manual grepping. A per-entry stale report would have sized
+  the cleanup wave for free.
+- wish: the documented deny_growth two-step (drop the check, accept, restore)
+  requires editing guardian.toml, which an agent harness may refuse as
+  gate-tampering exactly because it cannot distinguish the sanctioned lift
+  from a bypass. A first-class `guardian-check accept <check> --grow-once
+  --reason "..."` that records the reason in the baseline header would make
+  the sanctioned path not look like the forbidden one.
+- good: prepare-release verified the composed tree in 239 s wall (tests 83 s,
+  build 235 s, concurrent) and candidate adoption deployed the merge commit in
+  under a second with health checks green.
