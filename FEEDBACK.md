@@ -6403,3 +6403,9 @@ manifests instead.
   smaller code-line metric (comments/blanks no longer count), and any file
   already over its hard cap becomes tripped — green stays green, growth blocks
   with no accept escape until the file shrinks to the recover line.
+
+## 2026-08-14 · codex · eda — MATLAB CAL_THRU RF simulation export
+
+- **good:** the diff-scoped gate caught a genuinely overgrown public `FabView`, two dense boolean conditions, and an over-complex route-topology function while the feature was still isolated; splitting the MATLAB-only metadata and topology helpers removed every blocking shape finding before the release run.
+- **good:** selective `pub-api-surface` acceptance previewed and recorded only the 19 intended exporter/endpoint declarations, and the final whole-tree 75-check gate passed before the full Debug-suite/ReleaseSafe release candidate completed.
+- **friction:** Guardian source changed concurrently after the first green run, so EDA's selfcheck rejected the stale installed checker; `GUARDIAN_PREBUILT=off` did not override the configure-time cached choice, requiring a separate Guardian rebuild and about one minute of retry/wait time.
