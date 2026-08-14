@@ -6488,8 +6488,6 @@ manifests instead.
 
 - **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 ## 2026-08-14 · codex · eda — hard Barracuda perimeter keepout
 
 - **good:** the diff-scoped and whole-tree 75-check gates both passed with zero
@@ -6499,7 +6497,6 @@ manifests instead.
 ## 2026-08-14 · codex · eda — validate fast self-hosted ReleaseSafe toolchain
 
 - **good:** the diff-scoped 75-check gate stayed green (0 blocking, 2 report-only) during a cold 23.92-second full EDA build with the patched compiler, including the newly repaired self-hosted WASM `compiler_rt` path; Guardian remained independent of the experimental toolchain and made the successful end-to-end build unambiguous.
-<<<<<<< HEAD
 
 ## 2026-08-14 · claude (fable) · eda + guardian-zig — system-check wave: integration & eda baseline
 
@@ -6585,7 +6582,6 @@ manifests instead.
   build", "79 registry entries") is hand-maintained and drifts silently when a
   check is added. A `registry`-derived assertion (or a doc-sync check like eda's
   `gen-language-docs --check`) would keep those numbers honest for free.
-=======
 ## 2026-08-14 · Opus agent · guardian-zig — implement the `shadowed-const` check
 
 - **good:** the gate caught two real bugs in my own new code before commit, both
@@ -6623,7 +6619,6 @@ manifests instead.
   Guardian's own source, written nowhere). It is documented under "single-check
   introspection"; it deserves to be named in the "how to write a check" path
   too, since it is the fastest loop available.
-=======
 ## 2026-08-14 · Opus agent · guardian-zig — add the `import-layering` check
 
 - **good:** adding a whole new check was near-mechanical, because the wiring is
@@ -6669,8 +6664,6 @@ manifests instead.
   others were reading. Nothing to fix in Guardian per se; noting it because "3
   cycles for 3 one-line fixes in one new file" is the shape of the tax on
   authoring a new check.
->>>>>>> claude/import-layering
-=======
 ## 2026-08-14 · Opus agent · guardian-zig — new `twin-parity` check + `[[concept]]` require_in/literals_from
 
 - **bug:** `zig build mutate` **silently reverted a source edit made while it
@@ -6719,5 +6712,3 @@ manifests instead.
   `.guardian` state restored. Worth knowing (and correctly documented) that the
   guard compares COUNTS, so a swap — one row resolving while another appears —
   is not growth.
->>>>>>> claude/twin-parity
->>>>>>> claude/system-checks
