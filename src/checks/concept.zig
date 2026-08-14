@@ -14,10 +14,19 @@
 //! **Matching is LEXICAL — plain text, not AST — and that is the point.** Drift
 //! of this kind crosses languages, so the scan must work on JS, CSS, TOML and
 //! anything else a project globs in `files`; there is no parser that spans them.
-//! Two consequences, both deliberate: a match inside a comment counts (a comment
-//! repeating the hex is still a copy that will rot), and a spelling that happens
-//! to occur for unrelated reasons is a false positive the `owner` list or a
-//! narrower `literals` entry is meant to absorb.
+//! A spelling that happens to occur for unrelated reasons is a false positive
+//! the `owner` list or a narrower `literals` entry is meant to absorb.
+//!
+//! Two contexts are exempt, and the exemption is what keeps the frozen ledger
+//! REAL. A comment line cannot disagree with the owner at runtime, and a Zig
+//! `test` block's literal is the independent golden a sync-triangle test is
+//! supposed to spell (deriving the expectation from the owner would make the
+//! test circular). Counting either forced whole files into the baseline — and
+//! because a violation's identity is `<file>|<concept>`, a file frozen over a
+//! doc comment is a file whose REAL drift the gate can never see again. Only
+//! line-LEADING comments are skipped: judging a trailing `//` needs the
+//! per-language string lexer this check refuses to be (`"https://…"`), so a
+//! code line always counts whole.
 //!
 //! Zero `[[concept]]` entries is the zero-config default: the check passes
 //! without reading a single file.
@@ -28,10 +37,12 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
+const decls = @import("../ast/decls.zig");
 const config = @import("../config.zig");
 const lineOf = @import("../text.zig").lineOf;
 
 const Allocator = std.mem.Allocator;
+const Ast = std.zig.Ast;
 
 const check_name = "concept";
 
@@ -119,6 +130,53 @@ fn findPattern(text: []const u8, pattern: []const u8, from: usize) ?usize {
         if (matchAt(text, i, pattern)) return i;
     }
     return null;
+}
+
+// ── Scrubbing: the contexts the scan must not judge ─────────────────────
+
+/// A copy of `content` with the exempt contexts blanked to spaces: every line
+/// whose first non-whitespace bytes open a `//` comment, and — when a Zig
+/// parse `tree` is supplied — every `test` declaration's span. Bytes are
+/// replaced, never removed, so each surviving occurrence keeps its exact
+/// offset and therefore its exact reported line.
+fn scrubbed(allocator: Allocator, content: []const u8, tree: ?*const Ast) Allocator.Error![]u8 {
+    const out = try allocator.dupe(u8, content);
+    blankCommentLines(out);
+    if (tree) |t| try blankTestBlocks(allocator, out, t);
+    return out;
+}
+
+/// Blanks each line that IS a comment — first non-whitespace is `//` (which
+/// covers `///` and `//!`). Trailing comments are left alone: whether a
+/// mid-line `//` opens a comment or sits inside a string is a per-language
+/// question, and a comment line is unambiguous in every `//` language the
+/// check reads (Zig, JS, TS). A hash-comment language gets no such skip — `#`
+/// opens the very hex literals a palette rule exists to match.
+fn blankCommentLines(text: []u8) void {
+    var line_start: usize = 0;
+    while (line_start < text.len) {
+        const line_end = std.mem.indexOfScalarPos(u8, text, line_start, '\n') orelse text.len;
+        var i = line_start;
+        while (i < line_end and (text[i] == ' ' or text[i] == '\t')) i += 1;
+        if (i + 1 < line_end and text[i] == '/' and text[i + 1] == '/') {
+            @memset(text[i..line_end], ' ');
+        }
+        line_start = line_end + 1;
+    }
+}
+
+/// Blanks every `test` declaration's whole span. `decls.collectDecls` descends
+/// into container members, so a test nested inside a struct is blanked too.
+/// The bounds guard is defensive only: the tree was parsed from these bytes.
+fn blankTestBlocks(allocator: Allocator, text: []u8, tree: *const Ast) Allocator.Error!void {
+    for (try decls.collectDecls(allocator, tree)) |decl| {
+        if (tree.nodeTag(decl) != .test_decl) continue;
+        const last = tree.lastToken(decl);
+        const start = tree.tokenStart(tree.firstToken(decl));
+        const end = tree.tokenStart(last) + tree.tokenSlice(last).len;
+        if (start >= end or end > text.len) continue;
+        @memset(text[start..end], ' ');
+    }
 }
 
 // ── Per-file analysis ───────────────────────────────────────────────────
@@ -242,20 +300,23 @@ fn violationFor(
 
 /// Pure core: one violation per rule whose concept appears in this file outside
 /// its owner. Takes plain bytes, so the same function judges a `.zig` file from
-/// the shared source index and a `.css` file pulled in by a `files` glob.
+/// the shared source index (whose pre-parsed `tree` exempts its test blocks)
+/// and a `.css` file pulled in by a `files` glob (`tree` = null).
 pub fn analyzeFile(
     allocator: Allocator,
     rel_path: []const u8,
     content: []const u8,
+    tree: ?*const Ast,
     rules: []const config.ConceptRule,
 ) Allocator.Error![]const reporter.Violation {
-    if (selfExempt(rel_path)) return &.{};
+    if (selfExempt(rel_path) or rules.len == 0) return &.{};
+    const text = try scrubbed(allocator, content, tree);
     var violations: std.ArrayList(reporter.Violation) = .empty;
     for (rules) |rule| {
         if (owns(rule, rel_path)) continue;
-        const found = try occurrencesOf(allocator, content, rule);
+        const found = try occurrencesOf(allocator, text, rule);
         if (found.len == 0) continue;
-        try violations.append(allocator, try violationFor(allocator, rel_path, content, rule, found));
+        try violations.append(allocator, try violationFor(allocator, rel_path, text, rule, found));
     }
     return violations.toOwnedSlice(allocator);
 }
@@ -284,28 +345,26 @@ const ScanCtx = struct {
     skip: []const []const u8,
     violations: *std.ArrayList(reporter.Violation),
 
-    fn scan(self: *ScanCtx, rel_path: []const u8, content: []const u8) Allocator.Error!void {
-        return self.scanWith(rel_path, content, self.rules);
-    }
-
     /// Judges one file against exactly `rules` — the subset that claims it. The
-    /// glob scan hands its own per-file subset here; the source scan hands the
-    /// whole set, which is what "no `files` key" means.
+    /// glob scan hands its own per-file subset here (no parse tree: those files
+    /// are CSS/JS/anything); the source scan hands the whole set plus the
+    /// index's pre-parsed tree, which is what "no `files` key" means.
     fn scanWith(
         self: *ScanCtx,
         rel_path: []const u8,
         content: []const u8,
+        tree: ?*const Ast,
         rules: []const config.ConceptRule,
     ) Allocator.Error!void {
         if (skipPath(self.skip, rel_path)) return;
-        const found = try analyzeFile(self.allocator, rel_path, content, rules);
+        const found = try analyzeFile(self.allocator, rel_path, content, tree, rules);
         try self.violations.appendSlice(self.allocator, found);
     }
 };
 
 fn sourceVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
-    try ctx.scan(entry.rel_path, entry.content);
+    try ctx.scanWith(entry.rel_path, entry.content, entry.tree, ctx.rules);
 }
 
 /// True when a directory is never descended into while expanding a `files`
@@ -353,7 +412,7 @@ fn scanGlobbedFile(ctx: *ScanCtx, dir: fs.Dir, name: []const u8, rel_path: []con
     const rules = try rulesNaming(ctx.allocator, ctx.rules, rel_path);
     if (rules.len == 0) return;
     const content = try dir.readFileAlloc(ctx.allocator, name, glob_read_limit);
-    try ctx.scanWith(rel_path, content, rules);
+    try ctx.scanWith(rel_path, content, null, rules);
 }
 
 /// Walks `dir` recursively, scanning every file a `files` glob names. A glob
@@ -474,7 +533,7 @@ test "analyzeFile flags an owned literal appearing in another file" {
     const out = try analyzeFile(a, "src/render.zig",
         \\const top = "F.Cu";
         \\const bottom = "B.Cu";
-    , &test_rules);
+    , null, &test_rules);
     try testing.expectEqual(@as(usize, 1), out.len);
     try testing.expectEqualStrings(check_name, out[0].check);
     // Identity carries its own file: `<file>|<concept>` is a tier-1 key, used
@@ -491,7 +550,7 @@ test "analyzeFile ignores the owner's own occurrences" {
     const out = try analyzeFile(arena.allocator(), "src/board_layers.zig",
         \\pub const front = "F.Cu";
         \\pub const back = "B.Cu";
-    , &test_rules);
+    , null, &test_rules);
     try testing.expectEqual(@as(usize, 0), out.len);
 }
 
@@ -502,22 +561,61 @@ test "analyzeFile finds nothing when no rules are configured" {
     defer arena.deinit();
     const out = try analyzeFile(arena.allocator(), "src/render.zig",
         \\const top = "F.Cu";
-    , &.{});
+    , null, &.{});
     try testing.expectEqual(@as(usize, 0), out.len);
 }
 
-// spec: Concept Ownership - Counts a match inside a comment as an occurrence
+// spec: Concept Ownership - Skips a line-leading comment when counting occurrences
 
-test "analyzeFile counts a commented occurrence" {
+test "analyzeFile skips comment lines" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    // Lexical by design: a comment repeating the spelling is still a copy that
-    // will rot when the owner changes, and no parser spans .zig/.js/.css.
+    // A comment line cannot disagree with the owner at runtime, and counting it
+    // froze whole files into the ledger — where the file's REAL drift then
+    // hides behind the `<file>|<concept>` identity forever.
     const out = try analyzeFile(arena.allocator(), "src/render.zig",
         \\// the front copper layer is F.Cu
+        \\/// B.Cu is the back face
         \\const x = 1;
-    , &test_rules);
+    , null, &test_rules);
+    try testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Concept Ownership - Counts a trailing comment on a code line as an occurrence
+
+test "analyzeFile counts a code line whole, trailing comment included" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // Whether a mid-line `//` opens a comment or sits inside a string
+    // ("https://…") is a per-language lexing question, so a code line always
+    // counts whole.
+    const out = try analyzeFile(arena.allocator(), "src/render.zig",
+        \\const x = 1; // F.Cu
+    , null, &test_rules);
     try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expectEqual(@as(u64, 1), out[0].metric.?);
+}
+
+// spec: Concept Ownership - Skips a Zig test block's occurrences when a parse tree is available
+
+test "analyzeFile skips golden literals inside a test block" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const src = try a.dupeSentinel(u8,
+        \\const top = "F.Cu";
+        \\test "golden pins the wire format" {
+        \\    const want = "B.Cu In2.Cu";
+        \\    _ = want;
+        \\}
+    , 0);
+    var tree = try Ast.parse(a, src, .{});
+    const out = try analyzeFile(a, "src/render.zig", src, &tree, &test_rules);
+    // The const outside the test still counts; the goldens inside do not — a
+    // test's literal is the independent witness of the owner's value, not a
+    // second authority that can drift.
+    try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expectEqual(@as(u64, 1), out[0].metric.?);
 }
 
 // spec: Concept Ownership - Reports one violation per file and concept with the occurrence count and lines
@@ -530,7 +628,7 @@ test "analyzeFile reports one violation naming the count, lines, owner and reaso
         \\const top = "F.Cu";
         \\const mid = "In1.Cu";
         \\const bottom = "B.Cu";
-    , &test_rules);
+    , null, &test_rules);
     // Three matched spellings, one violation: the subject is the (file, concept)
     // pair, not each literal.
     try testing.expectEqual(@as(usize, 1), out.len);
@@ -550,7 +648,7 @@ test "analyzeFile names an absent owner and reason in the message" {
     const bare = [_]config.ConceptRule{.{ .name = "hexes", .literals = &.{"#C83434"} }};
     const out = try analyzeFile(a, "src/render.zig",
         \\const front = "#C83434";
-    , &bare);
+    , null, &bare);
     try testing.expectEqual(@as(usize, 1), out.len);
     try testing.expect(std.mem.indexOf(u8, out[0].message, no_owner) != null);
     try testing.expect(std.mem.endsWith(u8, out[0].message, no_reason));
@@ -570,7 +668,7 @@ test "analyzeFile lists at most the first few lines but counts every occurrence"
         \\const e = "F.Cu";
         \\const f = "F.Cu";
         \\const g = "F.Cu";
-    , &test_rules);
+    , null, &test_rules);
     try testing.expectEqual(@as(u64, 7), out[0].metric.?);
     try testing.expect(std.mem.indexOf(u8, out[0].message, "(lines 1, 2, 3, 4, 5, \u{2026})") != null);
 }
@@ -585,11 +683,11 @@ test "analyzeFile never flags the declaration or Guardian's own metadata" {
         \\[[concept]]
         \\literals = ["F.Cu", "B.Cu"]
     ;
-    try testing.expectEqual(@as(usize, 0), (try analyzeFile(a, "guardian.toml", declaration, &test_rules)).len);
+    try testing.expectEqual(@as(usize, 0), (try analyzeFile(a, "guardian.toml", declaration, null, &test_rules)).len);
     const baselined = "concept|src/render.zig|layer-names F.Cu";
     try testing.expectEqual(
         @as(usize, 0),
-        (try analyzeFile(a, ".guardian/baselines/concept.txt", baselined, &test_rules)).len,
+        (try analyzeFile(a, ".guardian/baselines/concept.txt", baselined, null, &test_rules)).len,
     );
 }
 
@@ -658,7 +756,7 @@ test "analyzeFile keeps two concepts' findings apart" {
     const out = try analyzeFile(a, "src/palette.zig",
         \\pub const front_hex = "#C83434";
         \\pub const front_layer = "F.Cu";
-    , &rules);
+    , null, &rules);
     try testing.expectEqual(@as(usize, 1), out.len);
     try testing.expectEqualStrings("src/palette.zig|layer-names", out[0].identity.?);
 }

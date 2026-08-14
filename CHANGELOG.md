@@ -6,6 +6,20 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- The `concept` scan no longer judges comment lines or Zig `test` blocks. The
+  first real branch composition on the flagship consumer produced 16 findings
+  of which 15 were doc comments and golden-value test assertions — and because
+  a violation's identity is `<file>|<concept>`, every benign file frozen into
+  the baseline is a file whose REAL drift the gate can never see again, so
+  counting those contexts actively weakened the check. A line whose first
+  non-whitespace opens `//` is blanked before matching (trailing comments share
+  a code line, which still counts whole — judging a mid-line `//` against
+  `"https://…"` needs the per-language lexer this check refuses to be), and a
+  `.zig` file's `test` declarations are blanked via the shared parse tree — a
+  golden literal in a test is the independent witness of the owner's value the
+  sync-triangle pattern requires, not a second authority. `analyzeFile` gains
+  the optional parse-tree parameter; glob-scanned assets (CSS/JS) pass null and
+  keep the pure lexical scan.
 - Fix `test-reachability`'s edge model and add a ground-truth counter. Zig
   compiles a file's `test` blocks only when the file's namespace is REFERENCED
   from something the test build analyzes (measured on the pinned toolchain: an

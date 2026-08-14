@@ -867,7 +867,9 @@ without an explained `--force`.
 - Flags a concept literal used outside its owner
 - Ignores a concept literal inside its owner file
 - Passes trivially when no concept rules are configured
-- Counts a match inside a comment as an occurrence
+- Skips a line-leading comment when counting occurrences
+- Counts a trailing comment on a code line as an occurrence
+- Skips a Zig test block's occurrences when a parse tree is available
 - Reports one violation per file and concept with the occurrence count and lines
 - Names the missing owner and reason when a rule declares neither
 - Caps the listed occurrence lines and keeps the full count
