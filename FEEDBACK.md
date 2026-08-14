@@ -5674,3 +5674,14 @@ manifests instead.
 - good: prepare-release verified the composed tree in 239 s wall (tests 83 s,
   build 235 s, concurrent) and candidate adoption deployed the merge commit in
   under a second with health checks green.
+
+## 2026-08-14 · codex · eda — Gerber-backed Assembly CAM preview
+- **good:** `concept` and `type-size` fired after the rebase onto eda's new
+  layer-model main: they caught two locally duplicated `.drl` suffixes and an
+  eight-field request. Reusing the ZIP member names and grouping package-frame
+  metadata cleared both without acceptance, keeping the Assembly CAM preview
+  tied to the downloaded fabrication package.
+- **good:** `guardian-accept -Dguardian-checks=pub-api-surface` previewed and
+  refreshed only the eight intentional parser/serializer symbols; the custom
+  merge driver then combined that snapshot cleanly with 159 upstream API rows.
+  The exact-commit gate passed 75 checks, 2,780 tests, and the release build.
