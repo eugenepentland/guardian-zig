@@ -6478,3 +6478,8 @@ manifests instead.
   still asserting the old circular-aperture stroke the feature replaced. The
   branch predated its own sibling-test update pattern; the full tier surfaced
   it before merge rather than after deploy.
+
+## 2026-08-14 · codex · eda — complete and teach Barracuda RF routing
+
+- **good:** diff-scoped Guardian caught both a new `mcpRoutePcb` cognitive-complexity regression (27 over the 25 limit) and a seven-runtime-parameter helper before commit; extracting the reference-layout orchestration and bundling its inputs produced clearer code, and the final whole-tree 75-check commit/release gates passed with zero blocking findings.
+- **good:** the spec-link check caught an updated requirement phrase whose test tag still used the previous wording, preventing the saved-layout reference-routing contract from landing unverified.
