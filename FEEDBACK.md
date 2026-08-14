@@ -6727,3 +6727,14 @@ manifests instead.
 
 - **good:** the first diff-scoped run caught three concrete integration obligations at once: duplicate SPEC tags for two cache behaviors, two unintended public handler additions, and a new `@bitCast` outside the unsafe-ops budget. Splitting the requirements, routing through the existing public handler, and hashing a textual transform resolved all three before commit; the final 79-check whole-tree gate had zero blockers.
 - **friction:** Guardian source advanced during the task, so the first `prepare-release.sh` attempt stopped at the stale-prebuilt selfcheck. Rebuilding Guardian and restarting the exact-commit gate cost one extra release attempt before the full tests/build could begin.
+
+## 2026-08-14 · codex · eda — detect self-supporting trace stubs
+
+- **good:** The exact-commit `prepare-release.sh` gate caught a real integration
+  expectation: the stronger DRC added two warning-grade findings to a router
+  fixture whose total was hard-coded at 16. The failure named the test and the
+  16→18 delta, leading to an explicit two-`dangling_copper` assertion before merge.
+- **friction:** `pub-api-surface` correctly blocked the intentional API change,
+  but its output ended at `fix: if the change is intentional, accept the snapshot:`
+  with no command after the colon. Finding the selective
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` form required a docs search.
