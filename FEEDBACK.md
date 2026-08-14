@@ -5850,3 +5850,43 @@ manifests instead.
 - **good:** the prebuilt ReleaseSafe `guardian-check` again — whole-tree
   `all . --gate --full` in ~1 s made it cheap to re-verify after every chunk
   rather than only at the end. Final: 75 checks, 0 blocking, 2782 tests green.
+
+## 2026-08-14 · Claude · eda — fix two always-false `window.PCB` guards in pcb_route_session.js
+
+- **good:** `test-no-conditional` earned its keep on a two-line bug fix. My new
+  sync-triangle test in `src/serve/static_assets.zig` had two top-level `for`
+  loops — one sweeping the JS asset registry for a forbidden substring, one
+  checking a marker list — and the check named the right one ("A multi-loop
+  finding names the loop that asserts nothing — that is the one to extract").
+  Hoisting the registry sweep into `expectNoScriptGatesOnWindowPcb()` made it a
+  named, documented invariant instead of a nameless preamble to the real
+  assertions, which is strictly better than what I first wrote. One iteration,
+  ~15 s each, message was actionable without running `explain`.
+- **good:** the counting test runner is the reason I trusted my filtered loop.
+  `guardian/test: 18 test(s) selected by filter: "routable layer rows",
+  "lexical const PCB" — 2 match by name, 16 unnamed test block(s) run
+  regardless` told me both new tests were genuinely selected. I then
+  deliberately re-introduced the bug in the JS to confirm the test failed, and
+  the "2 match by name" line is what let me be sure the green run afterwards
+  wasn't a filter typo silently matching nothing.
+- **friction:** a PASSING filtered run still prints `failed command: cd . &&
+  ./.zig-cache/o/<hash>/test "--guardian-filter=..." ...` as its last build
+  line, with exit code 0 and no test failure anywhere above it. I could not
+  tell pass from fail by reading the output, so I appended
+  `; echo "EXIT=${PIPESTATUS[0]}"` to every single gate invocation this
+  session. When a run genuinely fails the same banner appears — this time under
+  a real `error: '<test name>' failed:` block — so the banner carries no
+  information and actively costs a re-read on every green run. If this is the
+  Zig build runner's own line and not Guardian's, a one-line Guardian summary
+  after it (`guardian/test: N passed, 0 failed`) would settle it.
+- **friction:** the diff-scoped header reported `2/387 source file(s) in scope`
+  for a change whose entire behavioral payload was in
+  `src/serve/assets/pcb_route_session.js`. That file is `@embedFile`'d into
+  `static_assets.zig`, so the two scoped files were the two `.zig` files I
+  edited *to add tests* — the changed code itself was invisible to the 53
+  per-file checks. Not wrong (they are Zig checks), but on this repo a
+  meaningful share of behavior ships as embedded JS/HTML/CSS assets, and the
+  scope line reads as "we looked at your change" when it looked at the tests
+  around it. A note in the diff-scoped header when the diff touches
+  non-analyzable files (`+3 file(s) not analyzable by per-file checks`) would
+  make that honest at a glance.
