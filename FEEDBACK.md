@@ -6530,3 +6530,7 @@ manifests instead.
 
 - **good:** The diff-scoped gate caught both an unlinked pair of new export_gerber requirements and a seven-runtime-parameter `labelClear` helper; linking the SPEC bullets and bundling the collision inputs into `LabelObstacles` improved the implementation before commit.
 - **good:** The full 2,831-test release gate caught an older keepout regression test that still required a covered sub-circuit name to disappear. The new feature deliberately searches beyond the box, so updating that contract to require a visible label outside the keepout prevented contradictory behavior from reaching `main`.
+
+## 2026-08-14 · codex · eda — repair Barracuda own-land copper transit
+
+- **good:** The diff-scoped gate caught an unlinked land-transit behavior, a 32-point repair-command complexity spike, seven-level nesting, excessive boolean operators, and repeated board parameters before commit. Splitting the transactional repair into focused helpers and adding exact SPEC-linked seed/junction regressions brought all 75 checks green; the whole-tree prepare-release gate then passed without further changes.
