@@ -8,6 +8,7 @@ sibling checkout.
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 - New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
   ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
   chain and `[[concept]]` owns a literal spelling; neither can express an
@@ -100,6 +101,51 @@ sibling checkout.
   while enforcing nothing, so it is a located config error instead. No entries
   is the zero-config default and the check passes without walking a file.
 >>>>>>> claude/import-layering
+=======
+- New check `twin-parity` and its `[[twin]]` table: the committed registry of
+  capabilities a project exposes on more than one surface, and whether anything
+  proves the surfaces still agree. A CLI subcommand, an HTTP route and an MCP
+  tool that all "export the PDF" are three implementations of one answer; they
+  share no type, no call and often no file, so nothing in a compiler can see
+  they are meant to match, and they drift while every surface keeps passing its
+  own tests. Measured in the flagship consumer (eda, 2026-08-14): ~19
+  capabilities on 2+ surfaces, exactly ONE with a test asserting the surfaces
+  return the same bytes, and the reimplemented pairs had already diverged into
+  different BOM-merge gating, different clamps, and different JSON for the same
+  field. A rule declaring `parity_test` must have a test whose name CONTAINS
+  that string (containment, so a clarifying rename does not red the gate) —
+  that one always blocks, since a test named in config and absent from the tree
+  is never intentional. A rule declaring none is reported as `twin-uncovered`,
+  one row per twin, so today's uncovered set freezes in the baseline and can
+  only shrink; `[baseline] deny_growth = ["twin-parity"]` then refuses a row
+  that LOSES its test. `surfaces` are free-form labels nothing resolves, but
+  fewer than two is a config error — a capability with one implementation has
+  nothing to disagree with. The two rows are keyed apart (`parity <name>` /
+  `uncovered <name>`) so a frozen uncovered row can never absorb the
+  missing-test failure.
+- `[[concept]]` gains `require_in` and `literals_from` — the totality direction
+  of the same relation, and a family that reads itself. Ownership is permissive
+  ("only the owner may spell it") and cannot see the failure that hurts most: a
+  mirror the project decided to keep, which quietly stops matching. In eda
+  (2026-08-12, commit 51bff373) a DRC kind string was renamed in Zig and the
+  viewer's hand-mirrored JS branch went dead — 531 grep-marker tests missed it
+  because no marker watched that string, and the JS side's 8-entry `DRC_BLOCK`
+  gate table fails PERMISSIVELY on a rename (an unrecognised kind simply stops
+  blocking). `require_in` names those mirrors and demands EVERY literal of the
+  family in EACH of them; a required mirror is owner-equivalent (never also
+  reported as drift), `patterns` are excluded (a wildcard names a shape, not a
+  spelling), a comment-only mention does not satisfy it, and a `require_in`
+  glob that names no file is itself a violation rather than a vacuous pass.
+  `literals_from = { file, fragments }` makes the family TOTAL instead of a
+  snapshot: every double-quoted string on a line of `file` carrying ALL the
+  fragments joins (union with `literals`, deduped, comment lines blanked first,
+  escapes not resolved), so a new enum variant enrols itself and a mirror
+  missing it fails with nobody editing guardian.toml. An unreadable file or an
+  extraction that yields nothing is a violation — an empty family passes every
+  mirror. The config parser gains single-line inline-table values, and the
+  concept check now prints one `fix:` line per remedy present instead of one
+  shared line that could name the wrong problem.
+>>>>>>> claude/twin-parity
 - The `concept` scan no longer judges comment lines or Zig `test` blocks. The
   first real branch composition on the flagship consumer produced 16 findings
   of which 15 were doc comments and golden-value test assertions — and because

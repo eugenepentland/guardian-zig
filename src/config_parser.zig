@@ -24,6 +24,8 @@ const ConceptRule = config.ConceptRule;
 const IdiomRule = config.IdiomRule;
 const ShadowRule = config.ShadowRule;
 const LayeringRule = config.LayeringRule;
+const LiteralsFrom = config.LiteralsFrom;
+const TwinRule = config.TwinRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -34,6 +36,7 @@ const inList = value.inList;
 const parseString = value.parseString;
 const parseStringAlloc = value.parseStringAlloc;
 const parseStringArray = value.parseStringArray;
+const parseInlineTable = value.parseInlineTable;
 const parseBool = value.parseBool;
 const parseU32 = value.parseU32;
 const startsMultilineArray = value.startsMultilineArray;
@@ -88,6 +91,18 @@ const owner_key = "owner";
 const fragments_key = "fragments";
 const from_key = "from";
 const to_key = "to";
+const require_in_key = "require_in";
+const literals_from_key = "literals_from";
+/// The two keys a `literals_from` inline table accepts. Named consts because
+/// the validator, the applier and the diagnostic each spell them, and a fourth
+/// copy is how they drift.
+const literals_from_file_key = "file";
+const literals_from_fragments_key = "fragments";
+const surfaces_key = "surfaces";
+const parity_test_key = "parity_test";
+/// One surface is a capability, not a twin: there is nothing for a second
+/// implementation to disagree with.
+const min_surfaces = 2;
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
 const ignore_names_key = "ignore_names";
@@ -190,7 +205,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, concept, idiom, shadow, layering, external };
+const ArrayKind = enum { none, boundary, allow, ban, concept, idiom, shadow, layering, twin, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -211,6 +226,8 @@ const ParseState = struct {
     cur_patterns: std.ArrayList([]const u8) = .empty,
     cur_owner: std.ArrayList([]const u8) = .empty,
     cur_concept_files: std.ArrayList([]const u8) = .empty,
+    cur_require_in: std.ArrayList([]const u8) = .empty,
+    cur_literals_from: ?LiteralsFrom = null,
     concepts: std.ArrayList(ConceptRule) = .empty,
     cur_idiom_name: ?[]const u8 = null,
     cur_fragments: std.ArrayList([]const u8) = .empty,
@@ -226,6 +243,10 @@ const ParseState = struct {
     cur_to: std.ArrayList([]const u8) = .empty,
     cur_layering_allow: std.ArrayList([]const u8) = .empty,
     layerings: std.ArrayList(LayeringRule) = .empty,
+    cur_twin_name: ?[]const u8 = null,
+    cur_surfaces: std.ArrayList([]const u8) = .empty,
+    cur_parity_test: ?[]const u8 = null,
+    twins: std.ArrayList(TwinRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -302,6 +323,7 @@ const ParseState = struct {
             .idiom => try self.flushIdiom(allocator, diag),
             .shadow => try self.flushShadow(allocator, diag),
             .layering => try self.flushLayering(allocator, diag),
+            .twin => try self.flushTwin(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -363,21 +385,28 @@ const ParseState = struct {
     /// Closes a `[[concept]]` entry. Three ways to be inert are refused rather
     /// than stored, because each one reads in the config like an enforced
     /// ownership rule while enforcing nothing: no `name` (the violation and its
-    /// baseline key are named after it), no `literals` and no `patterns` (there
-    /// is nothing to look for), and a `name` a previous entry already used
-    /// (identity is `<file>|<name>`, so a second rule under one name would share
-    /// — and silently freeze with — the first one's baseline keys).
+    /// baseline key are named after it), nothing to look for at all, and a
+    /// `name` a previous entry already used (identity is `<file>|<name>`, so a
+    /// second rule under one name would share — and silently freeze with — the
+    /// first one's baseline keys).
+    ///
+    /// "Nothing to look for" has three cures, not two: `literals`, `patterns`,
+    /// or a `literals_from` that will READ the literals out of the owner. The
+    /// third one's family is empty here and filled at run time, which is why the
+    /// check has its own fail-closed rule for an extraction that yields nothing
+    /// (see `checks/concept.zig`) — the config layer cannot see that far.
     fn flushConcept(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
         const name = self.cur_concept_name orelse {
             try setDiag(allocator, diag, self.array_line, "incomplete [[concept]]: missing required key 'name'", .{});
             return error.IncompleteTable;
         };
-        if (self.cur_literals.items.len == 0 and self.cur_patterns.items.len == 0) {
+        if (self.cur_literals.items.len == 0 and self.cur_patterns.items.len == 0 and self.cur_literals_from == null) {
             try setDiag(
                 allocator,
                 diag,
                 self.array_line,
-                "incomplete [[concept]] '{s}': needs a non-empty 'literals' or 'patterns' array",
+                "incomplete [[concept]] '{s}': needs a non-empty 'literals' or 'patterns' array, " ++
+                    "or a 'literals_from' table",
                 .{name},
             );
             return error.IncompleteTable;
@@ -393,6 +422,8 @@ const ParseState = struct {
             .patterns = try self.cur_patterns.toOwnedSlice(allocator),
             .owner = try self.cur_owner.toOwnedSlice(allocator),
             .files = try self.cur_concept_files.toOwnedSlice(allocator),
+            .require_in = try self.cur_require_in.toOwnedSlice(allocator),
+            .literals_from = self.cur_literals_from,
             .reason = self.cur_reason,
         });
     }
@@ -523,6 +554,40 @@ const ParseState = struct {
         return error.IncompleteTable;
     }
 
+    /// Closes a `[[twin]]` entry, refusing the same three ways to be inert the
+    /// concept table refuses — plus the one specific to this table: fewer than
+    /// two `surfaces`. A single-surface entry is a capability, not a twin;
+    /// there is no second implementation for a parity test to compare against,
+    /// so storing it would put a row in the coverage ratchet that no test could
+    /// ever legitimately close.
+    fn flushTwin(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const name = self.cur_twin_name orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[twin]]: missing required key 'name'", .{});
+            return error.IncompleteTable;
+        };
+        if (self.cur_surfaces.items.len < min_surfaces) {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[twin]] '{s}': 'surfaces' needs at least {d} entries " ++
+                    "(one surface is a capability, not a twin)",
+                .{ name, min_surfaces },
+            );
+            return error.IncompleteTable;
+        }
+        for (self.twins.items) |existing| {
+            if (!std.mem.eql(u8, existing.name, name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[twin]] name '{s}'", .{name});
+            return error.InvalidConfig;
+        }
+        try self.twins.append(allocator, .{
+            .name = name,
+            .surfaces = try self.cur_surfaces.toOwnedSlice(allocator),
+            .parity_test = self.cur_parity_test,
+        });
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -556,6 +621,11 @@ const ParseState = struct {
         self.cur_from = .empty;
         self.cur_to = .empty;
         self.cur_layering_allow = .empty;
+        self.cur_require_in = .empty;
+        self.cur_literals_from = null;
+        self.cur_twin_name = null;
+        self.cur_surfaces = .empty;
+        self.cur_parity_test = null;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -587,6 +657,7 @@ const ParseState = struct {
             .idiom => try self.setIdiomKey(allocator, kv),
             .shadow => try self.setShadowKey(allocator, kv),
             .layering => try self.setLayeringKey(allocator, kv),
+            .twin => try self.setTwinKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -633,6 +704,10 @@ const ParseState = struct {
             self.cur_owner = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "files")) {
             self.cur_concept_files = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, require_in_key)) {
+            self.cur_require_in = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, literals_from_key)) {
+            self.cur_literals_from = try parseLiteralsFrom(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
             self.cur_reason = try parseStringAlloc(allocator, kv.val);
         }
@@ -704,6 +779,16 @@ const ParseState = struct {
         }
     }
 
+    fn setTwinKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "name")) {
+            self.cur_twin_name = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, surfaces_key)) {
+            self.cur_surfaces = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, parity_test_key)) {
+            self.cur_parity_test = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
     fn setExternalKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
         if (std.mem.eql(u8, kv.key, "name")) {
             self.cur_name = try parseStringAlloc(allocator, kv.val);
@@ -755,6 +840,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "idiom")) return .idiom;
     if (std.mem.eql(u8, name, "shadow")) return .shadow;
     if (std.mem.eql(u8, name, "layering")) return .layering;
+    if (std.mem.eql(u8, name, "twin")) return .twin;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -814,6 +900,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.idiom_rules = try st.idioms.toOwnedSlice(allocator);
     cfg.shadow_rules = try st.shadows.toOwnedSlice(allocator);
     cfg.layering_rules = try st.layerings.toOwnedSlice(allocator);
+    cfg.twin_rules = try st.twins.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -899,7 +986,7 @@ fn applyKeyValueLine(
     try applySectionKey(.{ .allocator = allocator, .cfg = cfg }, st.section, kv);
 }
 
-const ValueKind = enum { boolean, unsigned, string, string_array };
+const ValueKind = enum { boolean, unsigned, string, string_array, inline_table };
 
 /// The value shape of one `[[array-table]]` key. Split out of `valueKind` so
 /// the two halves — array tables and `[section]`s — each stay inside the
@@ -910,14 +997,23 @@ fn arrayValueKind(kind: ArrayKind, key: []const u8) ValueKind {
         .allow => if (key[0] == 'c') .string else .string_array,
         // chain / paths / allow are arrays; only `reason` is prose.
         .ban => if (key[0] == 'r') .string else .string_array,
-        // literals / patterns / owner / files are arrays; name and reason are prose.
-        .concept => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
+        // Spelled out rather than branched on a first character: `require_in`
+        // and `reason` share an `r`, and `literals` / `literals_from` share
+        // four — the shape that made the shorthand readable is gone.
+        .concept => if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, "reason"))
+            .string
+        else if (std.mem.eql(u8, key, literals_from_key))
+            .inline_table
+        else
+            .string_array,
         // fragments / files / allow are arrays; name and reason are prose.
         .idiom => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
         // files / ignore are arrays; const (the referent) and reason are prose.
         .shadow => if (key[0] == 'c' or key[0] == 'r') .string else .string_array,
         // from / to / allow are arrays; name and reason are prose.
         .layering => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
+        // name / parity_test are prose; surfaces is an array.
+        .twin => if (std.mem.eql(u8, key, surfaces_key)) .string_array else .string,
         .external => externalValueKind(key),
         .none => .string_array,
     };
@@ -1016,6 +1112,9 @@ fn validateValue(
         .unsigned => std.fmt.parseInt(u32, kv.val, 10) catch null != null,
         .string => isValidString(kv.val),
         .string_array => isValidStringArray(kv.val),
+        // Shape only here (is it a `{ … }` at all); the per-key rules are
+        // `validateLiteralsFrom`'s, which needs to name the offending key.
+        .inline_table => (try parseInlineTable(allocator, kv.val)) != null,
     };
     if (!ok) {
         try setDiag(allocator, diag, line_no, "invalid value for '{s}'", .{kv.key});
@@ -1057,9 +1156,13 @@ fn validateValue(
         try validateHysteresis(allocator, kv, line_no, diag);
     }
     if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
-    if (st.array_kind == .concept) try validateRuleName(allocator, "concept", kv, line_no, diag);
+    if (st.array_kind == .concept) {
+        try validateRuleName(allocator, "concept", kv, line_no, diag);
+        try validateLiteralsFrom(allocator, kv, line_no, diag);
+    }
     if (st.array_kind == .idiom) try validateRuleName(allocator, "idiom", kv, line_no, diag);
     if (st.array_kind == .layering) try validateRuleName(allocator, "layering", kv, line_no, diag);
+    if (st.array_kind == .twin) try validateRuleName(allocator, "twin", kv, line_no, diag);
 
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
@@ -1204,6 +1307,81 @@ fn validateRuleName(
     return error.InvalidValue;
 }
 
+/// Rejects a `[[concept]] literals_from` table the extraction could not use:
+/// an unknown key, a missing or empty `file`, or a missing/empty `fragments`
+/// list.
+///
+/// `fragments` is required, not defaulted to "match every line", because that
+/// default would quietly enrol EVERY quoted string in the owner file — a
+/// family so wide that every mirror fails and the rule gets disabled rather
+/// than fixed. Failing here instead is the same fail-closed rule the rest of
+/// this parser applies to a setting that would enforce the wrong thing.
+fn validateLiteralsFrom(
+    allocator: Allocator,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (!std.mem.eql(u8, kv.key, literals_from_key)) return;
+    const pairs = (try parseInlineTable(allocator, kv.val)).?;
+    var seen_file = false;
+    var seen_fragments = false;
+    for (pairs) |pair| {
+        if (std.mem.eql(u8, pair.key, literals_from_file_key)) {
+            seen_file = isValidString(pair.val) and
+                std.mem.trim(u8, parseString(pair.val).?, &std.ascii.whitespace).len > 0;
+            if (!seen_file) return literalsFromError(allocator, line_no, diag, "'file' must be a non-empty string");
+        } else if (std.mem.eql(u8, pair.key, literals_from_fragments_key)) {
+            seen_fragments = isValidStringArray(pair.val) and
+                !hasEmptyArrayItem(pair.val) and
+                (try toStrings(allocator, pair.val)).len > 0;
+            if (!seen_fragments) {
+                return literalsFromError(allocator, line_no, diag, "'fragments' must be a non-empty string array");
+            }
+        } else {
+            try setDiag(
+                allocator,
+                diag,
+                line_no,
+                "unknown literals_from key '{s}' (want '{s}' and '{s}')",
+                .{ pair.key, literals_from_file_key, literals_from_fragments_key },
+            );
+            return error.UnknownKey;
+        }
+    }
+    if (!seen_file) return literalsFromError(allocator, line_no, diag, "missing required key 'file'");
+    if (!seen_fragments) return literalsFromError(allocator, line_no, diag, "missing required key 'fragments'");
+}
+
+/// Fills the diagnostic for one malformed `literals_from` table and returns the
+/// rejection, so each branch above stays a single line.
+fn literalsFromError(
+    allocator: Allocator,
+    line_no: u32,
+    diag: *Diagnostic,
+    detail: []const u8,
+) ParseError!void {
+    try setDiag(allocator, diag, line_no, "invalid literals_from table: {s}", .{detail});
+    return error.InvalidValue;
+}
+
+/// Reads a validated `literals_from` inline table into its config value. Null
+/// only for a table `validateLiteralsFrom` already rejected — every caller runs
+/// after validation, so this is the total-function guarantee, not a path.
+fn parseLiteralsFrom(allocator: Allocator, val: []const u8) Allocator.Error!?LiteralsFrom {
+    const pairs = (try parseInlineTable(allocator, val)) orelse return null;
+    var file: ?[]const u8 = null;
+    var fragments: []const []const u8 = &.{};
+    for (pairs) |pair| {
+        if (std.mem.eql(u8, pair.key, literals_from_file_key)) {
+            file = try parseStringAlloc(allocator, pair.val);
+        } else if (std.mem.eql(u8, pair.key, literals_from_fragments_key)) {
+            fragments = try toStrings(allocator, pair.val);
+        }
+    }
+    return .{ .file = file orelse return null, .fragments = fragments };
+}
+
 /// True when `text` is kebab-case: lowercase letters and digits separated by
 /// single `-`, never leading, trailing, or doubled.
 fn isKebabCase(text: []const u8) bool {
@@ -1342,15 +1520,20 @@ fn validSectionKeys(section: Section) []const []const u8 {
 
 /// Keys accepted inside a `[[boundary]]` / `[[allow]]` / `[[ban]]` /
 /// `[[concept]]` / `[[layering]]` / `[[external]]` array-of-tables entry.
+/// `[[concept]]` / `[[twin]]` / `[[external]]` array-of-tables entry.
 fn validArrayKeys(kind: ArrayKind) []const []const u8 {
     return switch (kind) {
         .boundary => &.{ "module", "forbidden" },
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
-        .concept => &.{ "name", literals_key, patterns_key, owner_key, "files", "reason" },
         .idiom => &.{ "name", fragments_key, "files", "allow", "reason" },
         .shadow => &.{ shadow_const_key, "files", "ignore", "reason" },
         .layering => &.{ "name", from_key, to_key, "allow", "reason" },
+        .concept => &.{
+            "name",  literals_key,   patterns_key,      owner_key,
+            "files", require_in_key, literals_from_key, "reason",
+        },
+        .twin => &.{ "name", surfaces_key, parity_test_key },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -2325,6 +2508,132 @@ test "parse rejects every inert shape of an idiom entry" {
     try std.testing.expectError(error.InvalidValue, parseInto(a, empty_reason, &blank));
 }
 
+// spec: Concept Ownership - Parses a concept entry's require_in globs and literals_from table
+
+test "parse concept require_in and literals_from keys" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[concept]]
+        \\name = "drc-kinds"
+        \\literals_from = { file = "src/drc/kind.zig", fragments = ["=> \"", "return \""] }
+        \\owner = ["src/drc/kind.zig"]
+        \\require_in = ["assets/viewer.js", "assets/*.css"]
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.concept_rules.len);
+    // `literals_from` alone is a complete rule: the family is READ, so there is
+    // nothing for `literals` to declare.
+    try std.testing.expectEqual(@as(usize, 0), cfg.concept_rules[0].literals.len);
+    try std.testing.expectEqualStrings("src/drc/kind.zig", cfg.concept_rules[0].literals_from.?.file);
+    try std.testing.expectEqual(@as(usize, 2), cfg.concept_rules[0].literals_from.?.fragments.len);
+    // The escape resolves, so a fragment can name the quote that OPENS the
+    // literal — the whole point of anchoring on `=> "`.
+    try std.testing.expectEqualStrings("=> \"", cfg.concept_rules[0].literals_from.?.fragments[0]);
+    try std.testing.expectEqual(@as(usize, 2), cfg.concept_rules[0].require_in.len);
+    try std.testing.expectEqualStrings("assets/viewer.js", cfg.concept_rules[0].require_in[0]);
+    // Absent on a rule that declares neither.
+    const bare = try parse(arena.allocator(), "[[concept]]\nname = \"x\"\nliterals = [\"F.Cu\"]");
+    try std.testing.expectEqual(@as(usize, 0), bare.concept_rules[0].require_in.len);
+    try std.testing.expect(bare.concept_rules[0].literals_from == null);
+}
+
+// spec: Concept Ownership - Hard-fails a malformed literals_from table
+
+test "parse rejects a literals_from table the extraction could not use" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const head = "[[concept]]\nname = \"drc-kinds\"\nliterals_from = ";
+    const cases = [_]struct { text: []const u8, err: ParseError, needle: []const u8 }{
+        // Not an inline table at all.
+        .{ .text = "\"src/kind.zig\"", .err = error.InvalidValue, .needle = "literals_from" },
+        // A key nobody reads is a setting the operator wrote and the gate
+        // silently ignored.
+        .{ .text = "{ path = \"src/kind.zig\", fragments = [\"x\"] }", .err = error.UnknownKey, .needle = "path" },
+        .{ .text = "{ fragments = [\"x\"] }", .err = error.InvalidValue, .needle = "'file'" },
+        // `fragments` is required rather than defaulted to "every line": that
+        // default enrols every quoted string in the owner, which fails every
+        // mirror and gets the rule deleted instead of fixed.
+        .{ .text = "{ file = \"src/kind.zig\" }", .err = error.InvalidValue, .needle = "'fragments'" },
+        .{ .text = "{ file = \"src/kind.zig\", fragments = [] }", .err = error.InvalidValue, .needle = "'fragments'" },
+        .{ .text = "{ file = \"\", fragments = [\"x\"] }", .err = error.InvalidValue, .needle = "'file'" },
+    };
+    for (cases) |case| {
+        var diag: Diagnostic = .{};
+        const content = try std.mem.concat(arena.allocator(), u8, &.{ head, case.text });
+        try std.testing.expectError(case.err, parseInto(arena.allocator(), content, &diag));
+        try std.testing.expectEqual(@as(u32, 3), diag.line);
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, case.needle) != null);
+    }
+}
+
+// spec: Twin Parity - Parses twin entries with name, surfaces and parity_test keys
+
+test "parse twin array tables with every key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[twin]]
+        \\name = "export-pdf"
+        \\surfaces = [
+        \\  "cli:export-pdf", # the CLI subcommand
+        \\  "http:/api/schematic-pdf",
+        \\  "mcp:export_pdf",
+        \\]
+        \\parity_test = "pdf export matches"
+        \\
+        \\[[twin]]
+        \\name = "fab-package"
+        \\surfaces = ["http:/api/pcb-gerbers", "cli:export-gerbers"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.twin_rules.len);
+    try std.testing.expectEqualStrings("export-pdf", cfg.twin_rules[0].name);
+    try std.testing.expectEqual(@as(usize, 3), cfg.twin_rules[0].surfaces.len);
+    try std.testing.expectEqualStrings("http:/api/schematic-pdf", cfg.twin_rules[0].surfaces[1]);
+    try std.testing.expectEqualStrings("pdf export matches", cfg.twin_rules[0].parity_test.?);
+    // `parity_test` is optional: the row exists to be an uncovered one until a
+    // test is written, which is what makes coverage a ratchet.
+    try std.testing.expectEqual(@as(?[]const u8, null), cfg.twin_rules[1].parity_test);
+}
+
+// spec: Twin Parity - Hard-fails a twin entry with no name or fewer than two surfaces
+
+test "parse rejects a twin entry that is not a twin" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cases = [_]struct { text: []const u8, err: ParseError, line: u32, needle: []const u8 }{
+        .{ .text = "[[twin]]\nsurfaces = [\"a\", \"b\"]", .err = error.IncompleteTable, .line = 1, .needle = "'name'" },
+        // One surface is a capability, not a twin: nothing can disagree with it,
+        // so its coverage row could never be legitimately closed.
+        .{
+            .text = "[[twin]]\nname = \"export-pdf\"\nsurfaces = [\"cli:export-pdf\"]",
+            .err = error.IncompleteTable,
+            .line = 1,
+            .needle = "at least 2",
+        },
+        .{ .text = "[[twin]]\nname = \"export-pdf\"", .err = error.IncompleteTable, .line = 1, .needle = "at least 2" },
+        // An empty or non-kebab name is refused by the shared name rule, which
+        // names the table it is in rather than saying "concept" from a [[twin]].
+        .{
+            .text = "[[twin]]\nname = \"\"\nsurfaces = [\"a\", \"b\"]",
+            .err = error.InvalidValue,
+            .line = 2,
+            .needle = "invalid twin name",
+        },
+        .{
+            .text = "[[twin]]\nname = \"Export PDF\"\nsurfaces = [\"a\", \"b\"]",
+            .err = error.InvalidValue,
+            .line = 2,
+            .needle = "invalid twin name",
+        },
+    };
+    for (cases) |case| {
+        var diag: Diagnostic = .{};
+        try std.testing.expectError(case.err, parseInto(arena.allocator(), case.text, &diag));
+        try std.testing.expectEqual(case.line, diag.line);
+        try std.testing.expect(std.mem.indexOf(u8, diag.message, case.needle) != null);
+    }
+}
+
 // spec: Canonical Idiom - Hard-fails a second idiom entry reusing an existing name
 
 test "parse rejects a duplicate idiom name" {
@@ -2472,6 +2781,28 @@ test "parse rejects a layering name that is not kebab-case" {
     try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
     try std.testing.expectEqual(@as(u32, 2), diag.line);
     try std.testing.expect(std.mem.indexOf(u8, diag.message, "invalid layering name") != null);
+}
+
+// spec: Twin Parity - Hard-fails a second twin entry reusing an existing name
+
+test "parse rejects a duplicate twin name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    // The baseline key is built from the name, so two rows under one name would
+    // share — and silently freeze under — each other's coverage record.
+    const content =
+        \\[[twin]]
+        \\name = "export-pdf"
+        \\surfaces = ["a", "b"]
+        \\
+        \\[[twin]]
+        \\name = "export-pdf"
+        \\surfaces = ["c", "d"]
+    ;
+    try std.testing.expectError(error.InvalidConfig, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 5), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "duplicate") != null);
 }
 
 test "parse rejects unsafe mutation invariants" {

@@ -195,6 +195,7 @@ src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunErr
 src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
 src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.ConceptRule, ) Allocator.Error![]const reporter.Violation
+src/checks/concept.zig::analyzeMirror | fn analyzeMirror( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rule: config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/const_fold.zig::Value union_
 src/checks/const_fold.zig::foldNode | fn foldNode(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value
@@ -300,6 +301,9 @@ src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry
 src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/twin_parity.zig::analyze | fn analyze( allocator: Allocator, rules: []const config.TwinRule, test_names: []const []const u8, ) Allocator.Error![]const reporter.Violation
+src/checks/twin_parity.zig::check_name value
+src/checks/twin_parity.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/twin_referent.zig::NameSet value
 src/checks/twin_referent.zig::Resolver struct_
 src/checks/twin_referent.zig::analyzeFile | fn analyzeFile( allocator: Allocator, entry: *const ast_index.Entry, resolver: *const Resolver, ignore: []const []const u8, ) Allocator.Error![]const reporter.Violation
@@ -432,6 +436,7 @@ src/config.zig::IdiomRule struct_
 src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LayeringRule struct_
 src/config.zig::LineLengthCfg struct_
+src/config.zig::LiteralsFrom struct_
 src/config.zig::MagicNumberCfg struct_
 src/config.zig::MeasurementCfg struct_
 src/config.zig::ModuleDocHeaderCfg struct_
@@ -451,6 +456,7 @@ src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TwinReferentCfg struct_
+src/config.zig::TwinRule struct_
 src/config.zig::TypeSizeCfg struct_
 src/config.zig::default_files value
 src/config.zig::default_shadow_ignore_values value
@@ -471,6 +477,7 @@ src/config_policy.zig::validProfile | fn validProfile(name: []const u8) bool
 src/config_semantics.zig::Field enum_
 src/config_semantics.zig::Issue struct_
 src/config_semantics.zig::validate | fn validate(allocator: std.mem.Allocator, cfg: *const config.Config) std.mem.Allocator.Error!?Issue
+src/config_value.zig::InlinePair struct_
 src/config_value.zig::arrayTableName | fn arrayTableName(line: []const u8) ?[]const u8
 src/config_value.zig::bestMatch | fn bestMatch(offender: []const u8, candidates: []const []const u8) ?[]const u8
 src/config_value.zig::hasEmptyArrayItem | fn hasEmptyArrayItem(val: []const u8) bool
@@ -478,6 +485,7 @@ src/config_value.zig::inList | fn inList(list: []const []const u8, name: []const
 src/config_value.zig::isValidString | fn isValidString(val: []const u8) bool
 src/config_value.zig::isValidStringArray | fn isValidStringArray(val: []const u8) bool
 src/config_value.zig::parseBool | fn parseBool(val: []const u8) ?bool
+src/config_value.zig::parseInlineTable | fn parseInlineTable(allocator: Allocator, val: []const u8) Allocator.Error!?[]const InlinePair
 src/config_value.zig::parseString | fn parseString(val: []const u8) ?[]const u8
 src/config_value.zig::parseStringAlloc | fn parseStringAlloc(allocator: Allocator, val: []const u8) Allocator.Error!?[]const u8
 src/config_value.zig::parseStringArray | fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.ArrayList([]const u8)

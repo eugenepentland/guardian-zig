@@ -748,6 +748,7 @@ test {
     _ = @import("checks/divergent_const.zig");
     _ = @import("checks/shadowed_const.zig");
     _ = @import("checks/duplicate_json_key.zig");
+    _ = @import("checks/twin_parity.zig");
     _ = @import("checks/twin_referent.zig");
     _ = @import("checks/doc_comments.zig");
     _ = @import("checks/errdefer_in_init.zig");
