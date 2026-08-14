@@ -6043,3 +6043,37 @@ manifests instead.
   0.00s` on a cached run compounds it (reads as "nothing ran"). If the banner is
   the Zig build runner's and not Guardian's, a Guardian-side "verdict: OK" line
   printed after it would settle the question without anyone having to know that.
+
+## 2026-08-14 · Claude · eda — deferred deploys (`Deploy: skip` trailer + debounce timer)
+
+- **good:** the gate stayed out of the way for a change that was almost entirely
+  shell + systemd + docs. `zig build --seed=1 test` in a fresh worktree came
+  back 0 blocking, and the pre-commit whole-tree run was 75 checks / 0 blocking
+  with no findings against the new `.githooks/*.sh` or `scripts/*.sh` files.
+  That is the right call — these are shell seams, not Zig — but see the wish
+  below, because it also means the 34-assertion behaviour test I wrote for them
+  is invisible to Guardian and to `zig build test`.
+- **wish:** a way to register a non-Zig test command so Guardian knows it
+  exists. This repo now has three shell/python test scripts under `scripts/`
+  (`test_kicad_sync_layout.py`, `verify_kicad_sch.sh`, and my new
+  `test_deploy_debounce.sh`) that nothing runs automatically and nothing
+  notices going stale. A `[tests] extra = ["scripts/test_*.sh"]` that Guardian
+  merely *lists* in `debt`/`doctor` output ("3 registered non-Zig test scripts,
+  last modified N days before the code they cover") would be enough — I am not
+  asking Guardian to run them, just to stop them being invisible. The failure
+  mode is concrete: `test_deploy_debounce.sh` stubs `deploy-prod.sh` by
+  string-matching a comment (`# Bootstrap the rollback target`), so an innocent
+  edit to that comment silently turns the test into a no-op, and nothing in the
+  gate would say so.
+- **friction (repeat, from my earlier entry today):** the `failed command: cd .
+  && ./.zig-cache/o/<hash>/test ...` banner on a PASSING run bit me a second
+  time in one session. I hit it on the first gate, remembered, and still had to
+  append `; echo "EXIT=${PIPESTATUS[0]}"` to every invocation because the banner
+  is the LAST line of output — the thing you read first when a command returns.
+  Two sessions' worth of the same re-read is what makes this worth fixing rather
+  than tolerating.
+- **good:** `guardian-check` finishing the whole-tree pre-commit run in ~1 s
+  meant I could commit deploy infrastructure without thinking about the gate at
+  all. For a change where the real risk was "does the systemd unit parse" and
+  "does the debounce actually reset", the gate correctly cost nothing and left
+  the attention budget where it belonged.
