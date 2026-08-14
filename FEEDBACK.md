@@ -6177,3 +6177,142 @@ manifests instead.
   on green runs as pre-verdict noise). A single final `guardian/gate: PASS|FAIL`
   line on stdout would make the verdict machine-readable without parsing the
   build summary.
+
+## 2026-08-14 · claude-opus (wave agent) · guardian-zig — baseline introspection (--list / --dry-run / creation wording / deny_growth detail)
+
+- **good:** `repeated-switch-on-enum` turned a copy-paste into a real refactor. The
+  new `cli/introspect.zig` had re-implemented `baseline.diffKeys`'s three-way
+  sorted merge and its `(Missing, VersionMismatch)` read dispatch; the check
+  named both cross-file pairs with file:line. The fix promoted the merge to
+  `baseline.splitAgainst` — one definition of "which row is new", now shared by
+  the gate and `--list`, which removed the precise bug class the feature could
+  have shipped: a listing that disagrees with the gate.
+- **friction:** `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` silently
+  accepted nothing. CLAUDE.md and the check's own failure text name that
+  incantation, but a plain `zig build` is not `metadata_writable`, so the
+  refresh was classified and deferred — the run printed nothing about the
+  deferral and `git status` showed no `.guardian/` change. `guardian-check
+  accept pub-api-surface .` worked first try. Cost one ~2-minute build plus the
+  detour. Either have the deferred path say so ("refresh deferred — run
+  guardian-check accept <check> . to persist") or drop the env spelling from
+  docs where it cannot work.
+- **friction:** the commit gate's phase 1 printed `run-all: cached — 0 blocking
+  (inputs unchanged since last green run)` — correct, but the commit's own
+  output then carries no count of what was verified, so the "75 checks" an
+  agent must report lives in a different command's scrollback. Echoing the
+  stamp's verdict (`cached — 0 blocking (75 check(s) passed whole-tree)`) would
+  make a commit self-documenting.
+- **good:** `test-coverage` + `dead-pub` together kept the new module's public
+  surface honest: every pub fn had to be named in a test and consumed outside
+  tests, so nothing landed public "just because another file needed it once" —
+  the five-symbol pub-api diff was reviewable at a glance.
+
+## 2026-08-14 · claude-opus (wave agent) · guardian-zig — test-runner PASS/FAIL verdict line + superviseArgv blast-radius test
+
+- **friction:** FEEDBACK's most-cited reproducible trigger for the `failed
+  command:` banner (2026-08-13: piped `zig build test` + `superviseArgv`'s
+  `kill(-pgid)`) is WRONG, and disproving it cost ~30 min. The banner appears
+  for any piped filtered run — `-Dtest-filter=outcomeFor` reproduces it with a
+  pure-function test that spawns nothing — and `superviseArgv` has spawned its
+  child with `.pgid = 0` (own process group) since commit dc3ad7a, before that
+  report was written. The earlier "clean when redirected to a file" comparison
+  was a cached run step printing nothing. Logging this as a correction so the
+  next agent doesn't re-chase it; the real mitigation is the new
+  `guardian/test: PASS/FAIL` verdict line, which now prints as the runner's
+  last output in server mode too.
+- **good:** the verdict line closed its own loop on the first try. Guardian's
+  suite splits across two test binaries and only one carries the counting
+  runner; while still confused about which binary was talking, the new
+  `guardian/test: PASS — N passed` line is what said the run was green.
+- **friction:** alternating between `zig build` and `./zig-out/bin/guardian-check`
+  flips the stale-binary hint on every run in THIS repo, because self-hosting
+  always compiles the check from source (debug) while `zig-out` holds the
+  `safe` build — same source, two identities, each declaring the other's green
+  stamp stale. Correct for consumers, pure noise for Guardian itself; keying
+  the stamp on the source digest would silence it where it can never mean
+  anything.
+- **friction:** a multi-word `-Dtest-filter` silently selects nothing
+  (`-Dtest-filter="fileOf extracts"` → `0 match by name` for a test that exists
+  verbatim). The zero-match guard caught it — exactly its job — but its fix
+  text says "correct the filter text", which reads as a typo when the SHAPE is
+  the problem. A hint when a zero-match filter contains whitespace would name
+  the real cause.
+
+## 2026-08-14 · claude-opus (wave agent) · guardian-zig — CLI ergonomics batch (unknown-command, unsafe-ops fix, rewords, exemptions, accept --quiet)
+
+- **friction:** a stale agent worktree is invisible until something is missing.
+  The worktree was created 672 commits behind main (July base, no FEEDBACK.md,
+  56-check-era source) and nothing in the build, the gate, or the diff-scoped
+  banner said so — it cheerfully reported `diff-scoped vs <merge-base>:
+  0/161 files in scope` against a month-old base. A one-line note when the
+  merge base is more than N commits or D days behind would turn ten minutes of
+  `git worktree list` archaeology into an instant read.
+- **good:** the diff-scoped report tier made per-item verification cheap and
+  honest: each filtered run named how many tests matched AND re-ran the
+  per-file checks over just the touched files, so a new advisory pointed
+  straight at the edit — and when one was pre-existing, the scope banner
+  explained why it had appeared "suddenly". Six edit/verify cycles, none over
+  40 s.
+- **good:** deliberately proving a bug-fix test by reverting the one-line fix
+  (`expected 0, found 1` on the unsafe-ops doc-comment repro) and restoring it
+  cost one 30 s filtered run — a workflow the fast tier makes practical. And
+  `pub-api-surface` classified the three new symbols "pure additions, safe to
+  accept"; the accept was one command.
+- **friction:** `failed command: ./.zig-cache/o/<hash>/test …` printed on every
+  green filtered run (another vote); every verification needed a second look at
+  the exit code. Cheap per occurrence and constant, which is what makes it
+  expensive.
+
+## 2026-08-14 · claude-opus (wave agent) · guardian-zig — concept polish (explain truth, CSS comments, per-line literal, source-coordinate fix)
+
+- **bug:** a shared `.zig-cache` handed out stale binaries for ~20 minutes.
+  After editing `src/cli/explain.zig`, `zig build --summary all` reported the
+  exe `cached 7ms` and installed a `zig-out/bin/guardian-check` an hour old
+  that printed the OLD explain text — even after deleting the installed binary.
+  Same trap on the test side: the newest `.zig-cache/o/*/test` binary reported
+  `All 1029 tests passed` while containing none of the new tests (this tree has
+  1025). A deliberate syntax error proved the compile reads the edited file;
+  the next build compiled for 1m and was correct. Concurrent wave agents
+  sharing one cache is the aggravating factor; a version-digest mismatch
+  warning at install time, or docs requiring a per-worktree cache for
+  concurrent agents, would catch it immediately.
+- **good:** the FEEDBACK line-number complaint (reported 3820 vs real 3951) was
+  a REAL bug, not a stale prebuilt: `blankTestBlocks` used `@memset(span, ' ')`
+  which erased the newlines inside a test block, shifting every later reported
+  line by the block's line count. Restoring the old code makes the new
+  regression test fail by exactly the fixture's newline count — a satisfying
+  proof that the fix is the fix.
+- **good:** proving "I added no new findings" took one command per side:
+  `guardian-check all . --only line-length,file-size --full --verbose` before
+  and after a `git stash`, ~2 s each — exactly the question a report-mode build
+  raises and rarely answers.
+- **friction:** the `failed command:` banner hit on ~8 of ~10 filtered
+  iterations (another vote); combined with the stale-cache bug above, "is this
+  run actually green?" was the single most expensive question of the session.
+
+## 2026-08-14 · claude-fable (orchestrator) · guardian-zig — feedback-wave 2026-08-14: 4 opus agents, 4 isolated worktrees, 4 branches merged
+
+- **good:** all four branches came back gate-green on the first integration
+  attempt: baseline introspection (`--list`/`--dry-run`/creation wording/
+  deny_growth key detail), the `guardian/test: PASS/FAIL` verdict line, the
+  six-item ergonomics batch, and concept polish. One textual conflict across
+  the whole wave (two agents extending `check.zig`'s `dispatch` head — flag
+  guard vs added parameter; resolution was both), and the `.guardian/` merge
+  driver merged 923 pub-api rows from three branches without a single manual
+  resolve.
+- **friction:** every one of the four isolated worktrees was created ~670
+  commits stale (a July-era base with no FEEDBACK.md), so every agent burned
+  its first minutes on archaeology and reset by hand — two onto the wave
+  branch, two onto main, which made the merge bases inconsistent and let main's
+  mid-wave feedback commits enter through one branch's lineage. The harness
+  should create wave worktrees from the orchestrating branch's HEAD, and the
+  ergonomics agent's wish (a loud note when a merge base is weeks old) would
+  have caught it on the first gate line.
+- **friction:** briefs derived from FEEDBACK entries inherit their diagnoses,
+  and one agent spent ~30 min disproving a confidently-worded but wrong
+  root-cause claim from the log (the superviseArgv process-group trigger for
+  the `failed command:` banner). Diagnosis-grade claims in FEEDBACK entries
+  deserve hypothesis wording, and wave briefs should mark them as unverified.
+- **good:** main advanced six times mid-wave (all FEEDBACK.md appends from
+  other live sessions) and the integration absorbed it without drama — pure
+  bottom-of-file appends, no source drift, one `git merge main` at the end.
