@@ -6493,3 +6493,7 @@ manifests instead.
 - **good:** the diff-scoped and whole-tree 75-check gates both passed with zero
   blocking findings after the router gained a separate hard perimeter mask and
   DRC kind; the commit gate clearly distinguished the five report-only metrics.
+
+## 2026-08-14 · codex · eda — validate fast self-hosted ReleaseSafe toolchain
+
+- **good:** the diff-scoped 75-check gate stayed green (0 blocking, 2 report-only) during a cold 23.92-second full EDA build with the patched compiler, including the newly repaired self-hosted WASM `compiler_rt` path; Guardian remained independent of the experimental toolchain and made the successful end-to-end build unambiguous.
