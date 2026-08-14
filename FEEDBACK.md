@@ -6521,3 +6521,7 @@ manifests instead.
   rules — nothing to accept") would have named the mistake instantly. Related:
   single-check runs default diff-scoped, so a config-only worktree scans zero
   files and reports a green 0 for whole-tree config-driven checks.
+
+## 2026-08-14 · codex · eda — preserve nested Gerber copper islands
+
+- **good:** Guardian's spec-link check caught the new Gerber polarity regression test's missing SPEC.md requirement on the first focused run; after adding the contract, the diff-scoped, commit, and prepare-release whole-tree gates all passed with zero blocking findings.
