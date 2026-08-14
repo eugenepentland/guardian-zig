@@ -6360,3 +6360,46 @@ manifests instead.
 - **good:** the gate stayed quiet through a second same-day rework of the same
   three shell scripts (73-check behaviour suite green both generations, 0
   blocking Guardian findings on every commit).
+
+## 2026-08-14 · claude-opus (port agent) + claude-fable (orchestrator) · guardian-zig — land the threshold branch (code-line metric, near-cap alert, relocation ratchets, hysteresis default-on) on 0.17 main
+
+- **good:** the `.guardian/` merge driver plus exact-match snapshot semantics
+  turned the scariest part of a 157-commit-stale integration into a non-event —
+  the driver merged 971 `pub-api.txt` rows and `pub-api-surface` passing on
+  `--full --gate` IS the proof it merged them right, in both directions. Zero
+  hand-merging, zero regeneration, zero judgement calls.
+- **good:** the wave's day-old `--list` introspection had a real semantic gap
+  against day-old hysteresis, caught because the port brief named the
+  interaction: `listRatchet` measured "now" from blocking records only, so a
+  tripped entry inside the recovery zone (advisory, blocks nothing) listed
+  under RESOLVED — "recorded ceilings nothing measures any more" — the exact
+  sentence that sends a debt-cleaner to delete the entry hysteresis exists to
+  keep. Fixed by routing `measuredNow` through the same `hysteresis.reconcile`
+  the gate uses, verified both ways live (policy on → 1 live; off → 1
+  resolved), ratchet file byte-identical after every listing.
+- **friction:** the filtered test loop and the whole-suite build disagree about
+  which files' tests exist. `src/relocation.zig`'s 7 tests ran in the
+  unfiltered suite but were invisible to `-Dtest-filter` (`0 match by name` →
+  honest fail), because the module was reachable only transitively via
+  `baseline.zig`, never through `check.zig`'s test aggregator. The symptom
+  reads exactly like "your filter text is wrong". Worth making
+  `test-reachability` flag "referenced but not in the aggregator", since the
+  edge model counts `@import(...)` as reachable and Zig's filtered analysis
+  does not.
+- **friction:** `guardian-check all --gate --full` short-circuits on the green
+  cache, so a mandated post-merge verification silently reported `cached — 0
+  blocking` after an unrelated `zig build test` had stamped the same tree.
+  `--full` already means "I do not want the cheap answer" — it should imply a
+  cache bypass, or grow a `--no-cache`.
+- **good:** two 0.17 ports the toolchain forced were both self-diagnosing in
+  under a minute thanks to earlier FEEDBACK war stories being in the brief
+  (`std.fs.cwd` gone → the repo's `fs` compat module; the `**` array-repeat
+  operator removed → tiny arena helper). The three new modules (hysteresis,
+  relocation, near_cap — 1334 lines) needed zero ports: pure logic over
+  unmanaged containers.
+- note (orchestrator): hysteresis ships **enabled by default** per Eugene's
+  explicit call (`recover_pct = 20`, binding file-size + function-length).
+  Consumer consequence on next upgrade: file-size ceilings re-value under the
+  smaller code-line metric (comments/blanks no longer count), and any file
+  already over its hard cap becomes tripped — green stays green, growth blocks
+  with no accept escape until the file shrinks to the recover line.
