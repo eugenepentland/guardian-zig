@@ -70,12 +70,15 @@ src/ast/test_reach.zig::testBearingCount | fn testBearingCount(nodes: []const im
 src/ast/test_refs.zig::referenced | fn referenced(arena: Allocator, source: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
+src/baseline.zig::Split struct_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::firstFixHint | fn firstFixHint(captured: []const u8) ?[]const u8
+src/baseline.zig::keyedViolations | fn keyedViolations( arena: Allocator, check_name: []const u8, captured: []const u8, records: []const reporter.Violation, ) Allocator.Error![]const Keyed
 src/baseline.zig::legacy_version value
 src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: []const Keyed, force_refresh: bool, write_allowed: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
+src/baseline.zig::splitAgainst | fn splitAgainst(arena: Allocator, stored: []const []const u8, current: []const Keyed) Allocator.Error!Split
 src/baseline.zig::version value
 src/benchmark.zig::Args struct_
 src/benchmark.zig::Direction enum_
@@ -313,6 +316,7 @@ src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/cli/install_hook.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/introspect.zig::run | fn run(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/cli/merge_driver.zig::command_name value
 src/cli/merge_driver.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/merge_driver.zig::isInstalled | fn isInstalled(allocator: Allocator, project_dir: []const u8) bool
@@ -771,6 +775,7 @@ src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
 src/snapshot.zig::magic_prefix value
 src/snapshot.zig::parse | fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
+src/snapshot.zig::readOptional | fn readOptional(arena: Allocator, path: []const u8, expected_version: u32) ReadError!?Snapshot
 src/snapshot.zig::regen_marker value
 src/snapshot.zig::write | fn write(path: []const u8, version: u32, lines: [][]const u8) WriteError!void
 src/snapshot.zig::writeChecked | fn writeChecked(arena: Allocator, path: []const u8, version: u32, lines: [][]const u8) WriteError!bool

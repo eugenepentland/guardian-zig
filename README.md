@@ -1545,6 +1545,8 @@ guardian-check commit --intent "fix the parser" .   # Block-gate, run tests, the
 guardian-check install-hook .        # Write .git/hooks/pre-commit that runs the blocking gate
 guardian-check install-merge-driver . # Teach this clone's git to merge .guardian/ metadata
 guardian-check merge-file %O %A %B --path %P  # The driver itself (git calls this; base, ours, theirs)
+guardian-check concept . --list      # One check's rows: NEW / LIVE / RESOLVED against its baseline (read-only)
+guardian-check concept . --dry-run   # One check's current findings, unfiltered by any baseline; writes nothing
 guardian-check size src/parser.zig . # One file's current measurements vs its caps and ratchet ceilings
 guardian-check debt .                # Baseline/snapshot debt totals + deltas (non-gating)
 guardian-check debt . --live         # Measure now: every ratcheted key vs its ceiling, + what is nearest a blocking limit
@@ -1579,6 +1581,22 @@ guardian-check version               # Print the guardian version + source diges
   exclusive. Unknown names (or non-gates like `mutate`) hard-fail with the
   valid-name hint. A filtered run is a subset, so it never writes the green
   skip-cache stamp — a partial run can't mask a failure in the checks it skipped.
+- **`--list` / `--dry-run`** introspect ONE check, read-only. Under baseline
+  mode a check reports only `N resolved` / `N violation(s) …`, so there is no
+  way to ask *which frozen rows still fire*; `--list` answers that by splitting
+  the check's current findings into **NEW** (firing, unrecorded — what would
+  block), **LIVE** (firing AND frozen, printed as the check's own
+  `file:line: message` plus the baseline key) and **RESOLVED** (recorded keys
+  nothing fires behind), closing with `<check>: N new, N live, N resolved
+  (baseline unchanged)`. For a threshold check the same three groups list each
+  key's value measured now against its frozen ceiling. `--dry-run` prints every
+  current finding in the check's own rendering with no baseline filtering — the
+  loop for tuning a new `[[ban]]`/`[[concept]]` rule, whose first ordinary run
+  would otherwise freeze exactly what you wanted to read. Both are strictly
+  read-only: no baseline is created or pruned, no v1→v3 re-key is persisted, no
+  snapshot is written, nothing stamps the green cache. They apply to a single
+  registered check; on `all` or another composed command they are an error, not
+  a silent no-op.
 - **The `run-all:` verdict line** closes *every* exit path — green, blocking,
   and cache-skipped — on the always-visible channel, so one grep covers all
   three and "no guardian output" is never a possible reading:

@@ -160,6 +160,8 @@ guardian-check all . --summary       # verdict line + blocking detail only (advi
 guardian-check all . --verbose       # replay every check in full (overrides --summary and scope-collapse)
 guardian-check all . --full          # whole tree: opt out of the default diff scoping
 guardian-check all . --against origin/main  # diff-scope against an explicit base ref
+guardian-check <check> . --list      # one check's rows: NEW / LIVE / RESOLVED vs its baseline (read-only)
+guardian-check <check> . --dry-run   # one check's current findings, no baseline filtering, writes NOTHING
 guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps + frozen ratchet ceilings
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating); --json goes to stdout
 guardian-check debt . --live         # + each ratcheted key vs its ceiling AND what is nearest a blocking limit

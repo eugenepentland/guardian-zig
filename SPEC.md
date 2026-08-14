@@ -556,6 +556,19 @@ lives in a fixed-size buffer.
 - Skips findings whose file is missing and gitignored instead of counting them
 - Forwards a newly reported violation to the sink with its location and fix hint
 
+## Baseline Introspection
+
+- Splits a check's current findings into new, live, and resolved rows
+- Matches a v1 text baseline by rendered line instead of identity key
+- Lists a threshold check's keys with each live value against its frozen ceiling
+- Names the baseline file a listing is split against
+- Reads a stored metadata file as absent when it is missing or in another format version
+- Writes no baseline ratchet or snapshot on an introspection run
+- Refuses the introspection flags on a command that is not a single gate check
+- Words a first-run baseline or ratchet creation as a recorded starting set
+- Names the keys a refused deny_growth refresh would add
+- Names the sanctioned two-step for a deliberately declared new rule
+
 ## Violation Identity
 
 - Collapses standalone digit runs while keeping digits glued to identifiers

@@ -97,6 +97,21 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
     return parse(arena, content, expected_version);
 }
 
+/// Reads `path` at `expected_version`, or null when the file is absent or is in
+/// a different format version.
+///
+/// For a READ-ONLY reader, "nothing recorded yet" and "recorded in a format I
+/// don't speak" are the same answer — there is no comparable stored state — and
+/// neither is worth failing a report over. Only a corrupt file or a real I/O
+/// error still propagates. Writers must NOT use this: they have to tell the two
+/// apart, because absent means create and stale means migrate.
+pub fn readOptional(arena: Allocator, path: []const u8, expected_version: u32) ReadError!?Snapshot {
+    return read(arena, path, expected_version) catch |e| switch (e) {
+        error.Missing, error.VersionMismatch => null,
+        else => e,
+    };
+}
+
 /// Parses snapshot bytes into version + entries — `read` without the file I/O,
 /// so the tolerances below are testable from a string.
 ///

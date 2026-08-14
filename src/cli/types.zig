@@ -72,6 +72,14 @@ pub const RunCtx = struct {
     verbose: bool = false,
     /// Machine-readable maintenance-command output.
     json: bool = false,
+    /// `--list`: on a single-check run, report that check's rows against its
+    /// stored baseline as NEW / LIVE / RESOLVED instead of the pass/fail
+    /// summary. Strictly read-only (see cli/introspect.zig).
+    list: bool = false,
+    /// `--dry-run`: on a single-check run, print every current finding in the
+    /// check's own rendering with no baseline filtering, and write nothing —
+    /// including no first-run baseline for a rule being tuned.
+    dry_run: bool = false,
     /// `--args`: the read-only `test-filter` report also writes its derived
     /// argument string to stdout, so a caller can interpolate it into its own
     /// command. The report's caveats still go to stderr; no gate reads it.

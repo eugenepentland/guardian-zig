@@ -669,6 +669,9 @@ pub fn printHelp() void {
     for (all) |cmd| print(row, .{ cmd.name, cmd.summary });
     print("\nMeta commands (composed / informational):\n", .{});
     for (meta_commands) |m| print(row, .{ m.name, m.summary });
+    print("\nSingle-check introspection (read-only, writes nothing):\n", .{});
+    print(row, .{ "--list", "one check's rows as NEW / LIVE / RESOLVED against its baseline" });
+    print(row, .{ "--dry-run", "one check's current findings, unfiltered by any baseline" });
 }
 
 /// Checks whose verdict is inherently whole-tree — cross-file graphs and
