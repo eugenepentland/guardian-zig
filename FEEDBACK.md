@@ -6864,3 +6864,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** The import-layering check rejected a direct serve-to-`route_cleanup` dependency and drove final junction repair through the sanctioned public router seam; exact spec and `pub-api-surface` checks made the new topology contract and API review explicit.
 - **good:** The exact-commit suite caught three fixture expectations affected by the new warning, and fail-fast cancellation stopped the concurrent ReleaseSafe build after 87 seconds rather than paying its full 254-second cost.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, making every green focused run look contradictory until the outer Zig exit status is checked.
+
+## 2026-08-14 · codex · eda — select affected development tests automatically
+- **good:** Exact spec linking kept the new Git/import/embed selector explicitly development-only, while a generated RF-shadow plan ran 121 affected tests in 21 seconds versus the 2,887-test suite's 70 seconds and still followed with whole-suite semantic analysis; the final 79-check release gate remained unfiltered and passed.
