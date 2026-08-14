@@ -6823,3 +6823,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — redefine trace stubs by deletion invariance
 - **good:** The exact-commit full test gate caught three downstream assumptions after the DRC topology rule broadened: RF fabrication needed the new finding to stay advisory, while route cleanup and close-gaps needed explicit loose-section identity and a stable error-budget fixture. Fixing those contracts preserved all three behaviors before deployment.
 - **good:** The `type-size` ratchet rejected adding a ninth field to `drc.Violation`; moving the cleanup identity into the existing `Parties` structure kept the public violation record within its frozen ceiling, and the next diff-scoped gate passed 79/79.
+
+## 2026-08-14 · codex · eda — compact and space Gerber silkscreen text
+- **good:** Selective `pub-api-surface` acceptance added exactly the three intended shared font-metric rows, the rebase hook cleanly merged a concurrent API snapshot update, and both pre- and post-rebase exact-commit release gates passed all 79 checks without manual metadata repair.
