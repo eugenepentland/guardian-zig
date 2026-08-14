@@ -352,10 +352,10 @@ discoverable only by reading the check's source.
 ### Structural
 | Check | Blocks on |
 |---|---|
-| **file-size** | Warn above `max_file_lines` (default 1000); fail above `hard_max_file_lines` (default 10000) |
+| **file-size** | Warn above `max_file_lines` (default 1000); fail above `hard_max_file_lines` (default 10000). A **code line** is a non-blank, non-comment line outside `test { ... }` blocks — deleting doc comments buys no headroom. At ≥95% of the hard limit the file also draws one `NEAR HARD CAP` line that survives `--summary` and diff-scope collapsing |
 | **module-doc-header** | Any src file over `[module_doc_header] min_lines` lines (default 200) that doesn't open with a `//!` module doc block (≥2 lines or ≥60 chars); lower `min_lines` to require headers on smaller files; exempt paths via `[[allow]]` |
 | **function-size** | Any function with more than `max_params` runtime parameters (default 6); `comptime` specialization inputs do not consume the budget |
-| **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400) |
+| **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400); at ≥95% of the hard limit the function draws the same un-collapsible `NEAR HARD CAP` line |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
 | **imports** | Cycles in the `@import` graph |
@@ -1048,6 +1048,50 @@ On the next build, `file-size` writes a ratchet with 25 entries — each oversiz
 
 The baseline files are plain text and sorted by key, so a value change is a one-line diff in code review.
 
+### Hysteresis: trip → no accept → shrink to recover
+
+The table above has one gap the evidence found: a ratchet entry **prunes** the
+moment its subject dips under the cap, and the subject can then regrow to cap−1
+for free. Together with an accept that costs one env var, that produced a stable
+attractor — on one consumer the three largest files sat at **100–103% of the
+10000-line hard cap** (nothing else within 57% of it), with five ceiling-raising
+accepts on one file in nine days, and a file that crossed at 10002, was trimmed
+back under, pruned, and parked at 9983. `[hysteresis]` closes both leaks for the
+two-tier hard-cap checks, and is **on by default** for `file-size` and
+`function-length` (`line-length` is supported but opt-in):
+
+| Situation | Before | With hysteresis |
+|---|---|---|
+| Crossing the hard cap, no entry | fails; **accept records it** | fails; **accept refuses** — the message names the recover line, not a command |
+| Tripped entry, still over the cap, grew | fails; accept raises the ceiling | fails; **the ceiling cannot be raised** |
+| Tripped entry, still over the cap, shrank | auto-lowers (green) | auto-lowers (green) — unchanged; a shrink always lands |
+| Subject back under the cap | entry **prunes**; free regrowth to cap−1 | entry **survives**, following the measurement down |
+| Tripped subject grew below the cap | invisible | **fails** — "growth blocks until it reaches <=8000; shrinking commits land freely" |
+| Tripped subject reached the recover line | — | entry prunes and the run prints `recovered: …` |
+
+The recover line is `recover_pct` under the hard cap (10000 → 8000,
+400 → 320 at the default 20). 20% rather than 50%: the observed cohesive
+extraction quantum is 200–900 lines per module, so a 2000-line band is two to
+four real cuts, while a 5000-line one forces cutting past the cohesion frontier
+into mechanical bisection.
+
+What does **not** change: a subject with no entry is untouched, however close to
+the cap it sits — hysteresis binds only what crossed. First-record adoption
+still grandfathers every over-cap subject (born tripped, green immediately).
+Relocations still transfer, so a `git mv` of a tripped file carries its entry
+rather than re-charging it as an unacceptable crossing. A diff-scoped run never
+clears a trip it could not see, and a same-session accept note never covers one.
+`accept` remains useful — it records shrinks, prunes and moves; it only refuses
+a crossing or a raise. Set `enabled = false` (or drop the check from `checks`)
+for exactly today's behavior.
+
+`guardian-check debt . --live` lists every tripped key with what is left to
+fall:
+
+```
+    src/placement/optimizer.zig    8900 vs ceiling 8900 — AT CEILING, 0 headroom  TRIPPED — recover at <=8000 (900 to go)
+```
+
 **Freeze a baseline against growth.** For the checks whose debt should only ever shrink — the 1:1 spec map is the canonical case — list them in `[baseline] deny_growth`. A refresh that would *raise* a recorded value or *add* a key fails with a clear message instead of ratifying the growth (this applies to both flavors):
 
 ```toml
@@ -1100,9 +1144,16 @@ check's hard cap:
 
 ```
 headroom — within 90% of the limit that blocks them, least room first (measured now)
-  file-size        src/serve/pcb_layout_page.zig     10296 of 10296 frozen ceiling — 0 left
-  file-size        src/placement/optimizer.zig        9988 of 10000 hard cap — 12 left
+  file-size        src/serve/pcb_layout_page.zig     10296 of 10296 frozen ceiling (100%) — 0 left
+  file-size        src/placement/optimizer.zig        9988 of 10000 hard cap (99%) — 12 left
 ```
+
+An **un-ratcheted** file counts here as soon as it nears the hard cap — that is
+the "17 lines from a blocking crossing, no ratchet entry, nothing said so" case
+— and the percentage is what makes a 10000-line limit and a 7-field one
+comparable at a glance. Under `--json` each of these rows carries `kind`
+(`measurement` — a live value, not accepted debt), `direction`, `unit` and
+`pct` alongside `value`/`limit`/`limit_kind`.
 
 It is opt-in because it re-reads and re-parses `src/` and `test/`; a plain
 metadata-only debt report should not pay for a source walk (measured on a
@@ -1114,7 +1165,8 @@ until something already fails — so trimming a file toward its ceiling used to
 mean re-running the whole gate to read the number. `guardian-check size <path>
 [dir]` answers it in one command, using the checks' own measurement functions
 (so it agrees with the gate byte for byte — a hand-rolled `grep -c` does not,
-because the file-size metric excludes `test { ... }` blocks):
+because a file-size code line is a non-blank, non-comment line outside
+`test { ... }` blocks):
 
 ```
 size — src/placement/optimizer.zig (measured now; no gate, no writes)
@@ -1150,6 +1202,14 @@ limits; keep the recommendation useful for guidance and move the hard limit
 only when a project has a legitimate extreme case.
 
 ### Extracting a module?
+
+**First, what will and will not move the number.** A file-size code line is a
+non-blank, non-comment line outside `test { ... }` blocks, so deleting doc
+comments, collapsing blank lines and merging readable statements buy exactly
+nothing — the metric was changed to count this way precisely because four
+recorded sessions in one week spent their trim budget on explanation. Only
+moving or deleting *code* moves it. `guardian-check size <file> .` prints the
+current number in one command, without a gate run.
 
 Splitting a file — usually to get it back under the `file-size` ratchet — reliably
 trips three *other* checks at once, because moving code duplicates the small
@@ -1343,6 +1403,15 @@ sink_path = ".guardian/cache/dora.jsonl"
 enabled = true
 deny_growth = ["spec"]
 
+# Hard-cap hysteresis: trip -> no accept -> shrink to recover. On by default;
+# these are the values you would write to change it. Crossing a hard cap trips
+# the subject and cannot be accepted; the entry then survives below the cap and
+# prunes only at the recover line (recover_pct under the cap).
+[hysteresis]
+enabled = true
+recover_pct = 20
+checks = ["file-size", "function-length"]
+
 # Per-check allowed-path exemptions. Each ban-family / path-scoped check keeps
 # its architectural defaults (infra/clock, adapters/http, config, main, …);
 # [[allow]] grants extra paths on top, merged by check name. This is where a
@@ -1441,6 +1510,7 @@ include comments and trailing commas.
 | `[bool_ops]` | `enabled`, `max_ops` |
 | `[line_length]` | `enabled`, `max_len`, `hard_max_len` |
 | `[baseline]` | `enabled`, `deny_growth` |
+| `[hysteresis]` | `enabled` (default `true`), `recover_pct` (1..90, default `20`), `checks` (default `["file-size", "function-length"]`; only `file-size`/`function-length`/`line-length` are valid) |
 | `[escape_discipline]` | `enabled` |
 | `[oom_discipline]` | `enabled` |
 | `[magic_number]` | `enabled` |

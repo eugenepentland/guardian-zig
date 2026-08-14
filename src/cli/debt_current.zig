@@ -19,6 +19,8 @@ const walk = @import("../walk.zig");
 const ratchet = @import("../ratchet.zig");
 const file_metrics = @import("../file_metrics.zig");
 const config_mod = @import("../config.zig");
+const near_cap = @import("../near_cap.zig");
+const hysteresis = @import("../hysteresis.zig");
 
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
@@ -70,6 +72,10 @@ pub const Row = struct {
     value: ?u64,
     ceiling: u64,
     standing: file_metrics.Standing,
+    /// The recover line when `[hysteresis]` binds this key's check, else null.
+    /// Non-null means TRIPPED: the entry only shrinks, it cannot be accepted
+    /// upward, and it clears at this number rather than at the hard cap.
+    recover: ?u64 = null,
 };
 
 /// One check's ratchet at a glance: how its frozen keys are distributed across
@@ -138,7 +144,14 @@ pub fn collect(ctx: *types.RunCtx) types.RunError!Report {
     for (file_metrics.measured_checks) |check_name| {
         const recorded = try file_metrics.ceilings(ctx.allocator, ctx.project_dir, check_name);
         if (recorded.len == 0) continue;
-        try summaries.append(ctx.allocator, try appendCheck(ctx.allocator, &rows, check_name, recorded, scan.values));
+        try summaries.append(ctx.allocator, try appendCheck(ctx.allocator, &rows, .{
+            .check = check_name,
+            .recorded = recorded,
+            .values = scan.values,
+            // A recorded entry of a hysteresis check IS a trip, so the recover
+            // line it clears at is what the reader needs beside the ceiling.
+            .recover = recoverLineFor(ctx.cfg, check_name),
+        }));
     }
     return .{
         .summaries = try summaries.toOwnedSlice(ctx.allocator),
@@ -147,34 +160,48 @@ pub fn collect(ctx: *types.RunCtx) types.RunError!Report {
     };
 }
 
-/// Folds one check's recorded ceilings into a summary, appending a row for
-/// every key that has no headroom left (at ceiling, over, or stale).
-fn appendCheck(
-    arena: Allocator,
-    rows: *std.ArrayList(Row),
-    check_name: []const u8,
+/// The recover line `[hysteresis]` clears `check_name`'s entries at, or null
+/// when the policy does not bind it — the one place this report asks.
+fn recoverLineFor(cfg: *const config_mod.Config, check_name: []const u8) ?u64 {
+    const policy = hysteresis.policyFor(cfg, check_name) orelse return null;
+    return policy.recover;
+}
+
+/// One check's ceiling table input: its name, what it has recorded, the
+/// measured values, and its recover line when hysteresis binds it.
+const CheckRows = struct {
+    check: []const u8,
     recorded: []const ratchet.Entry,
     values: std.StringHashMapUnmanaged(u64),
-) Allocator.Error!Summary {
+    recover: ?u64,
+};
+
+/// Folds one check's recorded ceilings into a summary, appending a row for
+/// every key that has no headroom left (at ceiling, over, or stale) — plus
+/// every TRIPPED key, headroom or not: a hysteresis entry that is quietly
+/// shrinking toward its recover line is exactly what the reader is tracking,
+/// and it would otherwise be invisible until it stopped having headroom.
+fn appendCheck(arena: Allocator, rows: *std.ArrayList(Row), in: CheckRows) Allocator.Error!Summary {
     var summary: Summary = .{
-        .check = check_name,
-        .ratcheted = recorded.len,
+        .check = in.check,
+        .ratcheted = in.recorded.len,
         .headroom = 0,
         .at_ceiling = 0,
         .over = 0,
         .stale = 0,
     };
-    for (recorded) |entry| {
-        const current = values.get(try measurementKey(arena, check_name, entry.key));
+    for (in.recorded) |entry| {
+        const current = in.values.get(try measurementKey(arena, in.check, entry.key));
         const standing = file_metrics.standingOf(current orelse 0, entry.value);
         tally(&summary, current, standing);
-        if (current != null and standing == .headroom) continue;
+        if (in.recover == null and current != null and standing == .headroom) continue;
         try rows.append(arena, .{
-            .check = check_name,
+            .check = in.check,
             .key = entry.key,
             .value = current,
             .ceiling = entry.value,
             .standing = standing,
+            .recover = in.recover,
         });
     }
     return summary;
@@ -301,6 +328,15 @@ fn roomLeft(row: HeadroomRow) u64 {
     return if (row.value >= row.limit) 0 else row.limit - row.value;
 }
 
+/// The share of its blocking limit this item has consumed, as a whole percent.
+/// Printed because "9983 of 10000" and "6 of 7" are the same standing and do
+/// not read as one: the percentage is the column a reader can scan for the file
+/// that is about to cross, which is the question this whole section answers.
+/// Shared with the gate's own near-hard-cap alert so both report one number.
+pub fn pctOfLimit(row: HeadroomRow) u64 {
+    return near_cap.pctOf(row.value, row.limit);
+}
+
 /// Orders headroom rows by least room left, breaking ties with the larger
 /// measured value (so an overage leads its own zero-room group) and then the
 /// check and key, which keeps the list stable across runs.
@@ -364,8 +400,14 @@ fn printHeadroomFor(arena: Allocator, rows: []const HeadroomRow, check_name: []c
             skipped += 1;
             continue;
         }
-        print("  {s:<16} {s:<44} {d:>6} of {d} {s} — {s}\n", .{
-            row.check, row.key, row.value, row.limit, limitLabel(row.limit_kind), roomText(arena, row),
+        print("  {s:<16} {s:<44} {d:>6} of {d} {s} ({d}%) — {s}\n", .{
+            row.check,
+            row.key,
+            row.value,
+            row.limit,
+            limitLabel(row.limit_kind),
+            pctOfLimit(row),
+            roomText(arena, row),
         });
         shown += 1;
     }
@@ -399,10 +441,37 @@ fn printRows(arena: Allocator, rows: []const Row, check_name: []const u8) void {
             skipped += 1;
             continue;
         }
-        print("    {s:<44} {s}\n", .{ row.key, standingText(arena, row) });
+        print("    {s:<44} {s}{s}\n", .{ row.key, standingText(arena, row), tripText(arena, row) });
         shown += 1;
     }
     if (skipped > 0) print("    … and {d} more with no headroom\n", .{skipped});
+}
+
+/// The grep-stable opener of a tripped row's trailing column, with the two
+/// spaces that separate it from the standing phrase before it.
+const trip_marker = "  TRIPPED";
+
+/// The trip half of a ceiling row: empty for an ordinary ratchet, and for a
+/// hysteresis one the word TRIPPED plus how far the subject still has to fall.
+/// Without it a recovering key reads as a comfortable ceiling with headroom,
+/// when in fact it may not grow by one line and clears only at the recover
+/// number.
+fn tripText(arena: Allocator, row: Row) []const u8 {
+    const recover = row.recover orelse return "";
+    const value = row.value orelse
+        return std.fmt.allocPrint(arena, "{s} — recover at <={d}", .{ trip_marker, recover }) catch trip_marker;
+    if (value <= recover) {
+        return std.fmt.allocPrint(
+            arena,
+            "{s} — at the recover line {d}; the next writing run clears it",
+            .{ trip_marker, recover },
+        ) catch trip_marker;
+    }
+    return std.fmt.allocPrint(
+        arena,
+        "{s} — recover at <={d} ({d} to go)",
+        .{ trip_marker, recover, value - recover },
+    ) catch trip_marker;
 }
 
 /// `  (N stale)` when a ratchet names keys the tree no longer has, else empty.
@@ -462,7 +531,12 @@ test "appendCheck tallies standings and rows only the keys without headroom" {
         .{ .key = "src/gone.zig", .value = 1000 },
     };
     var rows: std.ArrayList(Row) = .empty;
-    const summary = try appendCheck(a, &rows, "file-size", &recorded, values);
+    const summary = try appendCheck(a, &rows, .{
+        .check = "file-size",
+        .recorded = &recorded,
+        .values = values,
+        .recover = null,
+    });
 
     try testing.expectEqual(@as(usize, 4), summary.ratcheted);
     try testing.expectEqual(@as(usize, 1), summary.headroom);
@@ -473,6 +547,54 @@ test "appendCheck tallies standings and rows only the keys without headroom" {
     try testing.expectEqual(@as(usize, 3), rows.items.len);
     try testing.expectEqualStrings("src/tight.zig", rows.items[0].key);
     try testing.expectEqual(@as(?u64, null), rows.items[2].value);
+}
+
+// spec: Hysteresis - Marks a tripped key and its recover line in the live debt report
+
+test "a hysteresis check's rows say TRIPPED and how far there is left to fall" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var values: std.StringHashMapUnmanaged(u64) = .empty;
+    // A tripped file still shrinking (8900 of a 10000 cap, clears at 8000) and
+    // one that has arrived. Neither is at its ceiling, so without the trip
+    // column both would be filtered out as "has headroom" — exactly the rows a
+    // reader paying down a trip is watching.
+    try values.put(a, try measurementKey(a, "file-size", "src/big.zig"), 8900);
+    try values.put(a, try measurementKey(a, "file-size", "src/done.zig"), 7990);
+    const recorded = [_]ratchet.Entry{
+        .{ .key = "src/big.zig", .value = 9200 },
+        .{ .key = "src/done.zig", .value = 8100 },
+    };
+    var rows: std.ArrayList(Row) = .empty;
+    const summary = try appendCheck(a, &rows, .{
+        .check = "file-size",
+        .recorded = &recorded,
+        .values = values,
+        .recover = 8000,
+    });
+    try testing.expectEqual(@as(usize, 2), summary.headroom);
+    try testing.expectEqual(@as(usize, 2), rows.items.len);
+    try testing.expectEqualStrings("  TRIPPED — recover at <=8000 (900 to go)", tripText(a, rows.items[0]));
+    try testing.expectEqualStrings(
+        "  TRIPPED — at the recover line 8000; the next writing run clears it",
+        tripText(a, rows.items[1]),
+    );
+    // An ordinary ratchet says nothing extra — the column exists only where a
+    // trip does.
+    try testing.expectEqualStrings("", tripText(a, .{
+        .check = "type-size",
+        .key = "src/x.zig|Wide",
+        .value = 8,
+        .ceiling = 8,
+        .standing = .at_ceiling,
+    }));
+    // The default config binds file-size and function-length, nothing else.
+    const cfg: config_mod.Config = .{};
+    try testing.expectEqual(@as(?u64, 8000), recoverLineFor(&cfg, "file-size"));
+    try testing.expectEqual(@as(?u64, 320), recoverLineFor(&cfg, "function-length"));
+    try testing.expect(recoverLineFor(&cfg, "type-size") == null);
 }
 
 // spec: size introspection - Keeps two checks' measurements of the same subject apart
@@ -491,7 +613,12 @@ test "appendCheck reads the measurement of its own check, not another's on the s
     try values.put(a, try measurementKey(a, "function-size", subject), 9);
 
     var rows: std.ArrayList(Row) = .empty;
-    const summary = try appendCheck(a, &rows, "function-size", &.{.{ .key = subject, .value = 9 }}, values);
+    const summary = try appendCheck(a, &rows, .{
+        .check = "function-size",
+        .recorded = &.{.{ .key = subject, .value = 9 }},
+        .values = values,
+        .recover = null,
+    });
     // 9 against a ceiling of 9 is at ceiling, not "OVER by 28".
     try testing.expectEqual(@as(usize, 1), summary.at_ceiling);
     try testing.expectEqual(@as(usize, 0), summary.over);
@@ -608,8 +735,38 @@ test "printHeadroom orders by room left and names which limit binds" {
     // ceiling is what stops it — not the 10000 hard cap.
     const tight = std.mem.indexOf(u8, out, "src/tight.zig").?;
     try testing.expect(tight < std.mem.indexOf(u8, out, "src/roomy.zig").?);
-    try testing.expect(std.mem.indexOf(u8, out, "10223 of 10227 frozen ceiling — 4 left") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "9200 of 10000 hard cap — 800 left") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "10223 of 10227 frozen ceiling (99%) — 4 left") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "9200 of 10000 hard cap (92%) — 800 left") != null);
+}
+
+// spec: size introspection - Names the share of its blocking limit each headroom item has consumed
+
+test "pctOfLimit reports how much of the blocking limit an item has consumed" {
+    // The audit case: an un-ratcheted file 17 lines from the 10000 hard cap. It
+    // was in this list all along, but "9983 of 10000" reads like slack next to
+    // "6 of 7" — the percentage is what makes the two comparable at a glance.
+    try testing.expectEqual(@as(u64, 99), pctOfLimit(.{
+        .check = "file-size",
+        .key = "src/placement/optimizer.zig",
+        .value = 9983,
+        .limit = 10_000,
+        .limit_kind = .hard_cap,
+    }));
+    // A row already over its limit reads past 100% rather than wrapping.
+    try testing.expectEqual(@as(u64, 100), pctOfLimit(.{
+        .check = "type-size",
+        .key = "src/x.zig|Wide",
+        .value = 7,
+        .limit = 7,
+        .limit_kind = .hard_cap,
+    }));
+    try testing.expectEqual(@as(u64, 105), pctOfLimit(.{
+        .check = "file-size",
+        .key = "src/over.zig",
+        .value = 10_500,
+        .limit = 10_000,
+        .limit_kind = .ceiling,
+    }));
 }
 
 // spec: size introspection - Renders a ratcheted key's current value against its ceiling

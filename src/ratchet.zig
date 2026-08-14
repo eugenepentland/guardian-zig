@@ -69,6 +69,16 @@ const metric_checks = [_]MetricCheck{
     .{ .name = "line-length", .mode = .count, .unit = "over-length lines" },
 };
 
+/// Every check routed to the ratchet lifecycle, in registration order. Callers
+/// that must decide something for the ratchet family as a whole — such as
+/// resolving git's rename list once per run only when a ratchet could use it —
+/// read this instead of re-listing the names and drifting from it.
+pub const names = blk: {
+    var out: [metric_checks.len][]const u8 = undefined;
+    for (metric_checks, 0..) |m, i| out[i] = m.name;
+    break :blk out;
+};
+
 /// The human unit for `check_name`'s ratchet metric ("params", "fields",
 /// "over-length lines", …), used in the regression message so a bare measured
 /// value names its dimension. Empty string for a non-ratchet name (callers only
@@ -113,8 +123,22 @@ pub const Regression = struct {
     remaining: usize,
 };
 
-/// Counts of keys the auto-lower write path touched on a green run.
-pub const Improved = struct { lowered: usize, pruned: usize, remaining: usize };
+/// Counts of keys the auto-lower write path touched on a green run. `moved`
+/// counts entries re-keyed because their subject relocated (see relocation.zig):
+/// a move is neither a lowering nor a prune, but it does have to be *written*,
+/// so it rides the same improved-and-persist path.
+pub const Improved = struct { lowered: usize, pruned: usize, remaining: usize, moved: usize = 0 };
+
+/// One recorded key re-pointed at the key its subject now has, because the code
+/// moved rather than because new debt appeared. Produced by relocation.zig and
+/// applied to the entries the lifecycle reads off disk, so a relocated offender
+/// classifies as `matched`/`improved` instead of pruning at the old key and
+/// failing as a brand-new offender at the new one.
+pub const Transfer = struct { from: []const u8, to: []const u8 };
+
+/// Recorded entries after `applyTransfers`, with how many transfers actually
+/// matched an entry (the count reported as `moved`).
+pub const Applied = struct { entries: []const Entry, applied: usize };
 
 /// Outcome of one check's ratchet lifecycle. `created`/`migrated`/`matched`/
 /// `improved`/`refreshed` are green; `regressed` fails the build.
@@ -153,6 +177,45 @@ pub fn aggregate(arena: Allocator, records: []const reporter.Violation, mode: Ag
             .max => gop.value_ptr.* = @max(gop.value_ptr.*, metric),
             .count => gop.value_ptr.* += 1,
         }
+    }
+    return mapToSortedEntries(arena, &map);
+}
+
+/// Re-keys recorded entries by `transfers`, applied **in order** so a chained
+/// relocation (a file renamed, then an item extracted out of it) lands on its
+/// final key. A transfer whose `from` matches no entry is a no-op — the caller
+/// computed it from the same file, but nothing here depends on that.
+///
+/// The result can only ever shrink: no transfer adds an entry, and two entries
+/// landing on one key collapse to the LOWER ceiling, because a ratchet only
+/// ever tightens. That is what makes a transfer unable to increase debt.
+pub fn applyTransfers(arena: Allocator, old: []const Entry, transfers: []const Transfer) Allocator.Error!Applied {
+    if (transfers.len == 0) return .{ .entries = old, .applied = 0 };
+    const out = try arena.dupe(Entry, old);
+    var applied: usize = 0;
+    for (transfers) |t| {
+        const i = indexOfKey(out, t.from) orelse continue;
+        out[i].key = t.to;
+        applied += 1;
+    }
+    return .{ .entries = try lowestPerKey(arena, out), .applied = applied };
+}
+
+/// Index of the entry keyed `key`, or null.
+fn indexOfKey(entries: []const Entry, key: []const u8) ?usize {
+    for (entries, 0..) |e, i| {
+        if (std.mem.eql(u8, e.key, key)) return i;
+    }
+    return null;
+}
+
+/// Collapses duplicate keys to their lowest recorded value (a ratchet only
+/// tightens), returning the entries sorted by key.
+fn lowestPerKey(arena: Allocator, entries: []const Entry) Allocator.Error![]Entry {
+    var map: std.StringHashMapUnmanaged(u64) = .empty;
+    for (entries) |e| {
+        const gop = try map.getOrPut(arena, e.key);
+        gop.value_ptr.* = if (gop.found_existing) @min(gop.value_ptr.*, e.value) else e.value;
     }
     return mapToSortedEntries(arena, &map);
 }
@@ -235,48 +298,82 @@ fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snap
 
 pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
 
+/// How one lifecycle run may compare and persist. Grouped into a struct rather
+/// than trailing the call, where the flags read as unlabelled booleans and the
+/// relocation list would be a third thing to count positions for.
+pub const Options = struct {
+    /// Re-record unconditionally (the accept path). The deny-growth guard runs
+    /// in the caller, before this.
+    force_refresh: bool = false,
+    /// Gates every non-refresh write — first-record creation, v1→v2 migration,
+    /// auto-lower/prune, and persisting a relocation.
+    write_allowed: bool = false,
+    /// Relocations to apply to the recorded entries before classifying them,
+    /// so a moved offender is recognized instead of pruning-and-re-charging.
+    transfers: []const Transfer = &.{},
+};
+
 /// Runs the ratchet lifecycle for one check. `entries` is the aggregated current
-/// state. `force_refresh` re-records unconditionally (the deny-growth guard runs
-/// in the caller, before this). A missing file creates; a stale-version file
-/// migrates; otherwise the current state is compared against the recorded one.
+/// state. A missing file creates; a stale-version file migrates; otherwise the
+/// current state is compared against the recorded one, after `opts.transfers`
+/// re-key whatever moved.
 ///
-/// `write_allowed` gates the non-refresh writes — first-record creation, v1→v2
-/// migration, and auto-lower/prune: an ordinary (read-only) run classifies the
-/// outcome but leaves the file untouched, so a source-only diff never carries an
-/// incidental ratchet rewrite; `commit`/`migrate` flip it to persist.
+/// `opts.write_allowed` gates the non-refresh writes: an ordinary (read-only)
+/// run classifies the outcome but leaves the file untouched, so a source-only
+/// diff never carries an incidental ratchet rewrite; `commit`/`migrate` flip it
+/// to persist.
 pub fn lifecycle(
     arena: Allocator,
     path: []const u8,
     entries: []const Entry,
-    force_refresh: bool,
-    write_allowed: bool,
+    opts: Options,
 ) LifecycleError!Outcome {
-    if (force_refresh) {
+    if (opts.force_refresh) {
         try writeEntries(arena, path, entries);
         return .{ .refreshed = entries.len };
     }
     const snap = snapshot.read(arena, path, version) catch |e| switch (e) {
         error.Missing => {
-            if (write_allowed) try writeEntries(arena, path, entries);
+            if (opts.write_allowed) try writeEntries(arena, path, entries);
             return .{ .created = entries.len };
         },
         // A v1 text baseline read as v2 mismatches → re-record as a ratchet.
         error.VersionMismatch => {
-            if (write_allowed) try writeEntries(arena, path, entries);
+            if (opts.write_allowed) try writeEntries(arena, path, entries);
             return .{ .migrated = entries.len };
         },
         else => return e,
     };
-    const old = try decodeLines(arena, snap.lines);
-    const outcome = try classify(arena, old, entries);
-    // Auto-lower/prune: a green run whose keys only shrank or vanished rewrites
-    // the file to the smaller set — but only on a metadata-writable run, so an
-    // ordinary run reports the improvement without persisting it.
+    const recorded = try decodeLines(arena, snap.lines);
+    const relocated = try applyTransfers(arena, recorded, opts.transfers);
+    const outcome = withMoves(try classify(arena, relocated.entries, entries), relocated.applied);
+    // Auto-lower/prune: a green run whose keys only shrank, vanished or MOVED
+    // rewrites the file to the reconciled set — but only on a metadata-writable
+    // run, so an ordinary run reports the improvement without persisting it.
     switch (outcome) {
-        .improved => if (write_allowed) try writeEntries(arena, path, entries),
+        .improved => if (opts.write_allowed) try writeEntries(arena, path, entries),
         else => {},
     }
     return outcome;
+}
+
+/// Folds `moved` into a classification. A move is green but not free: the file
+/// still has to be rewritten with the new keys, so an otherwise-`matched`
+/// outcome is promoted to `improved` to reach the write path. A `regressed`
+/// outcome is left alone — it writes nothing, and a later green run (or an
+/// accept) records the transfer then.
+fn withMoves(outcome: Outcome, moved: usize) Outcome {
+    if (moved == 0) return outcome;
+    return switch (outcome) {
+        .matched => |n| .{ .improved = .{ .lowered = 0, .pruned = 0, .remaining = n, .moved = moved } },
+        .improved => |imp| .{ .improved = .{
+            .lowered = imp.lowered,
+            .pruned = imp.pruned,
+            .remaining = imp.remaining,
+            .moved = moved,
+        } },
+        else => outcome,
+    };
 }
 
 /// Pure comparison of the recorded ratchet (`old`) against the current state
@@ -505,18 +602,18 @@ test "lifecycle creates, matches, and auto-lowers a ratchet file" {
     defer deleteIfExists(path);
 
     const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
-    try testing.expect((try lifecycle(a, path, &at130, false, true)) == .created);
-    try testing.expect((try lifecycle(a, path, &at130, false, true)) == .matched);
+    try testing.expect((try lifecycle(a, path, &at130, .{ .write_allowed = true })) == .created);
+    try testing.expect((try lifecycle(a, path, &at130, .{ .write_allowed = true })) == .matched);
 
     // Shrinking rewrites the file to 125; a re-run then matches at the new floor.
     const at125 = [_]Entry{.{ .key = "src/a.zig|f", .value = 125 }};
-    try testing.expect((try lifecycle(a, path, &at125, false, true)) == .improved);
-    const reread = try lifecycle(a, path, &at125, false, true);
+    try testing.expect((try lifecycle(a, path, &at125, .{ .write_allowed = true })) == .improved);
+    const reread = try lifecycle(a, path, &at125, .{ .write_allowed = true });
     try testing.expect(reread == .matched);
 
     // A later growth beyond the lowered floor now fails.
     const at140 = [_]Entry{.{ .key = "src/a.zig|f", .value = 140 }};
-    const grew = try lifecycle(a, path, &at140, false, true);
+    const grew = try lifecycle(a, path, &at140, .{ .write_allowed = true });
     try testing.expect(grew == .regressed);
     try testing.expectEqual(@as(u64, 125), grew.regressed.grown[0].old);
 }
@@ -534,17 +631,81 @@ test "lifecycle defers create and auto-lower on a read-only run" {
     // write_allowed = false: a missing ratchet is grandfathered green but NOT
     // written, so an ordinary run leaves the tree clean.
     const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
-    try testing.expect((try lifecycle(a, path, &at130, false, false)) == .created);
+    try testing.expect((try lifecycle(a, path, &at130, .{})) == .created);
     try testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
 
     // Record it writably, then improve on a read-only run: the auto-lower is
     // reported but the committed ratchet keeps its higher ceiling untouched.
-    _ = try lifecycle(a, path, &at130, false, true);
+    _ = try lifecycle(a, path, &at130, .{ .write_allowed = true });
     const at125 = [_]Entry{.{ .key = "src/a.zig|f", .value = 125 }};
-    try testing.expect((try lifecycle(a, path, &at125, false, false)) == .improved);
+    try testing.expect((try lifecycle(a, path, &at125, .{})) == .improved);
     const snap = try snapshot.read(a, path, version);
     const kept = try decodeLines(a, snap.lines);
     try testing.expectEqual(@as(u64, 130), kept[0].value);
+}
+
+// spec: Ratchet Relocation - Reports a detected move as pending on a read-only run and records it on a writable one
+
+test "a transferred key stays green unwritten, then re-keys the file on an accept" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = "zig-cache/test-ratchet-move.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    const before = [_]Entry{.{ .key = "src/obs.zig|PadObs", .value = 8 }};
+    _ = try lifecycle(a, path, &before, .{ .write_allowed = true });
+
+    // The same 8-field struct, now reported from the file it was extracted
+    // into. Untransferred, this is the failure the feature exists to remove:
+    // the old key prunes and the new one is a brand-new offender.
+    const after = [_]Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 8 }};
+    try testing.expect((try lifecycle(a, path, &after, .{})) == .regressed);
+
+    // With the transfer it is green — and a read-only run leaves the committed
+    // ratchet exactly as it found it, reporting the move as pending.
+    const transfers = [_]Transfer{.{ .from = before[0].key, .to = after[0].key }};
+    const pending = try lifecycle(a, path, &after, .{ .transfers = &transfers });
+    try testing.expect(pending == .improved);
+    try testing.expectEqual(@as(usize, 1), pending.improved.moved);
+    try testing.expectEqual(@as(usize, 0), pending.improved.pruned);
+    const unwritten = try decodeLines(a, (try snapshot.read(a, path, version)).lines);
+    try testing.expectEqualStrings(before[0].key, unwritten[0].key);
+
+    // The writable run records it: one entry still, re-keyed, same ceiling.
+    const recorded = try lifecycle(a, path, &after, .{ .write_allowed = true, .transfers = &transfers });
+    try testing.expect(recorded == .improved);
+    const written = try decodeLines(a, (try snapshot.read(a, path, version)).lines);
+    try testing.expectEqual(@as(usize, 1), written.len);
+    try testing.expectEqualStrings(after[0].key, written[0].key);
+    try testing.expectEqual(@as(u64, 8), written[0].value);
+    // Once recorded, the move needs no detecting on any later run.
+    try testing.expect((try lifecycle(a, path, &after, .{})) == .matched);
+}
+
+test "applyTransfers re-keys in order and collapses a collision to the lower ceiling" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const old = [_]Entry{ .{ .key = "a.zig|f", .value = 9 }, .{ .key = "c.zig|f", .value = 5 } };
+    // Chained: a.zig|f is renamed to b.zig|f, then extracted on to c.zig|f,
+    // where an entry already sits. Ordered application follows the chain; the
+    // collision keeps the tighter of the two ceilings.
+    const chain = [_]Transfer{
+        .{ .from = "a.zig|f", .to = "b.zig|f" },
+        .{ .from = "b.zig|f", .to = "c.zig|f" },
+    };
+    const out = try applyTransfers(a, &old, &chain);
+    try testing.expectEqual(@as(usize, 2), out.applied);
+    try testing.expectEqual(@as(usize, 1), out.entries.len);
+    try testing.expectEqualStrings("c.zig|f", out.entries[0].key);
+    try testing.expectEqual(@as(u64, 5), out.entries[0].value);
+    // A transfer naming a key that isn't recorded is a no-op, not an insertion.
+    const absent = [_]Transfer{.{ .from = "gone.zig|f", .to = "new.zig|f" }};
+    const untouched = try applyTransfers(a, &old, &absent);
+    try testing.expectEqual(@as(usize, 0), untouched.applied);
+    try testing.expectEqual(old.len, untouched.entries.len);
 }
 
 // spec: Per-Item Ratchets - Re-records a stale-version baseline as a ratchet
@@ -563,10 +724,10 @@ test "lifecycle migrates a v1 text baseline without failing" {
 
     // First v2 run re-records without red...
     const at130 = [_]Entry{.{ .key = "src/a.zig|f", .value = 130 }};
-    try testing.expect((try lifecycle(a, path, &at130, false, true)) == .migrated);
+    try testing.expect((try lifecycle(a, path, &at130, .{ .write_allowed = true })) == .migrated);
     // ...and the migrated ratchet then enforces growth.
     const at140 = [_]Entry{.{ .key = "src/a.zig|f", .value = 140 }};
-    try testing.expect((try lifecycle(a, path, &at140, false, true)) == .regressed);
+    try testing.expect((try lifecycle(a, path, &at140, .{ .write_allowed = true })) == .regressed);
 }
 
 // spec: Per-Item Ratchets - Refuses a deny_growth refresh that raises a value or adds a key

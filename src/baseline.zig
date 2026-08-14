@@ -19,6 +19,9 @@ const sink = @import("sink.zig");
 const types = @import("cli/types.zig");
 const snapshot_helper = @import("snapshot_helper.zig");
 const ratchet = @import("ratchet.zig");
+const relocation = @import("relocation.zig");
+const hysteresis = @import("hysteresis.zig");
+const git = @import("git.zig");
 const accept_session = @import("accept_session.zig");
 const violation_key = @import("violation_key.zig");
 const scope = @import("scope.zig");
@@ -627,7 +630,15 @@ fn underPartialView(view: scope.View, outcome: Outcome) Outcome {
 fn ratchetUnderPartialView(view: scope.View, outcome: ratchet.Outcome) ratchet.Outcome {
     if (view == .whole_tree) return outcome;
     return switch (outcome) {
-        .improved => |i| .{ .matched = i.remaining + i.pruned },
+        // A relocation survives the reinterpretation: only git's whole-tree
+        // rename detection can produce one under a partial view, so the move is
+        // real even though the lower/prune counts beside it are not.
+        .improved => |i| if (i.moved > 0) .{ .improved = .{
+            .lowered = 0,
+            .pruned = 0,
+            .remaining = i.remaining + i.pruned,
+            .moved = i.moved,
+        } } else .{ .matched = i.remaining + i.pruned },
         else => outcome,
     };
 }
@@ -742,6 +753,16 @@ const RatchetInput = struct {
     write_allowed: bool,
 };
 
+/// The hysteresis standing of one check's run: the policy in force (null when
+/// `[hysteresis]` does not bind this check, which restores plain ratchet
+/// semantics everywhere below), what its reconciliation decided, and whether a
+/// same-session accept note was found and deliberately not honored.
+const Trip = struct {
+    policy: ?hysteresis.Policy = null,
+    plan: hysteresis.Plan = .{},
+    session_note: bool = false,
+};
+
 fn processRatchet(
     a: std.mem.Allocator,
     ctx: *types.RunCtx,
@@ -751,10 +772,43 @@ fn processRatchet(
     std.debug.assert(ratchet.metricMode(check_name) != null);
     const path = try pathFor(a, ctx.project_dir, check_name);
     const blocking = try ratchet.aggregate(a, input.records, ratchet.metricMode(check_name).?);
-    const entries = try preserveAdvisoryRatchets(a, path, blocking, input.warnings, input.force_refresh);
-    try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, input.force_refresh);
+    // Relocation runs in two passes around the advisory merge: git's renames
+    // first (they re-key entries whether or not anything reported), so a
+    // preserved advisory entry is matched against the path its warning names,
+    // then the content-matched extract tier against the reconciled set.
+    const recorded = try readRecorded(a, path);
+    const renamed = try relocation.renamedFiles(a, recorded orelse &.{}, try renamesFor(a, ctx, recorded));
+    var trip: Trip = .{ .policy = hysteresis.policyFor(ctx.cfg, check_name) };
+    const entries = if (trip.policy) |policy| blk: {
+        // A tripped check reconciles against the ADVISORY records instead of
+        // preserving its entries at their recorded value: below the hard cap
+        // those warnings are the live measurement, so the ordinary classifier
+        // then reads a shrink as an auto-lower and any growth as a regression.
+        // It runs on a refresh too — an accept must not prune a trip.
+        trip.plan = try hysteresis.reconcile(
+            a,
+            policy,
+            renamed.entries,
+            blocking,
+            input.warnings,
+            viewFor(ctx),
+        );
+        break :blk trip.plan.entries;
+    } else try preserveAdvisoryRatchets(a, renamed.entries, blocking, input.warnings, input.force_refresh);
+    const reloc = try relocation.extractedItems(a, renamed, entries, viewFor(ctx));
+    const guard: GuardInput = .{
+        .recorded = if (recorded == null) null else reloc.entries,
+        .entries = entries,
+        .force_refresh = input.force_refresh,
+    };
+    try ratchetDenyGrowthGuard(a, ctx, check_name, guard);
+    try hysteresisRefreshGuard(check_name, trip, guard);
 
-    const outcome = ratchet.lifecycle(a, path, entries, input.force_refresh, input.write_allowed) catch |e| {
+    const outcome = ratchet.lifecycle(a, path, entries, .{
+        .force_refresh = input.force_refresh,
+        .write_allowed = input.write_allowed,
+        .transfers = reloc.transfers,
+    }) catch |e| {
         reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
         return error.CheckFailed;
     };
@@ -762,42 +816,175 @@ fn processRatchet(
     // working session (no commit since the accept) re-accepts with a notice
     // instead of failing — the accept's intent was "this feature grows this
     // subject", and that intent holds until the commit locks the ratchet.
-    // deny_growth still wins: a guarded check never rides a session note.
+    // deny_growth still wins: a guarded check never rides a session note, and
+    // neither does a tripped one (a note must not let a trip grow back).
     if (outcome == .regressed and accept_session.isPending(a, ctx.project_dir, check_name)) {
-        try ratchetDenyGrowthGuard(a, ctx, check_name, path, entries, true);
-        // On a metadata-writable run the re-lock persists (commit locks the
-        // ratchet). On an ordinary read-only run the growth is tolerated green
-        // under the session note but nothing is written — the same read-only
-        // contract as every other lifecycle write.
-        if (input.write_allowed) {
-            const relocked = ratchet.lifecycle(a, path, entries, true, true) catch |e| {
-                reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
-                return error.CheckFailed;
-            };
-            reporter.ok(
-                "{s}: ratchet re-accepted under this session's pending accept ({d} key(s); locked)",
-                .{ check_name, relocked.refreshed },
-            );
-        } else {
-            reporter.ok(
-                "{s}: ratchet growth tolerated under this session's pending accept (locks at commit)",
-                .{check_name},
-            );
-        }
-        return;
+        if (trip.policy == null) return sessionReaccept(a, ctx, check_name, path, entries, .{
+            .guard = guard,
+            .write_allowed = input.write_allowed,
+        });
+        trip.session_note = true;
     }
     const shown = ratchetUnderPartialView(viewFor(ctx), outcome);
+    // A hysteresis report cites recovery-zone keys, which were reported as
+    // WARNINGS — their file, line and metric exist in no blocking record.
+    const cited = if (trip.policy == null)
+        input.records
+    else
+        try withAdvisory(a, input.records, input.warnings);
     // A regressed ratchet is the one blocking finding this path reports, so it
     // is what the sink must carry: the check's own record for each offending
     // key (file, line, metric) plus the ceiling it broke. Scraping the report
     // below instead is what left `last-run.jsonl` with no usable file-size row.
-    if (shown == .regressed) try sinkRegressed(ctx.allocator, check_name, shown.regressed, input.records);
+    if (shown == .regressed) try sinkRegressed(ctx.allocator, check_name, shown.regressed, cited, trip.policy);
     return reportRatchet(check_name, shown, .{
         .allocator = a,
         .fix_hint = firstFixHint(input.captured),
-        .records = input.records,
+        .records = cited,
         .write_allowed = input.write_allowed,
+        .reloc = reloc,
+        .trip = trip,
     });
+}
+
+/// What `sessionReaccept` needs beyond the entries themselves: the guard input
+/// deny_growth is re-checked with, and whether this run may persist the re-lock.
+const SessionInput = struct {
+    guard: GuardInput,
+    write_allowed: bool,
+};
+
+/// Re-accepts a regression under this session's pending accept. On a
+/// metadata-writable run the re-lock persists (commit locks the ratchet); on an
+/// ordinary read-only run the growth is tolerated green but nothing is written
+/// — the same read-only contract as every other lifecycle write.
+fn sessionReaccept(
+    a: std.mem.Allocator,
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    path: []const u8,
+    entries: []const ratchet.Entry,
+    input: SessionInput,
+) types.RunError!void {
+    var guard = input.guard;
+    guard.force_refresh = true;
+    try ratchetDenyGrowthGuard(a, ctx, check_name, guard);
+    if (!input.write_allowed) {
+        reporter.ok(
+            "{s}: ratchet growth tolerated under this session's pending accept (locks at commit)",
+            .{check_name},
+        );
+        return;
+    }
+    const relocked = ratchet.lifecycle(a, path, entries, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    }) catch |e| {
+        reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
+        return error.CheckFailed;
+    };
+    reporter.ok(
+        "{s}: ratchet re-accepted under this session's pending accept ({d} key(s); locked)",
+        .{ check_name, relocked.refreshed },
+    );
+}
+
+/// The records a report may cite for a tripped check: its blocking findings
+/// plus every keyed advisory one. A recovery-zone key is measured by a WARNING,
+/// so without this the offender line for one degrades to a bare ratchet key.
+/// Alerts carry no ratchet key (by construction) and so are never cited.
+fn withAdvisory(
+    a: Allocator,
+    records: []const reporter.Violation,
+    warnings: []const reporter.Violation,
+) Allocator.Error![]const reporter.Violation {
+    var out: std.ArrayList(reporter.Violation) = .empty;
+    try out.appendSlice(a, records);
+    for (warnings) |w| {
+        if (w.ratchet_key == null) continue;
+        try out.append(a, w);
+    }
+    return out.toOwnedSlice(a);
+}
+
+/// Refuses a refresh of a tripped check that would record a hard-cap crossing
+/// or raise a tripped ceiling — the two moves hysteresis exists to remove, and
+/// the reason `accept` stopped being one env var away from a parked-at-103%
+/// equilibrium. Everything else an accept does (a shrink, a prune, a
+/// relocation) still goes through. Runs after `ratchetDenyGrowthGuard`, which
+/// returns first when both apply, so a listed check never prints two refusals.
+fn hysteresisRefreshGuard(
+    check_name: []const u8,
+    trip: Trip,
+    in: GuardInput,
+) types.RunError!void {
+    if (!in.force_refresh) return;
+    const policy = trip.policy orelse return;
+    // Nothing recorded yet: first-record adoption grandfathers its offenders
+    // (born tripped), exactly as it did before hysteresis.
+    const old = in.recorded orelse return;
+    const refusal = hysteresis.refusalFor(policy, old, in.entries) orelse return;
+    const unit = ratchet.unitLabel(check_name);
+    switch (refusal.kind) {
+        .crossing => reporter.fail(
+            "refusing to accept {s}: {s} is a hard-cap crossing at {d} {s} (hard cap {d}) — " ++
+                "a crossing cannot be ratcheted; reduce it to <={d} to clear",
+            .{ check_name, refusal.key, refusal.value, unit, policy.hard_cap, policy.recover },
+        ),
+        .raise => reporter.fail(
+            "refusing to accept {s}: {s} would raise a tripped ceiling {d} -> {d} {s} — " ++
+                "a tripped entry only ever shrinks (clears at <={d})",
+            .{ check_name, refusal.key, refusal.ceiling, refusal.value, unit, policy.recover },
+        ),
+    }
+    emitHysteresisRefusal(check_name);
+    return error.CheckFailed;
+}
+
+/// The structured twin of the refusal above, so concise mode cannot collapse an
+/// acceptance refusal to "no findings". Allocation-free for the same reason
+/// `emitDenyGrowthDetail` is: the emitted record outlives this check's arena.
+fn emitHysteresisRefusal(check_name: []const u8) void {
+    reporter.emit(.{
+        .check = check_name,
+        .message = "acceptance refused because hysteresis holds this check's hard cap — " ++
+            "a crossing or a ceiling raise cannot be recorded",
+        .fix_hint = "shrink the subject to the recover line (`guardian-check debt . --live` prints it), " ++
+            "or take the check out of [hysteresis] checks",
+        .identity = "hysteresis-refusal",
+    });
+}
+
+/// The v2 ratchet entries this check has on file, or null when there is no
+/// readable one (absent, or still a v1 text baseline) — the two cases that are
+/// not recorded debt at all, and that the lifecycle re-reads to tell apart.
+/// Read once per check and shared by the relocation plan, the advisory-preserve
+/// merge, and the deny_growth guard.
+fn readRecorded(a: Allocator, path: []const u8) Allocator.Error!?[]const ratchet.Entry {
+    // An unreadable file is "nothing recorded" — the lifecycle reads it again
+    // and is the one place that decides create-vs-migrate. A failure to
+    // ALLOCATE, though, is not an absent ratchet: it propagates.
+    const snap = snapshot.read(a, path, ratchet.version) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return null,
+    };
+    return try ratchet.decodeLines(a, snap.lines);
+}
+
+/// Git's whole-file renames for this run. `all` resolves them once up front and
+/// parks them on the context, because the per-check pass runs in parallel over
+/// copied contexts and would otherwise spawn one git per ratchet check; a
+/// single-check run has no such pass and resolves them here. A check with
+/// nothing recorded has nothing to relocate, so it never asks git at all.
+fn renamesFor(
+    a: Allocator,
+    ctx: *types.RunCtx,
+    recorded: ?[]const ratchet.Entry,
+) Allocator.Error![]const git.Rename {
+    const none: []const git.Rename = &.{};
+    if (recorded == null or recorded.?.len == 0) return none;
+    if (ctx.renames) |resolved| return resolved;
+    return git.renamesAgainst(a, ctx.project_dir, "HEAD");
 }
 
 /// Sends one sink row per regressed ratchet key. The row is the check's own
@@ -811,8 +998,17 @@ fn sinkRegressed(
     check_name: []const u8,
     reg: ratchet.Regression,
     records: []const reporter.Violation,
+    policy: ?hysteresis.Policy,
 ) Allocator.Error!void {
     const unit = ratchet.unitLabel(check_name);
+    // A tripped check has no accept to offer, so every row carries the one
+    // remedy that exists: the recover target.
+    if (policy) |p| {
+        const hint = try hysteresis.fixHint(a, p, unit);
+        for (reg.grown) |g| sinkRatchetKey(check_name, records, g.key, hint);
+        for (reg.new_offenders) |o| sinkRatchetKey(check_name, records, o.key, hint);
+        return;
+    }
     for (reg.grown) |g| sinkRatchetKey(check_name, records, g.key, try std.fmt.allocPrint(
         a,
         "{d} {s} over its frozen ratchet ceiling of {d} — reduce it, or `guardian-check accept {s} .`",
@@ -849,15 +1045,13 @@ fn sinkRatchetKey(
 /// record set. Once the warning itself disappears, normal auto-pruning applies.
 fn preserveAdvisoryRatchets(
     a: std.mem.Allocator,
-    path: []const u8,
+    recorded: []const ratchet.Entry,
     blocking: []const ratchet.Entry,
     warnings: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError![]const ratchet.Entry {
     if (force_refresh or warnings.len == 0) return blocking;
-    const snap = snapshot.read(a, path, ratchet.version) catch return blocking;
-    const old = try ratchet.decodeLines(a, snap.lines);
-    return mergeAdvisoryEntries(a, old, blocking, warnings);
+    return mergeAdvisoryEntries(a, recorded, blocking, warnings);
 }
 
 fn mergeAdvisoryEntries(
@@ -889,29 +1083,35 @@ fn warningPresent(warnings: []const reporter.Violation, key: []const u8) bool {
     return false;
 }
 
+/// What the deny_growth guard compares: the ratchet on file with this run's
+/// relocations already applied (null when there is none to grow — a first
+/// record or a v1 migration is not growth), and the state a refresh would
+/// write. Comparing against the RELOCATED recording is what lets a listed check
+/// still move an entry between keys: nothing grew, so nothing is denied.
+const GuardInput = struct {
+    recorded: ?[]const ratchet.Entry,
+    entries: []const ratchet.Entry,
+    force_refresh: bool,
+};
+
 /// deny_growth for a ratchet check: on a refresh of a listed check, refuse to
-/// rewrite when the new state would raise any key's value or add a key. A
-/// missing / v1 (pre-migration) file reads as no prior ratchet — a refresh that
-/// first-records or migrates is never "growth", so it is allowed.
+/// rewrite when the new state would raise any key's value or add a key.
 fn ratchetDenyGrowthGuard(
     a: std.mem.Allocator,
     ctx: *types.RunCtx,
     check_name: []const u8,
-    path: []const u8,
-    entries: []const ratchet.Entry,
-    force_refresh: bool,
+    in: GuardInput,
 ) types.RunError!void {
-    if (!force_refresh) return;
+    if (!in.force_refresh) return;
     if (!nameInList(ctx.cfg.baseline.deny_growth, check_name)) return;
-    const snap = snapshot.read(a, path, ratchet.version) catch return;
-    const old = try ratchet.decodeLines(a, snap.lines);
-    if (!try ratchet.wouldGrow(a, old, entries)) return;
+    const old = in.recorded orelse return;
+    if (!try ratchet.wouldGrow(a, old, in.entries)) return;
     reporter.fail(
         "refusing to refresh {s}: ratchet would raise a value or add a key; " ++
             "fix the regressions or remove {s} from deny_growth",
         .{ check_name, check_name },
     );
-    const names = try ratchetGrowthNames(a, check_name, old, entries);
+    const names = try ratchetGrowthNames(a, check_name, old, in.entries);
     reportGrowthNames(names);
     reportGrowthEscape(check_name);
     try emitDenyGrowthDetail(a, check_name, names);
@@ -956,11 +1156,42 @@ const RatchetReport = struct {
     fix_hint: ?[]const u8,
     records: []const reporter.Violation,
     write_allowed: bool,
+    /// What this run recognized as relocation rather than new debt.
+    reloc: relocation.Plan = .{},
+    /// What hysteresis made of this run (no policy = plain ratchet wording).
+    trip: Trip = .{},
 };
 
-/// Reports a ratchet outcome; `regressed` prints each grown / new-offender key
-/// (with the check's own fix hint, scraped from its captured output) and fails.
+/// Reports a ratchet outcome, then every entry it re-keyed or un-tripped. Both
+/// print UNDER the verdict — for a regression too, where the relocations and
+/// recoveries that did resolve are exactly the context for what did not.
 fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetReport) types.RunError!void {
+    const verdict = reportVerdict(check_name, outcome, rep);
+    for (rep.reloc.moved) |m| {
+        if (m.item.len == 0)
+            reporter.detail("  moved: {s} -> {s}\n", .{ m.from, m.to })
+        else
+            reporter.detail("  moved: {s} -> {s} :: {s}\n", .{ m.from, m.to, m.item });
+    }
+    reportRecovered(check_name, rep);
+    return verdict;
+}
+
+/// Names every trip this run cleared. A recovery is the one event that ENDS a
+/// hysteresis entry's life, so it is said out loud rather than folded into the
+/// `N pruned` count — the reader has been shrinking toward this line.
+fn reportRecovered(check_name: []const u8, rep: RatchetReport) void {
+    const unit = ratchet.unitLabel(check_name);
+    for (rep.trip.plan.recovered) |rec| {
+        const line = hysteresis.recoveredLine(rep.allocator, rec, unit) catch continue;
+        reporter.detail("  recovered: {s}\n", .{line});
+    }
+}
+
+/// The verdict half of `reportRatchet`; `regressed` prints each grown /
+/// new-offender key (with the check's own fix hint, scraped from its captured
+/// output) and fails.
+fn reportVerdict(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetReport) types.RunError!void {
     const write_allowed = rep.write_allowed;
     // On a read-only run the create/migrate/improve outcomes were classified but
     // not persisted — word them as pending, all green.
@@ -980,10 +1211,7 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
             reporter.ok("ok: {s}: legacy ratchet format ({d} key(s); run `guardian-check migrate .` to re-key)", .{ check_name, n });
             return;
         },
-        .improved => |imp| {
-            reporter.ok("ok: {s}: {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)", .{ check_name, imp.lowered, imp.pruned, check_name });
-            return;
-        },
+        .improved => |imp| return reportPendingImproved(check_name, imp),
         else => {},
     };
     switch (outcome) {
@@ -993,13 +1221,33 @@ fn reportRatchet(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
         ),
         .migrated => |n| reporter.ok("{s}: migrated to per-item ratchet ({d} key(s))", .{ check_name, n }),
         .matched => |n| reporter.ok("ok: {s}: ratchet matches ({d} key(s))", .{ check_name, n }),
-        .improved => |imp| reporter.ok(
+        .improved => |imp| if (imp.moved > 0) reporter.ok(
+            "{s}: {d} ratchet(s) moved, {d} lowered, {d} pruned (now {d} key(s))",
+            .{ check_name, imp.moved, imp.lowered, imp.pruned, imp.remaining },
+        ) else reporter.ok(
             "{s}: {d} ratchet(s) lowered, {d} pruned (now {d} key(s))",
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: ratchet refreshed ({d} key(s))", .{ check_name, n }),
         .regressed => |reg| return reportRegressed(check_name, reg, rep),
     }
+}
+
+/// The read-only wording for an improvement: classified, not written. A
+/// relocation is pending in exactly the same sense — the entry re-keys in
+/// memory so the gate stays green, and `accept` is what records it.
+fn reportPendingImproved(check_name: []const u8, imp: ratchet.Improved) void {
+    if (imp.moved > 0) {
+        reporter.ok(
+            "ok: {s}: {d} moved, {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)",
+            .{ check_name, imp.moved, imp.lowered, imp.pruned, check_name },
+        );
+        return;
+    }
+    reporter.ok(
+        "ok: {s}: {d} lowered, {d} prunable (run `guardian-check accept {s} .` to record)",
+        .{ check_name, imp.lowered, imp.pruned, check_name },
+    );
 }
 
 /// The check's own violation record for ratchet key `key` — the record carries
@@ -1035,6 +1283,7 @@ fn firstOffender(a: std.mem.Allocator, reg: ratchet.Regression, records: []const
 /// regression that would raise a ceiling, lead with the fix instead — raising a
 /// frozen ceiling is not an ordinary option (see `AcceptTone`).
 fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: RatchetReport) types.RunError!void {
+    if (rep.trip.policy) |policy| return reportTripped(check_name, reg, rep, policy);
     const n = reg.grown.len + reg.new_offenders.len;
     const class = ratchet.growthClass(check_name);
     const tone = toneFor(reg);
@@ -1065,6 +1314,10 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: Ratchet
         "  {s}: {s} — {d} {s}, a new offender at or above the cap (accept to ratchet, or reduce)\n",
         .{ check_name, o.key, o.value, unit },
     );
+    // A new offender that LOOKS relocated says so on the spot: the reader's
+    // next question is always "wasn't this already baselined somewhere?", and
+    // the answer is a lookup they would otherwise do by hand.
+    reportUnresolvedMoves(check_name, rep);
     // A ratchet freezes each item at the value it recorded, so a key that grew
     // had ZERO headroom — it was sitting exactly at its own cap and the change
     // tipped it over, with no baseline escape. That is invisible from the
@@ -1085,6 +1338,66 @@ fn reportRegressed(check_name: []const u8, reg: ratchet.Regression, rep: Ratchet
         },
     }
     return error.CheckFailed;
+}
+
+/// The failing half for a check hysteresis binds. It differs from
+/// `reportRegressed` in exactly one way that matters: there is no accept
+/// command anywhere in it. A hard-cap crossing and a raise of a tripped ceiling
+/// are both unacceptable by policy, so every line leads with the number that
+/// clears the trip instead of the command that would ratify it.
+fn reportTripped(
+    check_name: []const u8,
+    reg: ratchet.Regression,
+    rep: RatchetReport,
+    policy: hysteresis.Policy,
+) types.RunError!void {
+    const n = reg.grown.len + reg.new_offenders.len;
+    reporter.fail(
+        "{s}: {d} key(s) held by a hard-cap trip — {s}",
+        .{ check_name, n, firstOffender(rep.allocator, reg, rep.records) },
+    );
+    const unit = ratchet.unitLabel(check_name);
+    for (reg.grown) |g| reporter.detail("  {s}\n", .{trippedDetail(rep, policy, g, unit)});
+    for (reg.new_offenders) |o| reporter.detail("  {s}\n", .{
+        hysteresis.crossingDetail(rep.allocator, policy, o.key, o.value, unit) catch o.key,
+    });
+    reportUnresolvedMoves(check_name, rep);
+    // A pending session accept covers ordinary ratchet growth, never a trip —
+    // say so, or the note's absence reads as the note having failed.
+    if (rep.trip.session_note) reporter.detail(
+        "  note: this session's pending accept does not cover a hard-cap trip; only a shrink clears it.\n",
+        .{},
+    );
+    if (rep.fix_hint) |h| reporter.detail("  {s}\n", .{h});
+    reporter.detail("  {s}\n", .{hysteresis.policyNote(rep.allocator, policy) catch check_name});
+    return error.CheckFailed;
+}
+
+/// One grown key's line, worded by which side of the hard cap it grew on: over
+/// the cap it is a ceiling that may not be raised, under it a recovery the
+/// growth interrupted. Rendering failures fall back to the bare key rather than
+/// propagating — this is detail beneath a failure that already stands alone.
+fn trippedDetail(
+    rep: RatchetReport,
+    policy: hysteresis.Policy,
+    grown: ratchet.GrownKey,
+    unit: []const u8,
+) []const u8 {
+    if (rep.trip.plan.recoveringCeiling(grown.key) != null) {
+        return hysteresis.recoveringDetail(rep.allocator, policy, grown.key, grown, unit) catch grown.key;
+    }
+    return hysteresis.overCapDetail(rep.allocator, policy, grown.key, grown, unit) catch grown.key;
+}
+
+/// Names the recorded entry behind every new key this run refused to treat as a
+/// relocation (see relocation.zig for the three refusals). Rendering failures
+/// are dropped rather than propagated: this is guidance printed alongside a
+/// failure that already stands on its own.
+fn reportUnresolvedMoves(check_name: []const u8, rep: RatchetReport) void {
+    for (rep.reloc.unresolved) |u| {
+        const hint = relocation.hintText(rep.allocator, check_name, u) catch continue;
+        reporter.detail("  {s}: {s}\n", .{ u.key, hint });
+    }
 }
 
 /// Whether accepting this regression would RAISE a frozen ceiling (`raises`) or
@@ -1409,6 +1722,15 @@ fn deleteIfExists(path: []const u8) void {
     };
 }
 
+/// The threshold check every ratchet/hysteresis test below drives. Named once:
+/// spelled inline it is both a repeated literal and (with the same name and
+/// value in the check's own file) a cross-file duplicate const.
+const size_check = "file-size";
+
+/// The over-cap file the ratchet/hysteresis fixtures below drive through the
+/// lifecycle, named for the same reason `size_check` is.
+const trip_subject = "src/big.zig";
+
 /// Test helper: keys plain violation lines the way an unmigrated (prose) check's
 /// scraped output is keyed, so lifecycle tests can work in readable text.
 fn keyedLines(arena: Allocator, check_name: []const u8, lines: []const []const u8) Allocator.Error![]const Keyed {
@@ -1452,7 +1774,7 @@ test "keyedViolations renders records when present and scrapes text otherwise" {
 
 fn warningOnly(_: *types.RunCtx) types.RunError!void {
     reporter.warn(.{
-        .check = "file-size",
+        .check = size_check,
         .file = "src/x.zig",
         .message = "1200 lines (recommended 1000; hard limit 10000)",
     });
@@ -1504,10 +1826,10 @@ test "runWithBaseline replays warnings without ratcheting them" {
 /// check emits, and the one the sink was losing under baseline mode.
 fn fileSizeOverHardLimit(_: *types.RunCtx) types.RunError!void {
     reporter.emit(.{
-        .check = "file-size",
-        .file = "src/big.zig",
+        .check = size_check,
+        .file = trip_subject,
         .message = "10 code lines (hard limit: 5)",
-        .ratchet_key = "src/big.zig",
+        .ratchet_key = trip_subject,
         .metric = 10,
     });
     return error.CheckFailed;
@@ -1528,9 +1850,17 @@ test "a regressed file-size key reaches the JSONL sink with its file, metric and
     // Freeze src/big.zig at 8 lines, then run the check measuring 10: a
     // regression against a frozen ceiling, which is what eda's router.zig hit.
     const path = try pathFor(a, dir, "file-size");
-    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/big.zig", .value = 8 }}, true, true);
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/big.zig", .value = 8 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
 
-    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    // Hysteresis off: this is the PLAIN ratchet hint (the ceiling and the
+    // accept command). The tripped wording has its own test below.
+    const cfg: @import("config.zig").Config = .{
+        .baseline = .{ .enabled = true },
+        .hysteresis = .{ .enabled = false },
+    };
     // The arena stands in for the run allocator: the forwarded sink records
     // outlive the check, exactly as they do under `all`.
     var ctx: types.RunCtx = .{
@@ -1565,6 +1895,456 @@ test "a regressed file-size key reaches the JSONL sink with its file, metric and
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "frozen ratchet ceiling of 8") != null);
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "2 code lines") != null);
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "guardian-check accept file-size .") != null);
+}
+
+// ── Hysteresis: trip → no accept → shrink to recover ───────────────────
+
+/// A project directory a hysteresis test can run a ratchet lifecycle in: the
+/// source files its stored keys name must EXIST, or the stored-phantom guard
+/// (a key naming a missing, gitignored file) locks the run read-only for an
+/// unrelated reason and every write assertion below silently stops meaning
+/// anything. Under zig-cache every missing path is gitignored, so this is not
+/// optional here.
+fn tripDir(a: Allocator, dir: []const u8, files: []const []const u8) !void {
+    fs.cwd().deleteTree(dir) catch |e| std.log.warn("test setup {s}: {s}", .{ dir, @errorName(e) });
+    try fs.cwd().makePath(dir);
+    for (files) |f| {
+        const path = try std.fmt.allocPrint(a, "{s}/{s}", .{ dir, f });
+        try fs.cwd().makePath(fs.path.dirname(path) orelse dir);
+        (try fs.cwd().createFile(path, .{})).close();
+    }
+}
+
+/// One file-size measurement as the check reports it: over the hard cap it is a
+/// blocking record, under it the advisory warning that carries the same ratchet
+/// key and metric — which is what the recovery zone is measured from.
+fn sizeRecord(file: []const u8, metric: u64, hard_cap: u64) reporter.Violation {
+    return .{
+        .check = size_check,
+        .file = file,
+        .message = "measured",
+        .ratchet_key = file,
+        .metric = metric,
+        .alert = metric <= hard_cap,
+    };
+}
+
+/// Runs one check's ratchet lifecycle with an explicit set of blocking records
+/// and advisory warnings — `runWithBaseline` with the check itself replaced by
+/// its output, so a test can walk a file through several measurements without a
+/// mutable global to carry the next one.
+fn stepRatchet(
+    ctx: *types.RunCtx,
+    blocking: []const reporter.Violation,
+    advisory: []const reporter.Violation,
+    force_refresh: bool,
+) types.RunError!void {
+    return processOutcome(ctx, size_check, "", blocking, advisory, force_refresh);
+}
+
+/// The context every hysteresis test runs through: baseline mode on, the
+/// default `[hysteresis]` policy (file-size at a 20% band → 8000 of 10000).
+fn tripCtx(a: Allocator, dir: []const u8, cfg: *const config_mod.Config) types.RunCtx {
+    return .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = cfg,
+        .quiet = true,
+        .renames = &.{},
+    };
+}
+
+const trip_cfg: config_mod.Config = .{ .baseline = .{ .enabled = true } };
+
+// spec: Hysteresis - Blocks a hard-cap crossing with the recover target and no accept command
+
+test "a crossing fails with nothing to accept, and the sink row says what clears it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-hysteresis-crossing";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try tripDir(a, dir, &.{"src/router.zig"});
+    // An empty (but present) ratchet: this check has adopted, so a new key is
+    // a crossing rather than first-run grandfathering.
+    _ = try ratchet.lifecycle(a, try pathFor(a, dir, "file-size"), &.{}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
+
+    var ctx = tripCtx(a, dir, &trip_cfg);
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const crossing = [_]reporter.Violation{sizeRecord("src/router.zig", 10_007, 10_000)};
+    try std.testing.expectError(error.CheckFailed, stepRatchet(&ctx, &crossing, &.{}, false));
+
+    const out = cap.buf.items;
+    try std.testing.expect(std.mem.indexOf(u8, out, "10007 code lines exceeds the hard cap 10000") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "a hard-cap crossing cannot be accepted") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "reduce to <=8000 (the recover line)") != null);
+    // The whole point: no accept command anywhere in the failure.
+    try std.testing.expect(std.mem.indexOf(u8, out, "guardian-check accept file-size") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "-Dguardian-checks=") == null);
+    // …and the machine-readable row carries the recover target instead.
+    try std.testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    const hint = cap.records.items[0].fix_hint.?;
+    try std.testing.expect(std.mem.indexOf(u8, hint, "reduce to <=8000 code lines") != null);
+    try std.testing.expect(std.mem.indexOf(u8, hint, "only a shrink clears it") != null);
+}
+
+// spec: Hysteresis - Fails an accept run rather than recording a refused crossing or raise
+
+test "the refresh guard turns an accept of a tripped check into a failure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const trip: Trip = .{ .policy = hysteresis.policyFor(&trip_cfg, "file-size") };
+    const recorded = [_]ratchet.Entry{.{ .key = "src/big.zig", .value = 10_273 }};
+    const crossed = [_]ratchet.Entry{ recorded[0], .{ .key = "src/new.zig", .value = 10_100 } };
+
+    try std.testing.expectError(error.CheckFailed, hysteresisRefreshGuard("file-size", trip, .{
+        .recorded = &recorded,
+        .entries = &crossed,
+        .force_refresh = true,
+    }));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "is a hard-cap crossing at 10100") != null);
+    // Structured too, so a concise run cannot collapse the refusal to nothing.
+    try std.testing.expectEqualStrings("hysteresis-refusal", cap.records.items[0].identity.?);
+
+    cap.buf.clearRetainingCapacity();
+    const raised = [_]ratchet.Entry{.{ .key = "src/big.zig", .value = 10_520 }};
+    try std.testing.expectError(error.CheckFailed, hysteresisRefreshGuard("file-size", trip, .{
+        .recorded = &recorded,
+        .entries = &raised,
+        .force_refresh = true,
+    }));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "raise a tripped ceiling 10273 -> 10520") != null);
+
+    // What the guard must NOT touch: an ordinary (non-refresh) run, a check
+    // hysteresis does not bind, a shrink, and first-record adoption.
+    try hysteresisRefreshGuard("file-size", trip, .{
+        .recorded = &recorded,
+        .entries = &crossed,
+        .force_refresh = false,
+    });
+    try hysteresisRefreshGuard("file-size", .{}, .{
+        .recorded = &recorded,
+        .entries = &crossed,
+        .force_refresh = true,
+    });
+    try hysteresisRefreshGuard("file-size", trip, .{
+        .recorded = &recorded,
+        .entries = &.{.{ .key = "src/big.zig", .value = 9000 }},
+        .force_refresh = true,
+    });
+    try hysteresisRefreshGuard("file-size", trip, .{
+        .recorded = null,
+        .entries = &crossed,
+        .force_refresh = true,
+    });
+}
+
+// spec: Hysteresis - Grandfathers over-cap subjects when a tripped check first records its ratchet
+
+test "adoption records an over-cap file as a born-tripped entry and stays green" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-hysteresis-adoption";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try tripDir(a, dir, &.{"src/legacy.zig"});
+    var ctx = tripCtx(a, dir, &trip_cfg);
+    ctx.metadata_writable = true;
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // No ratchet on file yet: adopting Guardian on a legacy tree must not
+    // demand a 2000-line refactor before the first green run.
+    const over = [_]reporter.Violation{sizeRecord("src/legacy.zig", 12_000, 10_000)};
+    try stepRatchet(&ctx, &over, &.{}, false);
+    const path = try pathFor(a, dir, "file-size");
+    const written = try ratchet.decodeLines(a, (try snapshot.read(a, path, ratchet.version)).lines);
+    try std.testing.expectEqual(@as(u64, 12_000), written[0].value);
+    // And the unchanged tree is green on the very next run — born tripped, not
+    // born failing.
+    try stepRatchet(&ctx, &over, &.{}, false);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ratchet matches") != null);
+}
+
+// spec: Hysteresis - Withholds this session's pending accept from a tripped check
+
+test "a pending session accept cannot let a tripped entry grow" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-hysteresis-session";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try tripDir(a, dir, &.{"src/big.zig"});
+    _ = try ratchet.lifecycle(a, try pathFor(a, dir, size_check), &.{.{ .key = "src/big.zig", .value = 10_273 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
+    accept_session.record(a, dir, &.{size_check});
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    try expectSessionNoteWithheld(a, dir, &cap);
+}
+
+/// The half of the session-note case that only exists inside a git checkout:
+/// the note is keyed by HEAD, so outside one nothing was recorded, nothing is
+/// pending, and there is no exclusion to observe.
+fn expectSessionNoteWithheld(a: Allocator, dir: []const u8, cap: *reporter.Capture) !void {
+    if (!accept_session.isPending(a, dir, size_check)) return;
+    // The same growth an ordinary ratchet would wave through under the note.
+    const grew = [_]reporter.Violation{sizeRecord(trip_subject, 10_400, 10_000)};
+    var ctx = tripCtx(a, dir, &trip_cfg);
+    try std.testing.expectError(error.CheckFailed, stepRatchet(&ctx, &grew, &.{}, false));
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        cap.buf.items,
+        "this session's pending accept does not cover a hard-cap trip",
+    ) != null);
+
+    // Contrast, so the exclusion is provably the hysteresis policy and not some
+    // unrelated breakage: with the section off, the note tolerates it as before.
+    cap.buf.clearRetainingCapacity();
+    const plain: config_mod.Config = .{ .baseline = .{ .enabled = true }, .hysteresis = .{ .enabled = false } };
+    var plain_ctx = tripCtx(a, dir, &plain);
+    try stepRatchet(&plain_ctx, &grew, &.{}, false);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "tolerated under this session's pending accept") != null);
+}
+
+// spec: Hysteresis - Holds a legacy entry through the recovery zone from accept to recovered
+
+test "a v2 entry re-measured under the new metric lowers, holds, blocks growth, then recovers" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-hysteresis-upgrade";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try tripDir(a, dir, &.{"src/big.zig"});
+    const path = try pathFor(a, dir, "file-size");
+    // The consumer's committed state: src/big.zig accepted at 10273 under the
+    // OLD file-size metric (which counted comments and blanks).
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/big.zig", .value = 10_273 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // Run 1, ordinary report-mode build: the new metric measures 8900 code
+    // lines, which is advisory — under the hard cap, over the recover line.
+    // Green, classified as an improvement, and NOTHING is written.
+    var ctx = tripCtx(a, dir, &trip_cfg);
+    const at_8900 = [_]reporter.Violation{sizeRecord("src/big.zig", 8900, 10_000)};
+    try stepRatchet(&ctx, &.{}, &at_8900, false);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "1 lowered, 0 prunable") != null);
+    try std.testing.expectEqual(@as(u64, 10_273), (try readRecorded(a, path)).?[0].value);
+
+    // The accept/commit pass: the entry auto-lowers to 8900 and is RETAINED —
+    // 8900 is still 900 over the recover line, so the trip is not cleared. This
+    // is the prune-then-regrow loophole closing.
+    var writer = tripCtx(a, dir, &trip_cfg);
+    writer.metadata_writable = true;
+    try stepRatchet(&writer, &.{}, &at_8900, false);
+    const lowered = (try readRecorded(a, path)).?;
+    try std.testing.expectEqual(@as(usize, 1), lowered.len);
+    try std.testing.expectEqual(@as(u64, 8900), lowered[0].value);
+
+    // An unchanged tree is green with nothing to say.
+    cap.buf.clearRetainingCapacity();
+    try stepRatchet(&ctx, &.{}, &at_8900, false);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ratchet matches") != null);
+
+    // 50 lines of regrowth — free before hysteresis, because the entry would
+    // have pruned the moment the file dipped under the cap — now fails, and an
+    // accept of it is refused rather than recorded.
+    cap.buf.clearRetainingCapacity();
+    const at_8950 = [_]reporter.Violation{sizeRecord("src/big.zig", 8950, 10_000)};
+    try std.testing.expectError(error.CheckFailed, stepRatchet(&ctx, &.{}, &at_8950, false));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "grew while recovering from a hard-cap trip") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "growth blocks until it reaches <=8000") != null);
+    try std.testing.expectError(error.CheckFailed, stepRatchet(&writer, &.{}, &at_8950, true));
+
+    // The campaign lands: 7990 is under the recover line, so the trip clears,
+    // the entry prunes, and the run says so by name.
+    cap.buf.clearRetainingCapacity();
+    const at_7990 = [_]reporter.Violation{sizeRecord("src/big.zig", 7990, 10_000)};
+    try stepRatchet(&writer, &.{}, &at_7990, false);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        cap.buf.items,
+        "recovered: src/big.zig — 7990 code lines at or below the recover line 8000",
+    ) != null);
+    try std.testing.expectEqual(@as(usize, 0), (try readRecorded(a, path)).?.len);
+}
+
+// spec: Hysteresis - Carries a tripped entry to the new key when git renames its file
+
+test "a renamed tripped file keeps its entry instead of failing as a crossing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-hysteresis-rename";
+    defer fs.cwd().deleteTree(dir) catch {};
+    // Both paths exist: the rename is git's to report, and a stored key naming
+    // a missing gitignored file would lock the run read-only (see tripDir).
+    try tripDir(a, dir, &.{ "src/old.zig", "src/new.zig" });
+    const path = try pathFor(a, dir, "file-size");
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/old.zig", .value = 10_273 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    var ctx = tripCtx(a, dir, &trip_cfg);
+    ctx.metadata_writable = true;
+    ctx.renames = &.{.{ .from = "src/old.zig", .to = "src/new.zig" }};
+    // Same file, new path, measured in the recovery zone. Untransferred this
+    // would be a brand-new key — and under hysteresis a new key past the cap is
+    // unacceptable, so a `git mv` would have become unfixable rather than free.
+    const moved = [_]reporter.Violation{sizeRecord("src/new.zig", 9000, 10_000)};
+    try stepRatchet(&ctx, &.{}, &moved, false);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "moved: src/old.zig -> src/new.zig") != null);
+    const after = (try readRecorded(a, path)).?;
+    try std.testing.expectEqual(@as(usize, 1), after.len);
+    try std.testing.expectEqualStrings("src/new.zig", after[0].key);
+    // The trip moved with it: still recorded, now at the value it measures.
+    try std.testing.expectEqual(@as(u64, 9000), after[0].value);
+}
+
+/// A type-size run reporting one 8-field struct from the file it was just
+/// extracted into — the `PadObs` shape, whose ratchet entry is recorded under
+/// the file it came from.
+fn typeSizeAtNewHome(_: *types.RunCtx) types.RunError!void {
+    reporter.emit(.{
+        .check = "type-size",
+        .file = "src/pad_obs.zig",
+        .message = "PadObs has 8 fields (cap 7)",
+        .ratchet_key = "src/pad_obs.zig|PadObs",
+        .metric = 8,
+    });
+    return error.CheckFailed;
+}
+
+// spec: Ratchet Relocation - Prints each transferred entry as a moved line naming both files and the item
+
+test "an extracted item passes the gate and re-keys its entry, reporting the move" {
+    const dir = "zig-cache/test-baseline-relocation";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    // Both files exist: the struct left obs.zig, obs.zig did not leave the
+    // tree. (A stored key naming a missing, gitignored file is a partial view,
+    // which would lock this run read-only for an unrelated reason.)
+    try fs.cwd().makePath(dir ++ "/src");
+    (try fs.cwd().createFile(dir ++ "/src/obs.zig", .{})).close();
+    (try fs.cwd().createFile(dir ++ "/src/pad_obs.zig", .{})).close();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = try pathFor(a, dir, "type-size");
+    _ = try ratchet.lifecycle(a, path, &.{.{ .key = "src/obs.zig|PadObs", .value = 8 }}, .{
+        .force_refresh = true,
+        .write_allowed = true,
+    });
+
+    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+        .metadata_writable = true,
+        // Resolved (to nothing) by the run, as `all` does before its check pass.
+        .renames = &.{},
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    // Green: the 8 fields were already grandfathered, just somewhere else.
+    try runWithBaseline(&ctx, .{
+        .name = "type-size",
+        .summary = "test",
+        .scope = .per_file,
+        .run = typeSizeAtNewHome,
+    });
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        outer.buf.items,
+        "moved: src/obs.zig -> src/pad_obs.zig :: PadObs",
+    ) != null);
+
+    // The recorded entry moved rather than multiplied: still one key, at the
+    // ceiling it already had.
+    const after = try ratchet.decodeLines(a, (try snapshot.read(a, path, ratchet.version)).lines);
+    try std.testing.expectEqual(@as(usize, 1), after.len);
+    try std.testing.expectEqualStrings("src/pad_obs.zig|PadObs", after[0].key);
+    try std.testing.expectEqual(@as(u64, 8), after[0].value);
+}
+
+// spec: Ratchet Relocation - Allows a deny_growth refresh that only relocates recorded keys
+
+test "deny_growth permits a relocated key and still refuses a raised one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const cfg: @import("config.zig").Config = .{
+        .baseline = .{ .enabled = true, .deny_growth = &.{"type-size"} },
+    };
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+
+    // The guard compares against the RELOCATED recording, so an accept that
+    // only re-keys an entry adds nothing and is allowed.
+    const relocated = [_]ratchet.Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 8 }};
+    const current = [_]ratchet.Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 8 }};
+    try ratchetDenyGrowthGuard(a, &ctx, "type-size", .{
+        .recorded = &relocated,
+        .entries = &current,
+        .force_refresh = true,
+    });
+    // Moving is not a licence to grow: a ninth field at the new key is refused
+    // exactly as it would be at the old one.
+    const grown = [_]ratchet.Entry{.{ .key = "src/pad_obs.zig|PadObs", .value = 9 }};
+    try std.testing.expectError(error.CheckFailed, ratchetDenyGrowthGuard(a, &ctx, "type-size", .{
+        .recorded = &relocated,
+        .entries = &grown,
+        .force_refresh = true,
+    }));
 }
 
 /// A prose-reporting check: one indented violation line naming its own location

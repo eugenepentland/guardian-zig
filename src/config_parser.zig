@@ -15,6 +15,7 @@ const reporter = @import("reporter.zig");
 const value = @import("config_value.zig");
 const semantics = @import("config_semantics.zig");
 const config_policy = @import("config_policy.zig");
+const hysteresis = @import("hysteresis.zig");
 const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
@@ -76,6 +77,7 @@ const max_lines_key = "max_lines";
 const hard_max_lines_key = "hard_max_lines";
 const max_len_key = "max_len";
 const hard_max_len_key = "hard_max_len";
+const recover_pct_key = "recover_pct";
 const required_inputs_key = "required_inputs";
 const literals_key = "literals";
 const patterns_key = "patterns";
@@ -137,6 +139,7 @@ const Section = enum {
     bool_ops,
     line_length,
     baseline,
+    hysteresis,
     escape_discipline,
     oom_discipline,
     magic_number,
@@ -697,6 +700,12 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
             else => .string_array,
         },
         .baseline => if (key[1] == 'n') .boolean else .string_array,
+        // enabled / recover_pct / checks.
+        .hysteresis => switch (key[0]) {
+            'e' => .boolean,
+            'r' => .unsigned,
+            else => .string_array,
+        },
         .escape_discipline, .oom_discipline, .magic_number, .stdout_flush, .dead_pub => .boolean,
         .module_doc_header => .unsigned,
         .change_classification => if (key[0] == 'a') .string else .boolean,
@@ -763,6 +772,9 @@ fn validateValue(
     if (st.array_kind == .none and st.section == .measurement) {
         try validateMeasurementPaths(allocator, kv, line_no, diag);
     }
+    if (st.array_kind == .none and st.section == .hysteresis) {
+        try validateHysteresis(allocator, kv, line_no, diag);
+    }
     if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
     if (st.array_kind == .concept) try validateConceptName(allocator, kv, line_no, diag);
 
@@ -806,6 +818,55 @@ fn validateMeasurementPaths(
         return error.InvalidValue;
     }
 }
+
+/// Rejects a `[hysteresis]` setting the gate could not honor: a `recover_pct`
+/// outside 1..90 (0 or 100+ would make the dead-band meaningless in one
+/// direction or unreachable in the other), or a `checks` entry that is not one
+/// of the two-tier hard-cap checks. Both fail closed at parse time with the
+/// offending line, because the alternative is a setting that reads like a
+/// policy and enforces nothing — the same reason an unknown `disabled` name
+/// hard-fails.
+fn validateHysteresis(
+    allocator: Allocator,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (std.mem.eql(u8, kv.key, recover_pct_key)) {
+        const pct = std.fmt.parseInt(u32, kv.val, 10) catch return;
+        if (pct >= hysteresis.min_recover_pct and pct <= hysteresis.max_recover_pct) return;
+        try setDiag(
+            allocator,
+            diag,
+            line_no,
+            "hysteresis recover_pct {d} is outside {d}..{d}",
+            .{ pct, hysteresis.min_recover_pct, hysteresis.max_recover_pct },
+        );
+        return error.InvalidValue;
+    }
+    if (!std.mem.eql(u8, kv.key, "checks")) return;
+    for (try toStrings(allocator, kv.val)) |name| {
+        if (hysteresis.isSupported(name)) continue;
+        try setDiag(
+            allocator,
+            diag,
+            line_no,
+            "unknown hysteresis check '{s}' (only the two-tier hard-cap checks: {s})",
+            .{ name, supported_hysteresis_checks },
+        );
+        return error.InvalidValue;
+    }
+}
+
+/// `hysteresis.supported` as one comma-joined string for the diagnostic above,
+/// built at comptime from the list itself so it can never drift from it.
+const supported_hysteresis_checks = blk: {
+    var out: []const u8 = "";
+    for (hysteresis.supported, 0..) |name, i| {
+        out = out ++ (if (i == 0) "" else ", ") ++ name;
+    }
+    break :blk out;
+};
 
 /// Rejects a `[[ban]] chain` segment that is not a bare identifier. The scanner
 /// matches one identifier token per segment, so `chain = ["a.b"]` — the spelling
@@ -957,6 +1018,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .bool_ops => &.{ "enabled", "max_ops" },
         .line_length => &.{ "enabled", max_len_key, hard_max_len_key },
         .baseline => &.{ "enabled", "deny_growth" },
+        .hysteresis => &.{ "enabled", recover_pct_key, "checks" },
         .escape_discipline, .oom_discipline, .magic_number, .stdout_flush => &.{"enabled"},
         .module_doc_header => &.{"min_lines"},
         .dead_pub => &.{"ignore_test_refs"},
@@ -1019,6 +1081,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .anytype_budget => try applyAnytypeBudgetKey(ctx, kv),
         .type_size => try applyTypeSizeKey(ctx, kv),
         .baseline => try applyBaselineKey(ctx, kv),
+        .hysteresis => try applyHysteresisKey(ctx, kv),
         .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
         .magic_number => applyEnabledCfg("magic_number", ctx, kv),
@@ -1080,6 +1143,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "bool_ops", Section.bool_ops },
         .{ "line_length", Section.line_length },
         .{ "baseline", Section.baseline },
+        .{ "hysteresis", Section.hysteresis },
         .{ "escape_discipline", Section.escape_discipline },
         .{ "oom_discipline", Section.oom_discipline },
         .{ "magic_number", Section.magic_number },
@@ -1212,6 +1276,20 @@ fn applyBaselineKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     } else if (std.mem.eql(u8, kv.key, "deny_growth")) {
         g.deny_growth = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies one `[hysteresis]` key. Both values are already range- and
+/// name-checked by `validateHysteresis`, so nothing here can store a band the
+/// gate would then have to defend against.
+fn applyHysteresisKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.hysteresis;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, recover_pct_key)) {
+        g.recover_pct = parseU32(kv.val, g.recover_pct);
+    } else if (std.mem.eql(u8, kv.key, "checks")) {
+        g.checks = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -2098,6 +2176,67 @@ test "parse disabled check list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.disabled.len);
     try std.testing.expectEqualStrings("spec-drift", cfg.disabled[0]);
     try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
+}
+
+// spec: Hysteresis - Parses the hysteresis section and defaults it on for the two volume caps
+
+test "parse [hysteresis] and its defaults" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\[hysteresis]
+        \\enabled = false
+        \\recover_pct = 35
+        \\checks = ["file-size", "line-length"]
+    ;
+    const cfg = try parse(arena.allocator(), content);
+    try std.testing.expect(!cfg.hysteresis.enabled);
+    try std.testing.expectEqual(@as(u32, 35), cfg.hysteresis.recover_pct);
+    try std.testing.expectEqual(@as(usize, 2), cfg.hysteresis.checks.len);
+    try std.testing.expectEqualStrings("line-length", cfg.hysteresis.checks[1]);
+    // Zero-config: on, a 20% band, and bound to the two volume caps that showed
+    // the surfing. line-length is supported but opt-in.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(defaults.hysteresis.enabled);
+    try std.testing.expectEqual(@as(u32, 20), defaults.hysteresis.recover_pct);
+    try std.testing.expectEqual(@as(usize, 2), defaults.hysteresis.checks.len);
+    try std.testing.expectEqualStrings("file-size", defaults.hysteresis.checks[0]);
+    try std.testing.expectEqualStrings("function-length", defaults.hysteresis.checks[1]);
+}
+
+// spec: Hysteresis - Hard-fails a recover percentage out of range or a check that is not two-tier
+
+test "parse rejects an out-of-range recover_pct and a non-two-tier check name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var diag: Diagnostic = .{};
+
+    // 0 would erase the dead-band (recover == cap, i.e. today's prune) and 100
+    // would demand deleting the file, so both ends fail closed with the line.
+    try std.testing.expectError(
+        error.InvalidValue,
+        parseInto(a, "[hysteresis]\nrecover_pct = 0\n", &diag),
+    );
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "outside 1..90") != null);
+    try std.testing.expectError(error.InvalidValue, parse(a, "[hysteresis]\nrecover_pct = 91\n"));
+    // The edges themselves are accepted.
+    _ = try parse(a, "[hysteresis]\nrecover_pct = 1\n");
+    _ = try parse(a, "[hysteresis]\nrecover_pct = 90\n");
+
+    // A single-tier check gates AT its cap: there is no band for a trip to
+    // live in, so listing one is a typo, not a policy — and a setting that
+    // reads like a policy while enforcing nothing is the failure mode here.
+    try std.testing.expectError(
+        error.InvalidValue,
+        parseInto(a, "[hysteresis]\nchecks = [\"type-size\"]\n", &diag),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "unknown hysteresis check 'type-size'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "file-size, function-length, line-length") != null);
+    try std.testing.expectError(error.InvalidValue, parse(a, "[hysteresis]\nchecks = [\"file-sizes\"]\n"));
+    // An unknown key in the section is still an unknown key.
+    try std.testing.expectError(error.UnknownKey, parse(a, "[hysteresis]\nrecover = 20\n"));
 }
 
 // spec: Configuration - Parses the baseline deny_growth check list

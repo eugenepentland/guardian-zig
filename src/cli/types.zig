@@ -45,6 +45,11 @@ pub const RunCtx = struct {
     /// source files in scope, and the narrowed index every `per_file` check
     /// receives instead of the whole-tree one. Null means a whole-tree run.
     scoped: ?ScopedRun = null,
+    /// Whole-file renames git reports against HEAD, resolved ONCE per `all` run
+    /// (before the parallel check pass) and read by every ratchet's relocation
+    /// plan. Null means unresolved: a single-check run asks git on demand
+    /// instead. Workers copy this context, so nothing may memoize into it here.
+    renames: ?[]const git.Rename = null,
     /// True when `--full` was passed: `mutate` covers the whole tree
     /// (nightly tier) instead of only diff-touched lines.
     full: bool = false,
