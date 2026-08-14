@@ -852,9 +852,14 @@ src/test_timing.zig::Detail enum_
 src/test_timing.zig::Limits struct_
 src/test_timing.zig::Over struct_
 src/test_timing.zig::Slow struct_
+src/test_timing.zig::Status enum_
+src/test_timing.zig::Tally struct_
+src/test_timing.zig::Verdict struct_
 src/test_timing.zig::default_floor_ns value
 src/test_timing.zig::default_max_lines value
 src/test_timing.zig::dropped | fn dropped(self: Over) usize
+src/test_timing.zig::failed | fn failed(self: Tally) bool
+src/test_timing.zig::failed | fn failed(self: Verdict) bool
 src/test_timing.zig::forDetail | fn forDetail(detail: Detail) Limits
 src/test_timing.zig::fromSeconds | fn fromSeconds(per_test_s: ?u64, wall_s: ?u64) Caps
 src/test_timing.zig::insertSlow | fn insertSlow(list: []Slow, len: *usize, cap: usize, entry: Slow) void
@@ -867,13 +872,16 @@ src/test_timing.zig::overPerTest | fn overPerTest(self: Caps, ns: u64) bool
 src/test_timing.zig::overWall | fn overWall(self: Caps, total_ns: u64) bool
 src/test_timing.zig::parseSeconds | fn parseSeconds(value: ?[]const u8) ?u64
 src/test_timing.zig::prefix value
+src/test_timing.zig::record | fn record(self: *Tally, status: Status) void
 src/test_timing.zig::recordOffender | fn recordOffender(list: []Slow, over: *Over, entry: Slow) void
 src/test_timing.zig::renderSlowLine | fn renderSlowLine(buf: []u8, entry: Slow) []const u8
 src/test_timing.zig::renderSlowWarning | fn renderSlowWarning(buf: []u8, entry: Slow) []const u8
 src/test_timing.zig::renderTestCapFailure | fn renderTestCapFailure(buf: []u8, over: Over, cap_ns: u64) []const u8
+src/test_timing.zig::renderVerdict | fn renderVerdict(buf: []u8, verdict: Verdict) []const u8
 src/test_timing.zig::renderWall | fn renderWall(buf: []u8, total_ns: u64, slow_count: usize, floor_ns: u64) []const u8
 src/test_timing.zig::renderWallCapFailure | fn renderWallCapFailure(buf: []u8, total_ns: u64, cap_ns: u64) []const u8
 src/test_timing.zig::slow_warn_ns value
+src/test_timing.zig::total | fn total(self: Tally) usize
 src/test_timing.zig::wide_floor_ns value
 src/test_timing.zig::wide_max_lines value
 src/testing/golden_runner.zig::GoldenError value

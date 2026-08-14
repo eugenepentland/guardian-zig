@@ -220,6 +220,29 @@ progress display, per-test failure attribution, and `--fuzz` support. Set
 `GUARDIAN_TEST_ALLOW_EMPTY=1` for the one legitimate empty case — a project that
 genuinely has no tests yet.
 
+**Every run ends on a verdict.** The runner's last line, on every exit path and
+in both modes, is one of:
+
+```
+guardian/test: PASS — 1019 passed
+guardian/test: PASS — 1016 passed, 3 skipped
+guardian/test: FAIL — 2 failed of 1019
+guardian/test: FAIL — 0 failed of 1019, 1 leaked, over an opt-in time cap
+guardian/test: FAIL — nothing the filter named ran
+```
+
+It exists because a `zig build test` transcript otherwise never states its own
+answer. Zig's build runner records a run step's child argv as
+`failed command: …` **before** the pass/fail verdict exists and erases it only on
+the success path, so under a pipe (`| tail`, `| grep`) that pre-verdict line
+survives into the stream and a *green* run ends looking failed. Guardian cannot
+unprint another program's line; it can be the last word, and `grep 'guardian/test:
+\(PASS\|FAIL\)'` answers the question without reading anything else. One seam
+worth knowing: under `zig build test` a failing test still exits the runner
+process 0, because the build system already holds that test's result and treats a
+nonzero runner exit as "the runner itself broke", discarding every per-test
+result — the verdict line reports the run, the build system reports the status.
+
 `enableTestDiagnostics` sets Zig's error-return tracing on the test module. It
 is what keeps the assertion source location behind a plain `testing.expect`
 when tests use `safe`/`fast`; without it the compiler discards that
