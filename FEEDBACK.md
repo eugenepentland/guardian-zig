@@ -6349,3 +6349,14 @@ manifests instead.
   build from the one that last gated this tree` fired once (another session
   rebuilt the dep mid-task) and said exactly which side was stale — the
   binary-identity check doing its job across concurrent sessions.
+
+## 2026-08-14 · Fable 5 · eda — retired the Deploy: skip hold (follow-up to the coalesced queue)
+
+- **good:** tree-keyed candidate adoption carried the whole session's payoff:
+  the forced deploy of the previous generation adopted the branch candidate
+  after a 2-min gate-lock queue instead of rebuilding, and the no-hold merge
+  went merge → armed → worker → adopt → restart → health-OK inside ONE second
+  of log time. Two deploys, zero redundant builds.
+- **good:** the gate stayed quiet through a second same-day rework of the same
+  three shell scripts (73-check behaviour suite green both generations, 0
+  blocking Guardian findings on every commit).
