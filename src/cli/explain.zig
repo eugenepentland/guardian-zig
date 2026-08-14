@@ -505,6 +505,68 @@ const entries = [_]Entry{
     \\violation. A broken mirror is keyed `mirror <file>|<name>` instead: that
     \\one IS a single site's own claim.
     },
+    .{ .name = "shadowed-const", .text =
+    \\Why: a value that already HAS a name reappears somewhere else as a BARE
+    \\literal — divergent-const's blind spot, and the reason a clean
+    \\divergent-const run is not the same as a consistent tree: it compares one
+    \\NAME across files, so a copy that never got a name is invisible to it.
+    \\Measured in eda (2026-08-14) with divergent-const at zero rows:
+    \\`export_fab.zig` declares `auto_outline_margin_mm = 1.0` while
+    \\`placement/pour.zig` and `placement/route_free_space.zig` each re-derive
+    \\the same rectangle from a bare `1.0` (one comment reads "Replicated here
+    \\to avoid an import cycle"), so changing the constant silently desyncs the
+    \\pour raster from the Edge.Cuts outline; three files hold a `1e-6`
+    \\clearance epsilon under three different names; a `0.05` mm sampling step
+    \\sits bare in two files; a 16 MiB sidecar cap is spelled four ways with one
+    \\256 MiB outlier.
+    \\Fix: import the constant instead of respelling its value. If the copy must
+    \\stay local (a real import cycle), give it a NAME and a
+    \\`/// mirror-of: <path>.zig.<name>` annotation — divergent-const then
+    \\verifies the two are equal, which is the checked version of the comment.
+    \\Declare the gate:
+    \\  [[shadow]]
+    \\  const = "src/export_fab.zig.auto_outline_margin_mm"  # <path>.zig.<name>
+    \\  files = ["src/placement/*.zig"]   # optional; default is every src file
+    \\  ignore = ["src/placement/vendor*"]
+    \\  reason = "the pour raster must follow the same Edge.Cuts outline"
+    \\Zero rules is a zero-config pass. A declared rule is an author's claim, so
+    \\it is verified whatever the auto-mode noise controls say, and a rule whose
+    \\referent resolves to nothing is ITSELF a violation (as a dangling
+    \\twin-referent claim is) — a rule that silently matches nothing reads as a
+    \\guarantee and is not one.
+    \\Modes: `declared` (default) is the precise gate — only the [[shadow]]
+    \\rules. `[shadowed_const] mode = "auto"` is a MEASUREMENT tier: it sweeps
+    \\every unit-suffixed file-scope const (divergent-const's default
+    \\population) and reports bare occurrences of each value elsewhere. Use it
+    \\to size the problem, not to gate — the motivating case above proves the
+    \\difference, since `1.0` is on `ignore_values` and the sweep cannot see it.
+    \\Auto-mode noise controls: `ignore_values` (folded compare, default
+    \\["0","1","-1","2","0.5","10","100","1000"]; set `[]` to ignore nothing),
+    \\`min_float_digits` (default 2) and `min_int_digits` (default 3). Digits are
+    \\counted off the value's shortest round-trip decimal, NOT counting a
+    \\leading zero before the point and counting the zeros after it — which is
+    \\what makes `1e-6` (six) and `0.05` (two) specific while `0.5` (one) is not.
+    \\Exempt: narrow a rule's `files`, add to its `ignore`, exempt a path from
+    \\every rule with `[[allow]] check = "shadowed-const"`, or delete the rule.
+    \\Limits: BARE means unnamed. A literal that IS a named const/var's
+    \\initializer is a name, not a shadow — that is divergent-const's subject,
+    \\with a different fix, and flagging it here would fight magic-number, whose
+    \\whole remedy is "push this literal into a named const". A file that
+    \\declares the value under ANY name is skipped for that value in both modes.
+    \\Everything else counts: an expression operand, a call argument, a struct
+    \\field default, an array length. Comments and string contents are not
+    \\literals at all (the scan reads `number_literal` nodes, never text), and a
+    \\`test` block is skipped, because a test's expected value is supposed to be
+    \\spelled independently of the constant it checks. Values compare FOLDED,
+    \\exactly as in divergent-const (`16 << 20` = `16_777_216`), and only
+    \\file-scope consts can be a target.
+    \\Baseline: one violation per (constant, shadowing file), keyed
+    \\`<referent>|<file>` — so a fourth bare copy in an already-frozen file
+    \\stays frozen, a NEW file fails, and the same file shadowing a different
+    \\constant is its own row. A dangling rule is keyed `rule <referent>`: that
+    \\one is the config's own broken claim, one row however many files it would
+    \\have scanned.
+    },
     .{ .name = "twin-referent", .text =
     \\Why: a comment claiming "mirrors X" / "same as Y" / "verified against Z" is
     \\a maintenance contract written in prose, and prose does not move when code

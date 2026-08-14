@@ -21,6 +21,7 @@ const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
 const BanRule = config.BanRule;
 const ConceptRule = config.ConceptRule;
+const ShadowRule = config.ShadowRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -90,6 +91,16 @@ const mode_key = "mode";
 /// the widening one needs a named const for the validator and the applier.
 const units_mode = "units";
 const all_mode = "all";
+/// The two `[shadowed_const] mode` spellings. `declared` is the default, so
+/// only `auto` — the whole-tree measurement sweep — needs naming twice.
+const declared_mode = "declared";
+const auto_mode = "auto";
+const ignore_values_key = "ignore_values";
+const min_float_digits_key = "min_float_digits";
+const min_int_digits_key = "min_int_digits";
+/// The `[[shadow]]` referent key. Spelled `const` in TOML (it names a Zig
+/// const); the Config field is `const_ref`, since `const` is a Zig keyword.
+const shadow_const_key = "const";
 const benchmark_key = "benchmark";
 const lock_enabled_key = config_policy.lock_enabled_key;
 const lock_against_key = config_policy.lock_against_key;
@@ -154,6 +165,7 @@ const Section = enum {
     fuzz_presence,
     int_from_float,
     divergent_const,
+    shadowed_const,
     twin_referent,
     measurement,
     policy,
@@ -173,7 +185,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, concept, external };
+const ArrayKind = enum { none, boundary, allow, ban, concept, shadow, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -195,6 +207,10 @@ const ParseState = struct {
     cur_owner: std.ArrayList([]const u8) = .empty,
     cur_concept_files: std.ArrayList([]const u8) = .empty,
     concepts: std.ArrayList(ConceptRule) = .empty,
+    cur_shadow_const: ?[]const u8 = null,
+    cur_shadow_files: std.ArrayList([]const u8) = .empty,
+    cur_shadow_ignore: std.ArrayList([]const u8) = .empty,
+    shadows: std.ArrayList(ShadowRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -267,6 +283,7 @@ const ParseState = struct {
             },
             .ban => try self.flushBan(allocator, diag),
             .concept => try self.flushConcept(allocator, diag),
+            .shadow => try self.flushShadow(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -384,6 +401,9 @@ const ParseState = struct {
         self.cur_patterns = .empty;
         self.cur_owner = .empty;
         self.cur_concept_files = .empty;
+        self.cur_shadow_const = null;
+        self.cur_shadow_files = .empty;
+        self.cur_shadow_ignore = .empty;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -411,6 +431,7 @@ const ParseState = struct {
             .allow => try self.setAllowKey(allocator, kv),
             .ban => try self.setBanKey(allocator, kv),
             .concept => try self.setConceptKey(allocator, kv),
+            .shadow => try self.setShadowKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -457,6 +478,43 @@ const ParseState = struct {
             self.cur_owner = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "files")) {
             self.cur_concept_files = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
+    /// Closes a `[[shadow]]` entry. A missing `const` is refused: the rule's
+    /// whole subject is the constant it names, and it is also the baseline key
+    /// every finding is frozen under, so an entry without one would sit in the
+    /// config looking like a guarantee about nothing. A SECOND rule naming the
+    /// same constant is refused for the identity reason `[[concept]]` refuses a
+    /// duplicate name: findings are keyed `<const>|<file>`, so two rules under
+    /// one referent would share — and silently freeze with — one set of keys.
+    fn flushShadow(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const referent = self.cur_shadow_const orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[shadow]]: missing required key 'const'", .{});
+            return error.IncompleteTable;
+        };
+        for (self.shadows.items) |existing| {
+            if (!std.mem.eql(u8, existing.const_ref, referent)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[shadow]] const '{s}'", .{referent});
+            return error.InvalidConfig;
+        }
+        try self.shadows.append(allocator, .{
+            .const_ref = referent,
+            .files = try self.cur_shadow_files.toOwnedSlice(allocator),
+            .ignore = try self.cur_shadow_ignore.toOwnedSlice(allocator),
+            .reason = self.cur_reason,
+        });
+    }
+
+    fn setShadowKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, shadow_const_key)) {
+            self.cur_shadow_const = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "files")) {
+            self.cur_shadow_files = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "ignore")) {
+            self.cur_shadow_ignore = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
             self.cur_reason = try parseStringAlloc(allocator, kv.val);
         }
@@ -510,6 +568,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "allow")) return .allow;
     if (std.mem.eql(u8, name, "ban")) return .ban;
     if (std.mem.eql(u8, name, "concept")) return .concept;
+    if (std.mem.eql(u8, name, "shadow")) return .shadow;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -566,6 +625,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     cfg.ban_rules = try st.bans.toOwnedSlice(allocator);
     cfg.concept_rules = try st.concepts.toOwnedSlice(allocator);
+    cfg.shadow_rules = try st.shadows.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -653,25 +713,46 @@ fn applyKeyValueLine(
 
 const ValueKind = enum { boolean, unsigned, string, string_array };
 
-/// Returns the value shape from the already-validated section/key position.
-/// The first-character branches are unambiguous within each section and avoid
-/// maintaining a third duplicate list of every supported key.
-fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
-    if (st.array_kind != .none) return switch (st.array_kind) {
+/// The value shape of one `[[array-table]]` key. Split out of `valueKind` so
+/// the two halves — array tables and `[section]`s — each stay inside the
+/// complexity cap as entries are added to either.
+fn arrayValueKind(kind: ArrayKind, key: []const u8) ValueKind {
+    return switch (kind) {
         .boundary => if (key[0] == 'm') .string else .string_array,
         .allow => if (key[0] == 'c') .string else .string_array,
         // chain / paths / allow are arrays; only `reason` is prose.
         .ban => if (key[0] == 'r') .string else .string_array,
         // literals / patterns / owner / files are arrays; name and reason are prose.
         .concept => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
-        .external => if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, benchmark_key))
-            .string
-        else if (std.mem.eql(u8, key, "command") or std.mem.eql(u8, key, "inputs") or std.mem.eql(u8, key, "paths"))
-            .string_array
-        else
-            .unsigned,
+        // files / ignore are arrays; const (the referent) and reason are prose.
+        .shadow => if (key[0] == 'c' or key[0] == 'r') .string else .string_array,
+        .external => externalValueKind(key),
         .none => .string_array,
     };
+}
+
+/// The value shape of one `[[external]]` key: two prose keys, three arrays, and
+/// counts for the rest.
+fn externalValueKind(key: []const u8) ValueKind {
+    if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, benchmark_key)) return .string;
+    if (std.mem.eql(u8, key, "command") or std.mem.eql(u8, key, "inputs")) return .string_array;
+    if (std.mem.eql(u8, key, "paths")) return .string_array;
+    return .unsigned;
+}
+
+/// The value shape of one `[shadowed_const]` key: `mode` is prose, the two
+/// digit floors are counts, `ignore_values` is an array — so `mode` is matched
+/// whole before the shared `m` prefix could claim it.
+fn shadowedConstValueKind(key: []const u8) ValueKind {
+    if (std.mem.eql(u8, key, mode_key)) return .string;
+    return if (key[0] == 'm') .unsigned else .string_array;
+}
+
+/// Returns the value shape from the already-validated section/key position.
+/// The first-character branches are unambiguous within each section and avoid
+/// maintaining a third duplicate list of every supported key.
+fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
+    if (st.array_kind != .none) return arrayValueKind(st.array_kind, key);
     return switch (st.section) {
         .top => switch (key[0]) {
             's' => .string,
@@ -715,6 +796,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .fuzz_presence, .int_from_float, .measurement, .twin_referent => .string_array,
         // `mode` is prose; `ignore_names` is an array.
         .divergent_const => if (key[0] == 'm') .string else .string_array,
+        .shadowed_const => shadowedConstValueKind(key),
         .policy => if (std.mem.eql(u8, key, "profile") or std.mem.eql(u8, key, lock_against_key))
             .string
         else if (std.mem.eql(u8, key, lock_enabled_key))
@@ -766,6 +848,13 @@ fn validateValue(
         const mode = parseString(kv.val).?;
         if (!std.mem.eql(u8, mode, units_mode) and !std.mem.eql(u8, mode, all_mode)) {
             try setDiag(allocator, diag, line_no, "invalid divergent_const mode '{s}' (want units or all)", .{mode});
+            return error.InvalidValue;
+        }
+    }
+    if (st.array_kind == .none and st.section == .shadowed_const and std.mem.eql(u8, kv.key, mode_key)) {
+        const mode = parseString(kv.val).?;
+        if (!std.mem.eql(u8, mode, declared_mode) and !std.mem.eql(u8, mode, auto_mode)) {
+            try setDiag(allocator, diag, line_no, "invalid shadowed_const mode '{s}' (want declared or auto)", .{mode});
             return error.InvalidValue;
         }
     }
@@ -1041,6 +1130,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .fuzz_presence => &.{"modules"},
         .int_from_float => &.{ "guard_fns", "require_guard" },
         .divergent_const => &.{ ignore_names_key, mode_key },
+        .shadowed_const => &.{ mode_key, ignore_values_key, min_float_digits_key, min_int_digits_key },
         .twin_referent => &.{"ignore"},
         .measurement => &.{"paths"},
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
@@ -1059,6 +1149,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
         .concept => &.{ "name", literals_key, patterns_key, owner_key, "files", "reason" },
+        .shadow => &.{ shadow_const_key, "files", "ignore", "reason" },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -1096,6 +1187,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
         .int_from_float => try applyIntFromFloatKey(ctx, kv),
         .divergent_const => try applyDivergentConstKey(ctx, kv),
+        .shadowed_const => try applyShadowedConstKey(ctx, kv),
         .twin_referent => try applyTwinReferentKey(ctx, kv),
         .measurement => try applyMeasurementKey(ctx, kv),
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
@@ -1158,6 +1250,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "fuzz_presence", Section.fuzz_presence },
         .{ "int_from_float", Section.int_from_float },
         .{ "divergent_const", Section.divergent_const },
+        .{ "shadowed_const", Section.shadowed_const },
         .{ "twin_referent", Section.twin_referent },
         .{ "measurement", Section.measurement },
         .{ "policy", Section.policy },
@@ -1379,6 +1472,22 @@ fn applyDivergentConstKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.ignore_names = try toStrings(ctx.allocator, kv.val);
     } else if (std.mem.eql(u8, kv.key, mode_key)) {
         if (parseString(kv.val)) |v| g.mode = if (std.mem.eql(u8, v, all_mode)) .all else .units;
+    }
+}
+
+/// Applies one `[shadowed_const]` key: `mode` (already value-checked against
+/// the two spellings), the folded-compare `ignore_values` deny list, and the
+/// two `auto`-mode significance floors.
+fn applyShadowedConstKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.shadowed_const;
+    if (std.mem.eql(u8, kv.key, mode_key)) {
+        if (parseString(kv.val)) |v| g.mode = if (std.mem.eql(u8, v, auto_mode)) .auto else .declared;
+    } else if (std.mem.eql(u8, kv.key, ignore_values_key)) {
+        g.ignore_values = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, min_float_digits_key)) {
+        g.min_float_digits = parseU32(kv.val, g.min_float_digits);
+    } else if (std.mem.eql(u8, kv.key, min_int_digits_key)) {
+        g.min_int_digits = parseU32(kv.val, g.min_int_digits);
     }
 }
 
@@ -2446,6 +2555,120 @@ test "load hard-fails when guardian.toml exists but cannot be read" {
     try std.testing.expectError(error.ConfigUnreadable, load(a, dir));
     // The diagnostic carries exactly one "guardian: " prefix (reporter adds it).
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian: guardian:") == null);
+}
+
+// spec: Shadowed Const - Parses shadow entries with const, files, ignore and reason keys
+
+test "parse shadow array tables with every key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[shadow]]
+        \\const = "src/export_fab.zig.auto_outline_margin_mm"
+        \\files = [
+        \\  "src/placement/*.zig", # the pour side
+        \\  "src/export_*.zig",
+        \\]
+        \\ignore = ["src/placement/vendor*"]
+        \\reason = "the pour raster must follow the same Edge.Cuts outline"
+        \\
+        \\[[shadow]]
+        \\const = "src/limits.zig.max_sidecar_bytes"
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.shadow_rules.len);
+    try std.testing.expectEqualStrings(
+        "src/export_fab.zig.auto_outline_margin_mm",
+        cfg.shadow_rules[0].const_ref,
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.shadow_rules[0].files.len);
+    try std.testing.expectEqualStrings("src/export_*.zig", cfg.shadow_rules[0].files[1]);
+    try std.testing.expectEqualStrings("src/placement/vendor*", cfg.shadow_rules[0].ignore[0]);
+    try std.testing.expectEqualStrings(
+        "the pour raster must follow the same Edge.Cuts outline",
+        cfg.shadow_rules[0].reason.?,
+    );
+    // Every optional key defaults to "scan every file, exempt none, no reason" —
+    // the referent alone is a complete rule.
+    try std.testing.expectEqual(@as(usize, 0), cfg.shadow_rules[1].files.len);
+    try std.testing.expectEqual(@as(usize, 0), cfg.shadow_rules[1].ignore.len);
+    try std.testing.expectEqual(@as(?[]const u8, null), cfg.shadow_rules[1].reason);
+}
+
+// spec: Shadowed Const - Hard-fails a shadow entry that names no constant
+
+test "parse rejects a shadow entry with no const" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content =
+        \\[[shadow]]
+        \\files = ["src/*.zig"]
+    ;
+    try std.testing.expectError(error.IncompleteTable, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "missing required key 'const'") != null);
+}
+
+// spec: Shadowed Const - Hard-fails a second shadow entry reusing an existing constant
+
+test "parse rejects a duplicate shadow const" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content =
+        \\[[shadow]]
+        \\const = "src/limits.zig.gap_mm"
+        \\
+        \\[[shadow]]
+        \\const = "src/limits.zig.gap_mm"
+    ;
+    // Findings are keyed `<referent>|<file>`, so two rules under one referent
+    // would share — and silently freeze with — one set of baseline keys.
+    try std.testing.expectError(error.InvalidConfig, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "duplicate [[shadow]] const") != null);
+}
+
+// spec: Shadowed Const - Parses the sweep mode, ignore values and digit floors
+
+test "parse shadowed_const keys and default the mode to declared" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const default_cfg = try parse(a, "");
+    try std.testing.expectEqual(config.ShadowedConstMode.declared, default_cfg.shadowed_const.mode);
+    try std.testing.expectEqual(@as(u32, 2), default_cfg.shadowed_const.min_float_digits);
+    try std.testing.expectEqual(@as(u32, 3), default_cfg.shadowed_const.min_int_digits);
+    try std.testing.expectEqual(@as(usize, 8), default_cfg.shadowed_const.ignore_values.len);
+    const cfg = try parse(a,
+        \\[shadowed_const]
+        \\mode = "auto"
+        \\ignore_values = ["0", "1"]
+        \\min_float_digits = 3
+        \\min_int_digits = 4
+    );
+    try std.testing.expectEqual(config.ShadowedConstMode.auto, cfg.shadowed_const.mode);
+    try std.testing.expectEqual(@as(usize, 2), cfg.shadowed_const.ignore_values.len);
+    try std.testing.expectEqualStrings("1", cfg.shadowed_const.ignore_values[1]);
+    try std.testing.expectEqual(@as(u32, 3), cfg.shadowed_const.min_float_digits);
+    try std.testing.expectEqual(@as(u32, 4), cfg.shadowed_const.min_int_digits);
+    // An explicitly empty list ignores nothing, rather than falling back to the
+    // eight built-in spellings.
+    const bare = try parse(a, "[shadowed_const]\nignore_values = []");
+    try std.testing.expectEqual(@as(usize, 0), bare.shadowed_const.ignore_values.len);
+}
+
+// spec: Shadowed Const - Hard-fails a sweep mode that is neither declared nor auto
+
+test "parse rejects an unknown shadowed_const mode" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const content =
+        \\[shadowed_const]
+        \\mode = "everything"
+    ;
+    try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "want declared or auto") != null);
 }
 
 // spec: Divergent Const - Parses the ignore-names list and the grouping mode

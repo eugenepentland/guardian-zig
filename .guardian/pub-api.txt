@@ -194,6 +194,12 @@ src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
 src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/const_fold.zig::Value union_
+src/checks/const_fold.zig::foldNode | fn foldNode(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value
+src/checks/const_fold.zig::foldSpelled | fn foldSpelled(text: []const u8) ?Value
+src/checks/const_fold.zig::hasUnitSegment | fn hasUnitSegment(name: []const u8) bool
+src/checks/const_fold.zig::renderValue | fn renderValue(allocator: Allocator, v: Value) Allocator.Error![]const u8
+src/checks/const_fold.zig::valuesEqual | fn valuesEqual(a: Value, b: Value) bool
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -256,6 +262,8 @@ src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allo
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_switch_on_enum.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/shadowed_const.zig::analyzeIndex | fn analyzeIndex( allocator: Allocator, files: []const ast_index.Entry, cfg: config.ShadowedConstCfg, rules: []const config.ShadowRule, ) Allocator.Error![]const reporter.Violation
+src/checks/shadowed_const.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -420,6 +428,9 @@ src/config.zig::OrphanFilesCfg struct_
 src/config.zig::PolicyCfg struct_
 src/config.zig::PolicyMode enum_
 src/config.zig::PolicyProfile enum_
+src/config.zig::ShadowRule struct_
+src/config.zig::ShadowedConstCfg struct_
+src/config.zig::ShadowedConstMode enum_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
@@ -427,6 +438,7 @@ src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TwinReferentCfg struct_
 src/config.zig::TypeSizeCfg struct_
+src/config.zig::default_shadow_ignore_values value
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
 src/config.zig::usesBaselineFor | fn usesBaselineFor(self: PolicyCfg, check_name: []const u8, global: BaselineCfg) bool
