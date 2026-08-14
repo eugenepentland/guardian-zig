@@ -6177,3 +6177,10 @@ manifests instead.
   on green runs as pre-verdict noise). A single final `guardian/gate: PASS|FAIL`
   line on stdout would make the verdict machine-readable without parsing the
   build summary.
+
+## 2026-08-14 · codex · eda — retain only exact Gerber pour geometry
+
+- **good:** the focused `pour` test run, whole-suite compile check, commit gate,
+  and `prepare-release.sh` whole-tree gate all passed on the first try after the
+  exploratory viewer work was removed; the verified-candidate deploy then
+  reused the exact commit and health-checked production without rebuilding.
