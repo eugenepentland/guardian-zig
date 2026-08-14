@@ -6789,3 +6789,7 @@ exercise of the new system checks. Grouped friction from all six reports:
   RESOLVED with per-row keys made 80-row triage mechanical;
   test-no-conditional's fix menus were right twice; the ~1 s prebuilt gate +
   counting runner held up across ~30 full/filtered runs.
+
+## 2026-08-14 · codex · eda — keep RF via soldermask relief face-specific
+- **good:** The diff-scoped `spec` gate caught that renaming the mask-relief behavior tag left the old SPEC bullet unverified; after updating the exact bullet, focused solver, Gerber, JSON, and viewer tests all passed, and the whole-tree commit/release gates completed with zero blocking findings.
+- **friction:** Every successful filtered test run prints `failed command: ...` immediately after `guardian/test: PASS`, which looks contradictory and required checking the enclosing Zig build exit code each time.
