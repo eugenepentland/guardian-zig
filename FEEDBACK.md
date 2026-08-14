@@ -6483,3 +6483,7 @@ manifests instead.
 
 - **good:** diff-scoped Guardian caught both a new `mcpRoutePcb` cognitive-complexity regression (27 over the 25 limit) and a seven-runtime-parameter helper before commit; extracting the reference-layout orchestration and bundling its inputs produced clearer code, and the final whole-tree 75-check commit/release gates passed with zero blocking findings.
 - **good:** the spec-link check caught an updated requirement phrase whose test tag still used the previous wording, preventing the saved-layout reference-routing contract from landing unverified.
+
+## 2026-08-14 · codex · eda — benchmark patched self-hosted Zig ReleaseSafe
+
+- **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
