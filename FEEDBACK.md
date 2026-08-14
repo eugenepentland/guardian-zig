@@ -6539,3 +6539,8 @@ manifests instead.
 
 - **good:** The spec-link check immediately caught the stale requirement for a separate board-silkscreen Appearance row after the implementation moved text and generated annotations onto F./B.Silkscreen; updating the exact contract made the UI behavior and regression test agree before commit, and the whole-tree commit/release gates then passed with zero blocking findings.
 - **bug:** A successful focused `zig build test -Dtest-filter=...` reported `guardian/test: PASS`, returned exit 0, and still printed `failed command: ...` for the passing test executable. That contradictory diagnostic required an extra exit-status check and made a green run look suspect.
+
+## 2026-08-14 · codex · eda — enforce and autoroute ground-pad plane vias
+
+- **good:** The first full test tier caught both totality omissions for the new `ground_via_distance` DRC kind: its warning-severity fixture and settings-drawer help entry. The focused feature tests had passed, so this was useful whole-suite coverage that prevented an incompletely integrated enum from reaching main.
+- **friction:** Running `guardian-check commit` inside the managed filesystem sandbox produced 41 unrelated HTTP-test crashes because `httpz.testing.init` could not set socket options (`PermissionDenied`). The required `prepare-release.sh` run outside that restriction passed the authoritative full suite; recognizing the sandbox artifact still cost one multi-minute full run and substantial diagnostic output.
