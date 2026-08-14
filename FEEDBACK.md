@@ -6836,3 +6836,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-14 · codex · eda — open RF soldermask around transition antipads
 - **good:** The `spec`, `function-size`, and `test-no-conditional` checks immediately identified the missing contract bullet, an over-wide geometry helper, and an assertion-free test loop; after those direct refactors, selective `pub-api-surface` acceptance recorded only the intended shared routed-relief entry point and the full 79-check release gate passed.
+
+## 2026-08-14 · codex · eda — expand RF keepout and prioritize transition fence rings
+- **good:** The import-layering check rejected an otherwise convenient serve-to-placement-internal dependency while the exact spec links kept the router, fence generator, JSON payload, and viewer contracts synchronized; after using the sanctioned via-fence API instead, the whole-tree 79-check gate passed with zero blocking findings.
+- **good:** The exact-commit release suite caught one obsolete end-to-end router expectation that relied on a tiny authored fence shrinking a wider keepout. Updating that regression to require the wider corridor prevented the new geometry rule from shipping with a contradictory test contract.
