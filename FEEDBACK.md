@@ -5946,3 +5946,12 @@ manifests instead.
   this session and each time had to scan upward for a real `error:` block to be
   sure. Already logged by a previous agent; confirming it is still the single
   most repeated moment of doubt in a filtered loop.
+
+## 2026-08-14 · codex · eda — authored vector silkscreen
+
+- **good:** `doc-comments` caught the new public `Stroke` type before commit
+  and named the declaration precisely; adding documentation took one edit and
+  made the manufacturing-font API clearer.
+- **good:** selective `pub-api-surface` acceptance showed exactly the two
+  retired synthetic-refdes helpers and six intentional stroke-font symbols,
+  then reverified the refreshed snapshot without moving unrelated baselines.
