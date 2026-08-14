@@ -6092,3 +6092,21 @@ manifests instead.
   later matching-prebuilt runs warn that the matching binary was older than
   the last gate. No correctness result was lost, but distinguishing repository
   drift from task failures cost an extra source-compiled 75-check run.
+
+## 2026-08-14 · claude · eda — cleanup-wave integration + baseline shrink
+
+- good: the per-check `accept` flow did exactly what the cleanup needed —
+  three sequential single-check accepts pruned 187 resolved rows (concept
+  140→14, boundaries 66→7, duplicate-json-key 2→0) as pure deletions, and the
+  checks' own "N resolved (run accept to prune)" hint made the state legible.
+- friction: the deploy worker's dirty-worktree guard refuses BEFORE candidate
+  adoption is attempted. Adoption installs a prebuilt verified artifact and
+  builds nothing from the working tree, so a dirty unrelated file (a parallel
+  session's live edit in the main checkout) blocked a deploy whose inputs were
+  entirely commit-keyed: merge ca90ce6f had a tree-identical verified
+  candidate and still failed with "refusing dirty worktree". Suggest checking
+  for an adoptable tree-matching candidate first and applying the dirty guard
+  only on the build fallback.
+- good: five parallel agent branches all gated green through `scripts/gate.sh`
+  queueing without a single lock collision, and the merge-commit gates caught
+  nothing because each branch had already run the same 75 checks.
