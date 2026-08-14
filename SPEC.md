@@ -1172,6 +1172,32 @@ without an explained `--force`.
 - Parses the ignore-names list and the grouping mode
 - Hard-fails a grouping mode that is neither units nor all
 
+## Const Folding
+
+- Folds one literal initializer expression to one comparable value
+- Folds a signed numeric spelling supplied by config
+- Recognises a name whose trailing segment is a unit
+
+## Shadowed Const
+
+- Flags a declared constant's value reappearing as a bare literal in another file
+- Never reports the owning file's own declaration
+- Leaves a same-valued named const elsewhere to divergent-const
+- Never reads a value out of a comment, a string or a test block
+- Reports a rule whose referent resolves to nothing
+- Passes trivially when no shadow rules are configured
+- Sweeps unit-suffixed constants in auto mode and keys each row as a rule
+- Skips an auto-mode value on the ignore list or under the digit floors
+- Scopes one rule's scan with its files and ignore globs
+- Reads a negated literal as its negative value
+- Freezes a baselined shadowing file while a new one still fails
+- Skips a file an allow entry exempts
+- Parses shadow entries with const, files, ignore and reason keys
+- Hard-fails a shadow entry that names no constant
+- Hard-fails a second shadow entry reusing an existing constant
+- Parses the sweep mode, ignore values and digit floors
+- Hard-fails a sweep mode that is neither declared nor auto
+
 ## Twin Referent
 
 - Flags a claim naming a file that is not in the source tree

@@ -6488,6 +6488,7 @@ manifests instead.
 
 - **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
 
+<<<<<<< HEAD
 ## 2026-08-14 · codex · eda — hard Barracuda perimeter keepout
 
 - **good:** the diff-scoped and whole-tree 75-check gates both passed with zero
@@ -6530,3 +6531,42 @@ manifests instead.
   build", "79 registry entries") is hand-maintained and drifts silently when a
   check is added. A `registry`-derived assertion (or a doc-sync check like eda's
   `gen-language-docs --check`) would keep those numbers honest for free.
+=======
+## 2026-08-14 · Opus agent · guardian-zig — implement the `shadowed-const` check
+
+- **good:** the gate caught two real bugs in my own new code before commit, both
+  from tests I would have written more loosely without the 1:1 spec-tag rule.
+  `std.zig.parseNumberLiteral` ASSERTS its input begins with a digit, so the new
+  `foldSpelled` (which folds numeric spellings out of `guardian.toml`) panicked
+  the whole test runner on `ignore_values = ["half"]` — a config typo would have
+  aborted the gate. And a significance-floor test asserted the wrong direction,
+  which surfaced that emptying `ignore_values` does not resurrect `0.5`, because
+  the digit floor rejects it independently.
+- **good:** `cognitive-complexity` fired on `config_parser.valueKind` at 26/25
+  the moment I added a fifth branch to it. The extraction it forced
+  (`arrayValueKind` / `externalValueKind` / `shadowedConstValueKind`) is the
+  right shape — the array-table half and the section half of that function had
+  no reason to share a body — and the check found the seam, not me.
+- **friction:** adding a check means touching seven files that must agree
+  (`checks/<name>.zig`, `cli/registry.zig` entry, the `inherently_whole_tree`
+  list, `check.zig`'s test-import aggregator, `cli/explain.zig`, `SPEC.md`,
+  `config*.zig`), and only two of those have a test that fails when you forget
+  them (the explain-entry loop and the whole-tree classification list). Missing
+  the `check.zig` aggregator import is silent: the new file's tests simply never
+  compile. A `guardian-check doctor`-style rule "every file under src/checks is
+  imported by the test aggregator" would close that one cheaply.
+- **friction:** `[[allow]]`-style array tables are ~60 lines of hand-written
+  parser state each (ParseState fields, a reset in `beginArrayTable`, a `flush*`,
+  a `set*Key`, `validArrayKeys`, `valueKind`), all mechanical and all easy to
+  half-do. `[[shadow]]` is the fifth of these; a comptime-generated array-table
+  binding from the Config struct would remove the whole class.
+- **wish:** the config parser has no numeric-array value kind, so
+  `ignore_values` had to be declared as a string array of numeric spellings
+  (`["0", "0.5"]`). That turned out fine — it routes through the same fold the
+  source literals use — but it was a workaround, not a choice.
+- **wish:** `guardian-check <check> . --dry-run` was the single most useful tool
+  for developing a new check against a real tree (33 auto-mode findings on
+  Guardian's own source, written nowhere). It is documented under "single-check
+  introspection"; it deserves to be named in the "how to write a check" path
+  too, since it is the fastest loop available.
+>>>>>>> claude/shadowed-const

@@ -46,6 +46,7 @@ const check_ban = @import("../checks/ban.zig");
 const check_concept = @import("../checks/concept.zig");
 const check_canonical_idiom = @import("../checks/canonical_idiom.zig");
 const check_divergent_const = @import("../checks/divergent_const.zig");
+const check_shadowed_const = @import("../checks/shadowed_const.zig");
 const check_twin_referent = @import("../checks/twin_referent.zig");
 const check_duplicate_json_key = @import("../checks/duplicate_json_key.zig");
 const check_ban_time = @import("../checks/ban_time.zig");
@@ -365,6 +366,17 @@ pub const all: []const Command = &.{
         // a divergence as resolved because its other side went out of view.
         .scope = .whole_tree,
         .run = check_divergent_const.run,
+    },
+    .{
+        .name = "shadowed-const",
+        .summary = "Flag a named constant's value reappearing as a bare literal in another file",
+        .needs_ast = .yes,
+        // Whole-tree for two independent reasons: a rule's referent is resolved
+        // against every file's declarations (a narrowed index would report it
+        // dangling), and the shadow itself is a relation between two files, so
+        // narrowing to the changed one would report a live shadow as resolved.
+        .scope = .whole_tree,
+        .run = check_shadowed_const.run,
     },
     .{
         .name = "twin-referent",
@@ -702,7 +714,8 @@ const inherently_whole_tree = [_][]const u8{
     "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
     "fuzz-presence",           "external-gates",          "policy-drift",
     "test-reachability",       "merge-state",             "concept",
-    "canonical-idiom",         "divergent-const",         "twin-referent",
+    "canonical-idiom",         "divergent-const",         "shadowed-const",
+    "twin-referent",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

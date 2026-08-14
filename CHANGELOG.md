@@ -6,6 +6,7 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+<<<<<<< HEAD
 - New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
   ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
   chain and `[[concept]]` owns a literal spelling; neither can express an
@@ -33,6 +34,45 @@ sibling checkout.
   `canonical-idiom`. The two relational checks now cannot disagree about what a
   lexical scan may judge, and the second one gains the exemptions that made the
   first one's frozen ledger real instead of re-deriving them.
+=======
+- New check `shadowed-const`, closing `divergent-const`'s recorded blind spot:
+  a value that already HAS a name reappearing somewhere else as a BARE literal.
+  divergent-const compares one NAME across files, so a copy that never got a
+  name is invisible to it — which is why zero rows there is not the same as a
+  consistent tree. The eda audit (2026-08-14) that produced this found
+  `export_fab.zig` declaring `auto_outline_margin_mm = 1.0` while
+  `placement/pour.zig` and `placement/route_free_space.zig` each re-derive the
+  same rectangle from a bare `1.0` (one comment reads "Replicated here to avoid
+  an import cycle"), so changing the constant silently desyncs the pour raster
+  from the Edge.Cuts outline; plus three files holding a `1e-6` clearance
+  epsilon under three names, a `0.05` mm step bare in two files, and a 16 MiB
+  sidecar cap spelled four ways with one 256 MiB outlier. Two modes, and the
+  split is the product: `declared` (the default) is the GATE — a `[[shadow]]`
+  rule per constant that matters, `const = "<path>.zig.<name>"` in the same
+  referent spelling `/// mirror-of:` already uses, plus optional
+  `files`/`ignore`/`reason`; zero rules is a zero-config pass, a declared rule
+  is verified whatever the noise controls say, and a rule whose referent
+  resolves to nothing is ITSELF a violation (the dangling-claim behavior
+  `twin-referent` established). `[shadowed_const] mode = "auto"` is a
+  MEASUREMENT tier that sweeps every unit-suffixed file-scope const and reports
+  bare occurrences elsewhere, filtered by a folded-compare `ignore_values` list
+  and the `min_float_digits`/`min_int_digits` floors — deliberately not the
+  default, because it reports 33 rows on Guardian's own tree of which 30 are a
+  power-of-two I/O buffer size, and because the motivating case above is
+  invisible to it (`1.0` is on the ignore list). BARE means unnamed: a literal
+  that IS a named const/var's initializer is a NAME, which is divergent-const's
+  subject with a different fix and is what `magic-number` asks you to create;
+  comments and strings are not literals at all (the scan reads `number_literal`
+  nodes, never text); `test` blocks are skipped; and a file declaring the value
+  under any name is skipped for that value. Findings are keyed
+  `<referent>|<file>`, so a fourth bare copy in a frozen file stays frozen while
+  a new file fails. The numeric fold and the unit-segment table move out of
+  `divergent_const.zig` into a shared `checks/const_fold.zig` — two copies of a
+  numeric fold is precisely the debt these checks exist to find — and
+  `foldNumber` gains a leading-digit guard, since `std.zig.parseNumberLiteral`
+  ASSERTS its input starts with a digit and a config-supplied spelling would
+  otherwise have panicked the gate.
+>>>>>>> claude/shadowed-const
 
 - The `concept` scan no longer judges comment lines or Zig `test` blocks. The
   first real branch composition on the flagship consumer produced 16 findings

@@ -107,6 +107,53 @@ pub const DivergentConstCfg = struct {
     mode: DivergentConstMode = .units,
 };
 
+/// One [[shadow]] entry — a named constant whose VALUE must not reappear as a
+/// bare literal anywhere else, enforced by the `shadowed-const` check.
+/// `const_ref` is the TOML `const` key: the `<path>.zig.<name>` referent
+/// spelling `divergent-const`'s `/// mirror-of:` annotation already uses.
+/// `files` are path globs restricting the scan (empty = every indexed source
+/// file); `ignore` exempts paths inside that scan; `reason` names why the
+/// constant is the single source of truth and is appended to every violation.
+///
+/// This is the precise gate half of the check: a project declares the handful
+/// of constants whose silent re-derivation elsewhere would actually ship a bug,
+/// rather than turning on the whole-tree sweep and living with its noise.
+pub const ShadowRule = struct {
+    const_ref: []const u8,
+    files: []const []const u8 = &.{},
+    ignore: []const []const u8 = &.{},
+    reason: ?[]const u8 = null,
+};
+
+/// How `shadowed-const` picks the values it looks for. `declared` (the default)
+/// looks only at the `[[shadow]]` rules a project wrote, so zero rules is a
+/// zero-config pass. `auto` sweeps every unit-suffixed file-scope const in the
+/// tree — a MEASUREMENT tier for finding out how much shadowing a codebase
+/// carries, not a gate.
+pub const ShadowedConstMode = enum { declared, auto };
+
+/// Numeric spellings `auto` mode never treats as a shadowable value: too common
+/// to mean anything on their own, so a bare one carries no claim about the
+/// constant that happens to share it. Compared FOLDED (via `const_fold`), so
+/// `0.5` here also silences a bare `.5e0`.
+pub const default_shadow_ignore_values = [_][]const u8{
+    "0", "1", "-1", "2", "0.5", "10", "100", "1000",
+};
+
+/// Per-check config for shadowed-const, the value-reappears-as-a-bare-literal
+/// scan. Everything here tunes `auto` mode only; `declared` mode is governed by
+/// the `[[shadow]]` rules themselves. `ignore_values` is a folded-compare deny
+/// list (set it to `[]` to ignore nothing), and the two digit floors are the
+/// significance test a swept value must pass: a float needs `min_float_digits`
+/// significant digits and an integer `min_int_digits` digits before a bare
+/// occurrence of it says anything.
+pub const ShadowedConstCfg = struct {
+    mode: ShadowedConstMode = .declared,
+    ignore_values: []const []const u8 = &default_shadow_ignore_values,
+    min_float_digits: u32 = 2,
+    min_int_digits: u32 = 3,
+};
+
 /// Per-check config for twin-referent, the "mirrors X / same as Y" comment
 /// scan. `ignore` holds path globs (Guardian's ordinary `*` syntax) matched
 /// against the commenting file's path AND against the referent text, so a
@@ -647,6 +694,7 @@ pub const Config = struct {
     fuzz_presence: FuzzPresenceCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
     divergent_const: DivergentConstCfg = .{},
+    shadowed_const: ShadowedConstCfg = .{},
     twin_referent: TwinReferentCfg = .{},
     measurement: MeasurementCfg = .{},
     policy: PolicyCfg = .{},
@@ -663,6 +711,10 @@ pub const Config = struct {
     /// [[idiom]] entries: project-declared owned expression shapes (see
     /// IdiomRule). Empty (the default) makes `canonical-idiom` a trivial pass.
     idiom_rules: []const IdiomRule = &.{},
+    /// [[shadow]] entries: project-declared single-source-of-truth constants
+    /// (see ShadowRule). Empty (the default) makes `shadowed-const` a trivial
+    /// pass in its default `declared` mode.
+    shadow_rules: []const ShadowRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.

@@ -22,7 +22,8 @@
 //! `16 * 1024 * 1024` and `16_777_216` are one value, and `1_000_000` equals
 //! `1_000_000.0`. An initializer that does not fold to a number (a call, another
 //! identifier, a struct literal) is skipped entirely rather than compared as
-//! text.
+//! text. That fold lives in `const_fold.zig`, shared with `shadowed-const` so
+//! the two checks can never disagree about what one number is.
 //!
 //! Default `mode = "units"` keeps it near-silent: only a const whose name ends
 //! in a unit segment (`_mm`, `_bytes`, `_ms`, `_hz`, …) is grouped, because a
@@ -42,10 +43,19 @@ const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
 const ast_decls = @import("../ast/decls.zig");
 const config = @import("../config.zig");
+const const_fold = @import("const_fold.zig");
 const LineCursor = @import("../text.zig").LineCursor;
 
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
+
+/// The shared numeric fold (see `const_fold.zig`): one value type, one equality
+/// rule and one rendering for both same-name and bare-literal comparison.
+const Value = const_fold.Value;
+const valuesEqual = const_fold.valuesEqual;
+const renderValue = const_fold.renderValue;
+const foldNode = const_fold.foldNode;
+const hasUnitSegment = const_fold.hasUnitSegment;
 
 const check_name = "divergent-const";
 
@@ -60,170 +70,8 @@ const zig_infix = ".zig.";
 /// The count stays exact in the message and in `metric`.
 const max_reported_sites = 6;
 
-/// Recursion cap while folding an initializer. A literal expression is a few
-/// levels deep in practice; anything past this is treated as unfoldable rather
-/// than risking the stack on pathological input.
-const max_fold_depth = 32;
-
-/// Longest numeric literal folded. Longer text is treated as unfoldable, which
-/// keeps the underscore-stripping buffer fixed-size.
-const max_number_len = 64;
-
 const fix_hint = "give the two files one const — import it from the module that owns the " ++
     "fact — or, if the copy is deliberate, annotate it `/// mirror-of: <path>.zig.<name>`.";
-
-// ── Folded values ───────────────────────────────────────────────────────
-
-/// A const initializer folded to a number. Integers stay exact (i128 holds
-/// every `u64`/`i64` literal and the products this folds), floats carry the
-/// literal's own f64 value.
-const Value = union(enum) {
-    int: i128,
-    float: f64,
-};
-
-/// True when two folded values are the same number, across representations:
-/// `1_000_000` equals `1_000_000.0`, and `16 << 20` equals `16777216`.
-fn valuesEqual(a: Value, b: Value) bool {
-    return switch (a) {
-        .int => |x| switch (b) {
-            .int => |y| x == y,
-            .float => |y| intEqualsFloat(x, y),
-        },
-        .float => |x| switch (b) {
-            .int => |y| intEqualsFloat(y, x),
-            .float => |y| x == y,
-        },
-    };
-}
-
-/// True when an integer and a float denote the same number. A non-integral or
-/// non-finite float can never equal an integer, so those are rejected before
-/// the widening compare.
-fn intEqualsFloat(i: i128, f: f64) bool {
-    if (!std.math.isFinite(f)) return false;
-    if (@floor(f) != f) return false;
-    const widened: f64 = @floatFromInt(i);
-    return widened == f;
-}
-
-/// Renders a folded value the way its source spelled the number: an integer in
-/// decimal, a float in Zig's shortest round-trip form.
-fn renderValue(allocator: Allocator, v: Value) Allocator.Error![]const u8 {
-    return switch (v) {
-        .int => |x| std.fmt.allocPrint(allocator, "{d}", .{x}),
-        .float => |x| std.fmt.allocPrint(allocator, "{d}", .{x}),
-    };
-}
-
-/// Folds one numeric literal's source text, or null when it is not a plain
-/// number this check compares (a `big_int` past u64, a malformed literal, or a
-/// spelling longer than `max_number_len`).
-fn foldNumber(text: []const u8) ?Value {
-    if (text.len > max_number_len) return null;
-    return switch (std.zig.parseNumberLiteral(text)) {
-        .int => |v| .{ .int = @as(i128, v) },
-        .float => foldFloat(text),
-        .big_int, .failure => null,
-    };
-}
-
-/// Parses a float literal, stripping the `_` digit separators `parseFloat` does
-/// not accept. Hex floats (`0x1p4`) pass through unchanged.
-fn foldFloat(text: []const u8) ?Value {
-    var buf: [max_number_len]u8 = undefined;
-    var len: usize = 0;
-    for (text) |c| {
-        if (c == '_') continue;
-        buf[len] = c;
-        len += 1;
-    }
-    const parsed = std.fmt.parseFloat(f64, buf[0..len]) catch return null;
-    return .{ .float = parsed };
-}
-
-/// Applies one folded binary operator, or null when the operands cannot carry
-/// it: a shift needs two integers, and any overflow makes the expression
-/// unfoldable rather than silently wrapping.
-fn applyBinary(tag: Ast.Node.Tag, a: Value, b: Value) ?Value {
-    if (tag == .shl or tag == .shr) return applyShift(tag, a, b);
-    if (a == .int and b == .int) return applyIntBinary(tag, a.int, b.int);
-    return applyFloatBinary(tag, toFloat(a), toFloat(b));
-}
-
-/// Widens a folded value to f64 for a mixed-type arithmetic fold.
-fn toFloat(v: Value) f64 {
-    return switch (v) {
-        .int => |x| @floatFromInt(x),
-        .float => |x| x,
-    };
-}
-
-/// Folds `<<` / `>>` over two integers; a float operand, a negative or
-/// oversized shift, or a shift that would drop bits yields null.
-fn applyShift(tag: Ast.Node.Tag, a: Value, b: Value) ?Value {
-    if (a != .int or b != .int) return null;
-    const amount = std.math.cast(u7, b.int) orelse return null;
-    const shifted = switch (tag) {
-        .shl => std.math.shlExact(i128, a.int, amount) catch return null,
-        else => a.int >> amount,
-    };
-    return .{ .int = shifted };
-}
-
-/// Folds `+` / `-` / `*` over two integers, refusing an overflowing product or
-/// sum rather than reporting a wrapped value as the constant's meaning.
-fn applyIntBinary(tag: Ast.Node.Tag, a: i128, b: i128) ?Value {
-    const out = switch (tag) {
-        .add => std.math.add(i128, a, b) catch return null,
-        .sub => std.math.sub(i128, a, b) catch return null,
-        .mul => std.math.mul(i128, a, b) catch return null,
-        else => return null,
-    };
-    return .{ .int = out };
-}
-
-/// Folds `+` / `-` / `*` once either operand is a float.
-fn applyFloatBinary(tag: Ast.Node.Tag, a: f64, b: f64) ?Value {
-    return switch (tag) {
-        .add => .{ .float = a + b },
-        .sub => .{ .float = a - b },
-        .mul => .{ .float = a * b },
-        else => null,
-    };
-}
-
-/// Folds an initializer expression to a number, or null when any part of it is
-/// not a literal, a parenthesized group, a negation, or one of `+ - * << >>`.
-/// Division is deliberately absent: `1 / 2` means 0 between integers and 0.5
-/// between floats, and this fold has no type information to tell them apart.
-fn foldNode(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value {
-    if (depth > max_fold_depth) return null;
-    return switch (tree.nodeTag(node)) {
-        .number_literal => foldNumber(tree.tokenSlice(tree.nodeMainToken(node))),
-        .grouped_expression => foldNode(tree, tree.nodeData(node).node_and_token[0], depth + 1),
-        .negation => foldNegation(tree, node, depth),
-        .add, .sub, .mul, .shl, .shr => foldBinary(tree, node, depth),
-        else => null,
-    };
-}
-
-/// Folds `-expr` by negating its folded operand.
-fn foldNegation(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value {
-    const inner = foldNode(tree, tree.nodeData(node).node, depth + 1) orelse return null;
-    return switch (inner) {
-        .int => |x| .{ .int = -x },
-        .float => |x| .{ .float = -x },
-    };
-}
-
-/// Folds a binary expression by folding both sides first.
-fn foldBinary(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value {
-    const lhs, const rhs = tree.nodeData(node).node_and_node;
-    const a = foldNode(tree, lhs, depth + 1) orelse return null;
-    const b = foldNode(tree, rhs, depth + 1) orelse return null;
-    return applyBinary(tree.nodeTag(node), a, b);
-}
 
 // ── Declaration collection ──────────────────────────────────────────────
 
@@ -309,40 +157,6 @@ fn pathNames(file: []const u8, referenced: []const u8) bool {
 }
 
 // ── Which names the divergence rule groups ──────────────────────────────
-
-/// Unit segments recognised in `units` mode — the trailing `_`-separated word
-/// of a name like `silk_stroke_mm` or `max_footprint_bytes`. Single-letter
-/// units (`_a`, `_v`, `_s`, `_w`) are deliberately absent: `node_a` / `point_b`
-/// pair naming is far more common in real code than amperes, and a name that
-/// generic belongs to `mode = "all"` rather than to the quiet default.
-const unit_segments = [_][]const u8{
-    "mm",  "cm",   "um",  "nm",  "mil",   "mils",
-    "ms",  "us",   "ns",  "sec", "secs",  "seconds",
-    "hz",  "khz",  "mhz", "ghz", "bytes", "byte",
-    "kb",  "mb",   "gb",  "kib", "mib",   "gib",
-    "mv",  "uv",   "kv",  "ma",  "ua",    "mw",
-    "ohm", "ohms", "deg", "rad", "pct",   "percent",
-    "ppm", "pf",   "nf",  "uf",  "nh",    "uh",
-    "px",  "dpi",
-};
-
-/// The trailing `_`-separated segment of a name, or null when the name carries
-/// no `_` at all (`eps`, `margin`) — a name with no segments cannot claim a
-/// unit.
-fn trailingSegment(name: []const u8) ?[]const u8 {
-    const at = std.mem.lastIndexOfScalar(u8, name, '_') orelse return null;
-    const tail = name[at + 1 ..];
-    return if (tail.len == 0) null else tail;
-}
-
-/// True when a name ends in a recognised unit segment.
-fn hasUnitSegment(name: []const u8) bool {
-    const tail = trailingSegment(name) orelse return false;
-    for (unit_segments) |unit| {
-        if (std.ascii.eqlIgnoreCase(tail, unit)) return true;
-    }
-    return false;
-}
 
 /// True when the divergence rule groups this name: not on `ignore_names`, and
 /// — in the default `units` mode — carrying a unit segment.
