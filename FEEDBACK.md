@@ -6328,3 +6328,24 @@ manifests instead.
 
 - **good:** the diff-scoped 75-check gate and the final whole-tree gate both accepted the inverse CPWG solver, pour-generation change, JSON contract, and UI work with zero blocking findings; the public-API snapshot preview isolated exactly the intended solver type and function.
 - **friction:** `prepare-release.sh` failed before tests because Guardian's installed checker was stale after Guardian source changed concurrently. Retrying with `GUARDIAN_PREBUILT=off` reused Zig's cached configure-time prebuilt choice and failed identically; only combining the override with a fresh `ZIG_LOCAL_CACHE_DIR` forced the documented from-source path, costing two failed release attempts before the five-minute gate could start.
+
+## 2026-08-14 · Fable 5 · eda — coalesced deploy queue (hooks/shell, no Zig changes)
+
+- **good:** the pre-commit gate ran the full 75-check suite on a change that
+  touched only `.githooks/*.sh`, `scripts/`, and docs — 0 blocking both times
+  (initial commit + amend), no false positives on ~660 lines of shell churn.
+- **good:** `prepare-release.sh` twice absorbed a mid-task rebase (main moved
+  three times during the session) without drama: the killed first run left no
+  stale `verified` marker, so nothing could adopt a half-built candidate — the
+  fail-closed candidate design working as intended on the messy path.
+- **friction:** a hooks/docs-only branch still pays the full ~240 s
+  test+ReleaseSafe candidate build in `prepare-release`, because a candidate is
+  keyed on the whole tree. Correct (the deferred deploy needs a candidate for
+  the merge tree) but it reads as waste when the binary is provably unchanged;
+  a content-aware shortcut ("tree differs only in paths outside the compile
+  graph → re-stamp prior candidate") would save ~4 min on ops-only merges.
+  Guardian's docs-only commit detection already draws a similar boundary.
+- **good:** `guardian: warning: this guardian-check binary is a different
+  build from the one that last gated this tree` fired once (another session
+  rebuilt the dep mid-task) and said exactly which side was stale — the
+  binary-identity check doing its job across concurrent sessions.
