@@ -6845,3 +6845,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** The exact-commit release suite caught seven route-shape regressions that focused topology tests missed after cleanup was placed inside the router's internal finish path. Moving the broader pruning to the public persistence gate preserved byte-identical internal routing while retaining the connectivity and DRC rollback.
 - **good:** The `function-size` check rejected a seven-parameter cleanup helper and `debug-print-ban` rejected temporary diagnostics before commit; a context struct and structured MCP diagnostic fields cleared both without accepting a broader ratchet.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so every green focused run requires checking the outer Zig exit status.
+
+## 2026-08-14 · codex · eda — cancel ReleaseSafe when Debug tests fail
+- **good:** The exact-commit suite found two stale source-contract assertions in `test_root.zig`; the new fail-fast path immediately stopped the concurrent LLVM build at the 94-second test failure instead of waiting for its usual 250-second completion, directly validating the time-saving behavior under the real gate.
+- **good:** Exact spec linking required a contract for whole-process-group cancellation, while the final whole-tree gate passed all 79 checks and all 2,879 tests after the assertions were updated.
