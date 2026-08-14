@@ -6466,3 +6466,15 @@ manifests instead.
   the dep rebuild, including runs that were themselves fully green whole-tree.
   Once a `--full` run passes with the new binary, the warning has served its
   purpose and should stop.
+
+## 2026-08-14 · Opus agent · eda — mask-radius-propagation rescue (110-commit rebase)
+
+- **good:** `divergent-const` caught a real latent collision during the rebase:
+  the branch's `outline_join_tol_mm` (1e-5 tessellation epsilon) collided by
+  name with import_layout's `outline_join_tol_mm` (1e-3 Edge.Cuts chaining
+  tolerance) — two genuinely different facts that unifying would have broken.
+  The rename-with-comment fix is exactly the outcome the check wants.
+- **good:** the gate caught that the branch was not green AS AUTHORED — a test
+  still asserting the old circular-aperture stroke the feature replaced. The
+  branch predated its own sibling-test update pattern; the full tier surfaced
+  it before merge rather than after deploy.
