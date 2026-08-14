@@ -6712,3 +6712,13 @@ manifests instead.
   `.guardian` state restored. Worth knowing (and correctly documented) that the
   guard compares COUNTS, so a swap — one row resolving while another appears —
   is not growth.
+
+## 2026-08-14 · codex · eda — scope bypass-open DRC to authored loops
+
+- **friction:** `prepare-release.sh` stopped before its parallel test/build phase
+  because Guardian's prebuilt self-checker was stale immediately after the
+  required feedback-only commit in `guardian-zig`. Rebuilding Guardian and
+  restarting the release gate cost one extra release attempt; the selfcheck was
+  accurate and the retry then passed all 79 checks.
+- **good:** the focused Debug regression, commit gate, and final whole-tree gate
+  all accepted the one-condition DRC scope correction without unrelated debt.
