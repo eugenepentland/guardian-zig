@@ -6409,3 +6409,60 @@ manifests instead.
 - **good:** the diff-scoped gate caught a genuinely overgrown public `FabView`, two dense boolean conditions, and an over-complex route-topology function while the feature was still isolated; splitting the MATLAB-only metadata and topology helpers removed every blocking shape finding before the release run.
 - **good:** selective `pub-api-surface` acceptance previewed and recorded only the 19 intended exporter/endpoint declarations, and the final whole-tree 75-check gate passed before the full Debug-suite/ReleaseSafe release candidate completed.
 - **friction:** Guardian source changed concurrently after the first green run, so EDA's selfcheck rejected the stale installed checker; `GUARDIAN_PREBUILT=off` did not override the configure-time cached choice, requiring a separate Guardian rebuild and about one minute of retry/wait time.
+
+## 2026-08-14 · claude · eda — rescue a 199-commit-stale `(near "REF" PIN)` branch
+
+- **bug:** the `.guardian` merge driver silently REGRESSED four ratchet ceilings
+  during `git rebase main`. The stale branch's `type-size.txt` carried older,
+  lower numbers for types main had legitimately grown since; merge-file resolved
+  each row by "ratchets only shrink" and took the branch's side, so
+  `env.DesignRulesSpec` went 13→12, `optimizer.Placement` 20→19,
+  `render_pcb_png.Options` 24→23 and `pcb_layout_page.SavedTrack` 10→8 — four
+  types the branch never touches. The gate then reported them as "grew past a
+  frozen ratchet ceiling", i.e. main's own committed code failing against a
+  ceiling the merge had just invented. Cost ~15 min of chasing four phantom
+  regressions before spotting that the merged file disagreed with `git show
+  main:.guardian/baselines/type-size.txt`. A ratchet row's minimum is only
+  meaningful when both sides describe the same code — on a rebase, the ONTO side
+  is authoritative for every key the picked commit does not touch, and taking
+  the min there manufactures failures. Repro is cheap: branch from an old base,
+  let main lower/raise any ratcheted item, rebase, diff the baseline vs main.
+- **friction:** a code MOVE is unrepresentable to `concept` + `[baseline]
+  deny_growth`. The branch extracted `DesignRules` out of `optimizer.zig` into a
+  new `placement/design_rules.zig` (its own stated reason: file-size headroom).
+  The struct's field names include `pour_clearance`, which the
+  `design-rule-field-names` [[concept]] rule owns, so the new file became a NEW
+  concept offender while `optimizer.zig`'s baselined row went away — same total,
+  same code, but a hard block, and the only listed fixes were "derive from the
+  owner" (impossible: it IS the struct's field name) or "add the path to the
+  rule's owner list" (loosening the gate, which the project forbids). I abandoned
+  the extraction and kept the type where main had it. Guardian's `pub-api-surface`
+  already reports `moved:` rows — `concept` (and the other file-keyed baselines)
+  need the same relocation awareness, or a `same content, new path` escape.
+- **friction:** `guardian-selfcheck` fired on the FIRST gate of the session
+  (prebuilt `guardian-check` stale vs its source, binary 69acc263 / source
+  e900d596) with the eda tree untouched. The remedy in CLAUDE.md — `zig build`
+  in ~/ai/canopy/guardian-zig — worked in 32 s, but it means an eda agent must
+  build a second repo before it can gate its own work, and with several eda
+  sessions live the first one to notice pays for everyone. Same complaint as the
+  codex entry directly above, one day apart.
+- **good:** every blocking finding named the exact fix and the fix was the right
+  one. `function-size` ("bundle related runtime parameters into a struct") on
+  `hugToHub` 11→12 params and `buildSprings` 6→7 pointed straight at the real
+  shape — the two new args were both authored bindings, so one `AuthoredBinds
+  { caps, near }` value fixed both signatures and reads better than the branch's
+  version. `cognitive-complexity` on `buildInstance` 28→29 was one extra
+  `else if` branch; extracting the inline `(decouples …)` grammar into a
+  `parseDecouples` helper mirrored the `parseNear` the branch had already
+  written. Both ratchets did their job: the branch's own author would have
+  shipped the wider signature.
+- **good:** `pub-api-surface`'s `delta: 0 new, 1 changed, 3 removed, 3 moved`
+  summary was exactly the review I needed to confirm a 199-commit rebase hadn't
+  dropped a public symbol by accident — the three `moved:` lines told me my own
+  revert had landed. Accepting one named check (`guardian-check accept
+  pub-api-surface .`) left the other snapshots alone, as documented.
+- **wish:** the "this binary is NEWER than the last green run, so the recorded
+  green is the stale side" warning printed on every one of ~12 gate runs after
+  the dep rebuild, including runs that were themselves fully green whole-tree.
+  Once a `--full` run passes with the new binary, the warning has served its
+  purpose and should stop.
