@@ -884,7 +884,13 @@ without an explained `--force`.
 - Counts a trailing comment on a code line as an occurrence
 - Skips a Zig test block's occurrences when a parse tree is available
 - Parses a globbed Zig file so its test blocks are exempt there too
+- Reports an occurrence line in source coordinates past every blanked span
+- Skips a line-leading CSS block comment but counts the code after its close
+- Counts a trailing CSS block comment on a code line as an occurrence
 - Reports one violation per file and concept with the occurrence count and lines
+- Quotes the text matched at each reported occurrence line
+- Elides a matched text longer than the quoted cap
+- Explains the concept check's real exemptions and its owner, deny_growth and vendored-bundle guidance
 - Names the missing owner and reason when a rule declares neither
 - Caps the listed occurrence lines and keeps the full count
 - Exempts guardian.toml and the .guardian directory from every rule
