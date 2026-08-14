@@ -6152,3 +6152,28 @@ manifests instead.
 
 - **good:** the full 2,797-test release gate caught a stale browser source-contract marker after the implementation moved drilled bores from the semantic pad pass to exact Excellon readback; the focused failure named the one test and source line, and the corrected contract passed immediately.
 - **friction:** `prepare-release.sh` produced two green exact-commit candidates that became unmergeable because `main` advanced during each ~4.4 minute concurrent test/build run. The feature stayed isolated after a third advancement; a safe queue/lease around final rebase-and-merge would avoid repeating expensive gates without weakening the exact-commit guarantee.
+
+## 2026-08-14 · Opus 5 · eda — GPU pour bake reads TH.padTop/padBot instead of hardcoded hexes
+
+- **good:** the `[[concept]]` test-block exemption (comments + `test` blocks skipped)
+  made the fix's golden safe to write: the new negative assertions in
+  `static_assets.zig` spell the forbidden lowercase `#c83434`/`#4d7fc4` literally,
+  and adding those spellings to `layer-palette`'s literal list would still not flag
+  them because they sit inside a `test` block. Exactly the split the check promises.
+- **friction:** the drift being fixed hid from the `layer-palette` concept rule by
+  a case difference alone — the rule's literals are `#C83434`/`#4D7FC4`, the stray
+  read site spelled them lowercase, and lexical matching is case-sensitive. Hex
+  colours have no canonical case in CSS/JS. A per-rule `case_insensitive = true`
+  (or case-folding for `#hex`-shaped literals) would have caught this years-old
+  drift; today the owner must remember to list both spellings per colour.
+- **good:** gate mechanics were smooth throughout: pre-commit ran the 75-check
+  suite with 0 blocking on the first commit; the full-suite run correctly failed
+  a `zig fmt --check`-only regression (2780/2780 tests green, fmt red) rather
+  than letting formatting ride in; `prepare-release` published its candidate in
+  252 s wall (tests 83 s ∥ build 244 s).
+- **wish:** a filtered/full `zig build test` prints `Build Summary: 17/19 steps
+  succeeded (1 failed)` on a fmt failure, but a wrapper that captures only the
+  child's exit code can misread the `failed command:` banner (which also prints
+  on green runs as pre-verdict noise). A single final `guardian/gate: PASS|FAIL`
+  line on stdout would make the verdict machine-readable without parsing the
+  build summary.
