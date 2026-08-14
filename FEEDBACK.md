@@ -6829,3 +6829,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-14 · codex · eda — remove via-specific soldermask state
 - **good:** `pub-api-surface` identified the intentional removal of `mask_relief.ViaOpen`; selective acceptance recorded only that deletion, while exact spec tags and focused tests locked the new polygon-only Gerber, JSON, and assembly-viewer contracts before the 79-check release gate passed.
+
+## 2026-08-14 · codex · eda — merge overlapping subcircuit silkscreen brackets
+- **good:** Diff-scoped Guardian caught new spec-link, function-size, type-size, nesting-depth, and boolean-complexity regressions during the overlap-clustering implementation; refactoring cleared all 79 blocking checks before the exact-commit release gate.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, which repeatedly makes green focused runs look failed and requires checking the enclosing build result.
