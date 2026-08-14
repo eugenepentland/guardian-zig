@@ -20,6 +20,7 @@ const check_naming = @import("../checks/naming.zig");
 const check_function_size = @import("../checks/function_size.zig");
 const check_doc_comments = @import("../checks/doc_comments.zig");
 const check_imports = @import("../checks/imports.zig");
+const check_import_layering = @import("../checks/import_layering.zig");
 // doc-quality folded into doc-comments (presence + quality in one walk).
 const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
@@ -44,7 +45,10 @@ const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
 const check_ban = @import("../checks/ban.zig");
 const check_concept = @import("../checks/concept.zig");
+const check_canonical_idiom = @import("../checks/canonical_idiom.zig");
+const check_twin_parity = @import("../checks/twin_parity.zig");
 const check_divergent_const = @import("../checks/divergent_const.zig");
+const check_shadowed_const = @import("../checks/shadowed_const.zig");
 const check_twin_referent = @import("../checks/twin_referent.zig");
 const check_duplicate_json_key = @import("../checks/duplicate_json_key.zig");
 const check_ban_time = @import("../checks/ban_time.zig");
@@ -202,6 +206,16 @@ pub const all: []const Command = &.{
         .run = check_imports.run,
     },
     .{
+        .name = "import-layering",
+        .summary = "Enforce project-declared import directions from [[layering]] entries",
+        // Whole-tree, unlike its `[[ban]]` cousin: an edge's TARGET is a file
+        // the diff need not have touched, so a narrowed graph would report a
+        // forbidden import as resolved because the file it points at went out
+        // of view. The graph is only meaningful whole.
+        .scope = .whole_tree,
+        .run = check_import_layering.run,
+    },
+    .{
         .name = "pub-api-surface",
         .summary = "Snapshot every pub fn/type; diff fails build",
         .needs_ast = .yes,
@@ -346,6 +360,26 @@ pub const all: []const Command = &.{
         .run = check_concept.run,
     },
     .{
+        .name = "canonical-idiom",
+        .summary = "Flag an [[idiom]] expression shape hand-rolled outside its canonical home",
+        // Whole-tree for the same reason `concept` is: every rule carries a
+        // `files` glob set, which reaches paths the parsed source index does not
+        // hold at all (JS, CSS, TOML), so there is nothing for a diff-scoped run
+        // to narrow the scan to.
+        .scope = .whole_tree,
+        .run = check_canonical_idiom.run,
+    },
+    .{
+        .name = check_twin_parity.check_name,
+        .summary = "Require a parity test for every capability a [[twin]] entry exposes on 2+ surfaces",
+        // Whole-tree: the question is whether a test named in config exists
+        // ANYWHERE, so a diff-scoped view would report every twin whose test
+        // lives outside the diff as missing — the loudest possible false
+        // positive on a one-file change.
+        .scope = .whole_tree,
+        .run = check_twin_parity.run,
+    },
+    .{
         .name = "divergent-const",
         .summary = "Flag one file-scope const name holding different values in two or more files",
         .needs_ast = .yes,
@@ -354,6 +388,17 @@ pub const all: []const Command = &.{
         // a divergence as resolved because its other side went out of view.
         .scope = .whole_tree,
         .run = check_divergent_const.run,
+    },
+    .{
+        .name = "shadowed-const",
+        .summary = "Flag a named constant's value reappearing as a bare literal in another file",
+        .needs_ast = .yes,
+        // Whole-tree for two independent reasons: a rule's referent is resolved
+        // against every file's declarations (a narrowed index would report it
+        // dangling), and the shadow itself is a relation between two files, so
+        // narrowing to the changed one would report a live shadow as resolved.
+        .scope = .whole_tree,
+        .run = check_shadowed_const.run,
     },
     .{
         .name = "twin-referent",
@@ -691,7 +736,8 @@ const inherently_whole_tree = [_][]const u8{
     "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
     "fuzz-presence",           "external-gates",          "policy-drift",
     "test-reachability",       "merge-state",             "concept",
-    "divergent-const",         "twin-referent",
+    "canonical-idiom",         "divergent-const",         "shadowed-const",
+    "twin-referent",           "import-layering",         "twin-parity",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

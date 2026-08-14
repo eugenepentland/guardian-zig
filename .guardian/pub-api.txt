@@ -168,6 +168,8 @@ src/checks/bool_ops_per_condition.zig::run | fn run(ctx: *registry.RunCtx) regis
 src/checks/boolean_param_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/boolean_param_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/boundaries.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/canonical_idiom.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.IdiomRule, ) Allocator.Error![]const reporter.Violation
+src/checks/canonical_idiom.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/catch_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/change_classification.zig::LineCounts struct_
 src/checks/change_classification.zig::Totals struct_
@@ -193,7 +195,14 @@ src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunErr
 src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
 src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.ConceptRule, ) Allocator.Error![]const reporter.Violation
+src/checks/concept.zig::analyzeMirror | fn analyzeMirror( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rule: config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/const_fold.zig::Value union_
+src/checks/const_fold.zig::foldNode | fn foldNode(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value
+src/checks/const_fold.zig::foldSpelled | fn foldSpelled(text: []const u8) ?Value
+src/checks/const_fold.zig::hasUnitSegment | fn hasUnitSegment(name: []const u8) bool
+src/checks/const_fold.zig::renderValue | fn renderValue(allocator: Allocator, v: Value) Allocator.Error![]const u8
+src/checks/const_fold.zig::valuesEqual | fn valuesEqual(a: Value, b: Value) bool
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -222,12 +231,22 @@ src/checks/function_length.zig::analyzeContent | fn analyzeContent( allocator: s
 src/checks/function_length.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/fuzz_presence.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/import_layering.zig::analyzeGraph | fn analyzeGraph( allocator: Allocator, nodes: []const import_graph.Node, rules: []const config.LayeringRule, ) Allocator.Error![]const reporter.Violation
+src/checks/import_layering.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/init_deinit_symmetry.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/init_hygiene.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/init_hygiene.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/int_from_float_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/lexical_scan.zig::VisitFn value
+src/checks/lexical_scan.zig::Visitor struct_
+src/checks/lexical_scan.zig::read_limit value
+src/checks/lexical_scan.zig::scrubbed | fn scrubbed( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, ) Allocator.Error![]u8
+src/checks/lexical_scan.zig::selfExempt | fn selfExempt(rel_path: []const u8) bool
+src/checks/lexical_scan.zig::skipDir | fn skipDir(name: []const u8) bool
+src/checks/lexical_scan.zig::skipPath | fn skipPath(patterns: []const []const u8, rel_path: []const u8) bool
+src/checks/lexical_scan.zig::walkFiles | fn walkFiles( allocator: Allocator, dir: fs.Dir, prefix: []const u8, visitor: Visitor, ) walk.WalkError!void
 src/checks/line_length.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_len: u32, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -256,6 +275,8 @@ src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allo
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_switch_on_enum.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/shadowed_const.zig::analyzeIndex | fn analyzeIndex( allocator: Allocator, files: []const ast_index.Entry, cfg: config.ShadowedConstCfg, rules: []const config.ShadowRule, ) Allocator.Error![]const reporter.Violation
+src/checks/shadowed_const.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -280,6 +301,9 @@ src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry
 src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/twin_parity.zig::analyze | fn analyze( allocator: Allocator, rules: []const config.TwinRule, test_names: []const []const u8, ) Allocator.Error![]const reporter.Violation
+src/checks/twin_parity.zig::check_name value
+src/checks/twin_parity.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/twin_referent.zig::NameSet value
 src/checks/twin_referent.zig::Resolver struct_
 src/checks/twin_referent.zig::analyzeFile | fn analyzeFile( allocator: Allocator, entry: *const ast_index.Entry, resolver: *const Resolver, ignore: []const []const u8, ) Allocator.Error![]const reporter.Violation
@@ -408,8 +432,11 @@ src/config.zig::FuzzPresenceCfg struct_
 src/config.zig::GateCfg struct_
 src/config.zig::GateMode enum_
 src/config.zig::HysteresisCfg struct_
+src/config.zig::IdiomRule struct_
 src/config.zig::IntFromFloatCfg struct_
+src/config.zig::LayeringRule struct_
 src/config.zig::LineLengthCfg struct_
+src/config.zig::LiteralsFrom struct_
 src/config.zig::MagicNumberCfg struct_
 src/config.zig::MeasurementCfg struct_
 src/config.zig::ModuleDocHeaderCfg struct_
@@ -420,13 +447,19 @@ src/config.zig::OrphanFilesCfg struct_
 src/config.zig::PolicyCfg struct_
 src/config.zig::PolicyMode enum_
 src/config.zig::PolicyProfile enum_
+src/config.zig::ShadowRule struct_
+src/config.zig::ShadowedConstCfg struct_
+src/config.zig::ShadowedConstMode enum_
 src/config.zig::SpecQualityCfg struct_
 src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TwinReferentCfg struct_
+src/config.zig::TwinRule struct_
 src/config.zig::TypeSizeCfg struct_
+src/config.zig::default_files value
+src/config.zig::default_shadow_ignore_values value
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8
 src/config.zig::modeFor | fn modeFor(self: PolicyCfg, check_name: []const u8) PolicyMode
 src/config.zig::usesBaselineFor | fn usesBaselineFor(self: PolicyCfg, check_name: []const u8, global: BaselineCfg) bool
@@ -444,6 +477,7 @@ src/config_policy.zig::validProfile | fn validProfile(name: []const u8) bool
 src/config_semantics.zig::Field enum_
 src/config_semantics.zig::Issue struct_
 src/config_semantics.zig::validate | fn validate(allocator: std.mem.Allocator, cfg: *const config.Config) std.mem.Allocator.Error!?Issue
+src/config_value.zig::InlinePair struct_
 src/config_value.zig::arrayTableName | fn arrayTableName(line: []const u8) ?[]const u8
 src/config_value.zig::bestMatch | fn bestMatch(offender: []const u8, candidates: []const []const u8) ?[]const u8
 src/config_value.zig::hasEmptyArrayItem | fn hasEmptyArrayItem(val: []const u8) bool
@@ -451,6 +485,7 @@ src/config_value.zig::inList | fn inList(list: []const []const u8, name: []const
 src/config_value.zig::isValidString | fn isValidString(val: []const u8) bool
 src/config_value.zig::isValidStringArray | fn isValidStringArray(val: []const u8) bool
 src/config_value.zig::parseBool | fn parseBool(val: []const u8) ?bool
+src/config_value.zig::parseInlineTable | fn parseInlineTable(allocator: Allocator, val: []const u8) Allocator.Error!?[]const InlinePair
 src/config_value.zig::parseString | fn parseString(val: []const u8) ?[]const u8
 src/config_value.zig::parseStringAlloc | fn parseStringAlloc(allocator: Allocator, val: []const u8) Allocator.Error!?[]const u8
 src/config_value.zig::parseStringArray | fn parseStringArray(allocator: Allocator, val: []const u8) Allocator.Error!std.ArrayList([]const u8)

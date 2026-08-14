@@ -38,25 +38,130 @@ pub const BanRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// One [[layering]] entry — a DIRECTIONAL import rule this project declares,
+/// enforced by the `import-layering` check. `name` is a kebab-case id that
+/// names the rule in every violation and leads its baseline key; `from` globs
+/// the source files the rule constrains; `to` globs the import targets those
+/// files may not reach (matched on RESOLVED, project-relative paths); `allow`
+/// globs source files exempt from the rule (the one sanctioned adapter);
+/// `reason` says why the layer points this way and is appended to every
+/// violation.
+///
+/// `name`, `from`, `to` and `reason` are all required — a rule missing any of
+/// them is a config error rather than a stored entry, because each way of being
+/// incomplete reads in the config like an enforced architecture while enforcing
+/// nothing (no `from`/`to` matches no edge; no `reason` leaves a violation
+/// nobody can act on; no `name` leaves the finding and its baseline row
+/// anonymous).
+///
+/// `[[boundary]]` is the older, narrower form of the same idea and stays as it
+/// is: one module glob, a bare substring `forbidden` list, no allow list and no
+/// reason. That shape cannot express the carve-out every real layering rule
+/// needs, which is why this one exists beside it.
+pub const LayeringRule = struct {
+    name: []const u8,
+    from: []const []const u8,
+    to: []const []const u8,
+    allow: []const []const u8 = &.{},
+    reason: []const u8,
+};
+
+/// A `[[concept]] literals_from` inline table — where the family's literals are
+/// READ FROM instead of (or as well as) being listed by hand. `file` is a
+/// project-relative path; `fragments` are plain substrings, and every
+/// double-quoted string on a line of `file` containing ALL of them joins the
+/// family.
+///
+/// It exists so a family can be TOTAL over an enum's emitting switch: a new
+/// variant's wire string joins by itself, so a mirror that never learned it
+/// fails without anyone editing guardian.toml. A hand-written `literals` list
+/// is a snapshot of the day it was written, and the gap it leaves is exactly the
+/// drift this check is for.
+pub const LiteralsFrom = struct {
+    file: []const u8,
+    fragments: []const []const u8 = &.{},
+};
+
 /// One [[concept]] entry — a named concept whose literal spellings belong to one
 /// owner module, enforced by the `concept` check. `literals` are exact
 /// substrings and `patterns` are minimal `*` wildcards (see
-/// `checks/concept.zig`); `owner` lists the files/dirs where an occurrence is
-/// legal; `files` optionally replaces the default source scan with path globs
-/// (any extension, so JS/CSS drift is reachable); `reason` names where the
-/// spelling comes from and is appended to every violation.
+/// `checks/concept.zig`); `literals_from` reads further literals out of the
+/// owner source; `owner` lists the files/dirs where an occurrence is legal;
+/// `require_in` names mirrors that must each spell EVERY literal; `files`
+/// optionally replaces the default source scan with path globs (any extension,
+/// so JS/CSS drift is reachable); `reason` names where the spelling comes from
+/// and is appended to every violation.
 ///
 /// Every other check is per-item — one file, one function. This one is
 /// relational: it says a literal BELONGS somewhere, and anywhere else is a
 /// duplicate that will drift. `[[ban]]` cannot express it (it matches Zig
 /// identifier chains, not text, and has no notion of a home).
+///
+/// `owner` and `require_in` are the two DIRECTIONS of one relation. `owner` is
+/// permissive — only these files may spell it. `require_in` is total — these
+/// files must all spell it, every literal of the family, or the mirror has gone
+/// quietly out of date.
 pub const ConceptRule = struct {
     name: []const u8,
     literals: []const []const u8 = &.{},
     patterns: []const []const u8 = &.{},
     owner: []const []const u8 = &.{},
     files: []const []const u8 = &.{},
+    require_in: []const []const u8 = &.{},
+    literals_from: ?LiteralsFrom = null,
     reason: ?[]const u8 = null,
+};
+
+/// One [[idiom]] entry — a named EXPRESSION SHAPE that belongs to one canonical
+/// implementation, enforced by the `canonical-idiom` check. A LINE matches when
+/// every one of `fragments` (plain substrings, no regex) appears on it; `files`
+/// scopes the scan (default `src/*.zig`); `allow` lists the globs where the
+/// idiom is legal — its canonical home; `reason` names what to call instead and
+/// closes every violation.
+///
+/// `[[ban]]` owns a named call chain and `[[concept]]` owns a literal spelling.
+/// Neither can express a SHAPE built out of ordinary std calls: nothing in
+/// `std.mem.lastIndexOfScalar(u8, ref, '/')` is bannable — that ban would fire
+/// on every legitimate use of the same std function — and there is no single
+/// literal to own. The fragment conjunction is what narrows it back to the one
+/// expression: `lastIndexOfScalar` AND `'/'` on one line.
+///
+/// `reason` has NO default: an idiom violation is unactionable without the name
+/// of the canonical helper, so the type refuses a rule that omits it rather than
+/// printing a placeholder the way `[[ban]]` and `[[concept]]` do for theirs.
+pub const IdiomRule = struct {
+    /// The scan set a rule that names no `files` gets. Guardian's `*` spans `/`
+    /// (see `walk.matchGlob`), so `src/*.zig` already means every `.zig` file in
+    /// the whole `src` subtree — a `**` spelling would instead read as "requires
+    /// an intermediate directory" and silently miss `src/main.zig`.
+    pub const default_files = [_][]const u8{"src/*.zig"};
+
+    name: []const u8,
+    fragments: []const []const u8,
+    files: []const []const u8 = &default_files,
+    allow: []const []const u8 = &.{},
+    reason: []const u8,
+};
+
+/// One [[twin]] entry — one capability a project exposes on two or more
+/// surfaces, enforced by the `twin-parity` check. `name` is the kebab-case id
+/// every violation and baseline row is built from; `surfaces` are free-form
+/// labels naming where the capability is reachable (`"http:/api/pcb-fence"`,
+/// `"mcp:generate_fence"`, `"cli:export-pdf"`) and are DOCUMENTATION — nothing
+/// resolves them; `parity_test` is a substring of the name of the test that
+/// asserts the surfaces agree.
+///
+/// The registry is the point. A capability reimplemented per surface drifts
+/// silently, and the only durable record of "these two are supposed to be the
+/// same answer" is a committed fact a gate can read. Measured in the consumer
+/// project (eda, 2026-08-14): ~19 capabilities on 2+ surfaces, exactly ONE with
+/// a test asserting the surfaces return the same bytes — while the
+/// reimplemented pairs had already drifted into different BOM-merge gating,
+/// different clamps, and different JSON for the same field.
+pub const TwinRule = struct {
+    name: []const u8,
+    surfaces: []const []const u8 = &.{},
+    parity_test: ?[]const u8 = null,
 };
 
 /// How wide `divergent-const` casts its net. `units` (the default) groups only
@@ -74,6 +179,53 @@ pub const DivergentConstMode = enum { units, all };
 pub const DivergentConstCfg = struct {
     ignore_names: []const []const u8 = &.{},
     mode: DivergentConstMode = .units,
+};
+
+/// One [[shadow]] entry — a named constant whose VALUE must not reappear as a
+/// bare literal anywhere else, enforced by the `shadowed-const` check.
+/// `const_ref` is the TOML `const` key: the `<path>.zig.<name>` referent
+/// spelling `divergent-const`'s `/// mirror-of:` annotation already uses.
+/// `files` are path globs restricting the scan (empty = every indexed source
+/// file); `ignore` exempts paths inside that scan; `reason` names why the
+/// constant is the single source of truth and is appended to every violation.
+///
+/// This is the precise gate half of the check: a project declares the handful
+/// of constants whose silent re-derivation elsewhere would actually ship a bug,
+/// rather than turning on the whole-tree sweep and living with its noise.
+pub const ShadowRule = struct {
+    const_ref: []const u8,
+    files: []const []const u8 = &.{},
+    ignore: []const []const u8 = &.{},
+    reason: ?[]const u8 = null,
+};
+
+/// How `shadowed-const` picks the values it looks for. `declared` (the default)
+/// looks only at the `[[shadow]]` rules a project wrote, so zero rules is a
+/// zero-config pass. `auto` sweeps every unit-suffixed file-scope const in the
+/// tree — a MEASUREMENT tier for finding out how much shadowing a codebase
+/// carries, not a gate.
+pub const ShadowedConstMode = enum { declared, auto };
+
+/// Numeric spellings `auto` mode never treats as a shadowable value: too common
+/// to mean anything on their own, so a bare one carries no claim about the
+/// constant that happens to share it. Compared FOLDED (via `const_fold`), so
+/// `0.5` here also silences a bare `.5e0`.
+pub const default_shadow_ignore_values = [_][]const u8{
+    "0", "1", "-1", "2", "0.5", "10", "100", "1000",
+};
+
+/// Per-check config for shadowed-const, the value-reappears-as-a-bare-literal
+/// scan. Everything here tunes `auto` mode only; `declared` mode is governed by
+/// the `[[shadow]]` rules themselves. `ignore_values` is a folded-compare deny
+/// list (set it to `[]` to ignore nothing), and the two digit floors are the
+/// significance test a swept value must pass: a float needs `min_float_digits`
+/// significant digits and an integer `min_int_digits` digits before a bare
+/// occurrence of it says anything.
+pub const ShadowedConstCfg = struct {
+    mode: ShadowedConstMode = .declared,
+    ignore_values: []const []const u8 = &default_shadow_ignore_values,
+    min_float_digits: u32 = 2,
+    min_int_digits: u32 = 3,
 };
 
 /// Per-check config for twin-referent, the "mirrors X / same as Y" comment
@@ -616,6 +768,7 @@ pub const Config = struct {
     fuzz_presence: FuzzPresenceCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
     divergent_const: DivergentConstCfg = .{},
+    shadowed_const: ShadowedConstCfg = .{},
     twin_referent: TwinReferentCfg = .{},
     measurement: MeasurementCfg = .{},
     policy: PolicyCfg = .{},
@@ -629,6 +782,21 @@ pub const Config = struct {
     /// [[concept]] entries: project-declared owned concepts (see ConceptRule).
     /// Empty (the default) makes the `concept` check a trivial pass.
     concept_rules: []const ConceptRule = &.{},
+    /// [[idiom]] entries: project-declared owned expression shapes (see
+    /// IdiomRule). Empty (the default) makes `canonical-idiom` a trivial pass.
+    idiom_rules: []const IdiomRule = &.{},
+    /// [[shadow]] entries: project-declared single-source-of-truth constants
+    /// (see ShadowRule). Empty (the default) makes `shadowed-const` a trivial
+    /// pass in its default `declared` mode.
+    shadow_rules: []const ShadowRule = &.{},
+    /// [[layering]] entries: project-declared import directions (see
+    /// LayeringRule). Empty (the default) makes the `import-layering` check a
+    /// trivial pass.
+    layering_rules: []const LayeringRule = &.{},
+    /// [[twin]] entries: project-declared multi-surface capabilities (see
+    /// TwinRule). Empty (the default) makes the `twin-parity` check a trivial
+    /// pass.
+    twin_rules: []const TwinRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.

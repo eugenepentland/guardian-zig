@@ -18,23 +18,32 @@
 //! the `owner` list or a narrower `literals` entry is meant to absorb.
 //!
 //! Two contexts are exempt, and the exemption is what keeps the frozen ledger
-//! REAL. A comment line cannot disagree with the owner at runtime, and a Zig
+//! REAL: a comment line cannot disagree with the owner at runtime, and a Zig
 //! `test` block's literal is the independent golden a sync-triangle test is
-//! supposed to spell (deriving the expectation from the owner would make the
-//! test circular). Counting either forced whole files into the baseline — and
-//! because a violation's identity is `<file>|<concept>`, a file frozen over a
-//! doc comment is a file whose REAL drift the gate can never see again.
+//! supposed to spell. Both — and the every-extension file walk a `files` glob
+//! needs — live in `lexical_scan.zig`, shared with `canonical-idiom`, so the two
+//! relational checks can never disagree about what a lexical scan may judge.
 //!
-//! Exactly what is blanked, since a `files` glob reaches languages no Zig lexer
-//! sees: a line whose first non-whitespace opens `//` (so `///` and `//!` too),
-//! in every file; a line-leading `/* … */` block through its closing delimiter,
-//! in `.css` files; and a Zig `test` declaration's whole span, wherever a parse
-//! tree was available. Nothing else. A TRAILING comment of either shape shares
-//! a code line, and judging one needs the per-language string lexer this check
-//! refuses to be (`"https://…"`), so a code line always counts whole. Blanking
-//! writes spaces over the bytes and never over a newline, so every surviving
-//! occurrence keeps its exact offset AND its exact source line — a reported
-//! line is one a reader can jump to, not one they have to re-grep for.
+//! **`require_in` is the same relation read the other way.** Ownership is
+//! permissive — only the owner may spell it — and that direction cannot see the
+//! failure that hurts most: a mirror the project DECIDED to keep, which quietly
+//! stops matching. The motivating case (eda, 2026-08-12, commit 51bff373): a DRC
+//! kind string was renamed in Zig and the viewer's hand-mirrored JS branch went
+//! dead. 531 grep-marker tests missed it, because no marker watched that string.
+//! Worse, the JS side's 8-entry `DRC_BLOCK` gate table fails PERMISSIVELY on a
+//! rename — a kind nobody recognises simply stops blocking. `require_in` names
+//! those mirrors and demands that EVERY literal of the family appear in EACH of
+//! them; a required mirror is therefore owner-equivalent, since a file the rule
+//! commands to spell a literal cannot also be drift for spelling it.
+//!
+//! **`literals_from` makes the family TOTAL.** A hand-written `literals` list is
+//! a snapshot of the day someone wrote it: add an enum variant, and the new wire
+//! string joins no family, so no mirror is ever asked for it. `literals_from`
+//! reads the family out of the owner instead — every double-quoted string on a
+//! line carrying all of the configured `fragments` — so a new variant enrols
+//! itself and a mirror missing it fails with nobody editing guardian.toml. An
+//! unreadable file, or an extraction that yields nothing, is a hard finding
+//! rather than a shrug: a silently empty family passes every mirror.
 //!
 //! Zero `[[concept]]` entries is the zero-config default: the check passes
 //! without reading a single file.
@@ -45,7 +54,7 @@ const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
-const decls = @import("../ast/decls.zig");
+const lexical = @import("lexical_scan.zig");
 const config = @import("../config.zig");
 const lineOf = @import("../text.zig").lineOf;
 
@@ -66,6 +75,23 @@ const no_owner = "nobody (add owner = [\"...\"] to the [[concept]] rule)";
 const fix_hint = "derive the value from the concept's owner module, " ++
     "or add this path to that [[concept]] rule's owner list.";
 
+/// Remedy for the other direction: a mirror the rule REQUIRES has fallen behind
+/// the family. There is no "add it to the owner list" escape here — the file was
+/// named on purpose.
+const mirror_fix_hint = "teach the required mirror the missing spelling, " ++
+    "or drop it from that [[concept]] rule's require_in list.";
+
+/// Remedy for a `literals_from` that produced no family. Deliberately blunt: the
+/// rule is inert until it is fixed, and an inert relational rule reads in the
+/// config exactly like an enforced one.
+const extract_fix_hint = "point literals_from at the file that spells the family " ++
+    "and at fragments its emitting lines all carry \u{2014} an empty family passes every mirror.";
+
+/// Every remedy this check can print, in report order. Sizing the dedupe pass
+/// off the set itself means a fourth rule's hint joins by being declared here,
+/// not by someone remembering to widen a buffer.
+const fix_hints = [_][]const u8{ fix_hint, mirror_fix_hint, extract_fix_hint };
+
 /// How many occurrence lines one violation names before it stops listing them.
 /// A drifted file can carry dozens; the first few are what a reader jumps to,
 /// and the total is in the count.
@@ -76,23 +102,6 @@ const max_reported_lines = 5;
 /// token it landed in, and in a minified bundle that token can be the width of
 /// a terminal several times over.
 const max_spelling_bytes = 40;
-
-/// Read cap for a file pulled in by a `files` glob. Above this the read fails
-/// loud (as the source walker does) rather than skipping the file: a silently
-/// unscanned file is exempt from the gate, which is the failure this check is
-/// least able to afford.
-const glob_read_limit = 10 * 1024 * 1024;
-
-/// Paths exempt from every concept rule, always. The declaration names its own
-/// literals, and Guardian's own metadata records the violations verbatim — a
-/// rule that flagged either would flag the act of declaring or recording it.
-const always_exempt = [_][]const u8{ "guardian.toml", ".guardian/" };
-
-/// Directory names a `files` glob never descends into: dot-directories (VCS
-/// metadata, Guardian state, editor and agent scratch) and build output. None
-/// of them is project source, and on a real repo `.git` / `.zig-cache` /
-/// `zig-out` dwarf everything a rule could legitimately name.
-const skip_dir_names = [_][]const u8{ "zig-out", "zig-cache", "node_modules" };
 
 // ── Wildcard matching ───────────────────────────────────────────────────
 
@@ -164,113 +173,6 @@ fn findPattern(text: []const u8, pattern: []const u8, from: usize) ?Span {
     return null;
 }
 
-// ── Scrubbing: the contexts the scan must not judge ─────────────────────
-
-/// A copy of `content` with the exempt contexts blanked to spaces: every line
-/// whose first non-whitespace bytes open a `//` comment, every line-leading
-/// `/* … */` block in a `.css` file, and — when a Zig parse `tree` is supplied
-/// — every `test` declaration's span. Bytes are replaced, never removed, and a
-/// newline is never one of them, so each surviving occurrence keeps its exact
-/// offset AND its exact source line.
-fn scrubbed(
-    allocator: Allocator,
-    rel_path: []const u8,
-    content: []const u8,
-    tree: ?*const Ast,
-) Allocator.Error![]u8 {
-    const out = try allocator.dupe(u8, content);
-    blankCommentLines(out);
-    if (std.mem.endsWith(u8, rel_path, ".css")) blankCssCommentLines(out);
-    if (tree) |t| try blankTestBlocks(allocator, out, t);
-    return out;
-}
-
-/// Overwrites `span` with spaces, leaving its newlines in place. A blanked
-/// region that swallowed its newlines would shift every LATER occurrence's
-/// reported line up by the number it ate — which is how a hit at source line
-/// 3951 once got reported as 3820, past a file's worth of blanked test blocks.
-fn blankSpan(span: []u8) void {
-    for (span) |*byte| {
-        if (byte.* != '\n') byte.* = ' ';
-    }
-}
-
-/// Blanks each line that IS a `//` comment — first non-whitespace is `//`
-/// (which covers `///` and `//!`). Run over every file: a line-leading `//` is
-/// unambiguous in each `//` language a rule can glob (Zig, JS, TS), and in a
-/// language without `//` comments it simply matches nothing. CSS is the
-/// exception worth naming — its only comment syntax is `/* … */`, handled by
-/// `blankCssCommentLines`. Trailing comments are left alone: whether a mid-line
-/// `//` opens a comment or sits inside a string is a per-language question. A
-/// hash-comment language gets no skip at all — `#` opens the very hex literals
-/// a palette rule exists to match.
-fn blankCommentLines(text: []u8) void {
-    var line_start: usize = 0;
-    while (line_start < text.len) {
-        const line_end = std.mem.indexOfScalarPos(u8, text, line_start, '\n') orelse text.len;
-        var i = line_start;
-        while (i < line_end and (text[i] == ' ' or text[i] == '\t')) i += 1;
-        if (i + 1 < line_end and text[i] == '/' and text[i + 1] == '/') {
-            @memset(text[i..line_end], ' ');
-        }
-        line_start = line_end + 1;
-    }
-}
-
-/// Blanks every line-leading CSS block comment, `/*` through the `*/` that
-/// closes it — including the lines between, since a prose header comment is
-/// usually several. CSS has no `//`, so without this a `.css` file pulled in by
-/// a `files` glob had NO comment exemption at all, and a pure-prose comment
-/// above a rule froze the stylesheet into the ledger.
-fn blankCssCommentLines(text: []u8) void {
-    var line_start: usize = 0;
-    var open = false;
-    while (line_start < text.len) {
-        const line_end = std.mem.indexOfScalarPos(u8, text, line_start, '\n') orelse text.len;
-        open = blankCssCommentOnLine(text, line_start, line_end, open);
-        line_start = line_end + 1;
-    }
-}
-
-/// Blanks one line's share of a line-leading CSS comment and returns whether
-/// the comment is still open on the next line. `open` says an earlier line
-/// opened one. Bytes after the closing `*/` are left alone, exactly as a
-/// trailing `//` is: what follows on that line is code and counts. A block
-/// opened MID-line is not tracked at all, for the same reason — deciding
-/// whether that `/*` is a comment or string content needs the per-language
-/// lexer this check refuses to be.
-fn blankCssCommentOnLine(text: []u8, line_start: usize, line_end: usize, open: bool) bool {
-    const from = if (open) line_start else cssCommentStart(text, line_start, line_end) orelse return false;
-    // `/*/` does not close itself, so a fresh opener starts looking past its
-    // own delimiter; a continuation line looks from its first byte.
-    const search = if (open) from else from + 2;
-    const close = std.mem.indexOfPos(u8, text[0..line_end], search, "*/");
-    @memset(text[from..(if (close) |at| at + 2 else line_end)], ' ');
-    return close == null;
-}
-
-/// The offset of a `/*` that OPENS the line — first non-whitespace — or null.
-fn cssCommentStart(text: []const u8, line_start: usize, line_end: usize) ?usize {
-    var i = line_start;
-    while (i < line_end and (text[i] == ' ' or text[i] == '\t')) i += 1;
-    if (i + 1 < line_end and text[i] == '/' and text[i + 1] == '*') return i;
-    return null;
-}
-
-/// Blanks every `test` declaration's whole span. `decls.collectDecls` descends
-/// into container members, so a test nested inside a struct is blanked too.
-/// The bounds guard is defensive only: the tree was parsed from these bytes.
-fn blankTestBlocks(allocator: Allocator, text: []u8, tree: *const Ast) Allocator.Error!void {
-    for (try decls.collectDecls(allocator, tree)) |decl| {
-        if (tree.nodeTag(decl) != .test_decl) continue;
-        const last = tree.lastToken(decl);
-        const start = tree.tokenStart(tree.firstToken(decl));
-        const end = tree.tokenStart(last) + tree.tokenSlice(last).len;
-        if (start >= end or end > text.len) continue;
-        blankSpan(text[start..end]);
-    }
-}
-
 // ── Per-file analysis ───────────────────────────────────────────────────
 
 /// One match of one declared spelling: where it starts in the file and how many
@@ -312,22 +214,27 @@ fn occurrencesOf(
     return out;
 }
 
-/// True when `rel_path` is one of the files `rule` says the concept lives in.
-/// Owner paths use Guardian's ordinary path-glob syntax (`walk.matchGlob`), so a
-/// bare path is a substring match and `src/board/*` covers a subtree.
+/// True when `rel_path` is one of the files `rule` says the concept lives in —
+/// its `owner` list, or its `require_in` list. Both use Guardian's ordinary
+/// path-glob syntax (`walk.matchGlob`), so a bare path is a substring match and
+/// `src/board/*` covers a subtree.
+///
+/// `require_in` counts as ownership because the two keys are one relation read
+/// in opposite directions: a file the rule COMMANDS to spell every literal
+/// cannot simultaneously be drift for spelling one. Without this a mirror would
+/// be reported twice — once for holding the literal, once for not holding
+/// enough of them — with the two findings contradicting each other.
 fn owns(rule: config.ConceptRule, rel_path: []const u8) bool {
     for (rule.owner) |pattern| {
         if (walk.matchGlob(rel_path, pattern)) return true;
     }
-    return false;
+    return requiredIn(rule, rel_path);
 }
 
-/// True when `rel_path` is exempt from every rule by construction — the
-/// guardian.toml that declares the literals, or Guardian's own `.guardian/`
-/// state that records the findings.
-fn selfExempt(rel_path: []const u8) bool {
-    for (always_exempt) |prefix| {
-        if (std.mem.startsWith(u8, rel_path, prefix)) return true;
+/// True when one of `rule`'s `require_in` globs names `rel_path`.
+fn requiredIn(rule: config.ConceptRule, rel_path: []const u8) bool {
+    for (rule.require_in) |pattern| {
+        if (walk.matchGlob(rel_path, pattern)) return true;
     }
     return false;
 }
@@ -422,8 +329,8 @@ pub fn analyzeFile(
     tree: ?*const Ast,
     rules: []const config.ConceptRule,
 ) Allocator.Error![]const reporter.Violation {
-    if (selfExempt(rel_path) or rules.len == 0) return &.{};
-    const text = try scrubbed(allocator, rel_path, content, tree);
+    if (lexical.selfExempt(rel_path) or rules.len == 0) return &.{};
+    const text = try lexical.scrubbed(allocator, rel_path, content, tree);
     var violations: std.ArrayList(reporter.Violation) = .empty;
     for (rules) |rule| {
         if (owns(rule, rel_path)) continue;
@@ -434,16 +341,230 @@ pub fn analyzeFile(
     return violations.toOwnedSlice(allocator);
 }
 
-// ── Run: the default source set plus any `files` globs ──────────────────
+// ── require_in: the totality direction ──────────────────────────────────
 
-/// True when a configured path glob names `rel_path`. Both skip lists this
-/// check honors are path globs of the same shape, so they share one matcher.
-fn skipPath(patterns: []const []const u8, rel_path: []const u8) bool {
-    for (patterns) |pattern| {
-        if (walk.matchGlob(rel_path, pattern)) return true;
+/// Pure core: one violation per literal of `rule` that this REQUIRED mirror does
+/// not spell. Judged over the same scrubbed text ownership is judged over, so a
+/// literal surviving only in a comment does not satisfy the requirement — a
+/// comment cannot carry the value at runtime, which is the whole point of asking
+/// the mirror to hold it.
+///
+/// `patterns` are deliberately excluded. A wildcard names a shape, not a
+/// spelling, so there is no single text a mirror could be required to contain.
+pub fn analyzeMirror(
+    allocator: Allocator,
+    rel_path: []const u8,
+    content: []const u8,
+    tree: ?*const Ast,
+    rule: config.ConceptRule,
+) Allocator.Error![]const reporter.Violation {
+    const text = try lexical.scrubbed(allocator, rel_path, content, tree);
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    for (rule.literals) |literal| {
+        if (std.mem.indexOf(u8, text, literal) != null) continue;
+        try violations.append(allocator, .{
+            .check = check_name,
+            .file = rel_path,
+            .message = try std.fmt.allocPrint(
+                allocator,
+                "required mirror is missing concept '{s}' literal \"{s}\" \u{2014} {s}",
+                .{ rule.name, literal, rule.reason orelse no_reason },
+            ),
+            .fix_hint = mirror_fix_hint,
+            // One row per (rule, literal, file): a mirror that learns one of
+            // three missing spellings must resolve exactly that row and keep
+            // failing on the other two, which a per-file key could not express.
+            .identity = try std.fmt.allocPrint(allocator, "{s}|{s}|{s}", .{ rule.name, literal, rel_path }),
+        });
+    }
+    return violations.toOwnedSlice(allocator);
+}
+
+/// The violation for a `require_in` glob that named no file at all.
+///
+/// Silence would be the permissive failure this key exists to kill: delete or
+/// rename the mirror and every literal is vacuously "required in" nothing, so
+/// the rule reports clean at the exact moment the mirror stopped existing. (A
+/// `files` glob matching nothing IS silence — that one only widens a scan.)
+fn unmatchedMirrorViolation(
+    allocator: Allocator,
+    rule: config.ConceptRule,
+    glob: []const u8,
+) Allocator.Error!reporter.Violation {
+    return .{
+        .check = check_name,
+        .message = try std.fmt.allocPrint(
+            allocator,
+            "concept '{s}' requires its literals in \"{s}\", which names no file",
+            .{ rule.name, glob },
+        ),
+        .fix_hint = mirror_fix_hint,
+        .identity = try std.fmt.allocPrint(allocator, "{s}|require_in|{s}", .{ rule.name, glob }),
+    };
+}
+
+// ── literals_from: reading the family out of the owner ──────────────────
+
+/// Pure core: every double-quoted string on a line of `content` that contains
+/// ALL of `fragments`, in source order.
+///
+/// The extracted text is the spelling AS WRITTEN — escapes are not resolved —
+/// because a mirror hand-copying the owner writes the same characters the owner
+/// does, and that is what the lexical scan then looks for. Empty strings are
+/// dropped: an empty literal matches at every offset in every file, which would
+/// turn one careless fragment into a tree-wide false positive.
+fn extractLiterals(
+    allocator: Allocator,
+    content: []const u8,
+    fragments: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        if (!containsAll(line, fragments)) continue;
+        try appendQuoted(allocator, &out, line);
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+/// True when `line` contains every fragment. An empty fragment list would match
+/// every line, which the config parser refuses precisely so this cannot happen.
+fn containsAll(line: []const u8, fragments: []const []const u8) bool {
+    if (fragments.len == 0) return false;
+    for (fragments) |fragment| {
+        if (std.mem.indexOf(u8, line, fragment) == null) return false;
+    }
+    return true;
+}
+
+/// Appends every non-empty double-quoted string on one line, treating `\"` as
+/// an escaped quote rather than a terminator. An unterminated quote ends the
+/// line's extraction rather than running into the next one.
+fn appendQuoted(
+    allocator: Allocator,
+    out: *std.ArrayList([]const u8),
+    line: []const u8,
+) Allocator.Error!void {
+    var i: usize = 0;
+    while (i < line.len) : (i += 1) {
+        if (line[i] != '"') continue;
+        const start = i + 1;
+        var j = start;
+        while (j < line.len and line[j] != '"') : (j += 1) {
+            if (line[j] == '\\') j += 1;
+        }
+        if (j >= line.len) return;
+        if (j > start) try out.append(allocator, line[start..j]);
+        i = j;
+    }
+}
+
+/// One rule's resolved family plus whatever went wrong resolving it.
+const Resolved = struct {
+    rules: []const config.ConceptRule,
+    errors: []const reporter.Violation,
+};
+
+/// Expands every rule's `literals_from`, returning the rules with their families
+/// filled in and a violation for each extraction that failed.
+///
+/// A rule whose extraction failed keeps whatever it declared by hand and stays
+/// in the scan: dropping it would weaken enforcement on top of a config error,
+/// and the error itself already blocks the gate.
+fn resolveRules(
+    allocator: Allocator,
+    project_dir: []const u8,
+    rules: []const config.ConceptRule,
+) Allocator.Error!Resolved {
+    var out: std.ArrayList(config.ConceptRule) = .empty;
+    var errors: std.ArrayList(reporter.Violation) = .empty;
+    for (rules) |rule| {
+        const from = rule.literals_from orelse {
+            try out.append(allocator, rule);
+            continue;
+        };
+        var resolved = rule;
+        const extracted = readFamily(allocator, project_dir, from) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.Unreadable => {
+                try errors.append(allocator, try extractionError(allocator, rule, from, "is missing or unreadable"));
+                try out.append(allocator, rule);
+                continue;
+            },
+        };
+        if (extracted.len == 0) {
+            try errors.append(allocator, try extractionError(allocator, rule, from, "yielded no literals"));
+            try out.append(allocator, rule);
+            continue;
+        }
+        resolved.literals = try mergeLiterals(allocator, rule.literals, extracted);
+        try out.append(allocator, resolved);
+    }
+    return .{ .rules = try out.toOwnedSlice(allocator), .errors = try errors.toOwnedSlice(allocator) };
+}
+
+/// Reads and extracts one `literals_from` source. Comment lines are blanked
+/// first (via the same `scrubbed` pass the scan uses), so prose ABOUT the
+/// emitting switch cannot enrol a literal the code never writes.
+fn readFamily(
+    allocator: Allocator,
+    project_dir: []const u8,
+    from: config.LiteralsFrom,
+) (Allocator.Error || error{Unreadable})![]const []const u8 {
+    const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, from.file });
+    const content = fs.cwd().readFileAlloc(allocator, path, lexical.read_limit) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.Unreadable,
+    };
+    const text = try lexical.scrubbed(allocator, from.file, content, null);
+    return extractLiterals(allocator, text, from.fragments);
+}
+
+/// The declared literals plus the extracted ones, in that order, dropping an
+/// extracted spelling a hand-written entry already names. Duplicates would
+/// double every occurrence count in a report for no gain.
+fn mergeLiterals(
+    allocator: Allocator,
+    declared: []const []const u8,
+    extracted: []const []const u8,
+) Allocator.Error![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    try out.appendSlice(allocator, declared);
+    for (extracted) |literal| {
+        if (containsLiteral(out.items, literal)) continue;
+        try out.append(allocator, literal);
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+fn containsLiteral(list: []const []const u8, wanted: []const u8) bool {
+    for (list) |item| {
+        if (std.mem.eql(u8, item, wanted)) return true;
     }
     return false;
 }
+
+/// The violation for a `literals_from` that produced no usable family.
+fn extractionError(
+    allocator: Allocator,
+    rule: config.ConceptRule,
+    from: config.LiteralsFrom,
+    what: []const u8,
+) Allocator.Error!reporter.Violation {
+    return .{
+        .check = check_name,
+        .file = from.file,
+        .message = try std.fmt.allocPrint(
+            allocator,
+            "concept '{s}' literals_from {s}: the family is empty, so every mirror passes",
+            .{ rule.name, what },
+        ),
+        .fix_hint = extract_fix_hint,
+        .identity = try std.fmt.allocPrint(allocator, "{s}|literals_from", .{rule.name}),
+    };
+}
+
+// ── Run: the default source set plus any `files` globs ──────────────────
 
 /// Shared across both scans: where findings land, and the paths this check
 /// never judges.
@@ -457,6 +578,14 @@ const ScanCtx = struct {
     /// that applies it — so honoring it is this check's own job.
     skip: []const []const u8,
     violations: *std.ArrayList(reporter.Violation),
+    /// Rules declaring `require_in`, judged over the same walk. Kept apart from
+    /// `rules` because the two questions have different file sets: `rules` is
+    /// "who owns this path", `require` is "which mirrors must spell the family".
+    require: []const config.ConceptRule = &.{},
+    /// `matched[i][j]` — whether `require[i]`'s glob `j` named any file on this
+    /// walk. A glob that matched nothing is reported once the walk is over,
+    /// which is the only place that fact is known.
+    matched: []const []bool = &.{},
 
     /// Judges one file against exactly `rules` — the subset that claims it. The
     /// glob scan hands its own per-file subset here (no parse tree: those files
@@ -469,25 +598,58 @@ const ScanCtx = struct {
         tree: ?*const Ast,
         rules: []const config.ConceptRule,
     ) Allocator.Error!void {
-        if (skipPath(self.skip, rel_path)) return;
+        if (lexical.skipPath(self.skip, rel_path)) return;
         const found = try analyzeFile(self.allocator, rel_path, content, tree, rules);
         try self.violations.appendSlice(self.allocator, found);
+    }
+
+    /// Judges one file as a required mirror of every `require` rule that names
+    /// it, marking the globs that matched so the post-walk pass can report the
+    /// ones that named nothing.
+    ///
+    /// A skipped path is marked matched and then not judged, in that order. The
+    /// glob DID name a file — an `[[allow]]` / `exclude` entry says "do not
+    /// judge this one", not "pretend the mirror is gone" — so reporting the
+    /// glob as naming nothing would answer a question nobody asked.
+    fn scanMirror(
+        self: *ScanCtx,
+        rel_path: []const u8,
+        content: []const u8,
+        tree: ?*const Ast,
+    ) Allocator.Error!void {
+        for (self.require, 0..) |rule, i| {
+            if (!self.markMatched(rule, rel_path, i)) continue;
+            if (lexical.skipPath(self.skip, rel_path)) continue;
+            const found = try analyzeMirror(self.allocator, rel_path, content, tree, rule);
+            try self.violations.appendSlice(self.allocator, found);
+        }
+    }
+
+    /// Records which of `rule`'s `require_in` globs `rel_path` satisfies,
+    /// returning whether any did.
+    fn markMatched(self: *ScanCtx, rule: config.ConceptRule, rel_path: []const u8, index: usize) bool {
+        var hit = false;
+        for (rule.require_in, 0..) |pattern, j| {
+            if (!walk.matchGlob(rel_path, pattern)) continue;
+            self.matched[index][j] = true;
+            hit = true;
+        }
+        return hit;
+    }
+
+    /// True when some `require` rule's glob names `rel_path` — the cheap test
+    /// that decides whether a file is worth reading at all.
+    fn wantsMirror(self: *const ScanCtx, rel_path: []const u8) bool {
+        for (self.require) |rule| {
+            if (requiredIn(rule, rel_path)) return true;
+        }
+        return false;
     }
 };
 
 fn sourceVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
     try ctx.scanWith(entry.rel_path, entry.content, entry.tree, ctx.rules);
-}
-
-/// True when a directory is never descended into while expanding a `files`
-/// glob (see `skip_dir_names`; every dot-directory is skipped too).
-fn skipDir(name: []const u8) bool {
-    if (name.len > 0 and name[0] == '.') return true;
-    for (skip_dir_names) |skip| {
-        if (std.mem.eql(u8, name, skip)) return true;
-    }
-    return false;
 }
 
 /// True when one of `rule`'s own `files` globs names `rel_path`.
@@ -517,45 +679,39 @@ fn rulesNaming(
     return out.toOwnedSlice(allocator);
 }
 
-/// Reads and scans one globbed file against the rules that named it. Matching
-/// happens BEFORE the read, so a glob that names `*.css` never opens the
-/// repository's binaries — and a file a rule did name is read whatever its
+/// Reads and scans one globbed file: against the rules whose `files` name it
+/// (ownership) and against the rules whose `require_in` names it (totality).
+/// Matching happens BEFORE the read, so a glob that names `*.css` never opens
+/// the repository's binaries — and a file a rule did name is read whatever its
 /// extension. A globbed `.zig` parses its own tree: a broad rule names
 /// `src/**` alongside its JS and CSS, and a test block is exempt wherever the
 /// file was reached — the shared index serves only the no-`files` scan.
 fn scanGlobbedFile(ctx: *ScanCtx, dir: fs.Dir, name: []const u8, rel_path: []const u8) !void {
     const rules = try rulesNaming(ctx.allocator, ctx.rules, rel_path);
-    if (rules.len == 0) return;
-    const content = try dir.readFileAlloc(ctx.allocator, name, glob_read_limit);
+    if (rules.len == 0 and !ctx.wantsMirror(rel_path)) return;
+    const content = try dir.readFileAlloc(ctx.allocator, name, lexical.read_limit);
     if (std.mem.endsWith(u8, rel_path, ".zig")) {
         const source = try ctx.allocator.dupeSentinel(u8, content, 0);
         var tree = try Ast.parse(ctx.allocator, source, .{});
-        return ctx.scanWith(rel_path, source, &tree, rules);
+        try ctx.scanWith(rel_path, source, &tree, rules);
+        return ctx.scanMirror(rel_path, source, &tree);
     }
     try ctx.scanWith(rel_path, content, null, rules);
+    try ctx.scanMirror(rel_path, content, null);
 }
 
-/// Walks `dir` recursively, scanning every file a `files` glob names. A glob
-/// matching nothing is silence, not an error: a project may declare the concept
-/// before the owner or the drifting asset exists.
+fn globVisit(raw_ctx: *anyopaque, dir: fs.Dir, name: []const u8, rel_path: []const u8) walk.WalkError!void {
+    const ctx: *ScanCtx = @ptrCast(@alignCast(raw_ctx));
+    try scanGlobbedFile(ctx, dir, name, rel_path);
+}
+
+/// Walks `dir` recursively, scanning every file a `files` or `require_in` glob
+/// names. A `files` glob matching nothing is silence, not an error: a project
+/// may declare the concept before the owner or the drifting asset exists. A
+/// `require_in` glob matching nothing is NOT silence — see
+/// `unmatchedMirrorViolation`.
 fn scanGlobs(ctx: *ScanCtx, dir: fs.Dir, prefix: []const u8) walk.WalkError!void {
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        const rel = if (prefix.len > 0)
-            try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ prefix, entry.name })
-        else
-            try ctx.allocator.dupe(u8, entry.name);
-        switch (entry.kind) {
-            .directory => {
-                if (skipDir(entry.name)) continue;
-                var sub = try dir.openDir(entry.name, .{ .iterate = true });
-                defer sub.close();
-                try scanGlobs(ctx, sub, rel);
-            },
-            .file => try scanGlobbedFile(ctx, dir, entry.name, rel),
-            else => {},
-        }
-    }
+    try lexical.walkFiles(ctx.allocator, dir, prefix, .{ .ctx = ctx, .visit = globVisit });
 }
 
 /// Which file set a rule is judged against: the source set Guardian already
@@ -576,16 +732,58 @@ fn rulesFor(
     return out.toOwnedSlice(allocator);
 }
 
+/// The subset of `rules` that names required mirrors, plus a fresh
+/// `matched[i][j]` grid the walk marks as each glob lands on a file.
+const MirrorPlan = struct {
+    rules: []const config.ConceptRule,
+    matched: []const []bool,
+
+    fn build(allocator: Allocator, rules: []const config.ConceptRule) Allocator.Error!MirrorPlan {
+        var out: std.ArrayList(config.ConceptRule) = .empty;
+        for (rules) |rule| {
+            if (rule.require_in.len > 0) try out.append(allocator, rule);
+        }
+        const kept = try out.toOwnedSlice(allocator);
+        const grid = try allocator.alloc([]bool, kept.len);
+        for (kept, grid) |rule, *row| {
+            row.* = try allocator.alloc(bool, rule.require_in.len);
+            @memset(row.*, false);
+        }
+        return .{ .rules = kept, .matched = grid };
+    }
+
+    /// One violation per glob that named no file, appended after the walk.
+    fn reportUnmatched(
+        self: MirrorPlan,
+        allocator: Allocator,
+        into: *std.ArrayList(reporter.Violation),
+    ) Allocator.Error!void {
+        for (self.rules, self.matched) |rule, row| {
+            for (rule.require_in, row) |glob, hit| {
+                if (hit) continue;
+                try into.append(allocator, try unmatchedMirrorViolation(allocator, rule, glob));
+            }
+        }
+    }
+};
+
 /// Entry point for the concept check (opt-in: declare `[[concept]]` entries).
 pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx_param.allocator;
-    const rules = ctx_param.cfg.concept_rules;
-    if (rules.len == 0) {
+    const declared = ctx_param.cfg.concept_rules;
+    if (declared.len == 0) {
         reporter.ok("concept: no [[concept]] rules configured", .{});
         return;
     }
 
     var found: std.ArrayList(reporter.Violation) = .empty;
+    // Families are resolved BEFORE any scan: `literals_from` changes what every
+    // later question is asked about, so a rule must never be scanned with the
+    // hand-written half of its family and then required in a mirror with the
+    // whole of it.
+    const resolved = try resolveRules(allocator, ctx_param.project_dir, declared);
+    const rules = resolved.rules;
+    try found.appendSlice(allocator, resolved.errors);
     const skip = try std.mem.concat(allocator, []const u8, &.{
         ctx_param.cfg.extraAllowed(check_name),
         ctx_param.cfg.exclude,
@@ -604,30 +802,58 @@ pub fn run(ctx_param: *registry.RunCtx) registry.RunError!void {
         });
     }
     const glob_rules = try rulesFor(allocator, rules, .globs);
-    if (glob_rules.len > 0) {
+    const mirrors = try MirrorPlan.build(allocator, rules);
+    if (glob_rules.len > 0 or mirrors.rules.len > 0) {
         var glob_ctx: ScanCtx = .{
             .allocator = allocator,
             .rules = glob_rules,
             .skip = skip,
             .violations = &found,
+            .require = mirrors.rules,
+            .matched = mirrors.matched,
         };
         var root = try fs.cwd().openDir(ctx_param.project_dir, .{ .iterate = true });
         defer root.close();
         try scanGlobs(&glob_ctx, root, "");
+        try mirrors.reportUnmatched(allocator, &found);
     }
 
     if (found.items.len == 0) {
         reporter.ok("concept: no drifted concepts ({d} rule(s))", .{rules.len});
         return;
     }
-    reporter.fail("concept FAILED ({d} file(s) outside an owner)", .{found.items.len});
-    // emitQuiet, not emit: one shared `fix:` line closes the list below, and
-    // repeating a near-identical remedy under every finding is console noise.
-    // The hint still rides each record into last-run.jsonl, which has no
-    // "beneath the list".
+    // "finding(s)", not "file(s) outside an owner": the same check now also
+    // reports a required mirror that fell behind, a require_in glob that named
+    // nothing, and a literals_from that read no family — none of which is a
+    // file outside an owner.
+    reporter.fail("concept FAILED ({d} finding(s))", .{found.items.len});
+    // emitQuiet, not emit: the remedies close the list below, and repeating a
+    // near-identical one under every finding is console noise. The hint still
+    // rides each record into last-run.jsonl, which has no "beneath the list".
     for (found.items) |violation| reporter.emitQuiet(violation);
-    reporter.detail("  fix: {s}\n", .{fix_hint});
+    printFixHints(found.items);
     return error.CheckFailed;
+}
+
+/// Prints each remedy some finding carries, once, in a fixed order. One shared
+/// line was right while every finding was drift; a mirror that fell behind and a
+/// `literals_from` that read nothing have their OWN fixes, and printing only the
+/// first would tell a reader to solve the wrong problem. Walking the hint set
+/// rather than the findings makes the output deduplicated and deterministic by
+/// construction.
+fn printFixHints(found: []const reporter.Violation) void {
+    for (fix_hints) |hint| {
+        if (!anyCarries(found, hint)) continue;
+        reporter.detail("  fix: {s}\n", .{hint});
+    }
+}
+
+fn anyCarries(found: []const reporter.Violation, hint: []const u8) bool {
+    for (found) |violation| {
+        const own = violation.fix_hint orelse continue;
+        if (std.mem.eql(u8, own, hint)) return true;
+    }
+    return false;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -993,33 +1219,6 @@ test "analyzeFile keeps two concepts' findings apart" {
     try testing.expectEqualStrings("src/palette.zig|layer-names", out[0].identity.?);
 }
 
-// spec: Concept Ownership - Skips build output and dot directories when expanding a files glob
-
-test "skipDir prunes VCS, Guardian state and build output" {
-    try testing.expect(skipDir(".git"));
-    try testing.expect(skipDir(".zig-cache"));
-    try testing.expect(skipDir(".guardian"));
-    try testing.expect(skipDir("zig-out"));
-    try testing.expect(skipDir("node_modules"));
-    // Ordinary source directories are walked.
-    try testing.expect(!skipDir("src"));
-    try testing.expect(!skipDir("assets"));
-}
-
-// spec: Concept Ownership - Skips a path an allow entry or a top-level exclude glob names
-
-test "skipPath drops a path either skip list names" {
-    // Both lists reaching this check are ordinary path globs: `[[allow]] check =
-    // "concept"` (this check's own exemptions) and the top-level `exclude`
-    // (files no check may see at all), concatenated by `run`.
-    const skip = [_][]const u8{ "src/vendor/*", "src/generated/*" };
-    try testing.expect(skipPath(&skip, "src/vendor/theirs.zig"));
-    try testing.expect(skipPath(&skip, "src/generated/tables.zig"));
-    try testing.expect(!skipPath(&skip, "src/render.zig"));
-    // An empty list — the zero-config default — skips nothing.
-    try testing.expect(!skipPath(&.{}, "src/render.zig"));
-}
-
 // spec: Concept Ownership - Splits rules by whether they declare a files glob
 
 test "rulesFor partitions the configured rules by scan set" {
@@ -1110,4 +1309,241 @@ test "scanGlobs reads a globbed asset outside the Zig source set" {
     // name, is never read.
     try testing.expectEqual(@as(usize, 1), violations.items.len);
     try testing.expectEqualStrings("assets/theme.css|layer-colors", violations.items[0].identity.?);
+}
+
+// ── require_in and literals_from ───────────────────────────────────────
+
+/// The fixture family: three DRC wire strings the owner's emitting switch
+/// spells, mirrored (incompletely) by `test-project/mirrors/viewer.js`.
+const drc_literals_from = config.LiteralsFrom{
+    .file = "mirrors/kinds.zig",
+    .fragments = &.{"=> \""},
+};
+
+const drc_rule = config.ConceptRule{
+    .name = "drc-kinds",
+    .literals = &.{ "clearance", "track_track", "hole_size" },
+    .owner = &.{"mirrors/kinds.zig"},
+    .require_in = &.{"mirrors/viewer.js"},
+    .reason = "DRC kind strings come from kinds.Kind.wire",
+};
+
+// spec: Concept Ownership - Flags a literal a required mirror does not spell
+
+test "analyzeMirror reports each literal the mirror is missing" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = try analyzeMirror(a, "assets/viewer.js",
+        \\const BLOCK = { clearance: true };
+    , null, drc_rule);
+    // The mirror spells one of three, so the two it lost are two separate rows:
+    // learning one must resolve exactly that row and keep failing on the other.
+    try testing.expectEqual(@as(usize, 2), out.len);
+    try testing.expectEqualStrings("drc-kinds|track_track|assets/viewer.js", out[0].identity.?);
+    try testing.expectEqualStrings("drc-kinds|hole_size|assets/viewer.js", out[1].identity.?);
+    try testing.expect(std.mem.indexOf(u8, out[0].message, "required mirror is missing") != null);
+    // The rule's reason rides along here too — it is what says where the
+    // spelling is supposed to come from.
+    try testing.expect(std.mem.endsWith(u8, out[0].message, "DRC kind strings come from kinds.Kind.wire"));
+}
+
+// spec: Concept Ownership - Passes a required mirror that spells every literal
+
+test "analyzeMirror is silent when the mirror is complete" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = try analyzeMirror(a, "assets/viewer.js",
+        \\const BLOCK = { clearance: 1, track_track: 1, hole_size: 1 };
+    , null, drc_rule);
+    try testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Concept Ownership - Refuses to count a comment-only mention as a mirror's spelling
+
+test "analyzeMirror ignores a literal that survives only in a comment" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Same blanking as the ownership scan, and for a stronger reason here: a
+    // comment cannot carry the value at runtime, so a mirror that only mentions
+    // the spelling has not learned it.
+    const out = try analyzeMirror(a, "assets/viewer.js",
+        \\// hole_size is handled elsewhere
+        \\const BLOCK = { clearance: 1, track_track: 1 };
+    , null, drc_rule);
+    try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expectEqualStrings("drc-kinds|hole_size|assets/viewer.js", out[0].identity.?);
+}
+
+// spec: Concept Ownership - Treats a required mirror as an owner for the ownership scan
+
+test "owns accepts a require_in path so a mirror is never also drift" {
+    // The two directions are one relation: a file the rule COMMANDS to spell
+    // every literal cannot simultaneously be drift for spelling one, and
+    // reporting both would be two findings that contradict each other.
+    try testing.expect(owns(drc_rule, "mirrors/viewer.js"));
+    try testing.expect(owns(drc_rule, "mirrors/kinds.zig"));
+    try testing.expect(!owns(drc_rule, "src/elsewhere.zig"));
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const out = try analyzeFile(arena.allocator(), "mirrors/viewer.js",
+        \\const BLOCK = { clearance: 1 };
+    , null, &.{drc_rule});
+    try testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Concept Ownership - Reads a required mirror through the tree walk and flags what it lost
+
+test "scanGlobs judges a required mirror even when the rule declares no files glob" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rules = [_]config.ConceptRule{drc_rule};
+    const plan = try MirrorPlan.build(a, &rules);
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{
+        .allocator = a,
+        // No `files` rules at all: the walk exists here only to reach the
+        // mirror, which is a .js file no source scan could ever open.
+        .rules = &.{},
+        .skip = &.{},
+        .violations = &violations,
+        .require = plan.rules,
+        .matched = plan.matched,
+    };
+    var root = try fs.cwd().openDir("test-project", .{ .iterate = true });
+    defer root.close();
+    try scanGlobs(&ctx, root, "");
+    try plan.reportUnmatched(a, &violations);
+    // The fixture mirror knows clearance and track_track and lost hole_size.
+    try testing.expectEqual(@as(usize, 1), violations.items.len);
+    try testing.expectEqualStrings("drc-kinds|hole_size|mirrors/viewer.js", violations.items[0].identity.?);
+}
+
+// spec: Concept Ownership - Reports a require_in glob that names no file
+
+test "MirrorPlan reports a required mirror glob that matched nothing" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Delete or rename the mirror and every literal is vacuously "required in"
+    // nothing — the rule reports clean at the exact moment it stopped being
+    // enforced. That is the permissive failure this key exists to kill.
+    var gone = drc_rule;
+    gone.require_in = &.{"mirrors/deleted.js"};
+    const rules = [_]config.ConceptRule{gone};
+    const plan = try MirrorPlan.build(a, &rules);
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{
+        .allocator = a,
+        .rules = &.{},
+        .skip = &.{},
+        .violations = &violations,
+        .require = plan.rules,
+        .matched = plan.matched,
+    };
+    var root = try fs.cwd().openDir("test-project", .{ .iterate = true });
+    defer root.close();
+    try scanGlobs(&ctx, root, "");
+    try plan.reportUnmatched(a, &violations);
+    try testing.expectEqual(@as(usize, 1), violations.items.len);
+    try testing.expectEqualStrings("drc-kinds|require_in|mirrors/deleted.js", violations.items[0].identity.?);
+    try testing.expect(std.mem.indexOf(u8, violations.items[0].message, "names no file") != null);
+}
+
+// spec: Concept Ownership - Extracts every quoted string on a line carrying all the configured fragments
+
+test "extractLiterals reads the family off the owner's emitting lines" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = try extractLiterals(a,
+        \\return switch (self) {
+        \\    .clearance => "clearance",
+        \\    .track_track => "track_track",
+        \\};
+        \\const unrelated = "not part of the family";
+    , &.{"=> \""});
+    try testing.expectEqual(@as(usize, 2), out.len);
+    try testing.expectEqualStrings("clearance", out[0]);
+    try testing.expectEqualStrings("track_track", out[1]);
+    // ALL fragments must be present, so a second fragment narrows rather than
+    // widens — this is what keeps a family aimed at one switch.
+    const narrowed = try extractLiterals(a,
+        \\    .clearance => "clearance", // kind
+        \\    .track_track => "track_track",
+    , &.{ "=> \"", "// kind" });
+    try testing.expectEqual(@as(usize, 1), narrowed.len);
+    try testing.expectEqualStrings("clearance", narrowed[0]);
+    // An empty string is dropped: it would match at every offset in every file.
+    const empties = try extractLiterals(a, "x => \"\" and \"real\"", &.{"=> \""});
+    try testing.expectEqual(@as(usize, 1), empties.len);
+    try testing.expectEqualStrings("real", empties[0]);
+}
+
+// spec: Concept Ownership - Merges the extracted family into the declared literals without duplicating one
+
+test "resolveRules unions the extracted literals with the declared ones" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var rule = drc_rule;
+    // One literal is declared by hand AND spelled by the owner's switch. The
+    // family must hold it once: a duplicate would double every occurrence count
+    // a report prints.
+    rule.literals = &.{"clearance"};
+    rule.literals_from = drc_literals_from;
+    const resolved = try resolveRules(a, "test-project", &.{rule});
+    try testing.expectEqual(@as(usize, 0), resolved.errors.len);
+    try testing.expectEqual(@as(usize, 3), resolved.rules[0].literals.len);
+    try testing.expectEqualStrings("clearance", resolved.rules[0].literals[0]);
+    try testing.expectEqualStrings("track_track", resolved.rules[0].literals[1]);
+    try testing.expectEqualStrings("hole_size", resolved.rules[0].literals[2]);
+}
+
+// spec: Concept Ownership - Reports a literals_from source that cannot be read or yields no literals
+
+test "resolveRules surfaces an extraction that produced no family" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var missing = drc_rule;
+    missing.literals_from = .{ .file = "mirrors/gone.zig", .fragments = &.{"=> \""} };
+    const unreadable = try resolveRules(a, "test-project", &.{missing});
+    try testing.expectEqual(@as(usize, 1), unreadable.errors.len);
+    try testing.expectEqualStrings("drc-kinds|literals_from", unreadable.errors[0].identity.?);
+    try testing.expect(std.mem.indexOf(u8, unreadable.errors[0].message, "missing or unreadable") != null);
+    // The rule still scans with what it declared by hand: an extraction failure
+    // is a config error to fix, never a reason to enforce less than before.
+    try testing.expectEqual(@as(usize, 3), unreadable.rules[0].literals.len);
+
+    var empty = drc_rule;
+    empty.literals_from = .{ .file = "mirrors/kinds.zig", .fragments = &.{"no line carries this"} };
+    const nothing = try resolveRules(a, "test-project", &.{empty});
+    try testing.expectEqual(@as(usize, 1), nothing.errors.len);
+    try testing.expect(std.mem.indexOf(u8, nothing.errors[0].message, "yielded no literals") != null);
+    // Both messages say the consequence out loud, because "the family is empty"
+    // is indistinguishable from "every mirror is fine" in the output otherwise.
+    try testing.expect(std.mem.indexOf(u8, nothing.errors[0].message, "every mirror passes") != null);
+}
+
+// spec: Concept Ownership - Blanks comment lines before extracting a literals_from family
+
+test "resolveRules never enrols a literal that only a comment spells" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var rule = drc_rule;
+    rule.literals = &.{};
+    rule.literals_from = drc_literals_from;
+    const resolved = try resolveRules(a, "test-project", &.{rule});
+    // The fixture's doc comment names `not_a_kind` on a line carrying the
+    // fragment. Prose ABOUT the switch must not enrol a spelling the code never
+    // writes — the family would then demand it of every mirror.
+    for (resolved.rules[0].literals) |literal| {
+        try testing.expect(!std.mem.eql(u8, literal, "not_a_kind"));
+    }
+    try testing.expectEqual(@as(usize, 3), resolved.rules[0].literals.len);
 }

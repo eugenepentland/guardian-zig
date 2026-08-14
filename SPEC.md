@@ -17,6 +17,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Supports multiline string arrays with comments and trailing commas
 - Resolves escaped quotes and backslashes inside a configured string
 - Rejects a string value that ends in a lone backslash
+- Splits an inline table into its key-value pairs without breaking on a nested comma
 - Rejects unsafe mutation ranges and zero timeouts
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
@@ -142,6 +143,22 @@ blocking correctness checks and advisory maintainability guidance.
 ## Imports
 
 - Detects cycles in the @import graph
+
+## Import Layering
+
+- Flags an import from a rule's from set into its to set
+- Ignores a forbidden import from a file the rule's allow list exempts
+- Ignores an edge outside the rule's from or to sets
+- Matches a relative import against its resolved project-relative path
+- Passes trivially when no layering rules are configured
+- Reports one violation per rule, source file, and target file
+- Skips a finding whose source file an allow entry or top-level exclude glob names
+- Freezes each forbidden edge separately so only a new one fails
+- Parses layering entries with name, from, to, allow, and reason keys
+- Hard-fails a layering entry missing its name, from, to, or reason
+- Hard-fails a second layering entry reusing an existing name
+- Hard-fails a layering name that is not kebab-case
+- Separates declared import direction from the cycle check in both explanations
 
 ## AST Index
 
@@ -967,9 +984,7 @@ without an explained `--force`.
 - Matches a wildcard against one or more characters that are not whitespace, quotes or structural punctuation
 - Treats a run of wildcards as one and matches leading and trailing wildcards
 - Resumes scanning after a candidate start that does not match
-- Skips a path an allow entry or a top-level exclude glob names
 - Splits rules by whether they declare a files glob
-- Skips build output and dot directories when expanding a files glob
 - Scans a globbed non-Zig file and ignores paths no glob names
 - Scopes each rule's files glob to that rule alone
 - Parses concept entries with name, literals, patterns, owner, files and reason keys
@@ -977,6 +992,66 @@ without an explained `--force`.
 - Hard-fails a concept entry with neither literals nor patterns
 - Hard-fails a second concept entry reusing an existing name
 - Hard-fails a concept name that is not kebab-case
+- Flags a literal a required mirror does not spell
+- Passes a required mirror that spells every literal
+- Refuses to count a comment-only mention as a mirror's spelling
+- Treats a required mirror as an owner for the ownership scan
+- Reads a required mirror through the tree walk and flags what it lost
+- Reports a require_in glob that names no file
+- Extracts every quoted string on a line carrying all the configured fragments
+- Merges the extracted family into the declared literals without duplicating one
+- Reports a literals_from source that cannot be read or yields no literals
+- Blanks comment lines before extracting a literals_from family
+- Parses a concept entry's require_in globs and literals_from table
+- Hard-fails a malformed literals_from table
+
+## Twin Parity
+
+- Passes a twin whose parity test exists in the tree
+- Flags a twin whose named parity test is absent from the tree
+- Reports a twin that declares no parity test as uncovered
+- Passes trivially when no twin rules are configured
+- Keeps each twin's finding to its own rule
+- Collects declared test names from the source index and the test directory
+- Explains the twin-parity check's two rules, its free-form surfaces and its split baseline keys
+- Parses twin entries with name, surfaces and parity_test keys
+- Hard-fails a twin entry with no name or fewer than two surfaces
+- Hard-fails a second twin entry reusing an existing name
+
+## Canonical Idiom
+
+- Flags a line carrying every fragment outside the allow list
+- Requires every fragment on one line before reporting
+- Ignores the idiom inside a file the rule's allow list names
+- Ignores a path no files glob of the rule names
+- Skips a line-leading comment and a Zig test block when counting lines
+- Reports one violation per rule and file with the matching-line count and first position
+- Reports the leftmost fragment's column regardless of the declared order
+- Passes trivially when no idiom rules are configured
+- Names the missing canonical home when a rule declares no allow list
+- Applies a rule to only its own idiom when several are declared
+- Exempts guardian.toml and the .guardian directory from every rule
+- Scans a globbed non-Zig file and ignores paths no glob names
+- Skips a path an allow entry or a top-level exclude glob names
+- Parses a globbed Zig file so its test blocks are exempt there too
+- Freezes a baselined file by rule and keeps a new file failing
+- Explains the fragment conjunction, the required reason and the rule-first baseline key
+- Parses idiom entries with name, fragments, files, allow and reason keys
+- Defaults an idiom's scan set to the source tree when no files key is given
+- Hard-fails an idiom entry missing its name, fragments, reason, or naming an empty files set
+- Hard-fails a second idiom entry reusing an existing name
+- Hard-fails an idiom name that is not kebab-case
+- Names an unknown key inside an idiom entry
+
+## Lexical Scan
+
+- Blanks a comment line to spaces without moving any later byte
+- Blanks a line-leading CSS block comment only in a css file
+- Blanks a Zig test declaration's whole span when a parse tree is supplied
+- Skips a path an allow entry or a top-level exclude glob names
+- Exempts guardian.toml and the .guardian directory from every relational rule
+- Skips build output and dot directories when expanding a files glob
+- Yields every extension under a walked directory and prunes skipped ones
 
 ## Fakes
 
@@ -1138,6 +1213,32 @@ without an explained `--force`.
 - Skips a file an allow entry exempts
 - Parses the ignore-names list and the grouping mode
 - Hard-fails a grouping mode that is neither units nor all
+
+## Const Folding
+
+- Folds one literal initializer expression to one comparable value
+- Folds a signed numeric spelling supplied by config
+- Recognises a name whose trailing segment is a unit
+
+## Shadowed Const
+
+- Flags a declared constant's value reappearing as a bare literal in another file
+- Never reports the owning file's own declaration
+- Leaves a same-valued named const elsewhere to divergent-const
+- Never reads a value out of a comment, a string or a test block
+- Reports a rule whose referent resolves to nothing
+- Passes trivially when no shadow rules are configured
+- Sweeps unit-suffixed constants in auto mode and keys each row as a rule
+- Skips an auto-mode value on the ignore list or under the digit floors
+- Scopes one rule's scan with its files and ignore globs
+- Reads a negated literal as its negative value
+- Freezes a baselined shadowing file while a new one still fails
+- Skips a file an allow entry exempts
+- Parses shadow entries with const, files, ignore and reason keys
+- Hard-fails a shadow entry that names no constant
+- Hard-fails a second shadow entry reusing an existing constant
+- Parses the sweep mode, ignore values and digit floors
+- Hard-fails a sweep mode that is neither declared nor auto
 
 ## Twin Referent
 

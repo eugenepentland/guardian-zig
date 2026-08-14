@@ -211,8 +211,56 @@ const entries = [_]Entry{
     .{ .name = "imports", .text =
     \\Why: a cycle in the `@import` graph makes modules impossible to reason about
     \\or reuse in isolation — an easy accident when an agent wires two files.
+    \\Scope: this is the CYCLE check — a structural illness, derived from the
+    \\graph alone, exempt from nothing. Directional layer rules ("core may not
+    \\import serve") are the separate, configured `import-layering` check.
     \\Fix: extract the shared types into a third module, or invert one edge.
     \\Exempt: none — cycles are always a defect. Break the loop.
+    },
+    .{ .name = "import-layering", .text =
+    \\Scope: this is the DIRECTION check, not the cycle one. A layering edge is
+    \\perfectly acyclic and compiles fine; it is wrong only because you declared
+    \\which way your layers point. `imports` (cycles) reads no config and exempts
+    \\nothing; this one reads `[[layering]]` and exempts what you say it may.
+    \\Why: an agent — or a hurried refactor — reaches UP a layer because the
+    \\helper it wants happens to live there. Measured in eda (2026-08-14): a
+    \\core-layer `src/kicad_pcb/import_layout_command.zig` importing
+    \\`src/serve/pcb_layout_import.zig`, because sidecar persistence lives in
+    \\serve/ — acyclic, so `imports` passed, and nothing else could say a word.
+    \\Declare one:
+    \\  [[layering]]
+    \\  name = "core-no-serve"          # kebab-case, unique; names the violation
+    \\  from = ["src/kicad_pcb/*"]      # the files the rule constrains
+    \\  to   = ["src/serve/*"]          # what they may not import
+    \\  allow = ["src/kicad_pcb/serve_adapter.zig"]  # the sanctioned adapter
+    \\  reason = "the format layer must not reach up into the web layer"
+    \\Every key but `allow` is required: a rule with no `from`/`to` matches no
+    \\edge and a rule with no `reason` leaves a violation nobody can act on, so
+    \\both are config errors rather than entries that sit there enforcing
+    \\nothing.
+    \\Fix: invert the dependency, or move the shared type into a module BOTH
+    \\layers may import — the same extraction the cycle check asks for, done
+    \\before there is a cycle. The rule's `reason` is the half of the message
+    \\worth reading, which is why a rule cannot omit it.
+    \\Matching: on RESOLVED, project-relative paths. `import_graph` normalizes
+    \\every edge against the importing file's directory, so the
+    \\`../serve/pcb_layout_import.zig` a core file actually writes is matched as
+    \\`src/serve/pcb_layout_import.zig` — the only spelling a `to` glob could be
+    \\written against. `std`, `builtin`, `root` and package imports are not
+    \\paths and are never candidates. Patterns are Guardian's ordinary globs:
+    \\`*` is the wildcard and a pattern without one is a plain substring.
+    \\Ratcheting a coupling surface down: this is what the per-EDGE baseline is
+    \\for. eda's serve/ imports placement internals across 38 files (35 of them
+    \\straight into a 12.3k-line optimizer.zig); declare the rule, let baseline
+    \\mode freeze today's 38 edges, and the 39th fails while the count only
+    \\falls as files move onto the extracted types.
+    \\Exempt: add the path to that rule's `allow`, narrow its `from` / `to`,
+    \\exempt a file from every rule with `[[allow]] check = "import-layering"`
+    \\(the top-level `exclude` list drops it too), or delete the rule.
+    \\Baseline: one violation per (rule, source file, target file), keyed
+    \\`<rule>|<from>|<to>` — the EDGE, not the file. A file with two forbidden
+    \\imports is two rows, so removing one lands green while the other stays
+    \\frozen; a per-file key would freeze the file whole and hide the second.
     },
     .{ .name = "pub-api-surface", .text =
     \\Why: an agent silently widens (or breaks) the public API — a new pub fn, a
@@ -420,6 +468,8 @@ const entries = [_]Entry{
     \\  patterns = ["In*.Cu"]              # `*` = 1+ chars, never leaving one token
     \\  owner = ["src/board_layers.zig"]   # where the spelling is allowed to live
     \\  files = ["src/*.zig", "*.css"]     # optional scan set (any extension)
+    \\  require_in = ["assets/viewer.js"]  # mirrors that must spell EVERY literal
+    \\  literals_from = { file = "src/drc/kind.zig", fragments = ["=> \""] }
     \\  reason = "layer names come from board_layers.LayerTable"
     \\Fix: import the value from the owner module instead of respelling it. The
     \\violation names the concept, every occurrence line (up to five) WITH the
@@ -462,11 +512,146 @@ const entries = [_]Entry{
     \\A `files` glob never descends into a dot-directory, `zig-out`, or
     \\`node_modules`, and a glob that names nothing is silence — a project may
     \\declare the concept before the owner exists.
+    \\`require_in` is the SAME relation read the other way. `owner` is permissive
+    \\(only these files may spell it); `require_in` is total (each of THESE files
+    \\must spell EVERY literal of the family, or the mirror has gone quietly out
+    \\of date). The case it exists for: a DRC kind string renamed in Zig
+    \\(eda, 2026-08-12, commit 51bff373) left the viewer's hand-mirrored JS branch
+    \\dead — 531 grep-marker tests missed it because no marker watched that
+    \\string, and the JS side's 8-entry `DRC_BLOCK` gate table fails PERMISSIVELY
+    \\on a rename (an unrecognised kind simply stops blocking). A `require_in`
+    \\file is owner-equivalent, so it is never also reported as drift; `patterns`
+    \\are excluded (a wildcard names a shape, not a spelling a mirror could hold);
+    \\a literal surviving only in a comment does NOT satisfy the requirement,
+    \\since the same blanking applies; and a `require_in` glob that names no file
+    \\is itself a violation — unlike a `files` glob, whose silence only narrows a
+    \\scan, a vacuous requirement is exactly the permissive failure this key kills.
+    \\`literals_from` makes the family TOTAL instead of a snapshot. A hand-written
+    \\`literals` list stops covering an enum the day a variant is added — the new
+    \\wire string joins no family, so no mirror is ever asked for it. Point it at
+    \\the emitting source and every double-quoted string on a line carrying ALL
+    \\the `fragments` joins the family (union with `literals`, deduped, comment
+    \\lines blanked first, escapes NOT resolved — the spelling as written is what
+    \\a mirror copies). `file` and a non-empty `fragments` are both required, and
+    \\an unreadable file or an extraction that yields nothing is a violation, not
+    \\a shrug: an empty family passes every mirror.
     \\Baseline: one violation per (file, concept), keyed `<file>|<name>` — NOT by
     \\the literal or the count. So a baselined offender file is frozen as a
     \\whole, a NEW file fails, and a second drifted literal inside an
-    \\already-frozen file stays frozen. Freeze the counts too with
+    \\already-frozen file stays frozen. The other three rows are keyed for their
+    \\own subjects: a missing mirror literal is `<rule>|<literal>|<file>` (so
+    \\learning one of three spellings resolves exactly that row), an unmatched
+    \\mirror glob is `<rule>|require_in|<glob>`, and a failed extraction is
+    \\`<rule>|literals_from`. Freeze the counts too with
     \\`[baseline] deny_growth = ["concept"]`.
+    },
+    .{ .name = "canonical-idiom", .text =
+    \\Why: an EXPRESSION SHAPE with one canonical implementation gets re-derived
+    \\from scratch everywhere else, because the shape has no name to search for.
+    \\Measured in eda on 2026-08-14, every one of them with the canonical version
+    \\already in the tree: 51 sites splitting a sub-block leaf by hand with
+    \\`lastIndexOfScalar(u8, <x>, '/')` under 8 different function names, 6
+    \\byte-identical `urlDecodeAlloc` wrappers around
+    \\`std.Uri.percentDecodeInPlace`, 8 private tmp+rename atomic writes, and ~24
+    \\private JSON escaper loops in 7 incompatible tiers despite json_writer.zig.
+    \\`[[ban]]` owns a NAME and cannot say it — banning `lastIndexOfScalar` would
+    \\reject every legitimate use of the same std call — and `[[concept]]` owns a
+    \\LITERAL, of which there is none here. Declare one:
+    \\  [[idiom]]
+    \\  name = "subblock-leaf-split"          # kebab-case, unique; names the violation
+    \\  fragments = ["lastIndexOfScalar", "'/'"]   # ALL must appear on ONE line
+    \\  files = ["src/*.zig"]                 # optional scan set; this is the default
+    \\  allow = ["src/subblock.zig"]          # the canonical implementation's home
+    \\  reason = "call subblock.leafOf()"     # REQUIRED — names what to call instead
+    \\Fix: call what the `reason` names. The violation gives the file, the first
+    \\matching line, the column the leftmost fragment starts at, and how many
+    \\lines in that file match, so a 51-site cleanup can be worked file by file.
+    \\Writing a rule: `fragments` is a CONJUNCTION, and that is the whole design.
+    \\One fragment is nearly always either too broad to turn on (`lastIndexOfScalar`
+    \\alone) or so specific it is really a `[[concept]]` literal; two narrow a
+    \\common std call back down to the one expression that means the idiom. Tune a
+    \\new rule with `guardian-check canonical-idiom . --dry-run`, which prints
+    \\every current finding and writes no baseline.
+    \\`reason` is required here, unlike `[[ban]]`/`[[concept]]` where it is merely
+    \\recommended: "you hand-rolled a shape" is unactionable without the name of
+    \\the thing to call, so a rule omitting it is a config error, not a violation
+    \\with a placeholder.
+    \\Exempt: add the path to that rule's `allow` (which is also where the
+    \\canonical implementation itself must be listed — somebody has to write the
+    \\shape once), narrow its `fragments` / `files`, exempt a file from every rule
+    \\with `[[allow]] check = "canonical-idiom"`, or delete the rule.
+    \\guardian.toml and `.guardian/` are always exempt — the rule's own
+    \\declaration writes its fragments on one line.
+    \\Limits: matching is LEXICAL (plain text) and SINGLE-LINE. No regex — a rule
+    \\a reader cannot evaluate in their head is a rule they cannot trust — so
+    \\every fragment is a plain substring. Multi-line idioms are deliberately out
+    \\of scope: a shape spread over four lines has no stable textual form, and the
+    \\scan splits on `\n` before looking, so fragments satisfied on ADJACENT lines
+    \\never match. Blanked before matching, exactly as in `concept`: a line whose
+    \\first non-whitespace opens `//`, a line-leading `/* … */` block in a `.css`
+    \\file, and a whole Zig `test { … }` block wherever a parse tree was available
+    \\— so the migration comment that quotes the idiom, and the golden test that
+    \\pins the canonical helper against it, are not themselves reported. A
+    \\TRAILING comment shares a code line and that line counts whole. `files`
+    \\defaults to `["src/*.zig"]`, and note Guardian's `*` spans `/`: `src/*.zig`
+    \\already means the whole `src` subtree, while a `src/**/*.zig` spelling would
+    \\read as "requires an intermediate directory" and miss `src/main.zig`.
+    \\Baseline: one violation per (rule, file), keyed `<name>|<file>` — NOT by the
+    \\line or the count, so moving a site down a file never churns the ledger. The
+    \\rule comes FIRST (where `concept` puts the file first) because an idiom's
+    \\ledger is read the other way round: "which files still hand-roll THIS
+    \\shape", 51 of them at a time, so a sorted baseline groups one rule's whole
+    \\cleanup campaign together. A baselined file is frozen as a whole and a NEW
+    \\file fails; freeze the counts too with
+    \\`[baseline] deny_growth = ["canonical-idiom"]`.
+    },
+    .{ .name = "twin-parity", .text =
+    \\Why: one capability reachable on several surfaces — a CLI subcommand, an
+    \\HTTP route, an MCP tool — is several implementations of one answer, and
+    \\nothing in a compiler can see that they are meant to agree. They share no
+    \\type, no call, often no file, so they drift while every surface keeps
+    \\passing its own tests. Measured in eda (2026-08-14): ~19 capabilities on 2+
+    \\surfaces, exactly ONE with a test asserting the surfaces return the same
+    \\bytes — and the reimplemented pairs had already diverged into different
+    \\BOM-merge gating, different clamps, and different JSON for one field.
+    \\Declare one:
+    \\  [[twin]]
+    \\  name = "export-pdf"                       # kebab-case, unique
+    \\  surfaces = ["cli:export-pdf", "http:/api/schematic-pdf", "mcp:export_pdf"]
+    \\  parity_test = "pdf export matches"        # substring of the test's name
+    \\Fix: write the test `parity_test` names — one call per surface, asserting
+    \\the same bytes — or point `parity_test` at the test that already does.
+    \\Two rules, and only one of them is a ratchet. A twin that NAMES a
+    \\`parity_test` must have it: a test named in config and absent from the tree
+    \\is a rename nobody propagated or a deletion nobody noticed, never an
+    \\intention, so that one always blocks. A twin that names none is reported as
+    \\`twin-uncovered`, one row per twin, so today's uncovered set freezes in the
+    \\baseline and can only shrink — add `[baseline] deny_growth = ["twin-parity"]`
+    \\and a row that LOSES its parity_test is growth the gate refuses.
+    \\Exempt: there is no path exemption to reach for — the subject is a config
+    \\entry, not a file. Delete the `[[twin]]` row if the capability genuinely
+    \\has one implementation, or add it to the `disabled` list to turn the whole
+    \\registry off.
+    \\Limits: `surfaces` are FREE-FORM labels and nothing resolves them — this
+    \\check has no idea what an MCP tool is, and a per-surface resolver would
+    \\make the registry unwritable for projects shaped differently. What the
+    \\count buys is real: fewer than two surfaces is a config error, because a
+    \\capability with one implementation has nothing to disagree with. Matching a
+    \\`parity_test` is CONTAINMENT against declared test names, not equality, so
+    \\a clarifying rename ("…, including the cover page") does not red the gate.
+    \\The scan walks `.zig` files under `src/` and `test/` — the tests ON DISK,
+    \\never the compiled test set, exactly as the spec check's tag scan does, so
+    \\a -Dtest-filter build sees the same list. Unnamed `test { }` blocks are
+    \\skipped: there is no text a parity_test could match them by. Nothing here
+    \\proves the test is any GOOD — it proves a named test exists, which is the
+    \\difference between a registry that decays and one that does not.
+    \\Baseline: `<kind> <name>` — `parity export-pdf` for the missing test,
+    \\`uncovered export-pdf` for the unproven twin. Keyed apart on purpose (the
+    \\same split `divergent-const` makes between `const <name>` and
+    \\`mirror <file>|<name>`): one shared key would let a FROZEN uncovered row
+    \\absorb the missing-test failure the moment someone adds a `parity_test`
+    \\pointing at a test that does not exist, turning the rule that must always
+    \\block into the one that never does.
     },
     .{ .name = "divergent-const", .text =
     \\Why: one file-scope const NAME holds DIFFERENT values in two files, so two
@@ -504,6 +689,68 @@ const entries = [_]Entry{
     \\third disagreeing copy joins the existing row instead of arriving as a new
     \\violation. A broken mirror is keyed `mirror <file>|<name>` instead: that
     \\one IS a single site's own claim.
+    },
+    .{ .name = "shadowed-const", .text =
+    \\Why: a value that already HAS a name reappears somewhere else as a BARE
+    \\literal — divergent-const's blind spot, and the reason a clean
+    \\divergent-const run is not the same as a consistent tree: it compares one
+    \\NAME across files, so a copy that never got a name is invisible to it.
+    \\Measured in eda (2026-08-14) with divergent-const at zero rows:
+    \\`export_fab.zig` declares `auto_outline_margin_mm = 1.0` while
+    \\`placement/pour.zig` and `placement/route_free_space.zig` each re-derive
+    \\the same rectangle from a bare `1.0` (one comment reads "Replicated here
+    \\to avoid an import cycle"), so changing the constant silently desyncs the
+    \\pour raster from the Edge.Cuts outline; three files hold a `1e-6`
+    \\clearance epsilon under three different names; a `0.05` mm sampling step
+    \\sits bare in two files; a 16 MiB sidecar cap is spelled four ways with one
+    \\256 MiB outlier.
+    \\Fix: import the constant instead of respelling its value. If the copy must
+    \\stay local (a real import cycle), give it a NAME and a
+    \\`/// mirror-of: <path>.zig.<name>` annotation — divergent-const then
+    \\verifies the two are equal, which is the checked version of the comment.
+    \\Declare the gate:
+    \\  [[shadow]]
+    \\  const = "src/export_fab.zig.auto_outline_margin_mm"  # <path>.zig.<name>
+    \\  files = ["src/placement/*.zig"]   # optional; default is every src file
+    \\  ignore = ["src/placement/vendor*"]
+    \\  reason = "the pour raster must follow the same Edge.Cuts outline"
+    \\Zero rules is a zero-config pass. A declared rule is an author's claim, so
+    \\it is verified whatever the auto-mode noise controls say, and a rule whose
+    \\referent resolves to nothing is ITSELF a violation (as a dangling
+    \\twin-referent claim is) — a rule that silently matches nothing reads as a
+    \\guarantee and is not one.
+    \\Modes: `declared` (default) is the precise gate — only the [[shadow]]
+    \\rules. `[shadowed_const] mode = "auto"` is a MEASUREMENT tier: it sweeps
+    \\every unit-suffixed file-scope const (divergent-const's default
+    \\population) and reports bare occurrences of each value elsewhere. Use it
+    \\to size the problem, not to gate — the motivating case above proves the
+    \\difference, since `1.0` is on `ignore_values` and the sweep cannot see it.
+    \\Auto-mode noise controls: `ignore_values` (folded compare, default
+    \\["0","1","-1","2","0.5","10","100","1000"]; set `[]` to ignore nothing),
+    \\`min_float_digits` (default 2) and `min_int_digits` (default 3). Digits are
+    \\counted off the value's shortest round-trip decimal, NOT counting a
+    \\leading zero before the point and counting the zeros after it — which is
+    \\what makes `1e-6` (six) and `0.05` (two) specific while `0.5` (one) is not.
+    \\Exempt: narrow a rule's `files`, add to its `ignore`, exempt a path from
+    \\every rule with `[[allow]] check = "shadowed-const"`, or delete the rule.
+    \\Limits: BARE means unnamed. A literal that IS a named const/var's
+    \\initializer is a name, not a shadow — that is divergent-const's subject,
+    \\with a different fix, and flagging it here would fight magic-number, whose
+    \\whole remedy is "push this literal into a named const". A file that
+    \\declares the value under ANY name is skipped for that value in both modes.
+    \\Everything else counts: an expression operand, a call argument, a struct
+    \\field default, an array length. Comments and string contents are not
+    \\literals at all (the scan reads `number_literal` nodes, never text), and a
+    \\`test` block is skipped, because a test's expected value is supposed to be
+    \\spelled independently of the constant it checks. Values compare FOLDED,
+    \\exactly as in divergent-const (`16 << 20` = `16_777_216`), and only
+    \\file-scope consts can be a target.
+    \\Baseline: one violation per (constant, shadowing file), keyed
+    \\`<referent>|<file>` — so a fourth bare copy in an already-frozen file
+    \\stays frozen, a NEW file fails, and the same file shadowing a different
+    \\constant is its own row. A dangling rule is keyed `rule <referent>`: that
+    \\one is the config's own broken claim, one row however many files it would
+    \\have scanned.
     },
     .{ .name = "twin-referent", .text =
     \\Why: a comment claiming "mirrors X" / "same as Y" / "verified against Z" is
@@ -1264,6 +1511,64 @@ test "explain concept states what is blanked and where a fix may land" {
     try std.testing.expect(std.mem.indexOf(u8, text, "LEAF of the import graph") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "minified bundle") != null);
+    // The two directions the check now reads, and the fail-closed rule each
+    // carries — a reader who plans around "owner only" designs the wrong fix.
+    try std.testing.expect(std.mem.indexOf(u8, text, "require_in") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "fails PERMISSIVELY") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "empty family passes every mirror") != null);
+}
+
+// spec: Twin Parity - Explains the twin-parity check's two rules, its free-form surfaces and its split baseline keys
+
+test "explain twin-parity separates the blocking rule from the coverage ratchet" {
+    const text = lookup("twin-parity").?;
+    // The measurement that justifies the check, so an adopting project can see
+    // the shape of its own problem rather than a rule stated in the abstract.
+    try std.testing.expect(std.mem.indexOf(u8, text, "exactly ONE") != null);
+    // Which rule blocks and which one ratchets: reading them as one rule is how
+    // a project ends up accepting the wrong row.
+    try std.testing.expect(std.mem.indexOf(u8, text, "always blocks") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
+    // The two things a reader otherwise assumes wrongly: surfaces are not
+    // resolved, and the parity_test match is containment.
+    try std.testing.expect(std.mem.indexOf(u8, text, "FREE-FORM labels") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "CONTAINMENT") != null);
+    // And why the two rows are keyed apart at all.
+    try std.testing.expect(std.mem.indexOf(u8, text, "uncovered export-pdf") != null);
+}
+
+// spec: Canonical Idiom - Explains the fragment conjunction, the required reason and the rule-first baseline key
+
+test "explain canonical-idiom states why one fragment is not a rule" {
+    const text = lookup("canonical-idiom").?;
+    // The conjunction IS the design: a reader who takes this for a one-fragment
+    // grep writes a rule that bans an ordinary std call tree-wide.
+    try std.testing.expect(std.mem.indexOf(u8, text, "CONJUNCTION") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "lastIndexOfScalar") != null);
+    // The two things an adopting project otherwise learns by failing: reason is
+    // required here, and the baseline key puts the RULE first.
+    try std.testing.expect(std.mem.indexOf(u8, text, "`reason` is required here") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "keyed `<name>|<file>`") != null);
+    // And the glob trap: `src/**/*.zig` is not this engine's spelling.
+    try std.testing.expect(std.mem.indexOf(u8, text, "src/**/*.zig") != null);
+}
+
+// spec: Import Layering - Separates declared import direction from the cycle check in both explanations
+
+test "explain distinguishes the layering rule check from the cycle check" {
+    // The two read the same graph, so each entry has to say which question it
+    // answers or a reader takes the first one they find and stops.
+    const cycles = lookup("imports").?;
+    try std.testing.expect(std.mem.indexOf(u8, cycles, "this is the CYCLE check") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cycles, "import-layering") != null);
+    const layering = lookup("import-layering").?;
+    try std.testing.expect(std.mem.indexOf(u8, layering, "this is the DIRECTION check") != null);
+    // The three things an adopting project otherwise pays for the hard way: the
+    // exact TOML, that a resolved path is what a glob matches, and that the
+    // baseline freezes one EDGE at a time.
+    try std.testing.expect(std.mem.indexOf(u8, layering, "[[layering]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, layering, "RESOLVED, project-relative paths") != null);
+    try std.testing.expect(std.mem.indexOf(u8, layering, "the EDGE, not the file") != null);
 }
 
 // spec: Explain - Documents the commit meta command

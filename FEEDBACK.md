@@ -6488,6 +6488,8 @@ manifests instead.
 
 - **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
 
+<<<<<<< HEAD
+<<<<<<< HEAD
 ## 2026-08-14 · codex · eda — hard Barracuda perimeter keepout
 
 - **good:** the diff-scoped and whole-tree 75-check gates both passed with zero
@@ -6497,6 +6499,7 @@ manifests instead.
 ## 2026-08-14 · codex · eda — validate fast self-hosted ReleaseSafe toolchain
 
 - **good:** the diff-scoped 75-check gate stayed green (0 blocking, 2 report-only) during a cold 23.92-second full EDA build with the patched compiler, including the newly repaired self-hosted WASM `compiler_rt` path; Guardian remained independent of the experimental toolchain and made the successful end-to-end build unambiguous.
+<<<<<<< HEAD
 
 ## 2026-08-14 · claude (fable) · eda + guardian-zig — system-check wave: integration & eda baseline
 
@@ -6549,3 +6552,172 @@ manifests instead.
 
 - **good:** Guardian caught three real integration mistakes on the first focused run: two unlinked bypass-connectivity requirements and a test fixture returning slices backed by stack storage. The spec links and caller-owned fixture were fixed before the feature test ran, and the final whole-tree 75-check release gate passed with zero blocking findings.
 - **good:** The public-API ratchet made the new final-state `bypass_open.check` entry point explicit; the named acceptance flow previewed, applied, and verified the single-symbol addition cleanly.
+## 2026-08-14 · Claude · guardian-zig — new `canonical-idiom` check with `[[idiom]]` rules
+- **good:** self-hosting made this a clean loop. `zig build test-compile` (~30 s)
+  caught every type error before any test ran, `zig build` reported the two
+  snapshot deltas the new code legitimately caused (pub-api-surface +12 symbols,
+  unsafe-ops-budget +3 `@ptrCast`/`@alignCast` from three new visitor callbacks),
+  and `guardian-check accept <check> .` applied exactly the named refresh with a
+  preview first. `guardian-check commit --intent "..."` then re-gated, ran the
+  suite, staged modified + untracked, and committed — nothing to sequence by hand.
+- **good:** `guardian-check <check> . --dry-run` is the right tool for tuning a
+  brand-new config rule and I reached for it without being told; it made the
+  self-run evidence trivial (temporarily append an `[[idiom]]` to guardian.toml,
+  dry-run, revert). Worth keeping prominent in `explain` for every configured check.
+- **friction:** `walk.matchGlob`'s `*` spans `/`, so `src/*.zig` already means the
+  whole `src` subtree — but the natural `src/**/*.zig` spelling silently means
+  something ELSE (it requires an intermediate directory, so it misses
+  `src/main.zig`). I nearly shipped it as the new check's default `files` value.
+  Nothing in the config docs warns about this and no validation rejects a `**`
+  pattern; a project adopting `[[concept]]`/`[[idiom]]` from muscle memory will
+  write `**` and get a rule that is quietly narrower than it reads. Either
+  normalize `**/` to `*` in `matchGlob`, or reject a literal `**` in a path glob
+  with a diagnostic naming the right spelling.
+- **friction:** advisory (report-only) findings are diff-scoped in a plain
+  `zig build`, so the first run after touching 8 files showed `line-length: 4
+  finding(s)` and a whole-tree run showed 48. Proving "my change added no new
+  advisories" therefore needs two `--full --verbose` runs (one on the base, one
+  on the branch) plus a hand diff, and the second one hit the green cache and
+  printed nothing at all — which reads exactly like "zero warnings". A
+  `--since <ref>` or a per-check advisory delta line ("48 line-length, +0 vs
+  <base>") would turn a five-command investigation into one number.
+- **wish:** the check-count prose in README.md and CLAUDE.md ("75 checks gate the
+  build", "79 registry entries") is hand-maintained and drifts silently when a
+  check is added. A `registry`-derived assertion (or a doc-sync check like eda's
+  `gen-language-docs --check`) would keep those numbers honest for free.
+=======
+## 2026-08-14 · Opus agent · guardian-zig — implement the `shadowed-const` check
+
+- **good:** the gate caught two real bugs in my own new code before commit, both
+  from tests I would have written more loosely without the 1:1 spec-tag rule.
+  `std.zig.parseNumberLiteral` ASSERTS its input begins with a digit, so the new
+  `foldSpelled` (which folds numeric spellings out of `guardian.toml`) panicked
+  the whole test runner on `ignore_values = ["half"]` — a config typo would have
+  aborted the gate. And a significance-floor test asserted the wrong direction,
+  which surfaced that emptying `ignore_values` does not resurrect `0.5`, because
+  the digit floor rejects it independently.
+- **good:** `cognitive-complexity` fired on `config_parser.valueKind` at 26/25
+  the moment I added a fifth branch to it. The extraction it forced
+  (`arrayValueKind` / `externalValueKind` / `shadowedConstValueKind`) is the
+  right shape — the array-table half and the section half of that function had
+  no reason to share a body — and the check found the seam, not me.
+- **friction:** adding a check means touching seven files that must agree
+  (`checks/<name>.zig`, `cli/registry.zig` entry, the `inherently_whole_tree`
+  list, `check.zig`'s test-import aggregator, `cli/explain.zig`, `SPEC.md`,
+  `config*.zig`), and only two of those have a test that fails when you forget
+  them (the explain-entry loop and the whole-tree classification list). Missing
+  the `check.zig` aggregator import is silent: the new file's tests simply never
+  compile. A `guardian-check doctor`-style rule "every file under src/checks is
+  imported by the test aggregator" would close that one cheaply.
+- **friction:** `[[allow]]`-style array tables are ~60 lines of hand-written
+  parser state each (ParseState fields, a reset in `beginArrayTable`, a `flush*`,
+  a `set*Key`, `validArrayKeys`, `valueKind`), all mechanical and all easy to
+  half-do. `[[shadow]]` is the fifth of these; a comptime-generated array-table
+  binding from the Config struct would remove the whole class.
+- **wish:** the config parser has no numeric-array value kind, so
+  `ignore_values` had to be declared as a string array of numeric spellings
+  (`["0", "0.5"]`). That turned out fine — it routes through the same fold the
+  source literals use — but it was a workaround, not a choice.
+- **wish:** `guardian-check <check> . --dry-run` was the single most useful tool
+  for developing a new check against a real tree (33 auto-mode findings on
+  Guardian's own source, written nowhere). It is documented under "single-check
+  introspection"; it deserves to be named in the "how to write a check" path
+  too, since it is the fastest loop available.
+=======
+## 2026-08-14 · Opus agent · guardian-zig — add the `import-layering` check
+
+- **good:** adding a whole new check was near-mechanical, because the wiring is
+  guarded rather than documented. `Command.scope` has no default, so the new
+  registry entry had to classify itself; `test "every registered command has an
+  explain entry"` failed the moment I registered without documenting; the
+  `inherently_whole_tree` list is asserted against the registry so I could not
+  quietly mark a cross-file check narrowable. Four touch-points, each one named
+  by a failing test rather than by a doc I had to find.
+- **good:** `pub-api-surface` printed `delta: 3 new symbol(s), 0 changed, 0
+  removed — pure additions, safe to accept` with the exact accept command on the
+  next line. One run, one env var, done — no guessing whether the drift was mine.
+- **friction:** `twin-referent` false-positived on a *test fixture* path.
+  The comment read "No `src/utils/*` glob can name that raw string — only the
+  resolved, project-relative `src/utils/helpers.zig`", describing
+  `test-project/src/utils/helpers.zig`, a fixture the checked tree deliberately
+  does not contain. `matches` is a claim phrase and the scan looked ahead across
+  the comment run for a `.zig` word, so a sentence *explaining path resolution*
+  read as a claim about Guardian's own source. Cost: one build cycle plus a
+  comment reword that made the sentence slightly worse. A check whose subject is
+  paths cannot avoid writing paths in prose; a claim phrase followed by a path
+  in a **test-local** comment, or one naming a path under a known fixture root
+  (`test-project/`), might deserve to be skipped.
+- **friction:** `debug-print-ban` blocked `std.log.warn` in a **test-only**
+  cleanup helper in `src/checks/`, where `src/baseline.zig` uses byte-identical
+  code — `fs.cwd().deleteFile(path) catch |e| switch (e) { error.FileNotFound
+  => {}, else => std.log.warn("test cleanup {s}: {s}", ...) }` — for the same
+  purpose, legal there only because `src/baseline.zig` sits in an `[[allow]]`
+  list. Cost: one build cycle. The other ban-* checks already exempt uses inside
+  `test {…}` blocks; this one does not exempt a **helper only tests call**, which
+  is the same intent one hoist away. (I switched to `reporter.detail`, which the
+  fix hint suggested and which is arguably better anyway.)
+- **friction:** `test-no-conditional` fired on `catch |e| switch (e)` at the top
+  level of a test body — the idiomatic "ignore FileNotFound, report anything
+  else" cleanup, not a branch over test data. The check's own fix text is about
+  loops and independent branches, so it read as aimed at something else. Cost:
+  one build cycle. Hoisting into a named helper was the right end state, but a
+  `switch` that is the payload of a `catch` is error handling, not a conditional
+  test.
+- **wish:** all three of the above cost one full `zig build` each because they
+  surfaced one at a time — the run reports every failing check, but I could only
+  see the next one after fixing the previous, since each fix changed the file the
+  others were reading. Nothing to fix in Guardian per se; noting it because "3
+  cycles for 3 one-line fixes in one new file" is the shape of the tax on
+  authoring a new check.
+>>>>>>> claude/import-layering
+=======
+## 2026-08-14 · Opus agent · guardian-zig — new `twin-parity` check + `[[concept]]` require_in/literals_from
+
+- **bug:** `zig build mutate` **silently reverted a source edit made while it
+  was running.** The mutation runner journals a file's original bytes before
+  splicing a mutant; I edited `src/checks/concept.zig` during the run, and when
+  I SIGINT'd the run the journal restored the pre-run snapshot — wiping ~10
+  lines I had just written, with no warning and a clean-looking `git status`
+  (the file was still "modified", just modified to the wrong content). I only
+  noticed because `git diff --stat` reported 5 fewer inserted lines than the
+  edit should have produced. The journal is doing exactly what it documents;
+  what is missing is that nothing tells a concurrent editor the tree is
+  hazardous. Suggestions, cheapest first: `mutate` could print a one-line
+  "source files are spliced in place — do not edit the tree until this
+  finishes" banner at start; `recover`/`finish` could compare the file's
+  current mtime/hash against the recorded MUTATED bytes and, when it matches
+  neither the mutant nor the original, refuse to restore and say so rather
+  than overwriting third-party edits.
+- **friction:** the fast mutation tier is unusably slow on this repo because
+  each mutant rebuilds `guardian-check` at **ReleaseSafe** (`zig build-exe
+  -OReleaseSafe ... --cache-dir .guardian/cache/zig-mutate`). With
+  `fast_max_mutants = 8` the run had produced no output after 15 minutes and I
+  abandoned it. Guardian's own docs are emphatic that a debug `guardian-check`
+  is a 40x gate tax, so the ReleaseSafe default makes sense for the INSTALLED
+  binary — but the mutation child build is a throwaway that only has to run
+  tests, and debug there would trade ~90 s of LLVM per mutant for a few
+  hundred ms of extra test time.
+- **good:** the check-authoring path is genuinely additive: one file in
+  `src/checks/`, one registry entry, one `check.zig` import, one `explain`
+  entry, SPEC bullets. `Command.scope` having no default forced the
+  whole-tree/per-file decision at compile time, and the `inherently_whole_tree`
+  assertion caught that I had to declare it in two places. Nothing else in the
+  suite needed touching to get baselining, `--list`/`--dry-run`, the JSONL
+  sink, `deny_growth` and the accept flow for free.
+- **good:** `Violation.identity` made the "two rules, one check" design safe.
+  `twin-parity` reports both a missing-parity-test failure (must always block)
+  and an uncovered-twin row (must freeze and ratchet down); keying them
+  `parity <name>` / `uncovered <name>` instead of sharing `<name>` is what
+  stops a FROZEN uncovered row from absorbing the missing-test failure. I
+  verified it end-to-end against a scratch project: with `uncovered
+  fab-package` in the baseline, adding a `parity_test` naming a nonexistent
+  test still produced "1 new violation(s) above baseline of 2" and exit 1.
+- **good:** `deny_growth` behaved exactly as documented on the new check — a
+  twin that LOSES its `parity_test` both fails the plain gate and is refused by
+  `accept` ("acceptance refused because the configured deny_growth policy would
+  grow recorded debt: twin-parity|uncovered fab-package"), with the pre-run
+  `.guardian` state restored. Worth knowing (and correctly documented) that the
+  guard compares COUNTS, so a swap — one row resolving while another appears —
+  is not growth.
+>>>>>>> claude/twin-parity
+>>>>>>> claude/system-checks

@@ -358,8 +358,9 @@ discoverable only by reading the check's source.
 | **function-length** | Warn above `max_lines` (default 120); fail above `hard_max_lines` (default 400); at ≥95% of the hard limit the function draws the same un-collapsible `NEAR HARD CAP` line |
 | **nesting-depth** | Any fn body with brace nesting over `max_depth` (default 5) |
 | **type-size** | Any pub struct/enum/union over `max_fields` (default 7) |
-| **imports** | Cycles in the `@import` graph |
-| **boundaries** | Forbidden `@import` paths per module rules |
+| **imports** | Cycles in the `@import` graph. The structural half of the import gate: derived from the graph alone, exempt from nothing, always a defect. Declared DIRECTION is the separate `import-layering` check below |
+| **import-layering** *(configured)* | An `@import` edge a `[[layering]]` entry forbids: the source file is covered by the rule's `from` globs, the RESOLVED target path is covered by its `to` globs, and no `allow` glob exempts the source. The declared-architecture half of the import gate — a layering edge is perfectly acyclic and compiles fine; it is wrong only because the project said which way its layers point. Motivating case (eda, 2026-08-14): a core-layer `src/kicad_pcb/import_layout_command.zig` importing `src/serve/pcb_layout_import.zig`, because the sidecar-persistence helper it wants lives in `serve/`. `[[boundary]]` cannot express it — its `forbidden` side is a bare substring with no allow list and no reason, so it cannot carve out the one sanctioned adapter every real layering rule needs. `name` (kebab-case, unique), `from`, `to` and `reason` are all required; a rule missing any of them is a config error rather than an entry that reads like an architecture while enforcing nothing. Targets are matched on resolved, project-relative paths (the `../serve/x.zig` a core file actually writes is judged as `src/serve/x.zig`), so a glob is written once; `std`/`builtin`/`root` and package imports are not paths and are never candidates. One violation per (rule, source file, target file), keyed `<rule>|<from>|<to>` — the EDGE, not the file, so a coupling surface under baseline mode falls one import at a time (eda's `serve/` → placement internals: 38 files, 35 of them straight into a 12.3k-line `optimizer.zig`) and a second forbidden import inside an already-frozen file still fails. Exempt a file from all rules with `[[allow]] check = "import-layering"`; no entries = a trivial pass |
+| **boundaries** | Forbidden `@import` paths per module rules. The older, narrower form of the same idea, kept as it is: one module glob and a bare substring `forbidden` list, no allow list and no reason |
 | **orphan-files** | A .zig file unreachable from any configured root via `@import` |
 | **test-reachability** | A .zig file that declares `test` blocks no test root REFERENCES — Zig never compiles those tests, and the spec check no longer counts their `// spec:` tags as covered (it reports them instead). Reachability follows the referencing edges, not every textual `@import`: `_ = @import("x.zig")`, `_ = alias`, `@import("x.zig").member`, `refAllDecls`, and any import alias the file actually uses — an import nobody mentions compiles nothing. Roots come from `[test_reachability] roots`, else `src/main.zig` / `src/root.zig` / `src/test_root.zig` / `src/tests.zig` / each `.zig` directly under `test/`; when no root resolves the check skips instead of blocking. It also holds that model against ground truth: `guardian-check commit` records how many tests its own run selected (the runner's `guardian/test: N test(s) selected` line), and a run that compiled FEWER tests than the roots reach is reported as a count gap — the model cannot see a reference sitting in code no test analyzes, and the measurement can |
 | **test-coverage** *(opt-in)* | A pub fn with no identifier reference from any test block |
@@ -449,9 +450,16 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
+<<<<<<< HEAD
 | **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+| **canonical-idiom** *(configured)* | An EXPRESSION SHAPE named by an `[[idiom]]` entry, found on a line of a file the rule's `allow` list doesn't cover. The gap between the other two ownership checks: `[[ban]]` owns a NAME and `[[concept]]` owns a LITERAL, and neither can express a shape assembled out of ordinary std calls — which is exactly the form an agent re-derives from scratch every time, because it has no name to search for. Measured in the flagship consumer (2026-08-14), each with the canonical version already in the tree: **51** sites hand-rolling a sub-block leaf split as `lastIndexOfScalar(u8, <x>, '/')` under **8** different function names, **6** byte-identical `urlDecodeAlloc` wrappers around `std.Uri.percentDecodeInPlace`, **8** private tmp+rename atomic writes, and **~24** private JSON escaper loops in **7** incompatible tiers despite `json_writer.zig`. `fragments` is a **conjunction** — a LINE matches only when EVERY fragment appears on it — and that is the whole design: it narrows a legitimate std call back down to the one expression that means the idiom, where banning `lastIndexOfScalar` outright would reject every honest use of it. Plain substrings, no regex, and **single-line only** (multi-line shapes are deliberately out of scope: fragments satisfied on adjacent lines never match). `files` scopes the scan, default `["src/*.zig"]` — note Guardian's `*` spans `/`, so that already means the whole `src` subtree while a `src/**/*.zig` spelling would read as "requires an intermediate directory". `allow` names the canonical home (somebody has to write the shape once). `reason` is **required**, unlike `[[ban]]`/`[[concept]]`: "you hand-rolled a shape" is unactionable without the name of the thing to call, so omitting it is a config error rather than a violation with a placeholder. Comment lines and Zig `test` blocks are blanked before matching (shared with `concept` via `lexical_scan.zig`), so the migration note quoting the idiom and the golden test pinning the canonical helper are not themselves reported. One violation per (rule, file) naming the matching-line count and the first line + column; keyed `<name>|<file>` — rule FIRST, because an idiom's ledger is read as "which files still hand-roll THIS shape", so a sorted baseline groups one rule's whole cleanup campaign. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+=======
+| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. **`require_in` reads the same relation the other way**: those files must EACH spell EVERY literal, so a mirror the project decided to keep cannot quietly fall behind — the case being a DRC kind string renamed in Zig that left the viewer's hand-mirrored JS branch dead, past 531 grep-marker tests, with the JS gate table failing PERMISSIVELY on the rename. A required mirror is owner-equivalent (never also drift), `patterns` are excluded (a wildcard names a shape, not a spelling), a comment-only mention does not satisfy it, and a `require_in` glob naming no file is itself a violation. **`literals_from = { file, fragments }` makes the family TOTAL**: every double-quoted string on a line of `file` carrying ALL the `fragments` joins (union with `literals`, deduped, comments blanked, escapes NOT resolved), so a new enum variant enrols itself — an unreadable file or an empty extraction is a violation, because an empty family passes every mirror. Keyed `<rule>|<literal>|<file>`, `<rule>|require_in|<glob>` and `<rule>|literals_from`. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+>>>>>>> claude/twin-parity
 | **divergent-const** | One file-scope `const NAME` holding **different** values in 2+ files — `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the `.kicad_mod` writer, `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two. Note the polarity against repeated-string-literal: same name + same value is harmless here, same name + DIFFERENT value is the risk. Values are compared FOLDED (`16 << 20` = `16 * 1024 * 1024` = `16_777_216`, `1_000_000` = `1_000_000.0`); an initializer that does not fold to a number is skipped. Default `mode = "units"` groups only names whose trailing `_` segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …); `mode = "all"` groups every name and `ignore_names` exempts the generic ones. A `/// mirror-of: <path>.zig.<name>` doc annotation exempts a const from the divergence rule and instead requires it to EQUAL that referent. Keyed by the NAME |
+| **shadowed-const** | A value that already HAS a name reappearing somewhere else as a **bare literal** — divergent-const's blind spot, since that check compares one NAME across files and a copy that never got a name is invisible to it. Measured in eda (2026-08-14) with divergent-const at zero rows: `export_fab.zig` declares `auto_outline_margin_mm = 1.0` while `placement/pour.zig` and `placement/route_free_space.zig` each re-derive the same rectangle from a bare `1.0` ("Replicated here to avoid an import cycle"), so changing the constant silently desyncs the pour raster from the Edge.Cuts outline; three files hold a `1e-6` clearance epsilon under three names; a `0.05` mm step sits bare in two files. Two modes: `declared` (default) is the **gate** — one `[[shadow]]` rule per constant that matters, `const = "<path>.zig.<name>"` (the `mirror-of:` referent spelling) plus optional `files`/`ignore`/`reason`, zero rules is a zero-config pass, and a rule whose referent resolves to nothing is itself a violation. `[shadowed_const] mode = "auto"` is a **measurement** tier: it sweeps every unit-suffixed file-scope const and reports bare occurrences elsewhere, filtered by `ignore_values` (folded compare) and the `min_float_digits`/`min_int_digits` floors. BARE means unnamed — a literal that IS a named const's initializer is divergent-const's subject, comments and strings are not literals at all, `test` blocks are skipped, and a file declaring the value under any name is skipped for it. Keyed `<referent>|<file>` |
 | **twin-referent** | A comment CLAIMING a relationship (`mirrors`, `same as`, `twin of`, `in lockstep with`, `verified against`, `matches`) whose named referent does not resolve — a doc pointing at a deleted function, a file that was split into a directory, `optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Precision by construction: the phrase alone is never reported, only a phrase followed IN THE SAME SENTENCE by something code-shaped — a word ending in `.zig` (no glob, non-empty basename) or a dotted chain rooted in a module of the tree. Resolution is containment, not semantics: a path must name an indexed file (exactly or as a tail at `/`), a chain's final symbol must be declared, named as a field, or dereferenced anywhere in the tree; `std.*` / `builtin.*` are skipped. A hard-coded `file.zig:120-160` range is reported outright. Keyed `<file>|<referent>` |
+| **twin-parity** *(configured)* | A capability a `[[twin]]` entry says is reachable on 2+ surfaces (a CLI subcommand, an HTTP route, an MCP tool) with nothing proving the surfaces still agree. Nothing in a compiler can see that three implementations are meant to return one answer — they share no type, no call, often no file — so they drift while every surface keeps passing its own tests. Measured in eda (2026-08-14): ~19 capabilities on 2+ surfaces, exactly ONE with a test asserting the surfaces return the same bytes, and the reimplemented pairs already diverged into different BOM-merge gating, different clamps, and different JSON for one field. Two rules: a twin NAMING a `parity_test` must have it (a test named in config and absent from the tree is a rename nobody propagated — that one always blocks), and a twin naming none is reported as `twin-uncovered`, one row per twin, so today's uncovered set freezes and can only shrink (`[baseline] deny_growth = ["twin-parity"]` then refuses a row that LOSES its test). `surfaces` are free-form labels nothing resolves — the count is what is enforced, since fewer than two is a config error. Matching is CONTAINMENT against test names declared under `src/` and `test/` on disk (never the compiled test set), so a clarifying rename does not red the gate. Keyed `parity <name>` / `uncovered <name>` — apart on purpose, so a frozen uncovered row can never absorb the missing-test failure |
 | **duplicate-json-key** | One function writing the same `"key":` twice into the same JSON object — last-wins today, a `SyntaxError` under any strict reader. Scoped by OBJECT SEGMENT so a function writing two sibling objects is silent: a `{`/`}` a literal actually emits (`{{`/`}}` included) ends a segment, and so does a completed call between two literals, an `else` / switch `=>` / `return` (alternatives, not a sequence). A format placeholder (`{d}`, `{s}`) is a value, not a brace. A literal must also be an argument to a call that WRITES (`print`/`write`/`format`/`append`), so `std.mem.indexOf(u8, body, "\"dnp\":true")` is not a write. Test blocks are never scanned. Keyed `<file>|<fn>|<key>` |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
@@ -778,7 +786,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 79 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 80 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1453,6 +1461,79 @@ owner = ["src/board_layers.zig"]
 files = ["src/*.zig", "assets/*.css"]
 reason = "layer names come from board_layers.LayerTable"
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+# Your own owned expression shapes, enforced by the `canonical-idiom` check. Use
+# one when a SHAPE — not a name, not a literal — has a canonical implementation
+# and keeps getting re-derived: a leaf split, a percent-decode wrapper, a
+# tmp+rename atomic write, a JSON escaper. name: kebab-case and unique; it names
+# every violation and is half of its baseline key. fragments: plain substrings,
+# ALL of which must appear on ONE line — the conjunction is what separates the
+# idiom from every honest use of the same std call. files: what THIS rule scans
+# (any extension), default ["src/*.zig"], which under Guardian's `/`-spanning
+# `*` already means the whole src subtree. allow: where the canonical
+# implementation lives, and anywhere else the shape is blessed. reason:
+# REQUIRED — name what to call instead; it closes every violation.
+[[idiom]]
+name = "subblock-leaf-split"
+fragments = ["lastIndexOfScalar", "'/'"]
+files = ["src/*.zig"]
+allow = ["src/subblock.zig"]
+reason = "call subblock.leafOf() — 51 sites hand-rolled this under 8 names"
+=======
+# Your own import DIRECTIONS, enforced by the `import-layering` check. Use one
+# when a layer may only be depended on, never depend back — the edge is acyclic
+# and compiles fine, so the `imports` (cycle) check has nothing to say about it.
+# name: kebab-case and unique; it names every violation and leads its baseline
+# key. from: the source files the rule constrains. to: what they may not import,
+# matched on RESOLVED project-relative paths (the `../serve/x.zig` a core file
+# writes is judged as `src/serve/x.zig`). allow: the one sanctioned adapter
+# inside `from` that may cross. reason: which way the layer points and why —
+# appended to every violation. Everything but `allow` is required, because each
+# way of being incomplete reads like a declared architecture while enforcing
+# nothing. Under baseline mode each EDGE freezes on its own, which is what lets
+# a 38-file coupling surface fall one import at a time.
+[[layering]]
+name = "core-no-serve"
+from = ["src/kicad_pcb/*", "src/placement/*"]
+to = ["src/serve/*"]
+allow = ["src/kicad_pcb/serve_adapter.zig"]
+reason = "sidecar persistence lives in serve/; the format layer must not reach up into the web layer"
+>>>>>>> claude/import-layering
+=======
+# The same relation read the OTHER way, plus a family that reads itself.
+# require_in: mirrors that must EACH spell EVERY literal (owner says "only
+# here"; require_in says "and definitely there"). A required mirror is
+# owner-equivalent, so it is never also reported as drift; a require_in glob
+# that names no file is a violation, because a deleted mirror would otherwise
+# make the requirement vacuously true. literals_from: read the family out of
+# the owner instead of listing it — every double-quoted string on a line of
+# `file` carrying ALL of `fragments` joins (union with `literals`, deduped,
+# comment lines blanked first). That is what makes the family TOTAL over an
+# emitting switch: a new enum variant enrols itself, so a mirror missing it
+# fails with nobody editing this file.
+[[concept]]
+name = "drc-kinds"
+literals_from = { file = "src/drc/kind.zig", fragments = ["=> \""] }
+owner = ["src/drc/kind.zig"]
+require_in = ["assets/viewer.js"]
+reason = "DRC kind strings come from drc.Kind.wire"
+
+# Your own multi-surface capabilities, enforced by the `twin-parity` check. Use
+# one when the SAME answer is reachable from more than one place — a CLI
+# subcommand, an HTTP route, an MCP tool — because nothing in a compiler can see
+# that those implementations are supposed to agree, and they drift while every
+# surface keeps passing its own tests. name: kebab-case and unique; it is the
+# baseline row. surfaces: free-form labels, at least two (nothing resolves them;
+# one surface is a capability, not a twin). parity_test: a substring of the name
+# of the test asserting the surfaces return the same bytes — omit it and the
+# twin is reported as `twin-uncovered`, one frozen row, so coverage ratchets up.
+[[twin]]
+name = "export-pdf"
+surfaces = ["cli:export-pdf", "http:/api/schematic-pdf", "mcp:export_pdf"]
+parity_test = "pdf export matches"
+>>>>>>> claude/twin-parity
+
 # divergent-const: one file-scope const NAME holding DIFFERENT values in two
 # files. Default `mode = "units"` groups only names whose trailing `_` segment
 # is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, ...) — a physical quantity is where
@@ -1461,6 +1542,24 @@ reason = "layer names come from board_layers.LayerTable"
 [divergent_const]
 mode = "units"
 ignore_names = ["eps", "margin"]
+
+# shadowed-const: one [[shadow]] rule per constant whose value must not be
+# re-spelled as a bare literal elsewhere. `const` is the mirror-of referent
+# spelling; `files`/`ignore` scope the scan; `reason` ends every violation.
+[[shadow]]
+const = "src/export_fab.zig.auto_outline_margin_mm"
+files = ["src/placement/*.zig"]
+ignore = ["src/placement/vendor*"]
+reason = "the pour raster must follow the same Edge.Cuts outline"
+
+# The auto sweep is a MEASUREMENT tier, not a gate: it hunts every unit-suffixed
+# file-scope const's value, so it needs noise controls the declared rules above
+# deliberately ignore.
+[shadowed_const]
+mode = "declared"
+ignore_values = ["0", "1", "-1", "2", "0.5", "10", "100", "1000"]
+min_float_digits = 2
+min_int_digits = 3
 
 # twin-referent: globs silencing one "mirrors X / same as Y" claim, matched
 # against the commenting file's path AND the referent text.
@@ -1478,11 +1577,29 @@ commit, nightly, or mutation can update metadata.
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
 unknown names, malformed values, incomplete
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]` entries, a `[[ban]]` chain
-segment that isn't a bare identifier, a `[[concept]]` name that isn't kebab-case
-or that a previous entry already used, and unsafe mutation ranges are hard errors
+<<<<<<< HEAD
+<<<<<<< HEAD
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[idiom]]` entries, a `[[ban]]`
+chain segment that isn't a bare identifier, a `[[concept]]`/`[[idiom]]` name that
+isn't kebab-case or that a previous entry already used, an `[[idiom]]` missing its
+required `reason`, and unsafe mutation ranges are hard errors
+=======
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[layering]]` entries, a
+`[[ban]]` chain segment that isn't a bare identifier, a `[[concept]]` or
+`[[layering]]` name that isn't kebab-case or that a previous entry already used,
+and unsafe mutation ranges are hard errors
+>>>>>>> claude/import-layering
 with a `guardian.toml:line:` diagnostic). String arrays may span lines and
 include comments and trailing commas.
+=======
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[twin]]` entries, a
+`[[ban]]` chain segment that isn't a bare identifier, a `[[concept]]`/`[[twin]]`
+name that isn't kebab-case or that a previous entry already used, a `[[twin]]`
+with fewer than two `surfaces`, a malformed `literals_from` table, and unsafe
+mutation ranges are hard errors with a `guardian.toml:line:` diagnostic). String
+arrays may span lines and include comments and trailing commas; an inline table
+is a single-line value.
+>>>>>>> claude/twin-parity
 
 | Scope | Keys |
 |---|---|
@@ -1490,7 +1607,18 @@ include comments and trailing commas.
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
+<<<<<<< HEAD
 | `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns` (at least one of the two required), `owner`, `files`, `reason` |
+<<<<<<< HEAD
+| `[[idiom]]` | `name` (required, kebab-case, unique), `fragments` (required, non-empty), `files` (default `["src/*.zig"]`; may not be an empty array), `allow`, `reason` (**required**) |
+=======
+| `[[layering]]` | `name` (required, kebab-case, unique), `from` (required, non-empty), `to` (required, non-empty), `reason` (required), `allow` |
+>>>>>>> claude/import-layering
+=======
+| `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns`, `literals_from` (at least one of the three required), `owner`, `files`, `require_in`, `reason` |
+| `[[concept]] literals_from` | inline table, one line: `file` (required, non-empty), `fragments` (required, non-empty string array) |
+| `[[twin]]` | `name` (required, kebab-case, unique), `surfaces` (required, 2+ entries), `parity_test` |
+>>>>>>> claude/twin-parity
 | `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1524,6 +1652,7 @@ include comments and trailing commas.
 | `[int_from_float]` | `guard_fns`, `require_guard` |
 | `[measurement]` | `paths` |
 | `[divergent_const]` | `ignore_names`, `mode` (`"units"` (default) \| `"all"`) |
+| `[shadowed_const]` | `mode` (`"declared"` (default) \| `"auto"`), `ignore_values`, `min_float_digits`, `min_int_digits` |
 | `[twin_referent]` | `ignore` |
 
 ## Measurement mode (`[measurement]`)
@@ -1695,8 +1824,8 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 75 check(s) passed
-  run-all: 75 checks — 0 blocking, 3 report-only
+  run-all: 76 check(s) passed
+  run-all: 76 checks — 0 blocking, 3 report-only
   run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```

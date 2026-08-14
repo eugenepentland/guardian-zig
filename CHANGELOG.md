@@ -6,6 +6,146 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+- New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
+  ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
+  chain and `[[concept]]` owns a literal spelling; neither can express an
+  EXPRESSION SHAPE built out of ordinary std calls, which is the form an agent
+  re-derives from scratch every time because there is no name to search for.
+  Measured in the flagship consumer on 2026-08-14, each with a canonical
+  implementation already in the tree: 51 sites hand-rolling a sub-block leaf
+  split as `lastIndexOfScalar(u8, <x>, '/')` under 8 different function names,
+  6 byte-identical `urlDecodeAlloc` wrappers around
+  `std.Uri.percentDecodeInPlace`, 8 private tmp+rename atomic writes, and ~24
+  private JSON escaper loops in 7 incompatible tiers despite `json_writer.zig`.
+  A rule declares `fragments`, and the CONJUNCTION is the design: a LINE matches
+  only when every fragment appears on it, which narrows a legitimate std call
+  back down to the one expression that means the idiom. `files` scopes the scan
+  (default `["src/*.zig"]` — Guardian's `*` spans `/`, so that is already the
+  whole subtree), `allow` names the canonical home, and `reason` is REQUIRED
+  (an idiom finding is unactionable without the name of the thing to call, so a
+  rule omitting it is a config error rather than a violation with a
+  placeholder). One violation per (rule, file) keyed `<name>|<file>` — rule
+  first, because an idiom's ledger is read as "which files still hand-roll THIS
+  shape", so a sorted baseline groups one rule's whole cleanup campaign.
+  Multi-line idioms are deliberately out of scope.
+- The comment/`test`-block blanking and the every-extension glob walk that
+  `concept` introduced move to `src/checks/lexical_scan.zig`, shared with
+  `canonical-idiom`. The two relational checks now cannot disagree about what a
+  lexical scan may judge, and the second one gains the exemptions that made the
+  first one's frozen ledger real instead of re-deriving them.
+=======
+- New check `shadowed-const`, closing `divergent-const`'s recorded blind spot:
+  a value that already HAS a name reappearing somewhere else as a BARE literal.
+  divergent-const compares one NAME across files, so a copy that never got a
+  name is invisible to it — which is why zero rows there is not the same as a
+  consistent tree. The eda audit (2026-08-14) that produced this found
+  `export_fab.zig` declaring `auto_outline_margin_mm = 1.0` while
+  `placement/pour.zig` and `placement/route_free_space.zig` each re-derive the
+  same rectangle from a bare `1.0` (one comment reads "Replicated here to avoid
+  an import cycle"), so changing the constant silently desyncs the pour raster
+  from the Edge.Cuts outline; plus three files holding a `1e-6` clearance
+  epsilon under three names, a `0.05` mm step bare in two files, and a 16 MiB
+  sidecar cap spelled four ways with one 256 MiB outlier. Two modes, and the
+  split is the product: `declared` (the default) is the GATE — a `[[shadow]]`
+  rule per constant that matters, `const = "<path>.zig.<name>"` in the same
+  referent spelling `/// mirror-of:` already uses, plus optional
+  `files`/`ignore`/`reason`; zero rules is a zero-config pass, a declared rule
+  is verified whatever the noise controls say, and a rule whose referent
+  resolves to nothing is ITSELF a violation (the dangling-claim behavior
+  `twin-referent` established). `[shadowed_const] mode = "auto"` is a
+  MEASUREMENT tier that sweeps every unit-suffixed file-scope const and reports
+  bare occurrences elsewhere, filtered by a folded-compare `ignore_values` list
+  and the `min_float_digits`/`min_int_digits` floors — deliberately not the
+  default, because it reports 33 rows on Guardian's own tree of which 30 are a
+  power-of-two I/O buffer size, and because the motivating case above is
+  invisible to it (`1.0` is on the ignore list). BARE means unnamed: a literal
+  that IS a named const/var's initializer is a NAME, which is divergent-const's
+  subject with a different fix and is what `magic-number` asks you to create;
+  comments and strings are not literals at all (the scan reads `number_literal`
+  nodes, never text); `test` blocks are skipped; and a file declaring the value
+  under any name is skipped for that value. Findings are keyed
+  `<referent>|<file>`, so a fourth bare copy in a frozen file stays frozen while
+  a new file fails. The numeric fold and the unit-segment table move out of
+  `divergent_const.zig` into a shared `checks/const_fold.zig` — two copies of a
+  numeric fold is precisely the debt these checks exist to find — and
+  `foldNumber` gains a leading-digit guard, since `std.zig.parseNumberLiteral`
+  ASSERTS its input starts with a digit and a config-supplied spelling would
+  otherwise have panicked the gate.
+>>>>>>> claude/shadowed-const
+
+=======
+- New `import-layering` check: project-declared import DIRECTIONS, configured
+  with `[[layering]]` entries (`name`, `from`, `to`, `allow`, `reason`). It is
+  the declared-architecture half of the import gate; `imports` keeps the
+  structural half (cycles) and the two share the graph and nothing else. Two
+  findings from an eda audit on 2026-08-14 motivated it. One upward edge —
+  `src/kicad_pcb/import_layout_command.zig` importing
+  `src/serve/pcb_layout_import.zig`, because the sidecar-persistence helper it
+  wants lives in `serve/` — which is acyclic, so `imports` passed, and which
+  `[[boundary]]` could name but not carve an exception in (its `forbidden` side
+  is a bare substring with no allow list and no reason). And a 38-file coupling
+  surface, `serve/` reaching into placement internals with 35 direct imports of
+  a 12.3k-line `optimizer.zig`, which a planned `placement/model.zig`
+  extraction wants to ratchet down rather than fix in one commit: violations are
+  keyed `<rule>|<from>|<to>` — one per EDGE, not per file — so baseline mode
+  freezes today's 38, fails the 39th, and lets the count fall one import at a
+  time while a second forbidden import inside an already-frozen file still
+  fails. Targets are matched on the RESOLVED, project-relative paths
+  `import_graph` already normalizes, so a `to` glob is written once against the
+  spelling every importer shares; `std`/`builtin`/`root` and package imports are
+  never candidates. `name`, `from`, `to` and `reason` are all required — each
+  way of being incomplete reads in the config like an enforced architecture
+  while enforcing nothing, so it is a located config error instead. No entries
+  is the zero-config default and the check passes without walking a file.
+>>>>>>> claude/import-layering
+=======
+- New check `twin-parity` and its `[[twin]]` table: the committed registry of
+  capabilities a project exposes on more than one surface, and whether anything
+  proves the surfaces still agree. A CLI subcommand, an HTTP route and an MCP
+  tool that all "export the PDF" are three implementations of one answer; they
+  share no type, no call and often no file, so nothing in a compiler can see
+  they are meant to match, and they drift while every surface keeps passing its
+  own tests. Measured in the flagship consumer (eda, 2026-08-14): ~19
+  capabilities on 2+ surfaces, exactly ONE with a test asserting the surfaces
+  return the same bytes, and the reimplemented pairs had already diverged into
+  different BOM-merge gating, different clamps, and different JSON for the same
+  field. A rule declaring `parity_test` must have a test whose name CONTAINS
+  that string (containment, so a clarifying rename does not red the gate) —
+  that one always blocks, since a test named in config and absent from the tree
+  is never intentional. A rule declaring none is reported as `twin-uncovered`,
+  one row per twin, so today's uncovered set freezes in the baseline and can
+  only shrink; `[baseline] deny_growth = ["twin-parity"]` then refuses a row
+  that LOSES its test. `surfaces` are free-form labels nothing resolves, but
+  fewer than two is a config error — a capability with one implementation has
+  nothing to disagree with. The two rows are keyed apart (`parity <name>` /
+  `uncovered <name>`) so a frozen uncovered row can never absorb the
+  missing-test failure.
+- `[[concept]]` gains `require_in` and `literals_from` — the totality direction
+  of the same relation, and a family that reads itself. Ownership is permissive
+  ("only the owner may spell it") and cannot see the failure that hurts most: a
+  mirror the project decided to keep, which quietly stops matching. In eda
+  (2026-08-12, commit 51bff373) a DRC kind string was renamed in Zig and the
+  viewer's hand-mirrored JS branch went dead — 531 grep-marker tests missed it
+  because no marker watched that string, and the JS side's 8-entry `DRC_BLOCK`
+  gate table fails PERMISSIVELY on a rename (an unrecognised kind simply stops
+  blocking). `require_in` names those mirrors and demands EVERY literal of the
+  family in EACH of them; a required mirror is owner-equivalent (never also
+  reported as drift), `patterns` are excluded (a wildcard names a shape, not a
+  spelling), a comment-only mention does not satisfy it, and a `require_in`
+  glob that names no file is itself a violation rather than a vacuous pass.
+  `literals_from = { file, fragments }` makes the family TOTAL instead of a
+  snapshot: every double-quoted string on a line of `file` carrying ALL the
+  fragments joins (union with `literals`, deduped, comment lines blanked first,
+  escapes not resolved), so a new enum variant enrols itself and a mirror
+  missing it fails with nobody editing guardian.toml. An unreadable file or an
+  extraction that yields nothing is a violation — an empty family passes every
+  mirror. The config parser gains single-line inline-table values, and the
+  concept check now prints one `fix:` line per remedy present instead of one
+  shared line that could name the wrong problem.
+>>>>>>> claude/twin-parity
 - The `concept` scan no longer judges comment lines or Zig `test` blocks. The
   first real branch composition on the flagship consumer produced 16 findings
   of which 15 were doc comments and golden-value test assertions — and because
