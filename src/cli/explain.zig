@@ -622,9 +622,10 @@ const entries = [_]Entry{
     \\Why: `if`/`while`/`switch` (or extra `for`) at a test's top level usually
     \\means the test only checks one branch, or skips silently.
     \\Fix: split into separate tests, or drive inputs table-style with asserts.
-    \\For the multi-loop case the finding names the loop that asserts nothing —
-    \\that fixture-building loop is the one to lift into a helper, leaving the
-    \\asserting loop in the test.
+    \\A test may keep ONE top-level loop; every further loop belongs in a named
+    \\helper. The multi-loop finding names the loop to hoist: the assertion-free
+    \\fixture builder when there is one, otherwise the extra loop itself (which
+    \\can also be merged into the first, table-style).
     \\Exempt: none — restructure the test. Disable only as a last resort.
     },
     .{ .name = "test-skip-ban", .text =

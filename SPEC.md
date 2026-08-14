@@ -121,6 +121,7 @@ blocking correctness checks and advisory maintainability guidance.
 - camelCase pub fn must not return type
 - snake_case pub fn is rejected
 - pub const struct/enum/union with fields must be PascalCase
+- Exempts a field-less namespace struct from the PascalCase rule
 - SCREAMING_SNAKE container-scope const is rejected
 
 ## Function Size
@@ -209,6 +210,13 @@ blocking correctness checks and advisory maintainability guidance.
 ## Migrate
 
 - Persists a deferred metadata format re-key as one deliberate step
+
+## Command Ergonomics
+
+- Names an unrecognized command in an error line before the help listing
+- Suggests the direct check spelling after a run or check verb
+- Reports a quiet accept as before and after counts with the metadata paths that moved
+- Parses the tree once for every pass of one accept
 
 ## Explain
 
@@ -465,6 +473,8 @@ lives in a fixed-size buffer.
 - Tracks unsafe-cast builtin counts against a snapshot
 - Tracks undefined re-assignment count against a snapshot
 - Excludes declaration-init undefined and test blocks from counts
+- Counts a doc-commented declaration init as a declaration
+- Reports the file and line of each undefined re-assignment
 
 ## Type Size
 
@@ -522,6 +532,7 @@ lives in a fixed-size buffer.
 - Identifies a repeated literal by the literal itself
 - Caps pub fn methods per pub struct/enum/union
 - Caps the percentage of optional fields in a public struct
+- Skips a struct with fewer than four fields
 - Rejects switch expressions whose case keys are string literals
 
 ## Tier 3 Architectural Fitness
@@ -806,6 +817,7 @@ without an explained `--force`.
 - Requires every test block to contain at least one std.testing.expect call
 - Rejects if/while/switch and extra for loops at the top level of a test body
 - Names the assertion-free loop as the one to extract
+- Names a loop to hoist when every top-level loop asserts
 - Identifies a flagged construct by its test and keyword
 - Rejects production code @import-ing test files
 

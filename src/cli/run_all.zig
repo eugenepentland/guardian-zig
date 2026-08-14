@@ -55,6 +55,24 @@ const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "history
 /// Skips `spec-init` (a generator, not a gate). The `all` command itself
 /// is dispatched outside the registry, so it never recurses.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
+    return runCollecting(ctx, null);
+}
+
+/// What one pass found, for a caller that REPORTS on the pass instead of
+/// letting it print — `accept --quiet`, whose whole output is the accepted
+/// check's before/after counts. Filled from the same records the JSONL sink
+/// stores, so the summary and `last-run.jsonl` can never disagree.
+pub const PassSummary = struct {
+    /// Blocking violation records this pass collected.
+    findings: usize = 0,
+    /// Checks that failed (blocking), 0 on a green pass.
+    failed: u32 = 0,
+};
+
+/// `run`, additionally reporting the pass's outcome through `out`. Every exit
+/// path that ran checks fills it; a cache-skipped pass leaves it untouched
+/// (a filtered pass — the only kind that asks — never skips).
+pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void {
     // Validate the disabled list up front: a typo like "magic-numbers" would
     // otherwise silently disable nothing while the user believes it's off.
     try validateDisabled(ctx.cfg.disabled);
@@ -141,6 +159,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var acc: Sink = .{};
     const tally = try runChecks(ctx, &ran, &acc);
     const failed = tally.failed;
+    if (out) |o| o.* = .{ .findings = acc.records.items.len, .failed = failed };
 
     // A diff-scoped run is partial in exactly the sense a --only/--skip run is:
     // some checks saw only part of the tree. It therefore shares the filtered
@@ -258,8 +277,10 @@ fn prepareSources(
     if (decision.wholeTree()) |reason| reporter.ok("run-all: whole-tree run — {s}", .{reason});
     const plan: ?scope.Plan = decision.plan();
     if (!anyNeedsAst(ctx) and plan == null) return;
-    index.* = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
-    ctx.source_index = index;
+    if (parsesTree(ctx.source_index != null, anyNeedsAst(ctx), plan != null)) {
+        index.* = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
+        ctx.source_index = index;
+    }
     if (plan) |p| {
         scoped.* = try p.indexSubset(ctx.allocator, index);
         ctx.scoped = .{
@@ -270,6 +291,18 @@ fn prepareSources(
         };
     }
     announceScope(ctx);
+}
+
+/// Whether this pass must read and parse the tree itself. It needs an index
+/// when any check needs an AST or the run is scoped (the narrowed view is a
+/// slice of those entries) — but it parses only when the CALLER has not already
+/// installed one. `accept` runs three passes over one unchanged tree (preview,
+/// update, verify), and re-parsing it per pass was two thirds of the command's
+/// cost on a project where a check costs real seconds. Nothing a pass writes is
+/// source, so a shared parse cannot go stale mid-command.
+fn parsesTree(caller_supplied: bool, needs_ast: bool, scoped: bool) bool {
+    if (caller_supplied) return false;
+    return needs_ast or scoped;
 }
 
 /// The one-line banner a diff-scoped run prints before any check runs. Routed
@@ -1023,8 +1056,13 @@ fn isPartial(filtered: bool, diff_scoped: bool) bool {
 /// allocates through the shared arena.
 fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) CheckResult {
     var cap: reporter.Capture = .{ .allocator = a };
+    // Restore rather than clear: a worker thread starts with no capture, but the
+    // preflight and the sequential fill run on the MAIN thread, which a caller
+    // (accept --quiet) may already be capturing. Clearing dropped that caller's
+    // capture for the rest of the run.
+    const prior = reporter.default.capture;
     reporter.default.capture = &cap;
-    defer reporter.default.capture = null;
+    defer reporter.default.capture = prior;
 
     var wctx = base.*;
     wctx.allocator = a;
@@ -1277,6 +1315,20 @@ fn anyNeedsAst(ctx: *const types.RunCtx) bool {
 }
 
 // spec: Run All - Skips checks whose name appears in the disabled config list
+// spec: Command Ergonomics - Parses the tree once for every pass of one accept
+
+test "a caller-supplied source index is not rebuilt per pass" {
+    // accept runs preview + update + verify over one unchanged tree: every pass
+    // needs the index, none of them may re-parse for it.
+    try std.testing.expect(!parsesTree(true, true, false));
+    try std.testing.expect(!parsesTree(true, false, true));
+    // Without a supplied index nothing changes: a pass parses when an AST check
+    // runs or the run is diff-scoped, and skips the parse entirely otherwise.
+    try std.testing.expect(parsesTree(false, true, false));
+    try std.testing.expect(parsesTree(false, false, true));
+    try std.testing.expect(!parsesTree(false, false, false));
+}
+
 // spec: Run All - Rejects unknown check names in the disabled list
 // spec: Run All - Tolerates retired check names in the disabled list
 // spec: Run All - Emits captured output when not quiet or when a check fails or warns
