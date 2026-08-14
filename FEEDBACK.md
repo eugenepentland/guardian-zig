@@ -6043,3 +6043,70 @@ manifests instead.
   0.00s` on a cached run compounds it (reads as "nothing ran"). If the banner is
   the Zig build runner's and not Guardian's, a Guardian-side "verdict: OK" line
   printed after it would settle the question without anyone having to know that.
+
+## 2026-08-14 · Claude · eda — deferred deploys (`Deploy: skip` trailer + debounce timer)
+
+- **good:** the gate stayed out of the way for a change that was almost entirely
+  shell + systemd + docs. `zig build --seed=1 test` in a fresh worktree came
+  back 0 blocking, and the pre-commit whole-tree run was 75 checks / 0 blocking
+  with no findings against the new `.githooks/*.sh` or `scripts/*.sh` files.
+  That is the right call — these are shell seams, not Zig — but see the wish
+  below, because it also means the 34-assertion behaviour test I wrote for them
+  is invisible to Guardian and to `zig build test`.
+- **wish:** a way to register a non-Zig test command so Guardian knows it
+  exists. This repo now has three shell/python test scripts under `scripts/`
+  (`test_kicad_sync_layout.py`, `verify_kicad_sch.sh`, and my new
+  `test_deploy_debounce.sh`) that nothing runs automatically and nothing
+  notices going stale. A `[tests] extra = ["scripts/test_*.sh"]` that Guardian
+  merely *lists* in `debt`/`doctor` output ("3 registered non-Zig test scripts,
+  last modified N days before the code they cover") would be enough — I am not
+  asking Guardian to run them, just to stop them being invisible. The failure
+  mode is concrete: `test_deploy_debounce.sh` stubs `deploy-prod.sh` by
+  string-matching a comment (`# Bootstrap the rollback target`), so an innocent
+  edit to that comment silently turns the test into a no-op, and nothing in the
+  gate would say so.
+- **friction (repeat, from my earlier entry today):** the `failed command: cd .
+  && ./.zig-cache/o/<hash>/test ...` banner on a PASSING run bit me a second
+  time in one session. I hit it on the first gate, remembered, and still had to
+  append `; echo "EXIT=${PIPESTATUS[0]}"` to every invocation because the banner
+  is the LAST line of output — the thing you read first when a command returns.
+  Two sessions' worth of the same re-read is what makes this worth fixing rather
+  than tolerating.
+- **good:** `guardian-check` finishing the whole-tree pre-commit run in ~1 s
+  meant I could commit deploy infrastructure without thinking about the gate at
+  all. For a change where the real risk was "does the systemd unit parse" and
+  "does the debounce actually reset", the gate correctly cost nothing and left
+  the attention budget where it belonged.
+
+## 2026-08-14 · codex · eda — click-to-inspect 2.5D trace analysis
+
+- **good:** the first diff-scoped gate found real structural debt in the new
+  solver before commit: `type-size` forced flat 18/11-field analysis records
+  into target/summary/electrical groups, `cognitive-complexity` split the
+  32-point `analyzeNet` into graph/build/order stages, and `function-size`
+  caught the resulting seven-parameter traversal helper. `spec`,
+  `doc-comments`, and formatting also supplied direct fixes; the selective
+  `pub-api-surface` acceptance then changed only the 13 intended declarations.
+- **friction:** Guardian's source and prebuilt binary changed during the task.
+  Selfcheck first rejected the stale binary, while a source-compiled run made
+  later matching-prebuilt runs warn that the matching binary was older than
+  the last gate. No correctness result was lost, but distinguishing repository
+  drift from task failures cost an extra source-compiled 75-check run.
+
+## 2026-08-14 · claude · eda — cleanup-wave integration + baseline shrink
+
+- good: the per-check `accept` flow did exactly what the cleanup needed —
+  three sequential single-check accepts pruned 187 resolved rows (concept
+  140→14, boundaries 66→7, duplicate-json-key 2→0) as pure deletions, and the
+  checks' own "N resolved (run accept to prune)" hint made the state legible.
+- friction: the deploy worker's dirty-worktree guard refuses BEFORE candidate
+  adoption is attempted. Adoption installs a prebuilt verified artifact and
+  builds nothing from the working tree, so a dirty unrelated file (a parallel
+  session's live edit in the main checkout) blocked a deploy whose inputs were
+  entirely commit-keyed: merge ca90ce6f had a tree-identical verified
+  candidate and still failed with "refusing dirty worktree". Suggest checking
+  for an adoptable tree-matching candidate first and applying the dirty guard
+  only on the build fallback.
+- good: five parallel agent branches all gated green through `scripts/gate.sh`
+  queueing without a single lock collision, and the merge-commit gates caught
+  nothing because each branch had already run the same 75 checks.

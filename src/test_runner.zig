@@ -41,6 +41,20 @@
 //! `test_timing.zig` for the reasoning, including why the caps are opt-in and
 //! why none of them is a watchdog.
 //!
+//! And every exit path ends in one VERDICT line — `PASS — N passed` or
+//! `FAIL — F failed of N` — printed last, in both modes, off the same
+//! `timing.Verdict` the exit status is read from. Without it a `zig build test`
+//! transcript never states its own answer: Zig's build runner writes a run
+//! step's `failed command: …` banner before any verdict exists and erases it
+//! only on the success path, so a piped green run ends on that banner and reads
+//! as a failure (fifteen-plus consumer reports in two days, each costing a
+//! re-run). Guardian cannot unprint another program's line; it can be the last
+//! word. The one seam: in SERVER mode a failing test still exits this process
+//! 0, because the build system already has that test's result over the protocol
+//! and treats a nonzero runner exit as "the runner itself broke", discarding
+//! every per-test result. The verdict line reports the run's true state there
+//! while the build system reports the status.
+//!
 //! Protocol parity with the stock runner: it speaks `std.zig.Server` over stdio
 //! when the build system passes `--listen=-`, and reports to the terminal when
 //! run directly. Deviations: the exotic-backend paths (SPIR-V, the `mainSimple`
@@ -95,6 +109,11 @@ const missing_error_trace =
     "guardian/test: assertion location unavailable because this optimized test module disabled error-return tracing\n" ++
     "guardian/test: fix: call guardian.enableTestDiagnostics(test_mod), or use guardian.addTestCompileProbe with that module\n";
 
+/// Verdict reason when the zero-match guard stops the run before any test.
+const empty_selection_verdict = "nothing the filter named ran";
+/// Verdict reason when the runner itself gave up (`fatal`).
+const runner_aborted_verdict = "the runner aborted before the suite finished";
+
 // Process-lifetime state. A test runner is an entry point: the log counter, the
 // argv arena, the protocol buffers, and the fuzz flag are all singletons of the
 // process, exactly as they are in the stock runner (see the ban-globals
@@ -127,6 +146,10 @@ var timing_caps: timing.Caps = .{};
 // `over.count` is how many there were — which can be larger than the list.
 var over_list: [timing.max_offenders]timing.Slow = undefined;
 var over: timing.Over = .{};
+/// What this run produced, folded in test by test. Server mode has nowhere else
+/// to keep it: each result goes straight out over the protocol and is gone, so
+/// without this the closing verdict would have no counts to state.
+var run_tally: timing.Tally = .{};
 
 /// Command line as this runner reads it. `stored` counts the filters captured
 /// into `filter_storage`; `filters` counts how many were passed.
@@ -262,7 +285,18 @@ fn announce(args: Args) void {
         .filters = args.filters,
     }, optOutActive(readEnv(allow_empty_env)));
     writeErr(rendered.text);
-    if (rendered.fatal) std.process.exit(1);
+    if (!rendered.fatal) return;
+    announceVerdict(.{ .aborted = empty_selection_verdict });
+    std.process.exit(1);
+}
+
+/// Prints the run's ONE closing verdict line. Every exit path routes through
+/// here, and the caller decides its status from the same `timing.Verdict`, so a
+/// PASS line can never sit above a nonzero exit (or the reverse).
+fn announceVerdict(verdict: timing.Verdict) void {
+    @disableInstrumentation();
+    var buf: [report_buffer_bytes]u8 = undefined;
+    writeErr(timing.renderVerdict(&buf, verdict));
 }
 
 /// How many tests in this binary a forwarded filter actually names. Null when
@@ -374,12 +408,14 @@ fn writeErr(bytes: []const u8) void {
     Io.File.stderr().writeStreamingAll(runner_io, bytes) catch return;
 }
 
-/// Prints `message` and exits nonzero. This file is the process entry point, so
+/// Prints `message`, closes with a FAIL verdict so no exit path is silent about
+/// its own outcome, and exits nonzero. This file is the process entry point, so
 /// the raw exit is the sanctioned one (see the fatal-exit check).
 fn fatal(message: []const u8) noreturn {
     writeErr(prefix);
     writeErr(message);
     writeErr("\n");
+    announceVerdict(.{ .aborted = runner_aborted_verdict });
     std.process.exit(1);
 }
 
@@ -400,7 +436,17 @@ fn mainServer() !void {
                 reportTimings();
                 // The build system has already collected every test's result;
                 // a broken cap fails the run here, after all of them reported.
-                return std.process.exit(if (capsFailed()) 1 else 0);
+                const verdict: timing.Verdict = .{
+                    .tally = run_tally,
+                    .caps_broken = capsFailed(),
+                };
+                announceVerdict(verdict);
+                // Only the caps decide THIS process's status. A failing test is
+                // already on the wire, and Zig's Run step discards every
+                // per-test result when the runner exits nonzero ("the test
+                // runner itself broke"), so exiting on `verdict.failed()` here
+                // would trade all failure attribution for a redundant code.
+                return std.process.exit(if (verdict.caps_broken) 1 else 0);
             },
             .query_test_metadata => try serveMetadata(&server),
             .run_test => try serveOneTest(&server, try server.receiveBody_u32()),
@@ -461,6 +507,8 @@ fn serveOneTest(server: *std.zig.Server, index: u32) !void {
     };
     const leak_count = deinitTestState();
     recordDuration(builtin.test_functions[index].name, elapsedSince(started));
+    // `log_err_count` was zeroed above, so it holds THIS test's errors.
+    recordResult(if (fail) .fail else if (skip) .skip else .pass, leak_count, log_err_count);
 
     try server.serveTestResults(.{
         .index = index,
@@ -545,17 +593,16 @@ fn fuzzTestIndex(name: []const u8) ?u32 {
     return null;
 }
 
-/// Tally of one terminal-mode run.
-const Tally = struct {
-    ok: usize = 0,
-    skip: usize = 0,
-    fail: usize = 0,
-    leak: usize = 0,
-
-    fn failed(self: Tally) bool {
-        return self.fail != 0 or self.leak != 0 or log_err_count != 0;
-    }
-};
+/// Folds one finished test into the run tally — the single place either mode
+/// counts, so the closing verdict cannot disagree with what ran. `leak_count`
+/// is that test's leaked allocations (any is one leaking test) and `log_errs`
+/// its logged errors.
+fn recordResult(status: timing.Status, leak_count: usize, log_errs: usize) void {
+    @disableInstrumentation();
+    run_tally.record(status);
+    if (leak_count != 0) run_tally.leak +|= 1;
+    run_tally.log_err +|= log_errs;
+}
 
 /// Runs every test and reports to the terminal — the path taken when the binary
 /// is executed directly instead of through the build system.
@@ -567,44 +614,47 @@ fn mainTerminal() void {
         .estimated_total_items = tests.len,
     });
 
-    var tally: Tally = .{};
     for (tests, 0..) |test_fn, i| {
         initTestState(0xc3a701ba);
         testing.log_level = .warn;
         is_fuzz_test = false;
         const node = root_node.start(test_fn.name, 0);
         const started = Io.Clock.awake.now(runner_io);
-        runOneTest(test_fn, i, &tally);
-        if (deinitTestState() != 0) tally.leak += 1;
+        const status = runOneTest(test_fn, i);
+        // Terminal mode never zeroes `log_err_count`, so it is summed once
+        // below rather than per test.
+        recordResult(status, deinitTestState(), 0);
         recordDuration(test_fn.name, elapsedSince(started));
         node.end();
     }
     root_node.end();
-    writeSummary(tally, tests.len);
+    run_tally.log_err = log_err_count;
+    writeSummary(run_tally, tests.len);
     reportTimings();
-    if (tally.failed() or capsFailed()) std.process.exit(1);
+    const verdict: timing.Verdict = .{ .tally = run_tally, .caps_broken = capsFailed() };
+    announceVerdict(verdict);
+    if (verdict.failed()) std.process.exit(1);
 }
 
-/// Runs one test, printing a line for anything that is not a plain pass.
-fn runOneTest(test_fn: std.builtin.TestFn, index: usize, tally: *Tally) void {
+/// Runs one test, printing a line for anything that is not a plain pass, and
+/// reports what it was.
+fn runOneTest(test_fn: std.builtin.TestFn, index: usize) timing.Status {
     @disableInstrumentation();
     var buf: [report_buffer_bytes]u8 = undefined;
     test_fn.func() catch |err| {
         if (err == error.SkipZigTest) {
-            tally.skip += 1;
             writeErr(std.fmt.bufPrint(&buf, "{d} {s}...SKIP\n", .{ index + 1, test_fn.name }) catch "");
-            return;
+            return .skip;
         }
-        tally.fail += 1;
         writeErr(std.fmt.bufPrint(&buf, "{d} {s}...FAIL ({s})\n", .{
             index + 1,
             test_fn.name,
             @errorName(err),
         }) catch "");
         dumpFailureTrace();
-        return;
+        return .fail;
     };
-    tally.ok += 1;
+    return .pass;
 }
 
 /// Prints the assertion's error-return trace, or an actionable explanation for
@@ -619,8 +669,10 @@ fn dumpFailureTrace() void {
     writeErr(missing_error_trace);
 }
 
-/// Prints the closing counts, matching the stock runner's wording.
-fn writeSummary(tally: Tally, total: usize) void {
+/// Prints the closing counts, matching the stock runner's wording. Terminal
+/// mode only: the server protocol reports each result as it happens, so this
+/// path is never reached under `zig build test`.
+fn writeSummary(tally: timing.Tally, total: usize) void {
     var buf: [report_buffer_bytes]u8 = undefined;
     if (tally.ok == total) {
         writeErr(std.fmt.bufPrint(&buf, "All {d} tests passed.\n", .{tally.ok}) catch "");
@@ -631,8 +683,8 @@ fn writeSummary(tally: Tally, total: usize) void {
             tally.fail,
         }) catch "");
     }
-    if (log_err_count != 0) {
-        writeErr(std.fmt.bufPrint(&buf, "{d} errors were logged.\n", .{log_err_count}) catch "");
+    if (tally.log_err != 0) {
+        writeErr(std.fmt.bufPrint(&buf, "{d} errors were logged.\n", .{tally.log_err}) catch "");
     }
     if (tally.leak != 0) {
         writeErr(std.fmt.bufPrint(&buf, "{d} tests leaked memory.\n", .{tally.leak}) catch "");

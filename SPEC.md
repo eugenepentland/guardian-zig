@@ -702,6 +702,14 @@ lives in a fixed-size buffer.
 - Fails the run when the total test time exceeds the opt-in wall cap
 - Leaves both caps disabled when their variables are absent, empty, or zero
 
+## Test Runner Verdict
+
+- Ends a green run with a PASS line stating the passed count, and the skipped count when any were skipped
+- Ends a failing run with a FAIL line stating how many tests failed of how many ran
+- Adds a leak count, a logged-error count, or a broken time cap to the failing verdict
+- States the reason instead of the counts when a run ends before its suite finished
+- Reads the printed verdict and the run's exit status off one predicate
+
 ## Build Helper
 
 - Points a consumer test binary at the runner file that ships with Guardian
