@@ -6722,3 +6722,8 @@ manifests instead.
   accurate and the retry then passed all 79 checks.
 - **good:** the focused Debug regression, commit gate, and final whole-tree gate
   all accepted the one-condition DRC scope correction without unrelated debt.
+
+## 2026-08-14 · codex · eda — persist assembly model sprites
+
+- **good:** the first diff-scoped run caught three concrete integration obligations at once: duplicate SPEC tags for two cache behaviors, two unintended public handler additions, and a new `@bitCast` outside the unsafe-ops budget. Splitting the requirements, routing through the existing public handler, and hashing a textual transform resolved all three before commit; the final 79-check whole-tree gate had zero blockers.
+- **friction:** Guardian source advanced during the task, so the first `prepare-release.sh` attempt stopped at the stale-prebuilt selfcheck. Rebuilding Guardian and restarting the exact-commit gate cost one extra release attempt before the full tests/build could begin.
