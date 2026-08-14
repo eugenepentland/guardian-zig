@@ -870,6 +870,7 @@ without an explained `--force`.
 - Skips a line-leading comment when counting occurrences
 - Counts a trailing comment on a code line as an occurrence
 - Skips a Zig test block's occurrences when a parse tree is available
+- Parses a globbed Zig file so its test blocks are exempt there too
 - Reports one violation per file and concept with the occurrence count and lines
 - Names the missing owner and reason when a rule declares neither
 - Caps the listed occurrence lines and keeps the full count

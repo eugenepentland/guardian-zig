@@ -407,11 +407,18 @@ fn rulesNaming(
 /// Reads and scans one globbed file against the rules that named it. Matching
 /// happens BEFORE the read, so a glob that names `*.css` never opens the
 /// repository's binaries — and a file a rule did name is read whatever its
-/// extension.
+/// extension. A globbed `.zig` parses its own tree: a broad rule names
+/// `src/**` alongside its JS and CSS, and a test block is exempt wherever the
+/// file was reached — the shared index serves only the no-`files` scan.
 fn scanGlobbedFile(ctx: *ScanCtx, dir: fs.Dir, name: []const u8, rel_path: []const u8) !void {
     const rules = try rulesNaming(ctx.allocator, ctx.rules, rel_path);
     if (rules.len == 0) return;
     const content = try dir.readFileAlloc(ctx.allocator, name, glob_read_limit);
+    if (std.mem.endsWith(u8, rel_path, ".zig")) {
+        const source = try ctx.allocator.dupeSentinel(u8, content, 0);
+        var tree = try Ast.parse(ctx.allocator, source, .{});
+        return ctx.scanWith(rel_path, source, &tree, rules);
+    }
     try ctx.scanWith(rel_path, content, null, rules);
 }
 
@@ -829,6 +836,31 @@ test "scanGlobs never judges a file against another rule's files glob" {
     try scanGlobs(&ctx, root, "");
     try testing.expectEqual(@as(usize, 1), violations.items.len);
     try testing.expectEqualStrings("assets/theme.css|layer-colors", violations.items[0].identity.?);
+}
+
+// spec: Concept Ownership - Parses a globbed Zig file so its test blocks are exempt there too
+
+test "scanGlobs exempts test blocks in a Zig file a files glob names" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // "hello world" occurs in the fixture only inside `test "join"`; the
+    // debug-print spelling occurs in `pub fn main`. A rule that reaches the
+    // file through a `files` glob must exempt the first and flag the second —
+    // the glob path parses its own tree, since the shared index serves only
+    // the no-`files` scan. The second rule doubles as proof the file was read
+    // at all, so the zero cannot be the glob silently matching nothing.
+    const rules = [_]config.ConceptRule{
+        .{ .name = "greeting", .literals = &.{"hello world"}, .owner = &.{"src/greeting.zig"}, .files = &.{"src/main.zig"} },
+        .{ .name = "debug-print", .literals = &.{"std.debug.print"}, .owner = &.{"src/logging.zig"}, .files = &.{"src/main.zig"} },
+    };
+    var violations: std.ArrayList(reporter.Violation) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .rules = &rules, .skip = &.{}, .violations = &violations };
+    var root = try fs.cwd().openDir("test-project", .{ .iterate = true });
+    defer root.close();
+    try scanGlobs(&ctx, root, "");
+    try testing.expectEqual(@as(usize, 1), violations.items.len);
+    try testing.expectEqualStrings("src/main.zig|debug-print", violations.items[0].identity.?);
 }
 
 // spec: Concept Ownership - Scans a globbed non-Zig file and ignores paths no glob names
