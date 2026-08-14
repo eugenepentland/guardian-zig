@@ -6110,3 +6110,70 @@ manifests instead.
 - good: five parallel agent branches all gated green through `scripts/gate.sh`
   queueing without a single lock collision, and the merge-commit gates caught
   nothing because each branch had already run the same 75 checks.
+
+## 2026-08-14 · Claude · eda — merging two branches while `mutate-full` held the main checkout
+
+- **friction (the expensive one):** a LIVE `zig build mutate-full` keeps the main
+  checkout permanently dirty — it mutates a tracked file, tests, reverts, moves
+  on — and nothing anywhere says that is what is happening. I found
+  `src/eval/env.zig` with `containsString`'s `return false` flipped to `return
+  true`, which reads exactly like a human's abandoned debugging edit. I only got
+  the right answer by finding `.guardian/cache/mutant-in-flight.json` and
+  matching its `rel_path`/offsets. Then I reverted the file, and a DIFFERENT file
+  went dirty two seconds later — which is how I finally worked out a mutation
+  run was live rather than crashed. Cost: ~10 minutes of investigation, one
+  pointless `git checkout --` that raced the running tool, and a genuinely
+  dangerous near-miss (that mutant was one `git merge` away from landing on
+  main, and `containsString` has eight call sites).
+- **wish:** make a running mutation run announce itself in a way a human or
+  agent trips over BEFORE touching the tree. Two cheap options, either would
+  have saved the whole detour: (a) a lock/marker file with a human-readable
+  name — `.guardian/MUTATION-RUN-IN-PROGRESS` containing pid, start time and
+  the file currently mutated — since anyone confused by a dirty tree greps
+  `.guardian/` early; or (b) have `guardian-check` refuse/warn on `commit` and
+  have `prepare-release`-style callers detect it, with the message "a mutation
+  run owns this working tree (pid N, started HH:MM) — its dirty files are
+  mutants, do not commit them". Right now the only in-tree evidence is a 140 KB
+  JSON blob whose name (`mutant-in-flight`) is accurate but which nobody thinks
+  to look at when the symptom is "why is main dirty".
+- **good:** `SIGINT` to the run's process group was completely clean. Every
+  process exited, the in-flight mutant was restored, and `git status` came back
+  empty with `env.zig` back to `return false` — no manual repair, no stale
+  partial file. For a tool that edits tracked source in place, that is exactly
+  the behaviour you want and it is worth protecting with a test.
+- **good:** the tree-keyed release candidate did its job twice. Both merges
+  adopted the branch's own candidate for an identical tree
+  (`adopted verified candidate for identical tree eab6c576ebce`) and prod was
+  restarted and health-checked in about one second instead of a ~4 minute
+  rebuild. The whole-tree `--full` gate inside `prepare-release` was 4 s of the
+  244 s wall, so the gate is now free relative to the build it guards.
+
+## 2026-08-14 · codex · eda — Gerber-derived editor copper and shared pour holes
+
+- **good:** the full 2,797-test release gate caught a stale browser source-contract marker after the implementation moved drilled bores from the semantic pad pass to exact Excellon readback; the focused failure named the one test and source line, and the corrected contract passed immediately.
+- **friction:** `prepare-release.sh` produced two green exact-commit candidates that became unmergeable because `main` advanced during each ~4.4 minute concurrent test/build run. The feature stayed isolated after a third advancement; a safe queue/lease around final rebase-and-merge would avoid repeating expensive gates without weakening the exact-commit guarantee.
+
+## 2026-08-14 · Opus 5 · eda — GPU pour bake reads TH.padTop/padBot instead of hardcoded hexes
+
+- **good:** the `[[concept]]` test-block exemption (comments + `test` blocks skipped)
+  made the fix's golden safe to write: the new negative assertions in
+  `static_assets.zig` spell the forbidden lowercase `#c83434`/`#4d7fc4` literally,
+  and adding those spellings to `layer-palette`'s literal list would still not flag
+  them because they sit inside a `test` block. Exactly the split the check promises.
+- **friction:** the drift being fixed hid from the `layer-palette` concept rule by
+  a case difference alone — the rule's literals are `#C83434`/`#4D7FC4`, the stray
+  read site spelled them lowercase, and lexical matching is case-sensitive. Hex
+  colours have no canonical case in CSS/JS. A per-rule `case_insensitive = true`
+  (or case-folding for `#hex`-shaped literals) would have caught this years-old
+  drift; today the owner must remember to list both spellings per colour.
+- **good:** gate mechanics were smooth throughout: pre-commit ran the 75-check
+  suite with 0 blocking on the first commit; the full-suite run correctly failed
+  a `zig fmt --check`-only regression (2780/2780 tests green, fmt red) rather
+  than letting formatting ride in; `prepare-release` published its candidate in
+  252 s wall (tests 83 s ∥ build 244 s).
+- **wish:** a filtered/full `zig build test` prints `Build Summary: 17/19 steps
+  succeeded (1 failed)` on a fmt failure, but a wrapper that captures only the
+  child's exit code can misread the `failed command:` banner (which also prints
+  on green runs as pre-verdict noise). A single final `guardian/gate: PASS|FAIL`
+  line on stdout would make the verdict machine-readable without parsing the
+  build summary.
