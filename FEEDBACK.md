@@ -5685,3 +5685,58 @@ manifests instead.
   refreshed only the eight intentional parser/serializer symbols; the custom
   merge driver then combined that snapshot cleanly with 159 upstream API rows.
   The exact-commit gate passed 75 checks, 2,780 tests, and the release build.
+
+## 2026-08-14 · claude · eda — clear the frozen divergent-const + twin-referent baselines
+- **good:** `explain divergent-const` was the most useful single artifact in the
+  session. It states the POLARITY outright (same name + same value is the
+  harmless case; only differing values are the risk) — the genuinely
+  counter-intuitive bit, since `repeated-string-literal` runs the other way —
+  and names the `mode = "units"` grouping and the folded-value comparison. That
+  let me classify all ten rows as rename-vs-unify without guessing, and the
+  worked example cites eda's own `silk_stroke_mm` case verbatim, so I started at
+  the right file instead of surveying.
+- **good:** `divergent-const` caught a real shipped defect, not a style nit.
+  netlisp parses ONE `(silkscreen …)` form per footprint and was plotting it at
+  0.15 mm in its own Gerbers (`export_gerber.silk_w_mm`) while writing
+  `(stroke (width 0.12))` into the `.kicad_mod` KiCad handoff — below the
+  standard-process minimum silk line width. 0.12 had never been chosen for silk
+  at all: it was KiCad's *documentation-layer* editor default that drifted onto
+  a manufactured layer. One board, two descriptions. Nothing else in the suite
+  can see this: the two values sit in different files with no shared symbol.
+- **good:** the `mirror-of:` escape hatch works as advertised, and works when
+  the local const has a DIFFERENT name from its referent — I annotated
+  `serve/mcp_close_gaps.fine_corridor_margin_mm` as `mirror-of:
+  src/placement/fine_window.zig.window_margin_mm`, and a deliberate 3.5 -> 3.6
+  drift was reported with both values and both file:line locations. That
+  converted a prose "Matches fine_window.margin_mm" comment into a checked
+  invariant. Worth documenting the differing-name case in `explain`: its example
+  uses the same name on both sides, so I had to test it to find out.
+- **friction:** neither relational check will name WHICH baseline rows are still
+  live. `guardian-check twin-referent .` reported "4 resolved" against 8 frozen
+  rows and `--verbose` printed the identical one-line summary, so to find which
+  4 still dangled I reimplemented the check's own resolution rule by hand
+  (grepping each referent symbol/path against the tree) across all 8 sites.
+  Same again mid-cleanup on `divergent-const`: "7 resolved", no list, re-derive
+  the remaining 3. A `--list` or per-entry live/resolved split would have saved
+  ~20 minutes and a dozen greps. The 2026-08-13 entry asks for this from
+  `debt --prune-stale`; this is the same wish from the other end.
+- **friction:** the two relational checks can fight each other silently. A
+  rename that resolves `divergent-const` can CREATE a `twin-referent` violation,
+  because a comment elsewhere still names the old symbol —
+  `serve/mcp_close_gaps.zig` carried ``/// Matches `fine_window.margin_mm` ``,
+  so renaming that const to `window_margin_mm` would have left a dangling claim.
+  Both checks sit in this project's `deny_growth`, so the gate would have failed
+  on a change whose entire purpose was satisfying the other check. I only caught
+  it by grepping for qualified cross-file references before renaming. Guardian
+  already builds the referent index this needs — warning "N comment(s) name this
+  symbol" when a declaration is renamed in the diff would close the loop.
+- **wish:** a `divergent-const` finding names only the const, never its sites.
+  Getting from `const max_footprint_bytes` to "six files, four at 1 MiB and two
+  at 256 KiB" was a manual grep each time. The check must already hold the
+  file:line:value tuples in order to compare them; printing them would make each
+  row self-triaging.
+- **good:** the whole-tree gate stayed cheap throughout — `guardian-check all .`
+  ~1 s per iteration on the prebuilt ReleaseSafe binary, so I could re-check
+  after every edit rather than batching, and the final `scripts/gate.sh zig
+  build --seed=1 test` came back 75 checks / 0 blocking / 2779 tests with an
+  unchanged re-run as a cached no-op.
