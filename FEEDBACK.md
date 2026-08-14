@@ -5740,3 +5740,63 @@ manifests instead.
   after every edit rather than batching, and the final `scripts/gate.sh zig
   build --seed=1 test` came back 75 checks / 0 blocking / 2779 tests with an
   unchanged re-run as a cached no-op.
+
+## 2026-08-14 · Claude · eda — clear 5 rules of frozen concept/duplicate-json-key debt
+- **bug:** `guardian-check explain concept` states "A hit inside a comment or a
+  string counts." That is wrong for comments, and I planned around the wrong
+  model for a while because of it. Empirically the scanner strips `//` and `///`
+  comments AND whole `test { … }` blocks before matching: `src/eval/env.zig`
+  scored 2 for `design-rule-field-names` while carrying 5 textual hits (three in
+  doc comments), and `src/export_gerber.zig` scored 3 of 5 (one comment, one
+  test). The reported line numbers are in the STRIPPED text too, which is a
+  second surprise — `src/serve/pcb_layout_page.zig` reported line 3820 for a hit
+  whose real position was 3951, so every line number in a `concept` finding has
+  to be re-grepped before it can be used. Either fix the explain text to say
+  comments and test blocks are exempt, or report line numbers in source
+  coordinates; right now the two together cost me a wrong plan plus a
+  re-derivation of every site.
+- **friction:** there is no way to ask "which baselined rows are still live?".
+  `concept` in baseline mode prints only `N resolved`, and `--verbose` changes
+  nothing — so I could not tell which of my 24 assigned identities still
+  offended and which the previous branch had already fixed (it turned out to be
+  7 of 24, which materially changed what was worth attempting). I worked around
+  it by copying `src/`, `guardian.toml` and `.guardian/` to a scratch dir,
+  blanking the concept baseline there, and running the check against the copy —
+  a ~24 MB copy per iteration, done four times. A `--list-baselined` or a
+  `debt --check concept --live` that prints the still-offending subset would
+  have removed the whole workaround. Note I did this via a scratch mirror
+  specifically because I was told never to touch `.guardian/`; without that
+  constraint the obvious move is to temporarily truncate the baseline in place,
+  which is exactly the habit you do not want to teach.
+- **friction:** `deny_growth` on `concept` makes a rule's per-file granularity
+  bite during refactors. Extracting a shared helper is the natural fix for a
+  concept violation, but if the new home is a file not already baselined for
+  that rule, the extraction CREATES a row and fails the gate. So the refactor is
+  only legal into an existing offender or an owner. That is a real constraint on
+  the design (it pushed `buildDesignRules` into `drc_session.zig` rather than a
+  neutral module, and the drill-suffix constants into `export_gerber.zig`), and
+  nothing warns you about it — you find out at the gate. Worth a line in
+  `explain concept`: "the fix must land in an owner or an already-baselined
+  file, or the extraction itself is growth."
+- **good:** the quoted-literal trick in `drc-kind-ids` is the sharpest rule in
+  this file and it earned its keep. `"track_track"` scoring 1 offender where
+  bare `track_track` scores 49 is what made the finding actionable, and the fix
+  it forced — moving the settings drawer's grouping table out of JS into a Zig
+  `[]drc.Kind` table with a `comptime` totality proof — turned a runtime-only,
+  nobody-is-looking failure into a build failure. That is the check paying for
+  itself rather than being satisfied.
+- **good:** `change-classification` caught exactly the right thing twice, and
+  its message says what to do. Both times the test it forced me to write was
+  worth more than the change: one pinned a JSON key at single emission, the
+  other pinned a client/server design-rule divergence that had been silent.
+- **good:** the prebuilt ReleaseSafe `guardian-check` kept the loop cheap —
+  `zig build` gate ~1 s per iteration, and the final `scripts/gate.sh zig build
+  --seed=1 test` came back 75 checks / 0 blocking / 2783 tests in 68.73 s.
+- **wish:** a `concept` finding prints the first literal and the line list, but
+  not WHICH literal each hit is. With `design-rule-field-names` (five literals,
+  one of which — `pour_clearance` — is also a real Zig struct field name and a
+  substring of `default_pour_clearance_mm`), telling a genuine wire-key hit from
+  an identifier collision meant opening every line by hand. Printing the matched
+  literal per line would have made the irreducible files self-evident: five of
+  my nine remaining offenders are 100% bare-identifier hits that no wire-format
+  work can ever clear.
