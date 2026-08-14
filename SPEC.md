@@ -876,7 +876,7 @@ without an explained `--force`.
 - Caps the listed occurrence lines and keeps the full count
 - Exempts guardian.toml and the .guardian directory from every rule
 - Applies a rule to only its own concept when several are declared
-- Matches a wildcard against one or more non-space, non-quote characters
+- Matches a wildcard against one or more characters that are not whitespace, quotes or structural punctuation
 - Treats a run of wildcards as one and matches leading and trailing wildcards
 - Resumes scanning after a candidate start that does not match
 - Skips a path an allow entry or a top-level exclude glob names

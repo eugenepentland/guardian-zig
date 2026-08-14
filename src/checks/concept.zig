@@ -82,13 +82,19 @@ const skip_dir_names = [_][]const u8{ "zig-out", "zig-cache", "node_modules" };
 
 // ── Wildcard matching ───────────────────────────────────────────────────
 
-/// True when `c` may be consumed by a `*`. Whitespace and quotes are excluded
-/// so a pattern can never swallow across tokens: `In*.Cu` matches `In3.Cu`
-/// inside a string but cannot span `"In1", "x.Cu"`. It also means a match never
-/// crosses a newline, which is what makes one reported line exact.
+/// True when `c` may be consumed by a `*`. Whitespace, quotes and structural
+/// punctuation are excluded so a pattern can never swallow across tokens:
+/// `In*.Cu` matches `In3.Cu` inside a string but cannot span `"In1", "x.Cu"` —
+/// and cannot bridge minified code, where `...cInterpolant=jo,t.Cu...` in a
+/// vendored three.js once read as an inner copper layer. Whitespace exclusion
+/// also means a match never crosses a newline, which keeps the reported line
+/// exact.
 fn wildcardByte(c: u8) bool {
     if (std.ascii.isWhitespace(c)) return false;
-    return c != '"' and c != '\'' and c != '`';
+    return switch (c) {
+        '"', '\'', '`', ',', ';', '=', ':', '(', ')', '{', '}', '[', ']' => false,
+        else => true,
+    };
 }
 
 /// True when `pattern` matches `text` starting exactly at `at`. `*` is the only
@@ -698,7 +704,7 @@ test "analyzeFile never flags the declaration or Guardian's own metadata" {
     );
 }
 
-// spec: Concept Ownership - Matches a wildcard against one or more non-space, non-quote characters
+// spec: Concept Ownership - Matches a wildcard against one or more characters that are not whitespace, quotes or structural punctuation
 
 test "matchAt requires at least one wildcard byte and never spans a quote" {
     // The motivating shape: one pattern covering In1.Cu … In4.Cu.
@@ -713,6 +719,12 @@ test "matchAt requires at least one wildcard byte and never spans a quote" {
     // A match therefore never crosses a newline, which is what makes the one
     // reported line exact.
     try testing.expect(findPattern("In\n1.Cu", "In*.Cu", 0) == null);
+    // Nor structural punctuation, so minified code cannot fuse two tokens into
+    // one match: a vendored three.js read as an inner copper layer through
+    // `Interpolant=jo,t.Cu` until `,`/`=` stopped the gap.
+    try testing.expect(findPattern("cInterpolant=jo,t.Cu", "In*.Cu", 0) == null);
+    try testing.expect(findPattern("In1;x.Cu", "In*.Cu", 0) == null);
+    try testing.expect(findPattern("In(3).Cu", "In*.Cu", 0) == null);
 }
 
 // spec: Concept Ownership - Treats a run of wildcards as one and matches leading and trailing wildcards
