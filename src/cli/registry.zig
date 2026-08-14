@@ -20,6 +20,7 @@ const check_naming = @import("../checks/naming.zig");
 const check_function_size = @import("../checks/function_size.zig");
 const check_doc_comments = @import("../checks/doc_comments.zig");
 const check_imports = @import("../checks/imports.zig");
+const check_import_layering = @import("../checks/import_layering.zig");
 // doc-quality folded into doc-comments (presence + quality in one walk).
 const check_pub_api_surface = @import("../checks/pub_api_surface.zig");
 const check_panic_budget = @import("../checks/panic_budget.zig");
@@ -202,6 +203,16 @@ pub const all: []const Command = &.{
         .summary = "Detect cycles in the @import graph",
         .scope = .whole_tree,
         .run = check_imports.run,
+    },
+    .{
+        .name = "import-layering",
+        .summary = "Enforce project-declared import directions from [[layering]] entries",
+        // Whole-tree, unlike its `[[ban]]` cousin: an edge's TARGET is a file
+        // the diff need not have touched, so a narrowed graph would report a
+        // forbidden import as resolved because the file it points at went out
+        // of view. The graph is only meaningful whole.
+        .scope = .whole_tree,
+        .run = check_import_layering.run,
     },
     .{
         .name = "pub-api-surface",
@@ -715,7 +726,7 @@ const inherently_whole_tree = [_][]const u8{
     "fuzz-presence",           "external-gates",          "policy-drift",
     "test-reachability",       "merge-state",             "concept",
     "canonical-idiom",         "divergent-const",         "shadowed-const",
-    "twin-referent",
+    "twin-referent",           "import-layering",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

@@ -7,6 +7,7 @@ sibling checkout.
 ## 0.2.0 - Unreleased
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 - New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
   ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
   chain and `[[concept]]` owns a literal spelling; neither can express an
@@ -74,6 +75,31 @@ sibling checkout.
   otherwise have panicked the gate.
 >>>>>>> claude/shadowed-const
 
+=======
+- New `import-layering` check: project-declared import DIRECTIONS, configured
+  with `[[layering]]` entries (`name`, `from`, `to`, `allow`, `reason`). It is
+  the declared-architecture half of the import gate; `imports` keeps the
+  structural half (cycles) and the two share the graph and nothing else. Two
+  findings from an eda audit on 2026-08-14 motivated it. One upward edge —
+  `src/kicad_pcb/import_layout_command.zig` importing
+  `src/serve/pcb_layout_import.zig`, because the sidecar-persistence helper it
+  wants lives in `serve/` — which is acyclic, so `imports` passed, and which
+  `[[boundary]]` could name but not carve an exception in (its `forbidden` side
+  is a bare substring with no allow list and no reason). And a 38-file coupling
+  surface, `serve/` reaching into placement internals with 35 direct imports of
+  a 12.3k-line `optimizer.zig`, which a planned `placement/model.zig`
+  extraction wants to ratchet down rather than fix in one commit: violations are
+  keyed `<rule>|<from>|<to>` — one per EDGE, not per file — so baseline mode
+  freezes today's 38, fails the 39th, and lets the count fall one import at a
+  time while a second forbidden import inside an already-frozen file still
+  fails. Targets are matched on the RESOLVED, project-relative paths
+  `import_graph` already normalizes, so a `to` glob is written once against the
+  spelling every importer shares; `std`/`builtin`/`root` and package imports are
+  never candidates. `name`, `from`, `to` and `reason` are all required — each
+  way of being incomplete reads in the config like an enforced architecture
+  while enforcing nothing, so it is a located config error instead. No entries
+  is the zero-config default and the check passes without walking a file.
+>>>>>>> claude/import-layering
 - The `concept` scan no longer judges comment lines or Zig `test` blocks. The
   first real branch composition on the flagship consumer produced 16 findings
   of which 15 were doc comments and golden-value test assertions — and because

@@ -6489,6 +6489,7 @@ manifests instead.
 - **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ## 2026-08-14 · codex · eda — hard Barracuda perimeter keepout
 
 - **good:** the diff-scoped and whole-tree 75-check gates both passed with zero
@@ -6570,3 +6571,50 @@ manifests instead.
   introspection"; it deserves to be named in the "how to write a check" path
   too, since it is the fastest loop available.
 >>>>>>> claude/shadowed-const
+=======
+## 2026-08-14 · Opus agent · guardian-zig — add the `import-layering` check
+
+- **good:** adding a whole new check was near-mechanical, because the wiring is
+  guarded rather than documented. `Command.scope` has no default, so the new
+  registry entry had to classify itself; `test "every registered command has an
+  explain entry"` failed the moment I registered without documenting; the
+  `inherently_whole_tree` list is asserted against the registry so I could not
+  quietly mark a cross-file check narrowable. Four touch-points, each one named
+  by a failing test rather than by a doc I had to find.
+- **good:** `pub-api-surface` printed `delta: 3 new symbol(s), 0 changed, 0
+  removed — pure additions, safe to accept` with the exact accept command on the
+  next line. One run, one env var, done — no guessing whether the drift was mine.
+- **friction:** `twin-referent` false-positived on a *test fixture* path.
+  The comment read "No `src/utils/*` glob can name that raw string — only the
+  resolved, project-relative `src/utils/helpers.zig`", describing
+  `test-project/src/utils/helpers.zig`, a fixture the checked tree deliberately
+  does not contain. `matches` is a claim phrase and the scan looked ahead across
+  the comment run for a `.zig` word, so a sentence *explaining path resolution*
+  read as a claim about Guardian's own source. Cost: one build cycle plus a
+  comment reword that made the sentence slightly worse. A check whose subject is
+  paths cannot avoid writing paths in prose; a claim phrase followed by a path
+  in a **test-local** comment, or one naming a path under a known fixture root
+  (`test-project/`), might deserve to be skipped.
+- **friction:** `debug-print-ban` blocked `std.log.warn` in a **test-only**
+  cleanup helper in `src/checks/`, where `src/baseline.zig` uses byte-identical
+  code — `fs.cwd().deleteFile(path) catch |e| switch (e) { error.FileNotFound
+  => {}, else => std.log.warn("test cleanup {s}: {s}", ...) }` — for the same
+  purpose, legal there only because `src/baseline.zig` sits in an `[[allow]]`
+  list. Cost: one build cycle. The other ban-* checks already exempt uses inside
+  `test {…}` blocks; this one does not exempt a **helper only tests call**, which
+  is the same intent one hoist away. (I switched to `reporter.detail`, which the
+  fix hint suggested and which is arguably better anyway.)
+- **friction:** `test-no-conditional` fired on `catch |e| switch (e)` at the top
+  level of a test body — the idiomatic "ignore FileNotFound, report anything
+  else" cleanup, not a branch over test data. The check's own fix text is about
+  loops and independent branches, so it read as aimed at something else. Cost:
+  one build cycle. Hoisting into a named helper was the right end state, but a
+  `switch` that is the payload of a `catch` is error handling, not a conditional
+  test.
+- **wish:** all three of the above cost one full `zig build` each because they
+  surfaced one at a time — the run reports every failing check, but I could only
+  see the next one after fixing the previous, since each fix changed the file the
+  others were reading. Nothing to fix in Guardian per se; noting it because "3
+  cycles for 3 one-line fixes in one new file" is the shape of the tax on
+  authoring a new check.
+>>>>>>> claude/import-layering
