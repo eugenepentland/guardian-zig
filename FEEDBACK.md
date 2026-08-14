@@ -6497,3 +6497,27 @@ manifests instead.
 ## 2026-08-14 · codex · eda — validate fast self-hosted ReleaseSafe toolchain
 
 - **good:** the diff-scoped 75-check gate stayed green (0 blocking, 2 report-only) during a cold 23.92-second full EDA build with the patched compiler, including the newly repaired self-hosted WASM `compiler_rt` path; Guardian remained independent of the experimental toolchain and made the successful end-to-end build unambiguous.
+
+## 2026-08-14 · claude (fable) · eda + guardian-zig — system-check wave: integration & eda baseline
+
+- good: four Opus-agent branches (canonical-idiom, shadowed-const,
+  import-layering, twin-parity + concept require_in/literals_from) merged into
+  `claude/system-checks` — 1169 tests, 79 checks green. Measured + frozen on an
+  eda branch: idiom 105 files, shadowed-const 178 rows / 3045 bare occurrences,
+  layering 196 edges (core-no-serve found exactly the 1 known upward import),
+  twin-parity 18/19 uncovered. concept totality (+80 NEW) enumerated 13 DRC
+  kind strings absent from pcb_board.js — one ("perimeter keepout") added to
+  eda main the same day. The require_in direction catches same-day drift.
+- friction: merging the four branches pairwise produced interleaved-function
+  conflicts in the shared registration files (config_parser.zig worst: three
+  shared-tail stitches, one three-way validator rename unification). A future
+  multi-check wave should land a registration-scaffold commit first, or stack
+  the branches.
+- wish: `guardian-check accept <check> .` run against a project whose config
+  declares ZERO rules for that (config-driven) check freezes an EMPTY baseline
+  and prints the normal success line. Bit me via cwd drift: accepted in the
+  wrong checkout, got 4 header-only baselines and a false "the checks find
+  nothing" conclusion that cost two debugging rounds. A refusal ("0 configured
+  rules — nothing to accept") would have named the mistake instantly. Related:
+  single-check runs default diff-scoped, so a config-only worktree scans zero
+  files and reports a green 0 for whole-tree config-driven checks.
