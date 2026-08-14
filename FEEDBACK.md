@@ -6819,3 +6819,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-14 · codex · eda — equalize Gerber alphanumeric font metrics
 - **good:** The diff-scoped `spec` check caught an exact-text mismatch after the silkscreen contract was strengthened, the panic-budget check rejected a new test-only `unreachable`, and both passed after direct fixes; the whole-tree commit and release gates then completed with zero blocking findings.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, forcing inspection of the enclosing build exit code to distinguish a green run from a failure.
+
+## 2026-08-14 · codex · eda — redefine trace stubs by deletion invariance
+- **good:** The exact-commit full test gate caught three downstream assumptions after the DRC topology rule broadened: RF fabrication needed the new finding to stay advisory, while route cleanup and close-gaps needed explicit loose-section identity and a stable error-budget fixture. Fixing those contracts preserved all three behaviors before deployment.
+- **good:** The `type-size` ratchet rejected adding a ninth field to `drc.Violation`; moving the cleanup identity into the existing `Parties` structure kept the public violation record within its frozen ceiling, and the next diff-scoped gate passed 79/79.
