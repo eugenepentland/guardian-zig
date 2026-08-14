@@ -6008,3 +6008,38 @@ manifests instead.
   find them was to grep every `readFileAlloc` in `src/` by hand and read each
   path. Worth saying plainly because the 0-row baseline actively reads as "this
   fact is now consistent", and it was not.
+
+## 2026-08-14 · Claude · eda — client WASM DRC honours the two design-rule keys it was dropping
+- **good:** the `design-rule-field-names` concept rule is what surfaced this, and
+  it did so obliquely in a way worth recording. The rule gates SPELLINGS across
+  the files that carry design-rule wire keys, and the spellings were all fine —
+  server emitter, JS editor and both Zig readers agreed on `pour_clearance` and
+  `mask_relief_corner_radius` exactly. What diverged was that one of the readers
+  never READ two of the keys it carried in a test fixture. Clearing the concept
+  row for `wasm_drc.zig` (by merging its byte-identical `buildDesignRules` into
+  `drc_session.zig`) is what put the twelve mapped keys and the fourteen emitted
+  keys in front of one pair of eyes. So the rule caught a real defect it does not
+  itself check for, purely by forcing the two copies into one place.
+- **wish:** the corollary is that a key-spelling rule cannot see a key that is
+  spelled right and then ignored. Both offending keys appeared in the reader file
+  the whole time — in a JSON test fixture and a comment — so the file scored as an
+  offender and the *literal* was consistent tree-wide, which reads as "this fact
+  is consistent" when half the fact was missing. A companion to `design-rule-field-names`
+  that flagged a string literal appearing ONLY inside a test fixture or comment in
+  a file, never in a `get(...)`/lookup position, would have named both keys
+  directly. Same shape as the `divergent-const` wish in the entry above: the check
+  proves the spellings match, and a 0-row/clean result reads as more than it means.
+- **good:** `deny_growth = ["spec","completeness"]` did exactly its job here and
+  cost nothing. Closing the gap deleted the only unmapped keys and with them the
+  test's coverage of the default-fallback path — easy to not notice, since the
+  test kept passing and its name still claimed "and defaults the rest". Having to
+  land a new SPEC bullet with its own tagged test made the missing half explicit
+  instead of letting the rename paper over it.
+- **friction:** minor and cosmetic, but it costs a re-run every time: a green
+  filtered run still prints `failed command: cd . && ./.zig-cache/o/<hash>/test
+  ...` as its last line while exiting 0. On a filtered run that banner is the only
+  thing after `guardian/test: N test(s) selected`, so the run LOOKS failed; I
+  re-ran with `echo EXIT=$?` to confirm, twice, before trusting it. `test wall
+  0.00s` on a cached run compounds it (reads as "nothing ran"). If the banner is
+  the Zig build runner's and not Guardian's, a Guardian-side "verdict: OK" line
+  printed after it would settle the question without anyone having to know that.
