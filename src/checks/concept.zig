@@ -23,10 +23,18 @@
 //! supposed to spell (deriving the expectation from the owner would make the
 //! test circular). Counting either forced whole files into the baseline — and
 //! because a violation's identity is `<file>|<concept>`, a file frozen over a
-//! doc comment is a file whose REAL drift the gate can never see again. Only
-//! line-LEADING comments are skipped: judging a trailing `//` needs the
-//! per-language string lexer this check refuses to be (`"https://…"`), so a
-//! code line always counts whole.
+//! doc comment is a file whose REAL drift the gate can never see again.
+//!
+//! Exactly what is blanked, since a `files` glob reaches languages no Zig lexer
+//! sees: a line whose first non-whitespace opens `//` (so `///` and `//!` too),
+//! in every file; a line-leading `/* … */` block through its closing delimiter,
+//! in `.css` files; and a Zig `test` declaration's whole span, wherever a parse
+//! tree was available. Nothing else. A TRAILING comment of either shape shares
+//! a code line, and judging one needs the per-language string lexer this check
+//! refuses to be (`"https://…"`), so a code line always counts whole. Blanking
+//! writes spaces over the bytes and never over a newline, so every surviving
+//! occurrence keeps its exact offset AND its exact source line — a reported
+//! line is one a reader can jump to, not one they have to re-grep for.
 //!
 //! Zero `[[concept]]` entries is the zero-config default: the check passes
 //! without reading a single file.
@@ -63,6 +71,12 @@ const fix_hint = "derive the value from the concept's owner module, " ++
 /// and the total is in the count.
 const max_reported_lines = 5;
 
+/// How much of one match the report quotes before eliding the rest. A declared
+/// literal is short by construction; a wildcard match is bounded only by the
+/// token it landed in, and in a minified bundle that token can be the width of
+/// a terminal several times over.
+const max_spelling_bytes = 40;
+
 /// Read cap for a file pulled in by a `files` glob. Above this the read fails
 /// loud (as the source walker does) rather than skipping the file: a silently
 /// unscanned file is exempt from the gate, which is the failure this check is
@@ -97,43 +111,55 @@ fn wildcardByte(c: u8) bool {
     };
 }
 
-/// True when `pattern` matches `text` starting exactly at `at`. `*` is the only
-/// metacharacter — every other byte, `.` and `#` included, is literal — and it
-/// matches ONE OR MORE `wildcardByte`s. A run of consecutive `*` collapses to
-/// one, so `In**.Cu` is `In*.Cu`. Backtracks, so an early gap match that dead-ends
-/// never hides a later one.
-fn matchAt(text: []const u8, at: usize, pattern: []const u8) bool {
-    if (pattern.len == 0) return true;
-    const star = std.mem.indexOfScalar(u8, pattern, '*') orelse
-        return std.mem.startsWith(u8, text[at..], pattern);
+/// Half-open byte range of one match. The END is carried because the report
+/// names the text a wildcard actually matched (`In1.Cu`), not the pattern that
+/// found it (`In*.Cu`) — with the pattern alone a reader cannot tell a real hit
+/// from a coincidence without opening the file.
+const Span = struct { start: usize, end: usize };
+
+/// The end offset of `pattern`'s match starting exactly at `at`, or null. `*` is
+/// the only metacharacter — every other byte, `.` and `#` included, is literal —
+/// and it matches ONE OR MORE `wildcardByte`s. A run of consecutive `*`
+/// collapses to one, so `In**.Cu` is `In*.Cu`. Backtracks, so an early gap match
+/// that dead-ends never hides a later one.
+fn matchAt(text: []const u8, at: usize, pattern: []const u8) ?usize {
+    if (pattern.len == 0) return at;
+    const star = std.mem.indexOfScalar(u8, pattern, '*') orelse {
+        if (!std.mem.startsWith(u8, text[at..], pattern)) return null;
+        return at + pattern.len;
+    };
     const literal = pattern[0..star];
-    if (!std.mem.startsWith(u8, text[at..], literal)) return false;
+    if (!std.mem.startsWith(u8, text[at..], literal)) return null;
     return matchStar(text, at + literal.len, pattern[star..]);
 }
 
 /// Matches a pattern that opens with a `*` run: consume at least one wildcard
 /// byte, then match the remainder anchored. A trailing `*` needs a byte too, so
-/// `In*` does not match a bare `In`.
-fn matchStar(text: []const u8, at: usize, pattern: []const u8) bool {
+/// `In*` does not match a bare `In` — and it then takes the whole run, since
+/// what the reader wants to see is the token that matched, not its first byte.
+fn matchStar(text: []const u8, at: usize, pattern: []const u8) ?usize {
     var rest = pattern;
     while (rest.len > 0 and rest[0] == '*') rest = rest[1..];
-    if (rest.len == 0) return at < text.len and wildcardByte(text[at]);
     var cursor = at;
+    if (rest.len == 0) {
+        while (cursor < text.len and wildcardByte(text[cursor])) cursor += 1;
+        return if (cursor > at) cursor else null;
+    }
     while (cursor < text.len and wildcardByte(text[cursor])) {
         cursor += 1;
-        if (matchAt(text, cursor, rest)) return true;
+        if (matchAt(text, cursor, rest)) |end| return end;
     }
-    return false;
+    return null;
 }
 
-/// The offset of the leftmost `pattern` match in `text` at or after `from`, or
-/// null when there is none. An empty pattern matches nothing (the parser rejects
-/// one, so this is the total-function guarantee rather than a reachable case).
-fn findPattern(text: []const u8, pattern: []const u8, from: usize) ?usize {
+/// The leftmost `pattern` match in `text` at or after `from`, or null when there
+/// is none. An empty pattern matches nothing (the parser rejects one, so this is
+/// the total-function guarantee rather than a reachable case).
+fn findPattern(text: []const u8, pattern: []const u8, from: usize) ?Span {
     if (pattern.len == 0) return null;
     var i = from;
     while (i < text.len) : (i += 1) {
-        if (matchAt(text, i, pattern)) return i;
+        if (matchAt(text, i, pattern)) |end| return .{ .start = i, .end = end };
     }
     return null;
 }
@@ -141,23 +167,43 @@ fn findPattern(text: []const u8, pattern: []const u8, from: usize) ?usize {
 // ── Scrubbing: the contexts the scan must not judge ─────────────────────
 
 /// A copy of `content` with the exempt contexts blanked to spaces: every line
-/// whose first non-whitespace bytes open a `//` comment, and — when a Zig
-/// parse `tree` is supplied — every `test` declaration's span. Bytes are
-/// replaced, never removed, so each surviving occurrence keeps its exact
-/// offset and therefore its exact reported line.
-fn scrubbed(allocator: Allocator, content: []const u8, tree: ?*const Ast) Allocator.Error![]u8 {
+/// whose first non-whitespace bytes open a `//` comment, every line-leading
+/// `/* … */` block in a `.css` file, and — when a Zig parse `tree` is supplied
+/// — every `test` declaration's span. Bytes are replaced, never removed, and a
+/// newline is never one of them, so each surviving occurrence keeps its exact
+/// offset AND its exact source line.
+fn scrubbed(
+    allocator: Allocator,
+    rel_path: []const u8,
+    content: []const u8,
+    tree: ?*const Ast,
+) Allocator.Error![]u8 {
     const out = try allocator.dupe(u8, content);
     blankCommentLines(out);
+    if (std.mem.endsWith(u8, rel_path, ".css")) blankCssCommentLines(out);
     if (tree) |t| try blankTestBlocks(allocator, out, t);
     return out;
 }
 
-/// Blanks each line that IS a comment — first non-whitespace is `//` (which
-/// covers `///` and `//!`). Trailing comments are left alone: whether a
-/// mid-line `//` opens a comment or sits inside a string is a per-language
-/// question, and a comment line is unambiguous in every `//` language the
-/// check reads (Zig, JS, TS). A hash-comment language gets no such skip — `#`
-/// opens the very hex literals a palette rule exists to match.
+/// Overwrites `span` with spaces, leaving its newlines in place. A blanked
+/// region that swallowed its newlines would shift every LATER occurrence's
+/// reported line up by the number it ate — which is how a hit at source line
+/// 3951 once got reported as 3820, past a file's worth of blanked test blocks.
+fn blankSpan(span: []u8) void {
+    for (span) |*byte| {
+        if (byte.* != '\n') byte.* = ' ';
+    }
+}
+
+/// Blanks each line that IS a `//` comment — first non-whitespace is `//`
+/// (which covers `///` and `//!`). Run over every file: a line-leading `//` is
+/// unambiguous in each `//` language a rule can glob (Zig, JS, TS), and in a
+/// language without `//` comments it simply matches nothing. CSS is the
+/// exception worth naming — its only comment syntax is `/* … */`, handled by
+/// `blankCssCommentLines`. Trailing comments are left alone: whether a mid-line
+/// `//` opens a comment or sits inside a string is a per-language question. A
+/// hash-comment language gets no skip at all — `#` opens the very hex literals
+/// a palette rule exists to match.
 fn blankCommentLines(text: []u8) void {
     var line_start: usize = 0;
     while (line_start < text.len) {
@@ -171,6 +217,46 @@ fn blankCommentLines(text: []u8) void {
     }
 }
 
+/// Blanks every line-leading CSS block comment, `/*` through the `*/` that
+/// closes it — including the lines between, since a prose header comment is
+/// usually several. CSS has no `//`, so without this a `.css` file pulled in by
+/// a `files` glob had NO comment exemption at all, and a pure-prose comment
+/// above a rule froze the stylesheet into the ledger.
+fn blankCssCommentLines(text: []u8) void {
+    var line_start: usize = 0;
+    var open = false;
+    while (line_start < text.len) {
+        const line_end = std.mem.indexOfScalarPos(u8, text, line_start, '\n') orelse text.len;
+        open = blankCssCommentOnLine(text, line_start, line_end, open);
+        line_start = line_end + 1;
+    }
+}
+
+/// Blanks one line's share of a line-leading CSS comment and returns whether
+/// the comment is still open on the next line. `open` says an earlier line
+/// opened one. Bytes after the closing `*/` are left alone, exactly as a
+/// trailing `//` is: what follows on that line is code and counts. A block
+/// opened MID-line is not tracked at all, for the same reason — deciding
+/// whether that `/*` is a comment or string content needs the per-language
+/// lexer this check refuses to be.
+fn blankCssCommentOnLine(text: []u8, line_start: usize, line_end: usize, open: bool) bool {
+    const from = if (open) line_start else cssCommentStart(text, line_start, line_end) orelse return false;
+    // `/*/` does not close itself, so a fresh opener starts looking past its
+    // own delimiter; a continuation line looks from its first byte.
+    const search = if (open) from else from + 2;
+    const close = std.mem.indexOfPos(u8, text[0..line_end], search, "*/");
+    @memset(text[from..(if (close) |at| at + 2 else line_end)], ' ');
+    return close == null;
+}
+
+/// The offset of a `/*` that OPENS the line — first non-whitespace — or null.
+fn cssCommentStart(text: []const u8, line_start: usize, line_end: usize) ?usize {
+    var i = line_start;
+    while (i < line_end and (text[i] == ' ' or text[i] == '\t')) i += 1;
+    if (i + 1 < line_end and text[i] == '/' and text[i + 1] == '*') return i;
+    return null;
+}
+
 /// Blanks every `test` declaration's whole span. `decls.collectDecls` descends
 /// into container members, so a test nested inside a struct is blanked too.
 /// The bounds guard is defensive only: the tree was parsed from these bytes.
@@ -181,16 +267,19 @@ fn blankTestBlocks(allocator: Allocator, text: []u8, tree: *const Ast) Allocator
         const start = tree.tokenStart(tree.firstToken(decl));
         const end = tree.tokenStart(last) + tree.tokenSlice(last).len;
         if (start >= end or end > text.len) continue;
-        @memset(text[start..end], ' ');
+        blankSpan(text[start..end]);
     }
 }
 
 // ── Per-file analysis ───────────────────────────────────────────────────
 
-/// One match of one declared spelling, at its byte offset in the file.
+/// One match of one declared spelling: where it starts in the file and how many
+/// bytes it covers. The length is what lets the report quote the text that
+/// matched — for a literal that is the literal, for a pattern it is the concrete
+/// instance the wildcard resolved to.
 const Occurrence = struct {
     offset: usize,
-    spelling: []const u8,
+    len: usize,
 };
 
 fn byOffset(_: void, a: Occurrence, b: Occurrence) bool {
@@ -209,13 +298,13 @@ fn occurrencesOf(
     for (rule.literals) |literal| {
         var from: usize = 0;
         while (std.mem.indexOfPos(u8, content, from, literal)) |at| : (from = at + 1) {
-            try found.append(allocator, .{ .offset = at, .spelling = literal });
+            try found.append(allocator, .{ .offset = at, .len = literal.len });
         }
     }
     for (rule.patterns) |pattern| {
         var from: usize = 0;
-        while (findPattern(content, pattern, from)) |at| : (from = at + 1) {
-            try found.append(allocator, .{ .offset = at, .spelling = pattern });
+        while (findPattern(content, pattern, from)) |span| : (from = span.start + 1) {
+            try found.append(allocator, .{ .offset = span.start, .len = span.end - span.start });
         }
     }
     const out = try found.toOwnedSlice(allocator);
@@ -243,16 +332,35 @@ fn selfExempt(rel_path: []const u8) bool {
     return false;
 }
 
-/// Renders the first `max_reported_lines` occurrence lines as `"12, 40, 51"`,
-/// with a trailing `…` when more were found.
+/// The bytes `occurrence` matched, capped at `max_spelling_bytes` on a UTF-8
+/// boundary so one wildcard hit in a minified bundle cannot flood the line. The
+/// caller marks a shortened result by comparing lengths.
+fn matchedText(content: []const u8, occurrence: Occurrence) []const u8 {
+    const raw = content[occurrence.offset..][0..occurrence.len];
+    if (raw.len <= max_spelling_bytes) return raw;
+    var end: usize = max_spelling_bytes;
+    while (end > 0 and raw[end] & 0xC0 == 0x80) end -= 1;
+    return raw[0..end];
+}
+
+/// Renders the first `max_reported_lines` occurrences as
+/// `line 12: "F.Cu", line 40: "In1.Cu"`, with a trailing `…` when more were
+/// found. The matched text rides ALONG each line because a rule with several
+/// literals — one of which is also an ordinary identifier substring — otherwise
+/// makes every listed line a file to open by hand before it can be triaged.
 fn formatLines(allocator: Allocator, content: []const u8, found: []const Occurrence) Allocator.Error![]const u8 {
     var buf: std.ArrayList(u8) = .empty;
     const shown = @min(found.len, max_reported_lines);
     for (found[0..shown], 0..) |occurrence, i| {
         if (i > 0) try buf.appendSlice(allocator, ", ");
-        const number = try std.fmt.allocPrint(allocator, "{d}", .{lineOf(content, occurrence.offset)});
-        defer allocator.free(number);
-        try buf.appendSlice(allocator, number);
+        const text = matchedText(content, occurrence);
+        const rendered = try std.fmt.allocPrint(allocator, "line {d}: \"{s}{s}\"", .{
+            lineOf(content, occurrence.offset),
+            text,
+            if (text.len < occurrence.len) "\u{2026}" else "",
+        });
+        defer allocator.free(rendered);
+        try buf.appendSlice(allocator, rendered);
     }
     if (found.len > shown) try buf.appendSlice(allocator, ", \u{2026}");
     return buf.toOwnedSlice(allocator);
@@ -275,12 +383,11 @@ fn violationFor(
     const lines = try formatLines(allocator, content, found);
     const message = try std.fmt.allocPrint(
         allocator,
-        "concept '{s}' appears {d} time(s) (lines {s}), first as \"{s}\" — owned by {s} — {s}",
+        "concept '{s}' appears {d} time(s) ({s}) — owned by {s} — {s}",
         .{
             rule.name,
             found.len,
             lines,
-            found[0].spelling,
             try formatOwner(allocator, rule),
             rule.reason orelse no_reason,
         },
@@ -316,7 +423,7 @@ pub fn analyzeFile(
     rules: []const config.ConceptRule,
 ) Allocator.Error![]const reporter.Violation {
     if (selfExempt(rel_path) or rules.len == 0) return &.{};
-    const text = try scrubbed(allocator, content, tree);
+    const text = try scrubbed(allocator, rel_path, content, tree);
     var violations: std.ArrayList(reporter.Violation) = .empty;
     for (rules) |rule| {
         if (owns(rule, rel_path)) continue;
@@ -631,6 +738,68 @@ test "analyzeFile skips golden literals inside a test block" {
     try testing.expectEqual(@as(u64, 1), out[0].metric.?);
 }
 
+// spec: Concept Ownership - Reports an occurrence line in source coordinates past every blanked span
+
+test "analyzeFile reports the true source line after a blanked comment and test block" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const src = try a.dupeSentinel(u8,
+        \\// a prose header that mentions
+        \\// nothing this rule owns
+        \\const unrelated = 0;
+        \\test "golden pins the wire format" {
+        \\    const want = "In2.Cu";
+        \\    _ = want;
+        \\}
+        \\const top = "F.Cu";
+    , 0);
+    var tree = try Ast.parse(a, src, .{});
+    const out = try analyzeFile(a, "src/render.zig", src, &tree, &test_rules);
+    try testing.expectEqual(@as(usize, 1), out.len);
+    // Line 8 as the file is written. Blanking that ate the test block's four
+    // newlines would report 5 — the shape that made every number in a finding
+    // something to re-grep before it could be used.
+    try testing.expectEqual(@as(u32, 8), out[0].line.?);
+    try testing.expect(std.mem.indexOf(u8, out[0].message, "line 8: \"F.Cu\"") != null);
+}
+
+// spec: Concept Ownership - Skips a line-leading CSS block comment but counts the code after its close
+
+test "analyzeFile blanks a whole-line CSS comment and keeps what follows exact" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = try analyzeFile(a, "assets/theme.css",
+        \\/* the front copper layer, F.Cu, is painted
+        \\   with the colour below */ .front::after { content: "B.Cu"; }
+        \\.in1::after { content: "In1.Cu"; }
+    , null, &test_rules);
+    // CSS has no `//`, so before this a globbed stylesheet had no comment
+    // exemption at all and a pure-prose header froze the file. The rule is the
+    // `//` one: the block is blanked through its `*/`, and the code sharing the
+    // closing line still counts — at its own, unshifted line number.
+    try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expectEqual(@as(u64, 2), out[0].metric.?);
+    try testing.expect(std.mem.indexOf(u8, out[0].message, "(line 2: \"B.Cu\", line 3: \"In1.Cu\")") != null);
+}
+
+// spec: Concept Ownership - Counts a trailing CSS block comment on a code line as an occurrence
+
+test "analyzeFile counts a CSS code line whole, trailing block comment included" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const out = try analyzeFile(a, "assets/theme.css",
+        \\.front { color: #c83434; } /* the F.Cu paint */
+    , null, &test_rules);
+    // Only a LINE-LEADING block is skipped: deciding whether a mid-line `/*`
+    // opens a comment or sits inside a string is the per-language lexing
+    // question this check refuses to answer, exactly as for a trailing `//`.
+    try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expectEqual(@as(u64, 1), out[0].metric.?);
+}
+
 // spec: Concept Ownership - Reports one violation per file and concept with the occurrence count and lines
 
 test "analyzeFile reports one violation naming the count, lines, owner and reason" {
@@ -646,10 +815,48 @@ test "analyzeFile reports one violation naming the count, lines, owner and reaso
     // pair, not each literal.
     try testing.expectEqual(@as(usize, 1), out.len);
     try testing.expectEqualStrings(
-        "src/render.zig:1: concept 'layer-names' appears 3 time(s) (lines 1, 2, 3), first as \"F.Cu\" " ++
+        "src/render.zig:1: concept 'layer-names' appears 3 time(s) " ++
+            "(line 1: \"F.Cu\", line 2: \"In1.Cu\", line 3: \"B.Cu\") " ++
             "— owned by src/board_layers.zig — layer names come from board_layers.LayerTable",
         try reporter.flatLine(a, out[0]),
     );
+}
+
+// spec: Concept Ownership - Quotes the text matched at each reported occurrence line
+
+test "analyzeFile names which spelling matched on each listed line" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The triage question a line number alone cannot answer: of a rule's five
+    // spellings, WHICH one fired here — the wire-format key or the identifier
+    // that merely contains it? A pattern reports the concrete text it resolved
+    // to (`In2.Cu`), not the pattern that found it (`In*.Cu`).
+    const out = try analyzeFile(a, "src/render.zig",
+        \\const mid = "In2.Cu";
+        \\const bottom = "B.Cu";
+    , null, &test_rules);
+    try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expect(std.mem.indexOf(u8, out[0].message, "(line 1: \"In2.Cu\", line 2: \"B.Cu\")") != null);
+}
+
+// spec: Concept Ownership - Elides a matched text longer than the quoted cap
+
+test "formatLines truncates a long match on a UTF-8 boundary" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A wildcard match is bounded only by its token, so a minified bundle can
+    // hand the report a token wider than the terminal. The cut lands between
+    // codepoints: the multi-byte `é` straddles byte 40 and is dropped whole
+    // rather than printed as a lone continuation byte.
+    const filler = try a.alloc(u8, max_spelling_bytes - 3);
+    @memset(filler, 'x');
+    const content = try std.mem.concat(a, u8, &.{ "aa", filler, "\u{e9}bb" });
+    const found = [_]Occurrence{.{ .offset = 0, .len = content.len }};
+    const rendered = try formatLines(a, content, &found);
+    const want = try std.mem.concat(a, u8, &.{ "line 1: \"aa", filler, "\u{2026}\"" });
+    try testing.expectEqualStrings(want, rendered);
 }
 
 // spec: Concept Ownership - Names the missing owner and reason when a rule declares neither
@@ -683,7 +890,11 @@ test "analyzeFile lists at most the first few lines but counts every occurrence"
         \\const g = "F.Cu";
     , null, &test_rules);
     try testing.expectEqual(@as(u64, 7), out[0].metric.?);
-    try testing.expect(std.mem.indexOf(u8, out[0].message, "(lines 1, 2, 3, 4, 5, \u{2026})") != null);
+    try testing.expect(std.mem.indexOf(
+        u8,
+        out[0].message,
+        "(line 1: \"F.Cu\", line 2: \"F.Cu\", line 3: \"F.Cu\", line 4: \"F.Cu\", line 5: \"F.Cu\", \u{2026})",
+    ) != null);
 }
 
 // spec: Concept Ownership - Exempts guardian.toml and the .guardian directory from every rule
@@ -734,10 +945,12 @@ test "matchAt collapses star runs and anchors leading and trailing stars" {
     try testing.expect(findPattern("In3.Cu", "In**.Cu", 0) != null);
     try testing.expect(findPattern("In.Cu", "In**.Cu", 0) == null);
     // Leading `*`: at least one wildcard byte must precede the literal.
-    try testing.expectEqual(@as(?usize, 0), findPattern("xIn3.Cu", "*.Cu", 0));
+    try testing.expectEqual(@as(usize, 0), findPattern("xIn3.Cu", "*.Cu", 0).?.start);
     try testing.expect(findPattern(".Cu", "*.Cu", 0) == null);
-    // Trailing `*`: at least one wildcard byte must follow it.
-    try testing.expect(findPattern("In3", "In*", 0) != null);
+    // Trailing `*`: at least one wildcard byte must follow it, and it then takes
+    // the whole run — the reported span is the token, not its first byte.
+    try testing.expectEqual(@as(usize, 3), findPattern("In3", "In*", 0).?.end);
+    try testing.expectEqual(@as(usize, 6), findPattern("In3.Cu", "In*", 0).?.end);
     try testing.expect(findPattern("In", "In*", 0) == null);
     // A pattern with no `*` is an exact substring, and an empty one — which the
     // parser refuses — matches nothing rather than everything.
@@ -752,9 +965,9 @@ test "findPattern keeps scanning past a start position that fails" {
     defer arena.deinit();
     // The first `In` opens a candidate that cannot close (no character between
     // `In` and `.Cu`); the scan must continue rather than report the file clean.
-    try testing.expectEqual(@as(?usize, 6), findPattern("In.Cu In3.Cu", "In*.Cu", 0));
+    try testing.expectEqual(@as(usize, 6), findPattern("In.Cu In3.Cu", "In*.Cu", 0).?.start);
     // `from` resumes after a hit, which is how repeat occurrences are counted.
-    try testing.expectEqual(@as(?usize, 7), findPattern("In3.Cu In4.Cu", "In*.Cu", 1));
+    try testing.expectEqual(@as(usize, 7), findPattern("In3.Cu In4.Cu", "In*.Cu", 1).?.start);
     // Two gaps in one pattern, each needing its own character.
     try testing.expect(findPattern("a-b-b-c", "a*b*c", 0) != null);
     try testing.expect(findPattern("a-bc", "a*b*c", 0) == null);
