@@ -6826,3 +6826,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-14 · codex · eda — compact and space Gerber silkscreen text
 - **good:** Selective `pub-api-surface` acceptance added exactly the three intended shared font-metric rows, the rebase hook cleanly merged a concurrent API snapshot update, and both pre- and post-rebase exact-commit release gates passed all 79 checks without manual metadata repair.
+
+## 2026-08-14 · codex · eda — remove via-specific soldermask state
+- **good:** `pub-api-surface` identified the intentional removal of `mask_relief.ViaOpen`; selective acceptance recorded only that deletion, while exact spec tags and focused tests locked the new polygon-only Gerber, JSON, and assembly-viewer contracts before the 79-check release gate passed.
