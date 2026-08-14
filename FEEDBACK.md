@@ -6859,3 +6859,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-14 · codex · eda — preserve authored custom-pad fabrication contours
 - **good:** Exact spec linking and the focused Gerber regression made the fabrication/collision split explicit: routing may simplify dense pad outlines, while shipped copper and mask retain every authored vertex; the 79-check whole-tree release gate passed without broadening a ratchet.
+
+## 2026-08-14 · codex · eda — require explicit trace junctions
+- **good:** The import-layering check rejected a direct serve-to-`route_cleanup` dependency and drove final junction repair through the sanctioned public router seam; exact spec and `pub-api-surface` checks made the new topology contract and API review explicit.
+- **good:** The exact-commit suite caught three fixture expectations affected by the new warning, and fail-fast cancellation stopped the concurrent ReleaseSafe build after 87 seconds rather than paying its full 254-second cost.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, making every green focused run look contradictory until the outer Zig exit status is checked.
