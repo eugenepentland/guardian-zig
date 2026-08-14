@@ -9,7 +9,11 @@ const walk = @import("walk.zig");
 
 const Allocator = std.mem.Allocator;
 
-const Original = struct {
+/// One captured metadata file: its `.guardian/`-relative path and the bytes it
+/// held when the transaction began. Public so a caller that must REPORT on the
+/// change (`accept --quiet`, naming the paths an acceptance moved) can diff two
+/// snapshots without re-implementing the walk.
+pub const Original = struct {
     rel_path: []const u8,
     content: []const u8,
 };

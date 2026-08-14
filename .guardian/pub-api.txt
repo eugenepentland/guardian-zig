@@ -340,9 +340,11 @@ src/cli/registry.zig::all value
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/registry.zig::summaryFor | fn summaryFor(name: []const u8) ?[]const u8
+src/cli/run_all.zig::PassSummary struct_
 src/cli/run_all.zig::command_name value
 src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/run_all.zig::runCollecting | fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
 src/cli/run_all.zig::validateSelectiveConfig | fn validateSelectiveConfig(ctx: *const types.RunCtx) types.RunError!void
 src/cli/run_view.zig::BinaryAge enum_
@@ -631,6 +633,7 @@ src/merge/three_way.zig::CounterResult struct_
 src/merge/three_way.zig::mergeCounters | fn mergeCounters( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error!CounterResult
 src/merge/three_way.zig::mergeRatchets | fn mergeRatchets( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error![]const []const u8
 src/merge/three_way.zig::mergeRows | fn mergeRows( arena: Allocator, base: []const []const u8, ours: []const []const u8, theirs: []const []const u8, ) Allocator.Error![]const []const u8
+src/metadata_transaction.zig::Original struct_
 src/metadata_transaction.zig::RollbackError value
 src/metadata_transaction.zig::Transaction struct_
 src/metadata_transaction.zig::begin | fn begin(allocator: Allocator, project_dir: []const u8) walk.WalkError!Transaction

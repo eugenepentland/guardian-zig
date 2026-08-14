@@ -153,7 +153,7 @@ pub fn main(process_init: std.process.Init) !void {
         .merge = parsed.merge,
     };
 
-    dispatch(&ctx, &cfg, command) catch |e| switch (e) {
+    dispatch(&ctx, &cfg, command, parsed.after_command) catch |e| switch (e) {
         // CheckFailed means the check already printed its own diagnostic.
         // Exit non-zero without surfacing a Zig stack trace.
         error.CheckFailed => std.process.exit(1),
@@ -213,6 +213,11 @@ const ParsedArgs = struct {
     accept_checks: ?[]const u8 = null,
     /// True when `--version` was passed anywhere on the command line.
     show_version: bool = false,
+    /// The positional immediately after the command, kept verbatim because
+    /// every other field consumes it (a project dir, a check list, a metric
+    /// name). An unknown command is the one caller that needs it back: for
+    /// `guardian-check run file-size .` the useful answer names `file-size`.
+    after_command: ?[]const u8 = null,
     /// `bench` subcommand, metric name/value, and its `--unit`/`--dir`/
     /// `--note`/`--force` flags. Untouched by every other command.
     bench: benchmark.Args = .{},
@@ -321,6 +326,7 @@ fn takePositional(parsed: *ParsedArgs, arg: []const u8) void {
         parsed.command = arg;
         return;
     };
+    if (parsed.after_command == null) parsed.after_command = arg;
     if (std.mem.eql(u8, command, accept.command_name) and parsed.accept_checks == null) {
         parsed.accept_checks = arg;
         return;
@@ -407,9 +413,54 @@ fn nonEmpty(value: ?[]const u8) ?[]const u8 {
     return if (v.len == 0) null else v;
 }
 
+/// Verbs an agent guesses by analogy with other tools. Guardian has none of
+/// them — a check name IS the verb (`guardian-check file-size .`) — so when one
+/// of these is followed by a real check name, the fix is mechanical and worth
+/// printing.
+const wrapper_verbs = [_][]const u8{ "run", "run-all", "check" };
+
+fn isWrapperVerb(command: []const u8) bool {
+    for (wrapper_verbs) |v| if (std.mem.eql(u8, command, v)) return true;
+    return false;
+}
+
+/// The diagnostic for an unrecognized first argument. Six separate reports had
+/// the same shape: an unknown command printed the full command listing and
+/// nothing else, which reads like success until you notice the output is a
+/// manual. The line always names the bad command, and adds the working spelling
+/// when a wrapper verb was followed by a check that does exist.
+fn unknownCommandLine(
+    allocator: std.mem.Allocator,
+    command: []const u8,
+    after: ?[]const u8,
+) []const u8 {
+    const fallback = "error: unknown command";
+    const next = suggestable(command, after) orelse
+        return std.fmt.allocPrint(allocator, "error: unknown command '{s}'", .{command}) catch fallback;
+    return std.fmt.allocPrint(
+        allocator,
+        "error: unknown command '{s}' — did you mean 'guardian-check {s} <dir>'?",
+        .{ command, next },
+    ) catch fallback;
+}
+
+/// The check name to suggest: the token after a wrapper verb, when it names a
+/// registered check. Null otherwise — a guess that isn't a real check would
+/// send the reader somewhere else entirely.
+fn suggestable(command: []const u8, after: ?[]const u8) ?[]const u8 {
+    if (!isWrapperVerb(command)) return null;
+    const next = after orelse return null;
+    return if (registry.find(next) != null) next else null;
+}
+
 // Routes the parsed command to `all`, or to a registered command (optionally
 // wrapped in baseline mode). Propagates error.CheckFailed to the caller.
-fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []const u8) !void {
+fn dispatch(
+    ctx: *registry.RunCtx,
+    cfg: *const config_mod.Config,
+    command: []const u8,
+    after_command: ?[]const u8,
+) !void {
     // `--list` / `--dry-run` introspect ONE check's rows and write nothing.
     // Refusing them on a composed command is deliberate: silently ignoring a
     // flag is exactly the failure mode this pair exists to remove.
@@ -468,6 +519,9 @@ fn dispatch(ctx: *registry.RunCtx, cfg: *const config_mod.Config, command: []con
     // special-dispatched like accept (it composes run_all.run → registry cycle).
     if (std.mem.eql(u8, command, migrate_cmd.command_name)) return migrate_cmd.run(ctx);
     const cmd = registry.find(command) orelse {
+        // The error goes out BEFORE the listing: a reader (or a `head -3`) must
+        // meet the reason, not forty lines of manual that read like success.
+        reporter.fail("{s}", .{unknownCommandLine(ctx.allocator, command, after_command)});
         registry.printHelp();
         std.process.exit(1);
     };
@@ -512,6 +566,39 @@ fn needsRequiredInputs(command: []const u8) bool {
     if (std.mem.eql(u8, command, accept.command_name)) return true;
     if (std.mem.eql(u8, command, "mutate")) return true;
     return run_all.isAllCheck(command);
+}
+
+// spec: Command Ergonomics - Names an unrecognized command in an error line before the help listing
+
+test "an unrecognized command is named as an error, not shown a manual" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `run-all` looks plausible next to `explain`/`debt`/`doctor`, so the help
+    // dump it used to print read as "the checks passed".
+    const line = unknownCommandLine(a, "run-all", null);
+    try std.testing.expect(std.mem.indexOf(u8, line, "error: unknown command 'run-all'") != null);
+    // Nothing to suggest, so nothing is invented.
+    try std.testing.expect(std.mem.indexOf(u8, line, "did you mean") == null);
+}
+
+// spec: Command Ergonomics - Suggests the direct check spelling after a run or check verb
+
+test "a wrapper verb before a real check name gets the working spelling" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `guardian-check run file-size .` — the check name IS the verb here.
+    const suggested = unknownCommandLine(a, "run", "file-size");
+    try std.testing.expect(std.mem.indexOf(u8, suggested, "guardian-check file-size <dir>") != null);
+    // `check` and `run-all` are the other two guesses that were reported.
+    try std.testing.expect(std.mem.indexOf(u8, unknownCommandLine(a, "check", "ban-globals"), "ban-globals") != null);
+    try std.testing.expectEqualStrings("pub-api-surface", suggestable("run-all", "pub-api-surface").?);
+    // A token that is not a check yields no suggestion, and a verb Guardian
+    // never sees guessed gets none either — a wrong pointer costs more than none.
+    try std.testing.expect(suggestable("run", "not-a-check") == null);
+    try std.testing.expect(suggestable("frobnicate", "file-size") == null);
+    try std.testing.expect(suggestable("run", null) == null);
 }
 
 test "project-analysis commands require input preflight" {

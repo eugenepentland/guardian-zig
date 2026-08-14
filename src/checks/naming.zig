@@ -108,12 +108,11 @@ fn checkFn(ctx: *ScanCtx, rel_path: []const u8, f: ast.PubFn) !void {
     }
 }
 
-fn checkConst(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubConst) !void {
+/// Flags a pub container declaration whose name is not PascalCase — every
+/// field-bearing struct, and every enum/union/opaque regardless of size.
+fn checkContainer(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubContainerInfo) !void {
     const a = ctx.allocator;
-    switch (c.kind) {
-        .struct_, .enum_, .union_, .opaque_ => {},
-        else => return,
-    }
+    if (isNamespace(c)) return;
     if (caseKind(c.name) == .pascal) return;
     const msg = try std.fmt.allocPrint(
         a,
@@ -121,6 +120,16 @@ fn checkConst(ctx: *ScanCtx, rel_path: []const u8, c: ast.PubConst) !void {
         .{ rel_path, c.name, @tagName(c.kind) },
     );
     try ctx.violations.append(a, msg);
+}
+
+/// True for a `struct { ... }` that declares no fields at all: a NAMESPACE, not
+/// a type anyone instantiates. `pub const review = struct { pub const mask =
+/// "#086b43"; ... };` is the std.math / std.ascii convention, and PascalCasing
+/// it would make `Review.mask` read as a field access on a value that never
+/// exists — the pressure that flattens a grouped palette into `review_` prefixes.
+/// Enums, unions, and opaques keep the rule: an empty one is still a type.
+fn isNamespace(c: ast.PubContainerInfo) bool {
+    return c.kind == .struct_ and c.field_count == 0;
 }
 
 /// Flags a container-scope const whose name is SCREAMING_SNAKE. snake_case value
@@ -155,10 +164,15 @@ fn visit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     }
 
     const consts = if (entry.tree) |t| try ast.pubConstsFromTree(a, t) else try ast.pubConsts(a, entry.content);
-    for (consts) |c| {
-        try checkConst(ctx, entry.rel_path, c);
-        try checkVagueName(ctx, entry.rel_path, "pub const", c.name);
-    }
+    for (consts) |c| try checkVagueName(ctx, entry.rel_path, "pub const", c.name);
+
+    // Container casing reads the field-count view of the same decls, because the
+    // rule is about types: a field-less struct is a namespace and is exempt.
+    const containers = if (entry.tree) |t|
+        try ast.pubContainersFromTree(a, t)
+    else
+        try ast.pubContainers(a, entry.content);
+    for (containers) |c| try checkContainer(ctx, entry.rel_path, c);
 
     // Container-scope const casing (pub and private): SCREAMING_SNAKE is banned.
     const const_names = if (entry.tree) |t|
@@ -263,6 +277,30 @@ test "visit catches snake_case struct" {
     var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
     const content = "pub const my_struct = struct { x: i32 };\n";
     try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = content });
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+}
+
+// spec: Naming - Exempts a field-less namespace struct from the PascalCase rule
+
+test "visit accepts a field-less namespace struct and still flags one with fields" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var violations: std.ArrayList([]const u8) = .empty;
+    var ctx: ScanCtx = .{ .allocator = a, .violations = &violations };
+    // A constant namespace: nothing instantiates it, so lowercase is correct Zig
+    // (std.math, std.ascii). Forcing PascalCase here flattens the grouping.
+    const namespace =
+        \\pub const review = struct {
+        \\    pub const mask = "#086b43";
+        \\    pub fn tint() u8 { return 3; }
+        \\};
+    ;
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = namespace });
+    try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+    // One field is all it takes to be a type again, and the rule applies.
+    const has_field = "pub const review = struct { mask: []const u8 };\n";
+    try visit(@ptrCast(&ctx), .{ .rel_path = "src/x.zig", .content = has_field });
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
 }
 
