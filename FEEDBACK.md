@@ -5890,3 +5890,59 @@ manifests instead.
   around it. A note in the diff-scoped header when the diff touches
   non-analyzable files (`+3 file(s) not analyzable by per-file checks`) would
   make that honest at a glance.
+
+## 2026-08-14 · Claude · eda — clearing the frozen `[[concept]]` ground/rail name vocabularies
+- **good:** `[[concept]]` did exactly what it was declared for. Two rules
+  (`ground-net-names`, `rail-name-prefixes`) had 37 frozen rows between them;
+  chasing them down found five modules carrying the *same* nine-element supply
+  prefix list pasted verbatim, a JS regex hand-porting `optimizer.isGroundName`
+  token for token, and a stale doc claim ("Mirrors the diagram classifier's
+  power-name prefixes") that had been false for as long as both lists existed.
+  None of that is reachable by `[[ban]]`, grep-review, or a type system.
+- **good:** the comment / `test`-block exemption is the right call and paid off
+  twice. 15 of the 37 rows turned out to be comment- or fixture-only already, and
+  the "independent witness" golden tests I added (each table transcribed by hand
+  so the expectation is not derived from the value) spell every literal and are
+  correctly ignored. The `explain` text already names this rationale — it is
+  worth keeping.
+- **friction:** `guardian-check concept .` reports only a COUNT — `ok: concept:
+  74 resolved` — and `--verbose` prints the byte-identical line. There is no way
+  to ask WHICH baseline rows still fire, and on this repo that number mattered a
+  lot: the comment/test exemption had already silenced 74 of 140 rows, so more
+  than half my "debt" was already gone and I could not tell which half. I ended
+  up re-implementing the scan in ~130 lines of Python — replicating the
+  line-leading-comment blanking and the Zig `test`-declaration blanking — purely
+  to get `(file, line, literal)` tuples. A `--list`/`--json` mode emitting the
+  currently-firing tuples (or even just the names of the resolved rows) would
+  have saved roughly half an hour and the whole script. This is the one change
+  that would most improve the check's usability.
+- **friction:** `owner` wants to be the module with the best-known predicate, but
+  the vocabulary can only physically live in a module every consumer can IMPORT.
+  `ground-net-names` names `src/placement/optimizer.zig` (which owns
+  `isGroundName`) — and the optimizer sits near the top of its own import graph,
+  so `pin_roles`, a module the optimizer itself imports, cannot import it back
+  without a new cycle the `imports` check would fail, and the eval-layer checkers
+  cannot reach it at all. The only workable home was a *different* already-frozen
+  file (`src/eval/net_analysis.zig`, a leaf everything reaches), which leaves that
+  row frozen permanently and the rule's stated owner no longer holding the
+  literals. Two things would help: a line in `explain concept` saying "pick an
+  owner that is a LEAF of the import graph, not the module with the best-known
+  predicate", and making `owner` naturally hold two entries (predicate + vocabulary)
+  without that reading as a loosened rule.
+- **friction (small, and documented):** a TRAILING comment counts, so
+  `const net_brown = "#8a5a2b"; // every ground variant (GND/AGND/PGND/…)` kept a
+  10.5k-line file frozen for a concept it does not implement. The fix was moving
+  the comment onto its own line — a genuine no-op edit. `explain` already warns
+  that "a code line always counts whole", so this is a known cost rather than a
+  bug; noting the shape because it will recur wherever a palette const documents
+  itself inline.
+- **good:** `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` was frictionless
+  across three commits, and the `delta: 1 new symbol(s), 0 changed, 0 removed —
+  pure additions, safe to accept` line is exactly the sentence needed to decide
+  whether accepting is honest.
+- **friction (+1 to an existing entry):** the `failed command: cd . &&
+  ./.zig-cache/o/<hash>/test --guardian-filter=…` banner on a fully GREEN filtered
+  run still costs a re-read every time — I hit it on every one of ~6 filtered runs
+  this session and each time had to scan upward for a real `error:` block to be
+  sure. Already logged by a previous agent; confirming it is still the single
+  most repeated moment of doubt in a filtered loop.
