@@ -38,25 +38,71 @@ pub const BanRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// A `[[concept]] literals_from` inline table — where the family's literals are
+/// READ FROM instead of (or as well as) being listed by hand. `file` is a
+/// project-relative path; `fragments` are plain substrings, and every
+/// double-quoted string on a line of `file` containing ALL of them joins the
+/// family.
+///
+/// It exists so a family can be TOTAL over an enum's emitting switch: a new
+/// variant's wire string joins by itself, so a mirror that never learned it
+/// fails without anyone editing guardian.toml. A hand-written `literals` list
+/// is a snapshot of the day it was written, and the gap it leaves is exactly the
+/// drift this check is for.
+pub const LiteralsFrom = struct {
+    file: []const u8,
+    fragments: []const []const u8 = &.{},
+};
+
 /// One [[concept]] entry — a named concept whose literal spellings belong to one
 /// owner module, enforced by the `concept` check. `literals` are exact
 /// substrings and `patterns` are minimal `*` wildcards (see
-/// `checks/concept.zig`); `owner` lists the files/dirs where an occurrence is
-/// legal; `files` optionally replaces the default source scan with path globs
-/// (any extension, so JS/CSS drift is reachable); `reason` names where the
-/// spelling comes from and is appended to every violation.
+/// `checks/concept.zig`); `literals_from` reads further literals out of the
+/// owner source; `owner` lists the files/dirs where an occurrence is legal;
+/// `require_in` names mirrors that must each spell EVERY literal; `files`
+/// optionally replaces the default source scan with path globs (any extension,
+/// so JS/CSS drift is reachable); `reason` names where the spelling comes from
+/// and is appended to every violation.
 ///
 /// Every other check is per-item — one file, one function. This one is
 /// relational: it says a literal BELONGS somewhere, and anywhere else is a
 /// duplicate that will drift. `[[ban]]` cannot express it (it matches Zig
 /// identifier chains, not text, and has no notion of a home).
+///
+/// `owner` and `require_in` are the two DIRECTIONS of one relation. `owner` is
+/// permissive — only these files may spell it. `require_in` is total — these
+/// files must all spell it, every literal of the family, or the mirror has gone
+/// quietly out of date.
 pub const ConceptRule = struct {
     name: []const u8,
     literals: []const []const u8 = &.{},
     patterns: []const []const u8 = &.{},
     owner: []const []const u8 = &.{},
     files: []const []const u8 = &.{},
+    require_in: []const []const u8 = &.{},
+    literals_from: ?LiteralsFrom = null,
     reason: ?[]const u8 = null,
+};
+
+/// One [[twin]] entry — one capability a project exposes on two or more
+/// surfaces, enforced by the `twin-parity` check. `name` is the kebab-case id
+/// every violation and baseline row is built from; `surfaces` are free-form
+/// labels naming where the capability is reachable (`"http:/api/pcb-fence"`,
+/// `"mcp:generate_fence"`, `"cli:export-pdf"`) and are DOCUMENTATION — nothing
+/// resolves them; `parity_test` is a substring of the name of the test that
+/// asserts the surfaces agree.
+///
+/// The registry is the point. A capability reimplemented per surface drifts
+/// silently, and the only durable record of "these two are supposed to be the
+/// same answer" is a committed fact a gate can read. Measured in the consumer
+/// project (eda, 2026-08-14): ~19 capabilities on 2+ surfaces, exactly ONE with
+/// a test asserting the surfaces return the same bytes — while the
+/// reimplemented pairs had already drifted into different BOM-merge gating,
+/// different clamps, and different JSON for the same field.
+pub const TwinRule = struct {
+    name: []const u8,
+    surfaces: []const []const u8 = &.{},
+    parity_test: ?[]const u8 = null,
 };
 
 /// How wide `divergent-const` casts its net. `units` (the default) groups only
@@ -629,6 +675,10 @@ pub const Config = struct {
     /// [[concept]] entries: project-declared owned concepts (see ConceptRule).
     /// Empty (the default) makes the `concept` check a trivial pass.
     concept_rules: []const ConceptRule = &.{},
+    /// [[twin]] entries: project-declared multi-surface capabilities (see
+    /// TwinRule). Empty (the default) makes the `twin-parity` check a trivial
+    /// pass.
+    twin_rules: []const TwinRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.

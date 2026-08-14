@@ -44,6 +44,7 @@ const check_nesting_depth = @import("../checks/nesting_depth.zig");
 const check_test_coverage = @import("../checks/test_coverage.zig");
 const check_ban = @import("../checks/ban.zig");
 const check_concept = @import("../checks/concept.zig");
+const check_twin_parity = @import("../checks/twin_parity.zig");
 const check_divergent_const = @import("../checks/divergent_const.zig");
 const check_twin_referent = @import("../checks/twin_referent.zig");
 const check_duplicate_json_key = @import("../checks/duplicate_json_key.zig");
@@ -344,6 +345,16 @@ pub const all: []const Command = &.{
         // of one check disagree about how much they read.
         .scope = .whole_tree,
         .run = check_concept.run,
+    },
+    .{
+        .name = check_twin_parity.check_name,
+        .summary = "Require a parity test for every capability a [[twin]] entry exposes on 2+ surfaces",
+        // Whole-tree: the question is whether a test named in config exists
+        // ANYWHERE, so a diff-scoped view would report every twin whose test
+        // lives outside the diff as missing — the loudest possible false
+        // positive on a one-file change.
+        .scope = .whole_tree,
+        .run = check_twin_parity.run,
     },
     .{
         .name = "divergent-const",
@@ -691,7 +702,7 @@ const inherently_whole_tree = [_][]const u8{
     "repeated-string-literal", "repeated-switch-on-enum", "change-classification",
     "fuzz-presence",           "external-gates",          "policy-drift",
     "test-reachability",       "merge-state",             "concept",
-    "divergent-const",         "twin-referent",
+    "divergent-const",         "twin-referent",           "twin-parity",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

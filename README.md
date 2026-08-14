@@ -449,9 +449,10 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **boolean-param-ban** | A `bool` parameter in any `pub fn` |
 | **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
-| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
+| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. **`require_in` reads the same relation the other way**: those files must EACH spell EVERY literal, so a mirror the project decided to keep cannot quietly fall behind — the case being a DRC kind string renamed in Zig that left the viewer's hand-mirrored JS branch dead, past 531 grep-marker tests, with the JS gate table failing PERMISSIVELY on the rename. A required mirror is owner-equivalent (never also drift), `patterns` are excluded (a wildcard names a shape, not a spelling), a comment-only mention does not satisfy it, and a `require_in` glob naming no file is itself a violation. **`literals_from = { file, fragments }` makes the family TOTAL**: every double-quoted string on a line of `file` carrying ALL the `fragments` joins (union with `literals`, deduped, comments blanked, escapes NOT resolved), so a new enum variant enrols itself — an unreadable file or an empty extraction is a violation, because an empty family passes every mirror. Keyed `<rule>|<literal>|<file>`, `<rule>|require_in|<glob>` and `<rule>|literals_from`. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
 | **divergent-const** | One file-scope `const NAME` holding **different** values in 2+ files — `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the `.kicad_mod` writer, `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two. Note the polarity against repeated-string-literal: same name + same value is harmless here, same name + DIFFERENT value is the risk. Values are compared FOLDED (`16 << 20` = `16 * 1024 * 1024` = `16_777_216`, `1_000_000` = `1_000_000.0`); an initializer that does not fold to a number is skipped. Default `mode = "units"` groups only names whose trailing `_` segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …); `mode = "all"` groups every name and `ignore_names` exempts the generic ones. A `/// mirror-of: <path>.zig.<name>` doc annotation exempts a const from the divergence rule and instead requires it to EQUAL that referent. Keyed by the NAME |
 | **twin-referent** | A comment CLAIMING a relationship (`mirrors`, `same as`, `twin of`, `in lockstep with`, `verified against`, `matches`) whose named referent does not resolve — a doc pointing at a deleted function, a file that was split into a directory, `optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Precision by construction: the phrase alone is never reported, only a phrase followed IN THE SAME SENTENCE by something code-shaped — a word ending in `.zig` (no glob, non-empty basename) or a dotted chain rooted in a module of the tree. Resolution is containment, not semantics: a path must name an indexed file (exactly or as a tail at `/`), a chain's final symbol must be declared, named as a field, or dereferenced anywhere in the tree; `std.*` / `builtin.*` are skipped. A hard-coded `file.zig:120-160` range is reported outright. Keyed `<file>|<referent>` |
+| **twin-parity** *(configured)* | A capability a `[[twin]]` entry says is reachable on 2+ surfaces (a CLI subcommand, an HTTP route, an MCP tool) with nothing proving the surfaces still agree. Nothing in a compiler can see that three implementations are meant to return one answer — they share no type, no call, often no file — so they drift while every surface keeps passing its own tests. Measured in eda (2026-08-14): ~19 capabilities on 2+ surfaces, exactly ONE with a test asserting the surfaces return the same bytes, and the reimplemented pairs already diverged into different BOM-merge gating, different clamps, and different JSON for one field. Two rules: a twin NAMING a `parity_test` must have it (a test named in config and absent from the tree is a rename nobody propagated — that one always blocks), and a twin naming none is reported as `twin-uncovered`, one row per twin, so today's uncovered set freezes and can only shrink (`[baseline] deny_growth = ["twin-parity"]` then refuses a row that LOSES its test). `surfaces` are free-form labels nothing resolves — the count is what is enforced, since fewer than two is a config error. Matching is CONTAINMENT against test names declared under `src/` and `test/` on disk (never the compiled test set), so a clarifying rename does not red the gate. Keyed `parity <name>` / `uncovered <name>` — apart on purpose, so a frozen uncovered row can never absorb the missing-test failure |
 | **duplicate-json-key** | One function writing the same `"key":` twice into the same JSON object — last-wins today, a `SyntaxError` under any strict reader. Scoped by OBJECT SEGMENT so a function writing two sibling objects is silent: a `{`/`}` a literal actually emits (`{{`/`}}` included) ends a segment, and so does a completed call between two literals, an `else` / switch `=>` / `return` (alternatives, not a sequence). A format placeholder (`{d}`, `{s}`) is a value, not a brace. A literal must also be an argument to a call that WRITES (`print`/`write`/`format`/`append`), so `std.mem.indexOf(u8, body, "\"dnp\":true")` is not a write. Test blocks are never scanned. Keyed `<file>|<fn>|<key>` |
 | **struct-method-cap** | Pub container with > 20 `pub fn` methods |
 | **optional-density** | Pub struct where > 50% of fields are `?T` |
@@ -778,7 +779,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 79 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 80 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
@@ -1453,6 +1454,38 @@ owner = ["src/board_layers.zig"]
 files = ["src/*.zig", "assets/*.css"]
 reason = "layer names come from board_layers.LayerTable"
 
+# The same relation read the OTHER way, plus a family that reads itself.
+# require_in: mirrors that must EACH spell EVERY literal (owner says "only
+# here"; require_in says "and definitely there"). A required mirror is
+# owner-equivalent, so it is never also reported as drift; a require_in glob
+# that names no file is a violation, because a deleted mirror would otherwise
+# make the requirement vacuously true. literals_from: read the family out of
+# the owner instead of listing it — every double-quoted string on a line of
+# `file` carrying ALL of `fragments` joins (union with `literals`, deduped,
+# comment lines blanked first). That is what makes the family TOTAL over an
+# emitting switch: a new enum variant enrols itself, so a mirror missing it
+# fails with nobody editing this file.
+[[concept]]
+name = "drc-kinds"
+literals_from = { file = "src/drc/kind.zig", fragments = ["=> \""] }
+owner = ["src/drc/kind.zig"]
+require_in = ["assets/viewer.js"]
+reason = "DRC kind strings come from drc.Kind.wire"
+
+# Your own multi-surface capabilities, enforced by the `twin-parity` check. Use
+# one when the SAME answer is reachable from more than one place — a CLI
+# subcommand, an HTTP route, an MCP tool — because nothing in a compiler can see
+# that those implementations are supposed to agree, and they drift while every
+# surface keeps passing its own tests. name: kebab-case and unique; it is the
+# baseline row. surfaces: free-form labels, at least two (nothing resolves them;
+# one surface is a capability, not a twin). parity_test: a substring of the name
+# of the test asserting the surfaces return the same bytes — omit it and the
+# twin is reported as `twin-uncovered`, one frozen row, so coverage ratchets up.
+[[twin]]
+name = "export-pdf"
+surfaces = ["cli:export-pdf", "http:/api/schematic-pdf", "mcp:export_pdf"]
+parity_test = "pdf export matches"
+
 # divergent-const: one file-scope const NAME holding DIFFERENT values in two
 # files. Default `mode = "units"` groups only names whose trailing `_` segment
 # is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, ...) — a physical quantity is where
@@ -1478,11 +1511,13 @@ commit, nightly, or mutation can update metadata.
 
 Every setting `src/config_parser.zig` understands (the parser fails closed —
 unknown names, malformed values, incomplete
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]` entries, a `[[ban]]` chain
-segment that isn't a bare identifier, a `[[concept]]` name that isn't kebab-case
-or that a previous entry already used, and unsafe mutation ranges are hard errors
-with a `guardian.toml:line:` diagnostic). String arrays may span lines and
-include comments and trailing commas.
+`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[twin]]` entries, a
+`[[ban]]` chain segment that isn't a bare identifier, a `[[concept]]`/`[[twin]]`
+name that isn't kebab-case or that a previous entry already used, a `[[twin]]`
+with fewer than two `surfaces`, a malformed `literals_from` table, and unsafe
+mutation ranges are hard errors with a `guardian.toml:line:` diagnostic). String
+arrays may span lines and include comments and trailing commas; an inline table
+is a single-line value.
 
 | Scope | Keys |
 |---|---|
@@ -1490,7 +1525,9 @@ include comments and trailing commas.
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
-| `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns` (at least one of the two required), `owner`, `files`, `reason` |
+| `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns`, `literals_from` (at least one of the three required), `owner`, `files`, `require_in`, `reason` |
+| `[[concept]] literals_from` | inline table, one line: `file` (required, non-empty), `fragments` (required, non-empty string array) |
+| `[[twin]]` | `name` (required, kebab-case, unique), `surfaces` (required, 2+ entries), `parity_test` |
 | `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1695,8 +1732,8 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 75 check(s) passed
-  run-all: 75 checks — 0 blocking, 3 report-only
+  run-all: 76 check(s) passed
+  run-all: 76 checks — 0 blocking, 3 report-only
   run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```

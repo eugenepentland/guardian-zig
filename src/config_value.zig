@@ -160,6 +160,90 @@ pub fn isValidStringArray(val: []const u8) bool {
     }
 }
 
+/// One `key = value` pair lifted out of an inline table, both sides as raw
+/// text: the value still has to be run through `parseString` / `parseStringArray`
+/// by whoever knows what shape that key holds.
+pub const InlinePair = struct { key: []const u8, val: []const u8 };
+
+/// Splits a TOML inline table — `{ file = "x.zig", fragments = ["a", "b"] }` —
+/// into its pairs, or null when the text is not one.
+///
+/// Deliberately the only nesting this parser accepts: an inline table is a
+/// one-line value, so the whole thing arrives on the key's own line and needs
+/// none of the multiline-array machinery. Splitting tracks string state and
+/// bracket depth, so a `,` inside an array value or inside a quoted string is
+/// not a pair separator — the two ways a naive split silently truncates the
+/// value it was handed.
+///
+/// Each half is trimmed; a piece with no `=`, an empty key, or an empty value
+/// rejects the whole table rather than being skipped, because a dropped pair is
+/// a setting the operator wrote and the gate silently did not read.
+pub fn parseInlineTable(allocator: Allocator, val: []const u8) Allocator.Error!?[]const InlinePair {
+    const raw_body = inlineTableBody(val) orelse return null;
+    const body = std.mem.trim(u8, raw_body, &std.ascii.whitespace);
+    var pairs: std.ArrayList(InlinePair) = .empty;
+    if (body.len == 0) return try pairs.toOwnedSlice(allocator);
+    var iter = InlineSplitter{ .text = body };
+    while (iter.next()) |piece| {
+        const trimmed = std.mem.trim(u8, piece, &std.ascii.whitespace);
+        if (trimmed.len == 0) return null;
+        const eq = std.mem.indexOfScalar(u8, trimmed, '=') orelse return null;
+        const key = std.mem.trim(u8, trimmed[0..eq], &std.ascii.whitespace);
+        const item = std.mem.trim(u8, trimmed[eq + 1 ..], &std.ascii.whitespace);
+        if (key.len == 0 or item.len == 0) return null;
+        try pairs.append(allocator, .{ .key = key, .val = item });
+    }
+    return try pairs.toOwnedSlice(allocator);
+}
+
+/// The bytes between an inline table's braces, or null when `val` is not a
+/// single brace-delimited value. An empty table (`{}`) yields an empty body,
+/// which parses to zero pairs — the caller decides whether that is legal.
+fn inlineTableBody(val: []const u8) ?[]const u8 {
+    if (val.len < 2 or val[0] != '{' or val[val.len - 1] != '}') return null;
+    return val[1 .. val.len - 1];
+}
+
+/// Walks an inline table's body yielding one raw `key = value` piece per
+/// top-level comma. Nothing inside a quoted string or a `[…]` value separates.
+const InlineSplitter = struct {
+    text: []const u8,
+    at: usize = 0,
+
+    fn next(self: *InlineSplitter) ?[]const u8 {
+        if (self.at >= self.text.len) return null;
+        const start = self.at;
+        var in_string = false;
+        var escaped = false;
+        var depth: usize = 0;
+        while (self.at < self.text.len) : (self.at += 1) {
+            const c = self.text[self.at];
+            if (in_string) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    in_string = false;
+                }
+                continue;
+            }
+            switch (c) {
+                '"' => in_string = true,
+                '[', '{' => depth += 1,
+                ']', '}' => depth -|= 1,
+                ',' => if (depth == 0) {
+                    const piece = self.text[start..self.at];
+                    self.at += 1;
+                    return piece;
+                },
+                else => {},
+            }
+        }
+        return self.text[start..];
+    }
+};
+
 /// Returns whether a validated array contains a blank item.
 pub fn hasEmptyArrayItem(val: []const u8) bool {
     var i: usize = 1;
@@ -319,6 +403,41 @@ test "a value ending in a lone backslash is not a valid string or array" {
     // The doubled form is a real backslash and stays valid.
     try std.testing.expect(isValidString("\"ends\\\\\""));
     try std.testing.expect(isValidStringArray("[\"ends\\\\\"]"));
+}
+
+// spec: Configuration - Splits an inline table into its key-value pairs without breaking on a nested comma
+
+test "parseInlineTable keeps commas inside strings and arrays out of the split" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const pairs = (try parseInlineTable(a, "{ file = \"src/kind.zig\", fragments = [\"=> \\\"\", \"a,b\"] }")).?;
+    try std.testing.expectEqual(@as(usize, 2), pairs.len);
+    try std.testing.expectEqualStrings("file", pairs[0].key);
+    try std.testing.expectEqualStrings("\"src/kind.zig\"", pairs[0].val);
+    // The array value arrives whole. A naive top-level split on `,` would hand
+    // the caller `["=> \""` — a truncated value it would then reject as
+    // malformed, blaming the operator for the parser's own mistake.
+    try std.testing.expectEqualStrings("fragments", pairs[1].key);
+    try std.testing.expectEqualStrings("[\"=> \\\"\", \"a,b\"]", pairs[1].val);
+    const items = try toStrings(a, pairs[1].val);
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqualStrings("=> \"", items[0]);
+    try std.testing.expectEqualStrings("a,b", items[1]);
+    // An empty table parses to zero pairs — legal shape, and the caller's job
+    // to refuse when a key is required.
+    try std.testing.expectEqual(@as(usize, 0), (try parseInlineTable(a, "{}")).?.len);
+    try std.testing.expectEqual(@as(usize, 0), (try parseInlineTable(a, "{  }")).?.len);
+    // Not a table at all, or a piece with no `=` / no key / no value: null, so
+    // the caller reports "invalid value" instead of silently dropping a setting.
+    try std.testing.expect((try parseInlineTable(a, "\"src/kind.zig\"")) == null);
+    try std.testing.expect((try parseInlineTable(a, "{ file }")) == null);
+    try std.testing.expect((try parseInlineTable(a, "{ = \"x\" }")) == null);
+    try std.testing.expect((try parseInlineTable(a, "{ file = }")) == null);
+    // A trailing comma is tolerated, exactly as the string-array parser
+    // tolerates one: the split simply runs out of text, and refusing it would
+    // reject a shape this file already accepts one line above.
+    try std.testing.expectEqual(@as(usize, 1), (try parseInlineTable(a, "{ file = \"x\", }")).?.len);
 }
 
 test "strict config values cover scalar array comment and multiline helpers" {

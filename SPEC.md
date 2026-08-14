@@ -17,6 +17,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Supports multiline string arrays with comments and trailing commas
 - Resolves escaped quotes and backslashes inside a configured string
 - Rejects a string value that ends in a lone backslash
+- Splits an inline table into its key-value pairs without breaking on a nested comma
 - Rejects unsafe mutation ranges and zero timeouts
 - Supports boundary rules via [[boundary]] sections
 - Parses a top-level disabled list of check names
@@ -977,6 +978,31 @@ without an explained `--force`.
 - Hard-fails a concept entry with neither literals nor patterns
 - Hard-fails a second concept entry reusing an existing name
 - Hard-fails a concept name that is not kebab-case
+- Flags a literal a required mirror does not spell
+- Passes a required mirror that spells every literal
+- Refuses to count a comment-only mention as a mirror's spelling
+- Treats a required mirror as an owner for the ownership scan
+- Reads a required mirror through the tree walk and flags what it lost
+- Reports a require_in glob that names no file
+- Extracts every quoted string on a line carrying all the configured fragments
+- Merges the extracted family into the declared literals without duplicating one
+- Reports a literals_from source that cannot be read or yields no literals
+- Blanks comment lines before extracting a literals_from family
+- Parses a concept entry's require_in globs and literals_from table
+- Hard-fails a malformed literals_from table
+
+## Twin Parity
+
+- Passes a twin whose parity test exists in the tree
+- Flags a twin whose named parity test is absent from the tree
+- Reports a twin that declares no parity test as uncovered
+- Passes trivially when no twin rules are configured
+- Keeps each twin's finding to its own rule
+- Collects declared test names from the source index and the test directory
+- Explains the twin-parity check's two rules, its free-form surfaces and its split baseline keys
+- Parses twin entries with name, surfaces and parity_test keys
+- Hard-fails a twin entry with no name or fewer than two surfaces
+- Hard-fails a second twin entry reusing an existing name
 
 ## Fakes
 

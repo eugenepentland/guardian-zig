@@ -420,6 +420,8 @@ const entries = [_]Entry{
     \\  patterns = ["In*.Cu"]              # `*` = 1+ chars, never leaving one token
     \\  owner = ["src/board_layers.zig"]   # where the spelling is allowed to live
     \\  files = ["src/*.zig", "*.css"]     # optional scan set (any extension)
+    \\  require_in = ["assets/viewer.js"]  # mirrors that must spell EVERY literal
+    \\  literals_from = { file = "src/drc/kind.zig", fragments = ["=> \""] }
     \\  reason = "layer names come from board_layers.LayerTable"
     \\Fix: import the value from the owner module instead of respelling it. The
     \\violation names the concept, every occurrence line (up to five) WITH the
@@ -462,11 +464,86 @@ const entries = [_]Entry{
     \\A `files` glob never descends into a dot-directory, `zig-out`, or
     \\`node_modules`, and a glob that names nothing is silence — a project may
     \\declare the concept before the owner exists.
+    \\`require_in` is the SAME relation read the other way. `owner` is permissive
+    \\(only these files may spell it); `require_in` is total (each of THESE files
+    \\must spell EVERY literal of the family, or the mirror has gone quietly out
+    \\of date). The case it exists for: a DRC kind string renamed in Zig
+    \\(eda, 2026-08-12, commit 51bff373) left the viewer's hand-mirrored JS branch
+    \\dead — 531 grep-marker tests missed it because no marker watched that
+    \\string, and the JS side's 8-entry `DRC_BLOCK` gate table fails PERMISSIVELY
+    \\on a rename (an unrecognised kind simply stops blocking). A `require_in`
+    \\file is owner-equivalent, so it is never also reported as drift; `patterns`
+    \\are excluded (a wildcard names a shape, not a spelling a mirror could hold);
+    \\a literal surviving only in a comment does NOT satisfy the requirement,
+    \\since the same blanking applies; and a `require_in` glob that names no file
+    \\is itself a violation — unlike a `files` glob, whose silence only narrows a
+    \\scan, a vacuous requirement is exactly the permissive failure this key kills.
+    \\`literals_from` makes the family TOTAL instead of a snapshot. A hand-written
+    \\`literals` list stops covering an enum the day a variant is added — the new
+    \\wire string joins no family, so no mirror is ever asked for it. Point it at
+    \\the emitting source and every double-quoted string on a line carrying ALL
+    \\the `fragments` joins the family (union with `literals`, deduped, comment
+    \\lines blanked first, escapes NOT resolved — the spelling as written is what
+    \\a mirror copies). `file` and a non-empty `fragments` are both required, and
+    \\an unreadable file or an extraction that yields nothing is a violation, not
+    \\a shrug: an empty family passes every mirror.
     \\Baseline: one violation per (file, concept), keyed `<file>|<name>` — NOT by
     \\the literal or the count. So a baselined offender file is frozen as a
     \\whole, a NEW file fails, and a second drifted literal inside an
-    \\already-frozen file stays frozen. Freeze the counts too with
+    \\already-frozen file stays frozen. The other three rows are keyed for their
+    \\own subjects: a missing mirror literal is `<rule>|<literal>|<file>` (so
+    \\learning one of three spellings resolves exactly that row), an unmatched
+    \\mirror glob is `<rule>|require_in|<glob>`, and a failed extraction is
+    \\`<rule>|literals_from`. Freeze the counts too with
     \\`[baseline] deny_growth = ["concept"]`.
+    },
+    .{ .name = "twin-parity", .text =
+    \\Why: one capability reachable on several surfaces — a CLI subcommand, an
+    \\HTTP route, an MCP tool — is several implementations of one answer, and
+    \\nothing in a compiler can see that they are meant to agree. They share no
+    \\type, no call, often no file, so they drift while every surface keeps
+    \\passing its own tests. Measured in eda (2026-08-14): ~19 capabilities on 2+
+    \\surfaces, exactly ONE with a test asserting the surfaces return the same
+    \\bytes — and the reimplemented pairs had already diverged into different
+    \\BOM-merge gating, different clamps, and different JSON for one field.
+    \\Declare one:
+    \\  [[twin]]
+    \\  name = "export-pdf"                       # kebab-case, unique
+    \\  surfaces = ["cli:export-pdf", "http:/api/schematic-pdf", "mcp:export_pdf"]
+    \\  parity_test = "pdf export matches"        # substring of the test's name
+    \\Fix: write the test `parity_test` names — one call per surface, asserting
+    \\the same bytes — or point `parity_test` at the test that already does.
+    \\Two rules, and only one of them is a ratchet. A twin that NAMES a
+    \\`parity_test` must have it: a test named in config and absent from the tree
+    \\is a rename nobody propagated or a deletion nobody noticed, never an
+    \\intention, so that one always blocks. A twin that names none is reported as
+    \\`twin-uncovered`, one row per twin, so today's uncovered set freezes in the
+    \\baseline and can only shrink — add `[baseline] deny_growth = ["twin-parity"]`
+    \\and a row that LOSES its parity_test is growth the gate refuses.
+    \\Exempt: there is no path exemption to reach for — the subject is a config
+    \\entry, not a file. Delete the `[[twin]]` row if the capability genuinely
+    \\has one implementation, or add it to the `disabled` list to turn the whole
+    \\registry off.
+    \\Limits: `surfaces` are FREE-FORM labels and nothing resolves them — this
+    \\check has no idea what an MCP tool is, and a per-surface resolver would
+    \\make the registry unwritable for projects shaped differently. What the
+    \\count buys is real: fewer than two surfaces is a config error, because a
+    \\capability with one implementation has nothing to disagree with. Matching a
+    \\`parity_test` is CONTAINMENT against declared test names, not equality, so
+    \\a clarifying rename ("…, including the cover page") does not red the gate.
+    \\The scan walks `.zig` files under `src/` and `test/` — the tests ON DISK,
+    \\never the compiled test set, exactly as the spec check's tag scan does, so
+    \\a -Dtest-filter build sees the same list. Unnamed `test { }` blocks are
+    \\skipped: there is no text a parity_test could match them by. Nothing here
+    \\proves the test is any GOOD — it proves a named test exists, which is the
+    \\difference between a registry that decays and one that does not.
+    \\Baseline: `<kind> <name>` — `parity export-pdf` for the missing test,
+    \\`uncovered export-pdf` for the unproven twin. Keyed apart on purpose (the
+    \\same split `divergent-const` makes between `const <name>` and
+    \\`mirror <file>|<name>`): one shared key would let a FROZEN uncovered row
+    \\absorb the missing-test failure the moment someone adds a `parity_test`
+    \\pointing at a test that does not exist, turning the rule that must always
+    \\block into the one that never does.
     },
     .{ .name = "divergent-const", .text =
     \\Why: one file-scope const NAME holds DIFFERENT values in two files, so two
@@ -1264,6 +1341,30 @@ test "explain concept states what is blanked and where a fix may land" {
     try std.testing.expect(std.mem.indexOf(u8, text, "LEAF of the import graph") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "minified bundle") != null);
+    // The two directions the check now reads, and the fail-closed rule each
+    // carries — a reader who plans around "owner only" designs the wrong fix.
+    try std.testing.expect(std.mem.indexOf(u8, text, "require_in") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "fails PERMISSIVELY") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "empty family passes every mirror") != null);
+}
+
+// spec: Twin Parity - Explains the twin-parity check's two rules, its free-form surfaces and its split baseline keys
+
+test "explain twin-parity separates the blocking rule from the coverage ratchet" {
+    const text = lookup("twin-parity").?;
+    // The measurement that justifies the check, so an adopting project can see
+    // the shape of its own problem rather than a rule stated in the abstract.
+    try std.testing.expect(std.mem.indexOf(u8, text, "exactly ONE") != null);
+    // Which rule blocks and which one ratchets: reading them as one rule is how
+    // a project ends up accepting the wrong row.
+    try std.testing.expect(std.mem.indexOf(u8, text, "always blocks") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "deny_growth") != null);
+    // The two things a reader otherwise assumes wrongly: surfaces are not
+    // resolved, and the parity_test match is containment.
+    try std.testing.expect(std.mem.indexOf(u8, text, "FREE-FORM labels") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "CONTAINMENT") != null);
+    // And why the two rows are keyed apart at all.
+    try std.testing.expect(std.mem.indexOf(u8, text, "uncovered export-pdf") != null);
 }
 
 // spec: Explain - Documents the commit meta command
