@@ -6147,3 +6147,8 @@ manifests instead.
   restarted and health-checked in about one second instead of a ~4 minute
   rebuild. The whole-tree `--full` gate inside `prepare-release` was 4 s of the
   244 s wall, so the gate is now free relative to the build it guards.
+
+## 2026-08-14 · codex · eda — Gerber-derived editor copper and shared pour holes
+
+- **good:** the full 2,797-test release gate caught a stale browser source-contract marker after the implementation moved drilled bores from the semantic pad pass to exact Excellon readback; the focused failure named the one test and source line, and the corrected contract passed immediately.
+- **friction:** `prepare-release.sh` produced two green exact-commit candidates that became unmergeable because `main` advanced during each ~4.4 minute concurrent test/build run. The feature stayed isolated after a third advancement; a safe queue/lease around final rebase-and-merge would avoid repeating expensive gates without weakening the exact-commit guarantee.
