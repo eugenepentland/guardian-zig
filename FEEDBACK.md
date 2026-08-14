@@ -6487,3 +6487,9 @@ manifests instead.
 ## 2026-08-14 · codex · eda — benchmark patched self-hosted Zig ReleaseSafe
 
 - **good:** Guardian's prebuilt selfcheck and diff-scoped 75-check gate passed unchanged during both cold toolchain builds (0 blocking, 2 report-only), clearly separating the candidate compiler's later WASM `BadArchiveMagic` failure from project-quality findings.
+
+## 2026-08-14 · codex · eda — hard Barracuda perimeter keepout
+
+- **good:** the diff-scoped and whole-tree 75-check gates both passed with zero
+  blocking findings after the router gained a separate hard perimeter mask and
+  DRC kind; the commit gate clearly distinguished the five report-only metrics.
