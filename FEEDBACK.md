@@ -6890,3 +6890,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** The canonical-idiom check directed new hierarchy-leaf handling into the configured shared `net_name` module, while selective `pub-api-surface` acceptance recorded exactly its helper and the refdes-stability API; the final whole-tree 79-check gate, full Debug tests, and ReleaseSafe build all passed.
 - **good:** The unsafe-ops budget encouraged consolidating post-evaluation slice mutation behind one documented boundary, keeping the repository-wide cast count below its existing budget instead of accepting broader unsafe debt.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so green focused runs continue to look contradictory until the outer Zig exit status is checked.
+
+## 2026-08-15 · codex · eda — integrate the updated mutation cohort
+- **good:** The committed v2 mutation snapshot passed the whole-tree 79-check gate, full Debug suite, and ReleaseSafe build, and the exact-commit candidate was adopted immediately by the post-merge deploy before its health check passed.
