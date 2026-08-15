@@ -6905,3 +6905,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — show and edit PCB fabrication identity
 - **good:** Guardian caught and cleanly ratcheted the intentional `BoardText` size and new fabrication-ID placement API; focused PCB, sidecar, and identity tests then ran with zero blocking findings.
 - **friction:** Filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so the outer command result remains necessary to verify a green focused run.
+
+## 2026-08-15 · codex · eda — scope assembly picks to the shown board side
+- **good:** The existing side-aware hit-test made the missing focus-scope boundary easy to isolate; the whole-tree 79-check commit gate passed with zero blockers after the focused regression test was added.
+- **friction:** A focused test initially failed only because it asserted an exact JavaScript marker for the old net-toggle statement; preserving the marker kept the behavioral contract test useful without weakening the implementation.
