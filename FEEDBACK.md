@@ -6867,3 +6867,9 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-14 · codex · eda — select affected development tests automatically
 - **good:** Exact spec linking kept the new Git/import/embed selector explicitly development-only, while a generated RF-shadow plan ran 121 affected tests in 21 seconds versus the 2,887-test suite's 70 seconds and still followed with whole-suite semantic analysis; the final 79-check release gate remained unfiltered and passed.
+
+## 2026-08-15 · codex · eda — enforce manufacturable copper pour width
+- **good:** The numeric-conversion and exact-spec checks caught an unchecked float-to-count conversion and a stale minimum-width contract while the implementation was still focused; after correction, the 79-check whole-tree gate and all 2,894 tests passed.
+- **good:** The exact-commit release gate reused the verified candidate at deployment, running the 90-second Debug suite concurrently with the 252-second ReleaseSafe build for 257 seconds total wall time.
+- **friction:** A sandboxed full-suite run crashed 43 HTTP fixtures on `setsockopt(PermissionDenied)` after 2,851 tests had passed, requiring a second unrestricted full run; detecting this capability mismatch before starting the suite would save several minutes.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit status remains necessary to distinguish a green run.
