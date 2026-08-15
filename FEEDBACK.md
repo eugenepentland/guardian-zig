@@ -6938,3 +6938,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** The exact-commit gate passed all 79 checks and the full Debug suite before publishing the experimental self-hosted-backend ReleaseSafe candidate; subsequent focused geometry tests preserved all four production placement hashes.
 - **good:** `function-size` immediately rejected an eight-scalar crossing helper, accurately flagging an API shape that also compiled poorly under the Debug backend; the two-pointer refinement cleared that check before benchmarking rejected the implementation.
 - **prototyping:** A throwaway two-file performance experiment triggered `spec` and `pub-api-surface` obligations before its benchmark showed a 2x Debug regression and it was fully reverted. A branch-only benchmark mode that still runs semantic/unsafe checks but defers spec links and API snapshot acceptance to `guardian-check commit` would make rejected experiments cheaper without weakening the merge boundary.
+
+## 2026-08-15 · codex · eda — clean Barracuda KiCad connectivity export
+- **good:** Diff-scoped and whole-tree Guardian both ran all 79 checks with zero blockers while the KiCad writer gained track-aware free-via emission; the exact-commit gate then passed the full Debug suite and concurrent ReleaseSafe build before deployment.
+- **friction:** Successful filtered tests again printed `failed command: ...` immediately after `guardian/test: PASS`; all three focused runs exited 0, but each required checking the outer exit status to rule out a contradictory failure.
