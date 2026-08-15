@@ -6920,3 +6920,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-15 · codex · eda — keep pin-one dots clear of authored silkscreen
 - **good:** Diff-scoped and whole-tree Guardian both passed all 79 checks without a blocking finding while the focused 22-test geometry run and exact-commit release gate verified the same-face footprint-silk collision follow-up.
+
+## 2026-08-15 · codex · eda — require full-width pad contact
+- **good:** The exact-commit release suite caught four stale connectivity fixtures that focused tests missed; fail-fast stopped the concurrent ReleaseSafe build after 85 seconds, and the amended commit then passed all 2,926 tests plus the production build before deployment.
+- **good:** Selective `pub-api-surface` acceptance recorded only `padTrackConnects` and `copperAnchor`, while the final whole-tree 79-check gate had zero blockers.
+- **friction:** Successful filtered tests still printed `failed command: ...` after `guardian/test: PASS`, requiring the outer exit status to confirm each focused run was green.
