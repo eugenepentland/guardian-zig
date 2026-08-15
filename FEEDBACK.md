@@ -6942,3 +6942,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — clean Barracuda KiCad connectivity export
 - **good:** Diff-scoped and whole-tree Guardian both ran all 79 checks with zero blockers while the KiCad writer gained track-aware free-via emission; the exact-commit gate then passed the full Debug suite and concurrent ReleaseSafe build before deployment.
 - **friction:** Successful filtered tests again printed `failed command: ...` immediately after `guardian/test: PASS`; all three focused runs exited 0, but each required checking the outer exit status to rule out a contradictory failure.
+
+## 2026-08-15 · codex · eda — preserve concave KiCad pad geometry
+- **good:** Diff-scoped `imports` and `pub-api-surface` checks caught an unnecessary exporter-to-placement dependency and public helper before commit; keeping the polygon-anchor logic private cleared all 79 checks, and the exact-commit release gate passed the full Debug suite plus concurrent ReleaseSafe build.
+- **friction:** Successful filtered tests again printed `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit status was required to confirm both custom-pad regressions were green.
