@@ -6925,3 +6925,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** The exact-commit release suite caught four stale connectivity fixtures that focused tests missed; fail-fast stopped the concurrent ReleaseSafe build after 85 seconds, and the amended commit then passed all 2,926 tests plus the production build before deployment.
 - **good:** Selective `pub-api-surface` acceptance recorded only `padTrackConnects` and `copperAnchor`, while the final whole-tree 79-check gate had zero blockers.
 - **friction:** Successful filtered tests still printed `failed command: ...` after `guardian/test: PASS`, requiring the outer exit status to confirm each focused run was green.
+
+## 2026-08-15 · codex · eda — accelerate self-hosted placement hot loops
+- **good:** Diff-scoped `function-size`, `doc-comments`, `bool-ops-per-condition`, `ban-globals`, and whole-suite semantic compilation caught a ten-parameter force helper, two undocumented cache APIs, an over-wide quarter-turn condition, a new thread-local cache global, and five stale test call sites during the optimization loop; after refactoring, all 79 whole-tree checks and 2,914 Debug tests passed while exact production hashes were preserved.
+- **good:** Selective `pub-api-surface` acceptance previewed and recorded only the nine intentional cache/reuse APIs needed across placement modules.
+- **friction:** Both the 68-test focused run and the green 2,914-test full run printed `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit code was still required to distinguish success from failure.
