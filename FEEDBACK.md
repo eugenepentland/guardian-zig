@@ -6930,3 +6930,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** Diff-scoped `function-size`, `doc-comments`, `bool-ops-per-condition`, `ban-globals`, and whole-suite semantic compilation caught a ten-parameter force helper, two undocumented cache APIs, an over-wide quarter-turn condition, a new thread-local cache global, and five stale test call sites during the optimization loop; after refactoring, all 79 whole-tree checks and 2,914 Debug tests passed while exact production hashes were preserved.
 - **good:** Selective `pub-api-surface` acceptance previewed and recorded only the nine intentional cache/reuse APIs needed across placement modules.
 - **friction:** Both the 68-test focused run and the green 2,914-test full run printed `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit code was still required to distinguish success from failure.
+
+## 2026-08-15 · codex · eda — benchmark the gated ReleaseSafe placement candidate
+- **good:** The clean exact-commit release gate passed all 79 checks and the full test suite before producing the ReleaseSafe candidate; a later baseline-control Debug build reused the matching prebuilt Guardian and completed its diff-scoped 79-check gate with zero blockers.
