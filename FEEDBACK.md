@@ -6873,3 +6873,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** The exact-commit release gate reused the verified candidate at deployment, running the 90-second Debug suite concurrently with the 252-second ReleaseSafe build for 257 seconds total wall time.
 - **friction:** A sandboxed full-suite run crashed 43 HTTP fixtures on `setsockopt(PermissionDenied)` after 2,851 tests had passed, requiring a second unrestricted full run; detecting this capability mismatch before starting the suite would save several minutes.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit status remains necessary to distinguish a green run.
+
+## 2026-08-15 · Claude Fable · eda — barracuda copper-purge forensics + fix plan
+
+- good: one fresh-worktree `zig build --seed=1 -Doptimize=debug` for a diagnostic session's binary — prebuilt guardian-check gate ran clean inside the build with no perceptible overhead; nothing else touched the gate.
