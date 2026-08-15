@@ -6880,3 +6880,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-15 · codex · eda — improve assembly kitting and side selection
 - **good:** The diff-scoped `spec` check identified both new assembly browser-contract tests as unlinked on the first focused run; adding the exact Web Server bullets cleared all 79 checks, and the whole-tree commit and exact-commit release gates passed with zero blocking findings before deployment.
+
+## 2026-08-15 · codex · eda — make Barracuda connectivity copper-honest
+- **good:** Diff-scoped `import-layering`, `concept`, `dead-pub`, and `bool-ops-per-condition` findings each identified a concrete design mistake during the shared connectivity refactor; selective `pub-api-surface` acceptance then recorded only the intentional API additions, and the final 79-check whole-tree gate passed.
+- **good:** The exact-commit release suite exposed 16 router/WASM compatibility regressions missed by focused tests, and fail-fast cancellation stopped the concurrent ReleaseSafe build after 86 seconds; focused fixes then passed all 2,900+ tests and the release candidate deployed through a green health check.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, repeatedly requiring inspection of the outer Zig exit status to distinguish a green run.
