@@ -6933,3 +6933,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-15 · codex · eda — benchmark the gated ReleaseSafe placement candidate
 - **good:** The clean exact-commit release gate passed all 79 checks and the full test suite before producing the ReleaseSafe candidate; a later baseline-control Debug build reused the matching prebuilt Guardian and completed its diff-scoped 79-check gate with zero blockers.
+
+## 2026-08-15 · codex · eda — test self-hosted geometry inlining and scalarization
+- **good:** The exact-commit gate passed all 79 checks and the full Debug suite before publishing the experimental self-hosted-backend ReleaseSafe candidate; subsequent focused geometry tests preserved all four production placement hashes.
+- **good:** `function-size` immediately rejected an eight-scalar crossing helper, accurately flagging an API shape that also compiled poorly under the Debug backend; the two-pointer refinement cleared that check before benchmarking rejected the implementation.
+- **prototyping:** A throwaway two-file performance experiment triggered `spec` and `pub-api-surface` obligations before its benchmark showed a 2x Debug regression and it was fully reverted. A branch-only benchmark mode that still runs semantic/unsafe checks but defers spec links and API snapshot acceptance to `guardian-check commit` would make rejected experiments cheaper without weakening the merge boundary.
