@@ -6885,3 +6885,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** Diff-scoped `import-layering`, `concept`, `dead-pub`, and `bool-ops-per-condition` findings each identified a concrete design mistake during the shared connectivity refactor; selective `pub-api-surface` acceptance then recorded only the intentional API additions, and the final 79-check whole-tree gate passed.
 - **good:** The exact-commit release suite exposed 16 router/WASM compatibility regressions missed by focused tests, and fail-fast cancellation stopped the concurrent ReleaseSafe build after 86 seconds; focused fixes then passed all 2,900+ tests and the release candidate deployed through a green health check.
 - **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, repeatedly requiring inspection of the outer Zig exit status to distinguish a green run.
+
+## 2026-08-15 · codex · eda — stabilize and shorten assembly refdes labels
+- **good:** The canonical-idiom check directed new hierarchy-leaf handling into the configured shared `net_name` module, while selective `pub-api-surface` acceptance recorded exactly its helper and the refdes-stability API; the final whole-tree 79-check gate, full Debug tests, and ReleaseSafe build all passed.
+- **good:** The unsafe-ops budget encouraged consolidating post-evaluation slice mutation behind one documented boundary, keeping the repository-wide cast count below its existing budget instead of accepting broader unsafe debt.
+- **friction:** Successful filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so green focused runs continue to look contradictory until the outer Zig exit status is checked.
