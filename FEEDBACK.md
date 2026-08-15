@@ -6897,3 +6897,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — prototype self-hosted Debug polygon hot loops
 - **good:** Diff-scoped Guardian ran all 79 checks while each filtered geometry run selected only 17 tests; after the regression assertions were linked correctly, the gate and focused tests stayed green through several benchmark variants.
 - **friction:** `change-classification` did not count the already-present authoritative polygon test until its body changed, so adding a second `// spec:` test caused two extra gate cycles: first the new text was unlinked, then duplicating the existing exact tag was also reported as unlinked. Folding the new closing-edge assertions into the existing tagged test resolved it; the diagnostic could explicitly suggest extending the already-linked test when the behavioral file already contains one for that SPEC bullet.
+
+## 2026-08-15 · codex · eda — purge Barracuda route stubs to a fixed point
+- **good:** Diff-scoped and whole-tree Guardian both ran all 79 checks with zero blockers; the exact-commit release gate then passed the full Debug suite and concurrent ReleaseSafe build before the cleanup implementation was handed off.
+- **friction:** Successful filtered tests again printed `failed command: ...` immediately after `guardian/test: PASS`, requiring the outer Zig exit status to confirm that both focused cleanup runs were green.
