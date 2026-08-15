@@ -6961,3 +6961,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** Diff-scoped `spec`, `doc-comments`, function-shape, and `pub-api-surface` checks caught missing requirement linkage, undocumented or over-wide helpers, and the four intentional copper-contact exports before commit; after refactoring and selective acceptance, the whole-tree 79-check gate had zero blockers.
 - **good:** The exact-commit release gate caught two stale DRC/router topology fixtures missed by the focused runs and stopped the concurrent ReleaseSafe build after 84 seconds; the corrected commit then passed all 2,930 Debug tests plus the production build before deployment.
 - **friction:** Successful filtered tests repeatedly printed `failed command: ...` immediately after `guardian/test: PASS`, so every focused run required checking the outer Zig exit status to distinguish a real failure from a green result.
+
+## 2026-08-15 · codex · eda — require full-width trace-to-via junctions
+- **good:** `pub-api-surface` presented exactly three new copper-contact declarations and the two intentional canonicalizer signature changes; selective acceptance and the final whole-tree 79-check gate both completed with zero blockers.
+- **good:** A broad 185-test `via` filter caught one stale dangling-copper expectation that the two exact regressions and whole-suite type-check did not execute; correcting that fixture before the exact-commit gate kept the production release green on its first full run.
+- **friction:** Every successful focused run still printed `failed command: ...` immediately after `guardian/test: PASS`, requiring the outer Zig exit status to verify that the via, junction, connectivity, and normalization filters actually passed.
