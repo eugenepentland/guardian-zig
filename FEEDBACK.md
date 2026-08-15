@@ -6913,3 +6913,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — correct assembly sidebar side filtering
 - **good:** Exact spec linking and the whole-tree commit gate passed once the regression covered the complete parent-message-to-iframe focus path, including refocusing after a board-side switch.
 - **friction:** The first implementation tested only board-canvas component picks and missed BOM/sidebar selections, so a user retry was required; a cross-frame behavior like this needs its regression to assert both the sender and receiver boundaries.
+
+## 2026-08-15 · codex · eda — generate collision-aware pin-one silkscreen dots
+- **good:** The diff-scoped function-size, public-doc, test-no-conditional, and public-API checks caught wide placement helpers, undocumented exports, and assertion-free test loops before commit; after the focused fixes and selective API acceptance, the whole-tree 79-check release gate passed with zero blockers.
+- **friction:** Successful filtered tests still printed `failed command: ...` immediately after `guardian/test: PASS`, requiring inspection of the outer Zig exit status to confirm the 21 selected tests were green.
