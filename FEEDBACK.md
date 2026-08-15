@@ -6946,3 +6946,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — preserve concave KiCad pad geometry
 - **good:** Diff-scoped `imports` and `pub-api-surface` checks caught an unnecessary exporter-to-placement dependency and public helper before commit; keeping the polygon-anchor logic private cleared all 79 checks, and the exact-commit release gate passed the full Debug suite plus concurrent ReleaseSafe build.
 - **friction:** Successful filtered tests again printed `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit status was required to confirm both custom-pad regressions were green.
+
+## 2026-08-15 · codex · eda — fingerprint custom compiler release candidates
+- **good:** `spec` rejected the new compiler-fingerprint regression until its requirement was linked into the Development pipeline specification; the corrected focused run and whole-tree commit/release gates then passed all 79 checks with zero blockers.
+- **bug:** The release hook previously keyed candidates and Zig caches by source tree plus reported version, allowing distinct private compiler binaries with the same pinned version to reuse each other's artifacts; the fix records and requires the compiler SHA-256 and the exact-commit gate ran all Debug tests before publishing the new candidate.
+- **friction:** The green 17-test focused run still printed `failed command: ...` immediately after `guardian/test: PASS`, requiring the outer exit status to confirm success.
