@@ -6909,3 +6909,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — scope assembly picks to the shown board side
 - **good:** The existing side-aware hit-test made the missing focus-scope boundary easy to isolate; the whole-tree 79-check commit gate passed with zero blockers after the focused regression test was added.
 - **friction:** A focused test initially failed only because it asserted an exact JavaScript marker for the old net-toggle statement; preserving the marker kept the behavioral contract test useful without weakening the implementation.
+
+## 2026-08-15 · codex · eda — correct assembly sidebar side filtering
+- **good:** Exact spec linking and the whole-tree commit gate passed once the regression covered the complete parent-message-to-iframe focus path, including refocusing after a board-side switch.
+- **friction:** The first implementation tested only board-canvas component picks and missed BOM/sidebar selections, so a user retry was required; a cross-frame behavior like this needs its regression to assert both the sender and receiver boundaries.
