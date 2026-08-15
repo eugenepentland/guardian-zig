@@ -6917,3 +6917,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — generate collision-aware pin-one silkscreen dots
 - **good:** The diff-scoped function-size, public-doc, test-no-conditional, and public-API checks caught wide placement helpers, undocumented exports, and assertion-free test loops before commit; after the focused fixes and selective API acceptance, the whole-tree 79-check release gate passed with zero blockers.
 - **friction:** Successful filtered tests still printed `failed command: ...` immediately after `guardian/test: PASS`, requiring inspection of the outer Zig exit status to confirm the 21 selected tests were green.
+
+## 2026-08-15 · codex · eda — keep pin-one dots clear of authored silkscreen
+- **good:** Diff-scoped and whole-tree Guardian both passed all 79 checks without a blocking finding while the focused 22-test geometry run and exact-commit release gate verified the same-face footprint-silk collision follow-up.
