@@ -6901,3 +6901,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · codex · eda — purge Barracuda route stubs to a fixed point
 - **good:** Diff-scoped and whole-tree Guardian both ran all 79 checks with zero blockers; the exact-commit release gate then passed the full Debug suite and concurrent ReleaseSafe build before the cleanup implementation was handed off.
 - **friction:** Successful filtered tests again printed `failed command: ...` immediately after `guardian/test: PASS`, requiring the outer Zig exit status to confirm that both focused cleanup runs were green.
+
+## 2026-08-15 · codex · eda — show and edit PCB fabrication identity
+- **good:** Guardian caught and cleanly ratcheted the intentional `BoardText` size and new fabrication-ID placement API; focused PCB, sidecar, and identity tests then ran with zero blocking findings.
+- **friction:** Filtered tests still print `failed command: ...` immediately after `guardian/test: PASS`, so the outer command result remains necessary to verify a green focused run.
