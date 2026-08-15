@@ -6893,3 +6893,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-15 · codex · eda — integrate the updated mutation cohort
 - **good:** The committed v2 mutation snapshot passed the whole-tree 79-check gate, full Debug suite, and ReleaseSafe build, and the exact-commit candidate was adopted immediately by the post-merge deploy before its health check passed.
+
+## 2026-08-15 · codex · eda — prototype self-hosted Debug polygon hot loops
+- **good:** Diff-scoped Guardian ran all 79 checks while each filtered geometry run selected only 17 tests; after the regression assertions were linked correctly, the gate and focused tests stayed green through several benchmark variants.
+- **friction:** `change-classification` did not count the already-present authoritative polygon test until its body changed, so adding a second `// spec:` test caused two extra gate cycles: first the new text was unlinked, then duplicating the existing exact tag was also reported as unlinked. Folding the new closing-edge assertions into the existing tagged test resolved it; the diagnostic could explicitly suggest extending the already-linked test when the behavioral file already contains one for that SPEC bullet.
