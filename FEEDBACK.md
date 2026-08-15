@@ -6877,3 +6877,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-15 · Claude Fable · eda — barracuda copper-purge forensics + fix plan
 
 - good: one fresh-worktree `zig build --seed=1 -Doptimize=debug` for a diagnostic session's binary — prebuilt guardian-check gate ran clean inside the build with no perceptible overhead; nothing else touched the gate.
+
+## 2026-08-15 · codex · eda — improve assembly kitting and side selection
+- **good:** The diff-scoped `spec` check identified both new assembly browser-contract tests as unlinked on the first focused run; adding the exact Web Server bullets cleared all 79 checks, and the whole-tree commit and exact-commit release gates passed with zero blocking findings before deployment.
