@@ -6970,3 +6970,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — reject packed float-pair slice lowering
 - **good:** Compiler SHA-256 isolation kept three custom Zig variants from adopting one another's exact-tree artifacts, and each `prepare-release` run serialized the 79-check Guardian gate, 2,927-test Debug suite, and ReleaseSafe build before publishing.
 - **wish:** The gate publishes after Debug tests plus a ReleaseSafe compile but does not execute the candidate. A packed `[2]f64` compiler experiment passed both halves yet its first production API request faulted on `vmovdqa` from a valid 8-byte-aligned slice; one configurable ReleaseSafe smoke command at the deployment boundary would have caught this before publication without adding another build.
+
+## 2026-08-16 · codex · eda — validate overflow-tuple compiler lowering
+- **good:** The compiler-fingerprinted exact-commit gate kept the new self-hosted overflow-tuple lowering isolated from the retained compiler, reused the unchanged whole-tree Guardian result with zero blockers, ran all 2,927 Debug tests, and built the ReleaseSafe artifact successfully in 249 seconds concurrent wall time.
