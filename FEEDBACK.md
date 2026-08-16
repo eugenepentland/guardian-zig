@@ -7015,3 +7015,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-16 · codex · eda — validate constant-division compiler lowering
 - **good:** Two clean-cache builds with the custom self-hosted x86 compiler each ran all 79 diff-scoped checks with zero blockers before emitting the unchanged ReleaseSafe application; alternating production benchmarks then preserved all four response hashes while confirming the compiler optimization exceeded its runtime target.
+
+## 2026-08-16 · codex · eda — gate the self-hosted production default
+- **good:** The exact-commit release boundary ran all 79 Guardian checks and the complete EDA test suite, exposing a deterministic router crash from a custom compiler that had passed a ten-million-value arithmetic probe and four-board response-hash benchmarks; this stopped an unsafe compiler before merge or deployment.
+- **good:** After switching to the official compiler forced through the self-hosted backend, the unchanged-input Guardian result was reused with zero blockers while the full correctness gate still ran before canary benchmarking rejected the candidate's 4.39x runtime regression.
