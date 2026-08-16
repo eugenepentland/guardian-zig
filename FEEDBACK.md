@@ -6978,3 +6978,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** Diff-scoped shape, specification, and public-API checks guided the new shared via-connectivity graph into small documented interfaces; selective API acceptance and the final whole-tree 79-check gate passed with zero blockers.
 - **good:** The first exact-commit release run caught that the exhaustive warning-severity fixture did not actually synthesize the new `redundant_via` kind; fail-fast stopped the concurrent production build, and the corrected fixture then passed all 2,937 Debug tests plus ReleaseSafe before deployment.
 - **friction:** Successful filtered tests still printed `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit status remained necessary to distinguish the green focused runs.
+
+## 2026-08-16 · codex · eda — optimize self-hosted byte equality
+- **good:** Compiler SHA-256 isolation forced the standard-library equality candidate through a fresh exact-commit boundary; cached Guardian completed with zero blockers, the full Debug suite passed, and the sole ReleaseSafe build published successfully in 90 seconds before adjacent production windows preserved all four response hashes.
