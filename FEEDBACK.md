@@ -6996,3 +6996,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-16 · codex · eda — reject self-hosted byte-scan pointer walk
 - **good:** Compiler SHA-256 isolation forced both the pointer-walk candidate and its same-commit retained control through distinct exact release boundaries; cached Guardian reported zero blockers, both 2,927-test Debug suites passed, and both ReleaseSafe artifacts built before production benchmarking rejected the candidate without changing EDA source.
+
+## 2026-08-16 · codex · eda — parse the PCB API layout sidecar once
+- **good:** `change-classification` required the request-path optimization to extend a spec-linked sidecar regression; the focused 17-test run, whole-tree commit gate, and exact release gate then passed all 79 checks with zero blockers before all 2,927 Debug tests and the ReleaseSafe build completed in 95 seconds concurrent wall time.
+- **good:** The compiler-fingerprinted release boundary produced a distinct exact artifact for the committed candidate, and alternating production windows preserved every response hash while reducing the four-board request sum by 27.06%.
