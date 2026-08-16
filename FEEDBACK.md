@@ -6990,3 +6990,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-16 · codex · eda — cache hub-to-net adjacency for escape scans
 - **good:** `change-classification` correctly required the performance-only cache change to gain regression coverage; after adding exact adjacency/deduplication assertions, 43 focused tests, the commit hook, and the whole-tree release gate all passed with zero blockers, followed by all 2,927 Debug tests and the ReleaseSafe build in 87 seconds concurrent wall time.
+
+## 2026-08-16 · codex · eda — coalesce macro-pair loop bounds
+- **good:** Adding a bit-identical repeated-origin assertion to the existing spec-linked macro-arrangement test satisfied `change-classification`; 17 focused tests, the commit hook, and the whole-tree gate then passed with zero blockers before all 2,927 Debug tests and the ReleaseSafe build completed in 85 seconds concurrent wall time.
