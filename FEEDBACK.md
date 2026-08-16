@@ -7012,3 +7012,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — add persistent trace segment IDs
 - **good:** Guardian's specification, change-classification, and type-size gates required the user-visible segment-ID contract to gain linked regression coverage and made the one-field `SavedTrack` schema growth explicit; the exact release gate then passed all 2,944 Debug tests plus ReleaseSafe before deployment.
 - **friction:** Green filtered tests continued to print `failed command: ...` after `guardian/test: PASS`, requiring the outer exit code to confirm each segment-ID test was successful.
+
+## 2026-08-16 · codex · eda — validate constant-division compiler lowering
+- **good:** Two clean-cache builds with the custom self-hosted x86 compiler each ran all 79 diff-scoped checks with zero blockers before emitting the unchanged ReleaseSafe application; alternating production benchmarks then preserved all four response hashes while confirming the compiler optimization exceeded its runtime target.
