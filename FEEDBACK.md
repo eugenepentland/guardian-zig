@@ -6966,3 +6966,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** `pub-api-surface` presented exactly three new copper-contact declarations and the two intentional canonicalizer signature changes; selective acceptance and the final whole-tree 79-check gate both completed with zero blockers.
 - **good:** A broad 185-test `via` filter caught one stale dangling-copper expectation that the two exact regressions and whole-suite type-check did not execute; correcting that fixture before the exact-commit gate kept the production release green on its first full run.
 - **friction:** Every successful focused run still printed `failed command: ...` immediately after `guardian/test: PASS`, requiring the outer Zig exit status to verify that the via, junction, connectivity, and normalization filters actually passed.
+
+## 2026-08-16 · codex · eda — reject packed float-pair slice lowering
+- **good:** Compiler SHA-256 isolation kept three custom Zig variants from adopting one another's exact-tree artifacts, and each `prepare-release` run serialized the 79-check Guardian gate, 2,927-test Debug suite, and ReleaseSafe build before publishing.
+- **wish:** The gate publishes after Debug tests plus a ReleaseSafe compile but does not execute the candidate. A packed `[2]f64` compiler experiment passed both halves yet its first production API request faulted on `vmovdqa` from a valid 8-byte-aligned slice; one configurable ReleaseSafe smoke command at the deployment boundary would have caught this before publication without adding another build.
