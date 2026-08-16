@@ -7023,3 +7023,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — reconstruct the last safe compiler boundary
 - **good:** The focused Guardian test runner reproduced the unsafe compiler's router crash and then passed in both Debug and ReleaseSafe with the reconstructed compiler, giving a fast discriminator before the expensive exact-commit gate.
 - **good:** The first full release run passed 2,944 application tests and failed only the independent compiler-SHA policy fixture; that caught a stale hard-coded pin outside the release scripts. After correcting it, all 79 Guardian checks and all 2,945 tests passed before the canary rejected the remaining runtime regression.
+
+## 2026-08-16 · codex · eda — isolate post-checkpoint compiler optimizations
+- **good:** Repeated focused ReleaseSafe runs made the router crash a precise compiler discriminator: automatic scalar-leaf inlining, pointer-argument pinning, paired sin/cos, and balanced switch lowering each passed 17 tests, while early call-argument death alone reproduced the deterministic `router.zig:4401` crash.
+- **good:** The retained auto-inline plus paired-sincos compiler passed all 79 Guardian checks and all 2,945 application tests with exact canary response hashes.
+- **friction:** Successful filtered tests still printed `failed command:` after `guardian/test: PASS`, so every candidate required checking the outer process exit status to distinguish success from the one real crash.
