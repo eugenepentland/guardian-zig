@@ -7000,3 +7000,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — parse the PCB API layout sidecar once
 - **good:** `change-classification` required the request-path optimization to extend a spec-linked sidecar regression; the focused 17-test run, whole-tree commit gate, and exact release gate then passed all 79 checks with zero blockers before all 2,927 Debug tests and the ReleaseSafe build completed in 95 seconds concurrent wall time.
 - **good:** The compiler-fingerprinted release boundary produced a distinct exact artifact for the committed candidate, and alternating production windows preserved every response hash while reducing the four-board request sum by 27.06%.
+
+## 2026-08-16 · codex · eda — merge ReleaseSafe performance work into main
+- **good:** The Guardian merge driver reconciled the public-API snapshot without conflicts, and the exact merged-tree release gate passed all 79 checks with zero blockers before the full Debug suite and self-hosted ReleaseSafe build produced a verified candidate in 92 seconds concurrent wall time.
+- **friction:** The automatic post-merge deploy could not reuse the feature-tip candidate because the merge commit has a distinct tree, then refused to prepare that exact tree because the main checkout contained a pre-existing dirty `.guardian/mutation.txt`; producing the candidate required a clean linked worktree even though the dirty snapshot was unrelated to the merge.
