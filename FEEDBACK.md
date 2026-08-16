@@ -7019,3 +7019,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — gate the self-hosted production default
 - **good:** The exact-commit release boundary ran all 79 Guardian checks and the complete EDA test suite, exposing a deterministic router crash from a custom compiler that had passed a ten-million-value arithmetic probe and four-board response-hash benchmarks; this stopped an unsafe compiler before merge or deployment.
 - **good:** After switching to the official compiler forced through the self-hosted backend, the unchanged-input Guardian result was reused with zero blockers while the full correctness gate still ran before canary benchmarking rejected the candidate's 4.39x runtime regression.
+
+## 2026-08-16 · codex · eda — reconstruct the last safe compiler boundary
+- **good:** The focused Guardian test runner reproduced the unsafe compiler's router crash and then passed in both Debug and ReleaseSafe with the reconstructed compiler, giving a fast discriminator before the expensive exact-commit gate.
+- **good:** The first full release run passed 2,944 application tests and failed only the independent compiler-SHA policy fixture; that caught a stale hard-coded pin outside the release scripts. After correcting it, all 79 Guardian checks and all 2,945 tests passed before the canary rejected the remaining runtime regression.
