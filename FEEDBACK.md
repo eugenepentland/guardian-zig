@@ -7004,3 +7004,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — merge ReleaseSafe performance work into main
 - **good:** The Guardian merge driver reconciled the public-API snapshot without conflicts, and the exact merged-tree release gate passed all 79 checks with zero blockers before the full Debug suite and self-hosted ReleaseSafe build produced a verified candidate in 92 seconds concurrent wall time.
 - **friction:** The automatic post-merge deploy could not reuse the feature-tip candidate because the merge commit has a distinct tree, then refused to prepare that exact tree because the main checkout contained a pre-existing dirty `.guardian/mutation.txt`; producing the candidate required a clean linked worktree even though the dirty snapshot was unrelated to the merge.
+
+## 2026-08-16 · codex · eda — add PCB route provenance and inner power pours
+- **good:** The whole-tree gate kept all 79 checks green while route provenance expanded the saved-copper schema, and the exact-commit release boundary caught a stale static contract requiring `route_pcb` to expose its direct pour-aware DRC call; after restoring that seam, all 2,942 Debug tests and the concurrent ReleaseSafe build passed.
+- **friction:** Green filtered runs continued to print `failed command: ...` after `guardian/test: PASS`, so the outer exit status was required to distinguish success on every focused route/provenance test.
