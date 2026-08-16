@@ -7008,3 +7008,7 @@ exercise of the new system checks. Grouped friction from all six reports:
 ## 2026-08-16 · codex · eda — add PCB route provenance and inner power pours
 - **good:** The whole-tree gate kept all 79 checks green while route provenance expanded the saved-copper schema, and the exact-commit release boundary caught a stale static contract requiring `route_pcb` to expose its direct pour-aware DRC call; after restoring that seam, all 2,942 Debug tests and the concurrent ReleaseSafe build passed.
 - **friction:** Green filtered runs continued to print `failed command: ...` after `guardian/test: PASS`, so the outer exit status was required to distinguish success on every focused route/provenance test.
+
+## 2026-08-16 · codex · eda — add persistent trace segment IDs
+- **good:** Guardian's specification, change-classification, and type-size gates required the user-visible segment-ID contract to gain linked regression coverage and made the one-field `SavedTrack` schema growth explicit; the exact release gate then passed all 2,944 Debug tests plus ReleaseSafe before deployment.
+- **friction:** Green filtered tests continued to print `failed command: ...` after `guardian/test: PASS`, requiring the outer exit code to confirm each segment-ID test was successful.
