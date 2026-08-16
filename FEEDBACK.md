@@ -6987,3 +6987,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-16 · codex · eda — cache courtyards in the stacked-pair hot loop
 - **good:** The diff-scoped focused test, commit hook, and exact-commit release boundary all reported zero Guardian blockers; the release gate then passed all 2,927 Debug tests and built the self-hosted ReleaseSafe artifact in 94 seconds concurrent wall time before alternating production benchmarks verified identical response hashes.
+
+## 2026-08-16 · codex · eda — cache hub-to-net adjacency for escape scans
+- **good:** `change-classification` correctly required the performance-only cache change to gain regression coverage; after adding exact adjacency/deduplication assertions, 43 focused tests, the commit hook, and the whole-tree release gate all passed with zero blockers, followed by all 2,927 Debug tests and the ReleaseSafe build in 87 seconds concurrent wall time.
