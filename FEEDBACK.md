@@ -6973,3 +6973,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-16 · codex · eda — validate overflow-tuple compiler lowering
 - **good:** The compiler-fingerprinted exact-commit gate kept the new self-hosted overflow-tuple lowering isolated from the retained compiler, reused the unchanged whole-tree Guardian result with zero blockers, ran all 2,927 Debug tests, and built the ReleaseSafe artifact successfully in 249 seconds concurrent wall time.
+
+## 2026-08-16 · codex · eda — prune connectivity-redundant non-ground vias
+- **good:** Diff-scoped shape, specification, and public-API checks guided the new shared via-connectivity graph into small documented interfaces; selective API acceptance and the final whole-tree 79-check gate passed with zero blockers.
+- **good:** The first exact-commit release run caught that the exhaustive warning-severity fixture did not actually synthesize the new `redundant_via` kind; fail-fast stopped the concurrent production build, and the corrected fixture then passed all 2,937 Debug tests plus ReleaseSafe before deployment.
+- **friction:** Successful filtered tests still printed `failed command: ...` immediately after `guardian/test: PASS`, so the outer Zig exit status remained necessary to distinguish the green focused runs.
