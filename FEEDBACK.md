@@ -7097,3 +7097,31 @@ exercise of the new system checks. Grouped friction from all six reports:
   CLAUDE.md describes — no cold ReleaseSafe gate compile, no selfcheck complaint. The
   whole session then needed no further gate runs (measurement task, zero source edits),
   so Guardian cost was a single build and stayed out of the way.
+
+## 2026-08-17 · claude (Fable subagent) · eda — protected-copper negotiation (diff-pair + plane-corridor rips)
+
+- good: the `spec` check's `deny_growth` did exactly its job three times running —
+  every increment landed SPEC bullet + `// spec:` tagged test + code in one commit
+  because the gate named the unlinked tag by its full text and by file, so the fix was
+  mechanical rather than a hunt.
+- good: `change-classification` caught an 18-line diagnostic-logging addition that I
+  had genuinely not thought needed a test, and it was right — writing the test found
+  two missing out-of-range guards in the new trace helpers. This is the check earning
+  its keep, not friction.
+- friction: `type-size` (cap 7 fields) fired on TWO structs at once when a feature
+  needed one new field on each (`vacate_policy.NetFacts`, `target_unblock.Limits`).
+  The report gives the count and the cap but no hint which fields are cheap to fold,
+  so both fixes were a manual re-read. Both restructurings were genuine improvements
+  (a bool became a tri-state enum on an existing field; three restated fields became
+  the one struct they were copies of), so the check pointed the right way — but a
+  "these N fields are only ever read together" hint would have got there in one step
+  instead of three.
+- friction: `panic-budget` counted a `catch unreachable` inside a NEW TEST body against
+  the production budget (3 found, 2 budgeted). In a test that is the idiomatic "this
+  allocation cannot fail here" and `try` was the trivial fix, but the finding text
+  points at the budget rather than at the file:line, so locating it meant grepping my
+  own diff for `unreachable`. Naming the site would make this a five-second fix.
+- friction: a filtered `zig build test` prints `failed command: … --guardian-filter=…`
+  in the tail even when the run is green (`guardian/test: PASS — 21 passed`). It reads
+  as a failure every time; I now grep for the PASS line and ignore the banner, but a
+  first-time reader would treat a green run as broken.
