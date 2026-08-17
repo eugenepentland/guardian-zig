@@ -7306,3 +7306,32 @@ exercise of the new system checks. Grouped friction from all six reports:
   the number I care about and it is the third clause of the line. Leading with it
   (`filter matched 1 named test`) would make the empty-filter guard, which is a genuinely
   good feature, land faster for a reader skimming for it.
+
+## 2026-08-17 · Claude · eda — corridor-scaled unblock slice + drill-contained stitch via
+- **good:** `pub-api-surface` did exactly its job twice, on the two new public symbols
+  (`target_unblock.corridorSlice`, `plane_via.InPad.overDrill`), and the finding named the
+  delta as `1 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept` plus the
+  exact `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` command. That summary is what made it a
+  five-second decision instead of a snapshot diff review; keep it.
+- **good:** `test-no-conditional` caught a genuinely bad test I had just written — a second
+  top-level loop that asserted nothing (it was scanning one iterator for another's output).
+  The finding named the exact line AND said which loop to hoist ("the assertion-free one"),
+  so the fix was mechanical. This is the check earning its keep rather than being satisfied.
+- **friction:** splitting one session's work into two commits meant hand-splitting
+  `.guardian/pub-api.txt`, because both commits add one line to the same snapshot and there
+  is no way to regenerate the snapshot for a subset of the tree. I ended up deleting the
+  second commit's row with a script, committing, then re-inserting it — about ten minutes,
+  and a place where a careless `git add -A` would have silently put a symbol in the snapshot
+  one commit before the code that defines it. A `guardian-check accept <check> --staged`
+  that regenerates against the INDEX rather than the working tree would remove the whole
+  manoeuvre.
+- **friction:** `zig fmt` rejects `[_]usize{0} ** 7` with "binary operator '*' has whitespace
+  on one side, but not the other". The message points at the `**` array-repeat operator and
+  describes it as a whitespace problem on `*`, which sent me looking for a spacing fix that
+  does not exist (no spelling of `{0} ** 7` is accepted; the array has to be written out).
+  Not a Guardian check, but Guardian's gate is where it surfaces, and the message costs a
+  build round-trip every time.
+- **wish:** a `--only <check>` on the gated `zig build` path. I wanted to re-run just
+  `pub-api-surface` after accepting it; the cheapest thing available was a whole
+  `zig build`, which re-ran all 79. `guardian-check` itself has the filtering, but the build
+  integration is the surface an agent is actually holding.
