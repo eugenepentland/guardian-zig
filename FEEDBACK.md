@@ -7225,3 +7225,27 @@ exercise of the new system checks. Grouped friction from all six reports:
   each line carrying ~70 `--guardian-filter=` arguments, which buries the `PASS` lines
   completely. I grepped for `Build Summary` on essentially every run this session. Gating
   the banner on a nonzero verdict would be the single highest-value papercut fix here.
+
+## 2026-08-17 · Claude · eda — validating a Zig compiler fix against the EDA router gate
+- **good:** using eda's gate purely as a *compiler* discriminator worked exactly as hoped.
+  `zig build test --seed=1 -Dtemplates-prepared=true -Dtest-filter="stuck diagnosis"` with a
+  freshly built experimental compiler, plus the same with `-Dtest-opt=safe`, gave a clean
+  green signal in ~1 s of test wall each. `-Dtemplates-prepared=true` meant no template
+  regeneration, and env-isolated `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` kept the eda
+  checkout byte-for-byte untouched (`git status` clean afterwards). Nothing about the gate
+  fought the "borrow this repo read-only to test a toolchain" use case.
+- **good:** `-Dtest-filter` doing the right thing post-sharding. The filter path bypasses the
+  8-shard split and builds one unsharded binary, and the runner said so plainly: "19 test(s)
+  selected by filter: \"stuck diagnosis\" — 1 match by name, 18 unnamed test block(s) run
+  regardless". That one line told me my filter had landed *and* warned me the count was
+  inflated by unnamed blocks, so I did not go hunting for 18 phantom matches.
+- **friction (same banner as the three previous entries):** the `failed command: … --listen=-`
+  line printed on both of my GREEN runs, immediately after `guardian/test: PASS — 19 passed`.
+  I did not trust the PASS, re-ran the whole build redirected to a file to read `$?`
+  properly, and confirmed exit 0 — one wasted rebuild per optimize mode, twice. For an agent
+  driving this gate non-interactively the word "failed" adjacent to a passing verdict is the
+  single most expensive string in the output; a green run should not print it.
+- **wish:** a `--quiet`/`--porcelain` mode that prints only the verdict line and exits with
+  the verdict's status. When the gate is being used as a boolean oracle (does this compiler
+  miscompile the router?) rather than as a dev loop, the guardian preamble (selfcheck, bench,
+  run-all cache, docs check) is four lines I have to scroll past to find the one I want.
