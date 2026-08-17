@@ -7391,3 +7391,33 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** `pub-api-surface` caught a new `pub fn` (a `Gate.allowEvaluations` setter) and
   the "pure additions, safe to accept" delta line meant I could accept it in one command
   without re-reading the snapshot.
+
+## 2026-08-17 · Claude Fable 5 · eda — per-target unblock: restore-sized slices, hop retirement, live divisor
+- **good:** the whole gate stayed out of the way on a 480-line change to one hot function.
+  `zig build` diff-scoped run-all was ~3.5 s cached / ~15 s edited, and the full
+  `zig build test` (3068 tests) ran in 82.6 s wall — cheap enough that I ran it before the
+  commit rather than trusting focused filters, which is exactly the behaviour the tiering is
+  meant to produce.
+- **good:** `change-classification` did its job invisibly this time: it fired once on the
+  first behavioural hunk with no test, and the fix (SPEC bullet + `// spec:` tagged test)
+  was obvious from the message alone. Same for `pub-api-surface` on a new `pub fn
+  restoreSlice` — "pure additions, safe to accept" plus the exact
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` command meant one command, no snapshot reading.
+- **friction:** `zig fmt` (via the gate's fmt stage) rejected `[_]bool{false} ** 10` in a
+  test with "binary operator '*' has whitespace on one side, but not the other". The
+  operator has a space on BOTH sides; the diagnostic is about `**` being lexed against the
+  preceding `}`, but the message names the wrong thing and points at a column inside the
+  literal. I lost two edit/build cycles (~3 min) trying to add whitespace that was already
+  there before giving up and spelling the array out longhand. Not a Guardian check itself,
+  but it reached me through the gate, and a clearer message ("`**` after `}` needs
+  parentheses" or similar) would have saved the loop.
+- **wish:** re-stating the one-commit-per-snapshot/hunk-splitting wish from the three
+  entries above it, from the other side. This session produced three logically separate
+  policy edits to the same function, all measured together; splitting them into three
+  commits would have meant hand-splitting an interleaved diff through shared control flow,
+  which the previous entry records as an active data-loss hazard. So I landed one commit
+  carrying three SPEC bullets and three tagged tests. That is fine by the letter of the
+  gate, but it means the gate's own economics are pushing toward coarser commits than the
+  campaign wants. A `guardian-check commit --paths ... --hunks ...` (or just accepting a
+  staged subset) would let the size of a commit be a review decision rather than a
+  diff-splitting risk assessment.
