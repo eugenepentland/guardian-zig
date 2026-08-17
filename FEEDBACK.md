@@ -7028,3 +7028,6 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** Repeated focused ReleaseSafe runs made the router crash a precise compiler discriminator: automatic scalar-leaf inlining, pointer-argument pinning, paired sin/cos, and balanced switch lowering each passed 17 tests, while early call-argument death alone reproduced the deterministic `router.zig:4401` crash.
 - **good:** The retained auto-inline plus paired-sincos compiler passed all 79 Guardian checks and all 2,945 application tests with exact canary response hashes.
 - **friction:** Successful filtered tests still printed `failed command:` after `guardian/test: PASS`, so every candidate required checking the outer process exit status to distinguish success from the one real crash.
+
+## 2026-08-17 · codex · eda — commit compiler continuation handoff
+- **good:** The documentation-only EDA handoff commit ran the whole-tree gate and passed all 79 checks with zero blockers while leaving compiler pins and production code unchanged.
