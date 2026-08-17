@@ -7069,3 +7069,23 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **friction:** inserting a new `pub fn` immediately above an existing `pub const` silently STOLE that const's `///` doc comment (my new function's doc landed between the old comment and its declaration). `doc-comments` correctly reported "pub const RouteCore has no doc comment", but the finding reads as "you removed a comment" when what happened is "you inserted a declaration between a comment and its owner". A hint naming the declaration that now owns the orphaned comment block would have made the fix obvious instead of a two-minute read.
 - **friction:** `pub-api-surface` fires as a hard block for every new `pub fn`, and on a branch that adds a deliberate new seam (four `pub` helpers across two modules this session) that is four separate `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` rebuilds if you add them one at a time. Not wrong, but the guidance to accept "only the named snapshot" plus a ~40 s gated build makes incremental API growth cost more than batching it, which quietly pushes toward bigger, less reviewable commits.
 - **wish:** `test-compile` catches a type error in a test body in ~10 s and is the single highest-value tier in this repo's loop, but nothing runs it automatically before `guardian-check commit`. Since the commit tier already pays for a full suite, having it fail EARLY on a compile error rather than after minutes of test execution would be free.
+
+## 2026-08-17 · claude (Fable coordinator) · eda — barracuda reference-free autoroute campaign (ship)
+
+- good: baseline gate + commit flow held up across ~15 commits from four agents in one
+  shared worktree; per-commit whole-tree runs stayed ~seconds on cached inputs, and
+  candidate adoption deployed a 6,600-line merge in under 2 s.
+- friction: change-classification's fix text says "add or update a `// spec:`-tagged
+  test OR add the behavior as a SPEC.md bullet", but the spec check then requires the
+  tag to sit directly ON a test declaration — a tag on a mid-test block fails with
+  "tag not on a test". Cost one commit cycle; the fix text could say the tag must
+  head a test.
+- friction: pub-api-surface findings from three concurrently-editing agents interleave
+  into one 33-row report with no per-file accept; we serialized by having agents defer
+  and the coordinator accept once — fine, but a scoped accept (per file/prefix) would
+  remove the coordination step.
+- wish: a mutate-full run that dies leaves live mutants + a bumped mutation.txt in the
+  working tree with nothing marking them as harness artifacts; a sentinel file (or
+  mutant markers in the diff) would make "is this a human edit?" instant. We caught a
+  truncated-file mutant on main minutes before a merge that would have shipped it into
+  the deploy build.
