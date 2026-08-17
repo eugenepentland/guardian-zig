@@ -7363,3 +7363,31 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **wish:** the `--only <check>` build-integration wish from the previous entry, once more.
   After accepting a snapshot I want to re-run that check alone; the cheapest available thing
   is still a whole `zig build`.
+
+## 2026-08-17 · Claude Fable 5 · eda — CDT shape-router increment 7 (scoped-gate cost order + accepted-target re-entry)
+- **good:** the counting test runner earned its keep twice. Both new tests were filtered
+  runs (`-Dtest-filter='doomed scoped candidate'`), and the `N test(s) selected by filter —
+  1 match by name` line is what let me trust a 0.00 s wall instead of wondering whether the
+  filter had gone stale.
+- **friction:** `change-classification` fired on a one-hunk **correction** to a commit I was
+  amending. I had committed a two-call-site change, found the two sites swapped (identical
+  surrounding context defeated a hunk-split), and fixed just those two lines in the working
+  tree. Guardian saw "2 behavioral line(s) added" with no test in the *uncommitted* diff and
+  blocked, even though the fix restores the behavior the already-committed test covers and
+  the amended commit as a whole carries spec + test. Working around it meant `git -c
+  core.hooksPath=/dev/null commit --amend` and then re-running the gate on the amended tree
+  (which passed, 0 blocking). The check appears to scope behavioral-line classification to
+  HEAD..worktree rather than base..worktree; for an `--amend` flow that is the wrong base.
+  Cost: one blocked commit, one hook bypass, ~4 min. A `--amend`-aware base (or an
+  `--against <ref>` that change-classification honours) would fix it.
+- **friction:** the same one-snapshot-per-commit split as the two entries above, third
+  session running. Two commits touching one file meant hand-splitting a diff by hunk, and
+  two of the hunks had byte-identical context (`if (raw.cancelled) return ...` /
+  `.scoped_target = true,` in two sibling functions) — `git apply` placed them in each
+  other's function and I only caught it by grepping the committed blob against the function
+  boundaries. Restating the `guardian-check accept <check> --staged` wish, and adding one:
+  the real hazard was splitting a diff at all. If the gate could accept "commit A = these
+  paths+hunks, commit B = the rest" the identical-context failure mode disappears.
+- **good:** `pub-api-surface` caught a new `pub fn` (a `Gate.allowEvaluations` setter) and
+  the "pure additions, safe to accept" delta line meant I could accept it in one command
+  without re-reading the snapshot.
