@@ -7178,3 +7178,50 @@ exercise of the new system checks. Grouped friction from all six reports:
   more times since; every single time I have to scroll up to the `guardian/test: PASS` line
   to know the run was fine. Suppressing the banner when the run passed, or appending the
   verdict to it, would remove a per-invocation papercut in the tightest loop there is.
+
+## 2026-08-17 · claude (Fable subagent) · eda — turn on 23 never-analyzed serve tests + tighten the per-shard wall cap
+
+- **bug (important):** `GUARDIAN_TEST_MAX_WALL_SECS` / `GUARDIAN_TEST_MAX_TEST_SECS` are
+  silently inert in any realistic environment. `test_runner.zig:readEnv` reads them via
+  `std.process.Environ.getAlloc(runner_environ, fba.allocator(), name)`, where `fba` is the
+  shared 8 KiB `args_arena_bytes` fixed buffer already partly consumed by
+  `init.args.toSlice`. `getAlloc` allocates against the whole environment block, so once the
+  environment exceeds ~2 KB the call returns `error.OutOfMemory` — and `catch null` makes
+  that indistinguishable from "variable unset", so the cap quietly does not exist.
+  Repro (eda @ claude/serve-tests-enable, any shard binary, ~11 s of test wall):
+  ```
+  env -i PATH=/usr/bin:/bin GUARDIAN_TEST_MAX_WALL_SECS=5 <shard-binary> <filters>
+  #  -> guardian/test: FAILED: test wall 11.05s over the 5s cap   (exit 1)  CORRECT
+  env -i PATH=/usr/bin:/bin GUARDIAN_TEST_MAX_WALL_SECS=5 PAD=<2KB of x> <same>
+  #  -> guardian/test: PASS — 19 passed                           (exit 0)  WRONG
+  ```
+  Bisected at ~1–2 KB of environment. A normal login shell is 3–5 KB and CI is far more, so
+  eda's gate cap has been a dead letter the entire time it has been configured — at 180 s
+  and at the 60 s I just set. Cost me about 40 minutes: I lowered the cap as instructed,
+  could not get it to fire while validating, and had to read guardian-zig's runner source to
+  discover the guard was not armed rather than my change being wrong.
+  Two independent fixes, both cheap: (1) give `readEnv` its own allocator (or read the caps
+  BEFORE `init.args.toSlice` consumes the arena, or just `fba.reset()` between); (2) stop
+  `catch null` from conflating "unreadable" with "unset" — an env read that fails should
+  `fatal()`, because a cap that cannot be read is a guard the operator thinks they have.
+- **friction:** the cap is per-RUNNER, so on a sharded suite it is per-shard, not per-suite.
+  Nothing in the variable's name or in `test_timing.zig`'s doc comments says so — the
+  rendered failure calls it "the whole-run cap", which reads as the whole suite. eda's
+  8-shard split silently turned a 180 s ceiling into 8x180 s. A `renderWallCapFailure` that
+  said "this shard" when `EDA_TEST_SHARD`-style sharding is in play, or just doc wording of
+  "this runner process", would have made the dilution obvious at the split instead of a
+  release later.
+- **good:** `pub-api-surface` caught exactly the thing it exists for. Deleting the now-dead
+  `pub const unanalyzed_modules` was intentional, and the check stopped the commit with
+  "1 removed — review changed/removed below before accepting". `guardian-check accept
+  pub-api-surface .` previewed, applied, and re-verified in one step and touched exactly one
+  line of the snapshot. Zero friction, high confidence.
+- **good:** the whole-tree gate's input caching is excellent — a re-run after a green run
+  returned "cached — 0 blocking (inputs unchanged since last green run)" in 4 s, and the
+  amend re-ran the full 79 checks because guardian.toml had changed. Right behavior both
+  times, no thinking required.
+- **wish (recurring, third session logging it):** the `failed command: … --listen=-` banner
+  still prints on GREEN runs. On a sharded suite it now prints EIGHT times per green build,
+  each line carrying ~70 `--guardian-filter=` arguments, which buries the `PASS` lines
+  completely. I grepped for `Build Summary` on essentially every run this session. Gating
+  the banner on a nonzero verdict would be the single highest-value papercut fix here.
