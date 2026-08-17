@@ -7160,3 +7160,21 @@ exercise of the new system checks. Grouped friction from all six reports:
   filtered builds and had to teach myself to read the `Build Summary` line instead. It
   cost me one genuine confusion early on, where I could not tell whether a 97s baseline
   run had actually passed.
+
+## 2026-08-17 · claude (Fable subagent) · eda — unblock verdict taxonomy + corridor-lift echo fix (follow-up)
+
+- good: `change-classification` again forced a test onto a change I had filed mentally as
+  "diagnostics only" (a logging taxonomy). Writing it surfaced two unguarded out-of-range
+  indexes in the new trace helpers. Second time this check has paid for itself in one day.
+- friction: `test-no-conditional`'s multi-loop finding fires on a test with two *independent*
+  assertion loops over two different fixtures. The fix note offers "merge into one
+  table-driven loop, or hoist into a named helper", which is good advice, but the check
+  counts loops before it counts whether they share any state — two loops over two unrelated
+  arrays are exactly as readable as one helper called twice. Hoisting was the right call
+  here; a hint like "these loops share no variables, consider a helper" would have got me
+  there without reading the rule.
+- wish: the guardian test runner's tail banner (`failed command: … --guardian-filter=…`)
+  prints on GREEN filtered runs. I flagged this earlier today and hit it perhaps fifteen
+  more times since; every single time I have to scroll up to the `guardian/test: PASS` line
+  to know the run was fine. Suppressing the banner when the run passed, or appending the
+  verdict to it, would remove a per-invocation papercut in the tightest loop there is.
