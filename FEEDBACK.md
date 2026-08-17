@@ -7274,3 +7274,35 @@ exercise of the new system checks. Grouped friction from all six reports:
   gate is a boolean oracle ("does this compiler miscompile the router?") the four-line
   guardian preamble plus the bogus `failed command:` line are five lines of scrollback around
   the one line I actually need.
+
+## 2026-08-17 · Claude · eda — multi-layer CDT shape router: root-cause + two fixes
+
+- **good:** the spec/test coupling did exactly its job on a research-shaped task. Both
+  commits were "measure, then change behaviour", and `change-classification` caught each
+  behavioural line before I could commit a measurement-only diff — which is right, because
+  the temptation on a diagnosis branch is to land the instrumentation. `spec` naming the
+  two *unverified* bullets by their full text (`- unverified: placement/router - the shape
+  tier anchors a fine disc …`) meant I knew precisely which of three new bullets still
+  lacked a tagged test, with no hunting.
+- **good:** diff-scoped runs during iteration (`6/407 source file(s) in scope`) and the
+  whole-tree run on `git commit` is the right split. Five focused `-Dtest-filter` runs cost
+  ~20 s of gate each; the two commits paid the whole-tree price once. Both commits landed
+  `0 blocking` first try.
+- **friction:** `zig build` prints `guardian: N check(s) would block commit (…)` and then
+  the build SUCCEEDS. While instrumenting I hit `pub-api-surface`, `type-size`,
+  `cognitive-complexity` and `nesting-depth` on a scaffold I had already decided to revert,
+  and each one reads like a failure in the scrollback. A `(temporary — build still
+  succeeded)` clause, or routing the would-block summary to the end after the success line,
+  would stop the reader from parsing a green build as red. Same family as the long-standing
+  `failed command: … --listen=-` banner, which I also hit on every filtered run.
+- **friction:** `type-size` fired at 20 fields on a diagnostics struct whose entire purpose
+  is to be a flat bag of counters returned by value from one measurement function. The cap
+  is right for domain types; for a struct that is literally a measurement record there is no
+  decomposition that makes it better, only more indirection. An exemption keyed on a
+  doc-comment marker (the way `completeness-waiver` works in SPEC.md) would let me keep the
+  scaffold honest instead of pushing me to work around the check.
+- **wish:** `zig build test -Dtest-filter=X` reports `N test(s) selected by filter … — 1
+  match by name, 18 unnamed test block(s) run regardless`. The "1 match by name" count is
+  the number I care about and it is the third clause of the line. Leading with it
+  (`filter matched 1 named test`) would make the empty-filter guard, which is a genuinely
+  good feature, land faster for a reader skimming for it.
