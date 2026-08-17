@@ -7125,3 +7125,38 @@ exercise of the new system checks. Grouped friction from all six reports:
   in the tail even when the run is green (`guardian/test: PASS — 21 passed`). It reads
   as a failure every time; I now grep for the PASS line and ignore the banner, but a
   first-time reader would treat a green run as broken.
+
+## 2026-08-17 · Claude · eda — parallel test sharding for the release gate
+- good: `guardian-check all .` on the whole tree ran clean at 79 checks / 0 blocking on
+  a change that added ~1,600 lines and restructured the `test` step into 8 concurrent
+  test binaries. The two things it did flag were both right and both cheap:
+  `pub-api-surface` on the new `src/test_shards.zig` pub consts (accepted the snapshot)
+  and `test-no-conditional` on a new test with two top-level loops (hoisted one into a
+  named helper — the finding named the exact line to hoist, which made it a 2-minute
+  fix).
+- good: the counting test runner is what made sharding safe to attempt at all. Each of
+  the 8 shards prints its own `N test(s) selected by filter: … — M match by name, 18
+  unnamed test block(s) run regardless`, and that "unnamed blocks run regardless" clause
+  is load-bearing information I would not have known otherwise: it is exactly why an
+  unnamed `test {}` block is the only place a per-shard integrity check can live.
+- friction: `GUARDIAN_TEST_TIMINGS=1` had no effect through `zig build test` — the
+  closing report still said `slowest over 50ms` (standard detail, 10 lines) rather than
+  the wide 1ms/100-line mode. Exported in the parent shell; the Run step presumably does
+  not forward it. I needed per-test costs to balance the shards (the suite is wildly
+  skewed: one file is 40% of the wall, one single test is 14%), so I ended up writing a
+  Python driver against Zig's own test protocol to time all 3,013 tests. Wide timings
+  reaching the runner would have saved ~an hour.
+- wish: a supported shard flag on the test runner, e.g. `--guardian-shard=i/N`, selecting
+  in `serveMetadata` so the build system only asks for that shard's indices. I could not
+  use one, so I sharded with the compiler's `--test-filter` instead, and that route has a
+  real trap: `--test-filter` selects among the tests the compiler ANALYZED and cannot
+  make it analyze a file. Modules reached only through another module's test body fall
+  out of a filtered build entirely — my first sharded build silently lost 49 of 3,013
+  tests with all 8 shards green and every `N test(s) selected` line looking healthy.
+  Runner-side index sharding has none of that: one binary, one analysis, a partition that
+  cannot lose a test. It would also be strictly cheaper (one compile instead of eight).
+- friction: (recurring, already logged by someone else, confirming it) a green filtered
+  run still tails with `failed command: … --listen=-`. During this task I ran hundreds of
+  filtered builds and had to teach myself to read the `Build Summary` line instead. It
+  cost me one genuine confusion early on, where I could not tell whether a 97s baseline
+  run had actually passed.
