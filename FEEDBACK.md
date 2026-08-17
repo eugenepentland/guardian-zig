@@ -7335,3 +7335,31 @@ exercise of the new system checks. Grouped friction from all six reports:
   `pub-api-surface` after accepting it; the cheapest thing available was a whole
   `zig build`, which re-ran all 79. `guardian-check` itself has the filtering, but the build
   integration is the surface an agent is actually holding.
+
+## 2026-08-17 · Claude · eda — shape-attempt memo, unblock reserve, ground per-gap target
+- **good:** the diff-scoped gate on `zig build` was the whole inner loop this session —
+  10 of 407 files in scope, sub-second, run maybe fifteen times between edits. The one time
+  it blocked (`pub-api-surface`, 5 new symbols across three modules) it printed the exact
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` command and I was moving again inside a minute.
+- **good:** the counting test runner is quietly load-bearing for a filtered workflow. Every
+  focused run printed `N test(s) selected by filter: "..." — K match by name`, so a filter
+  that had drifted from a renamed test would have been obvious rather than green-and-empty.
+  I renamed a test mid-session and the count is what told me the filter still matched.
+- **friction:** the same three-commit / one-snapshot split as the 2026-08-17 entry above,
+  hit again and worked around differently: I snapshotted the finished files to a scratch
+  directory, `git checkout HEAD --` the shared ones, and rebuilt the intermediate states by
+  re-applying edits, accepting `pub-api-surface` once per commit. That worked cleanly (each
+  commit's snapshot row lands with its own code) but it is a ten-minute manoeuvre with a
+  real chance of losing work, and it is the second session in two days to pay it. The
+  `guardian-check accept <check> --staged` wish from the previous entry would have removed
+  it here too — restating it because the cost repeated.
+- **friction:** `zig build test -Dtest-filter=...` prints its PASS/FAIL line to a stream I
+  could not reliably capture — `grep -E "PASS|FAIL"` on the piped output came back empty on
+  a run that had just printed `guardian/test: PASS — 338 passed` when I looked at the tail
+  of the same command. Redirecting to a file and grepping worked, and a cached step prints
+  nothing at all (correct, but indistinguishable from "ran and said nothing" without
+  checking the exit code). A one-line terminal verdict on the cached path — e.g.
+  `guardian/test: cached — 338 test(s), last run green` — would make the fast path readable.
+- **wish:** the `--only <check>` build-integration wish from the previous entry, once more.
+  After accepting a snapshot I want to re-run that check alone; the cheapest available thing
+  is still a whole `zig build`.
