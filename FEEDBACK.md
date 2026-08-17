@@ -7043,3 +7043,15 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **friction:** Still present, fifth session logging it: a fully green filtered run prints `failed command: cd . && …/test --guardian-filter=… --listen=-` immediately after `guardian/test: PASS — 17 passed`, on both the crashing and the fixed compiler. When the whole point of the run is "did the router crash", a line containing the word `failed` on a green run costs a second look every single time. Two greps (`guardian/test: PASS` and the outer exit code) instead of one.
 - **friction:** `zig build test` without `-Dtemplates-prepared=true` runs template generation, which writes into `src/serve/templates/` in the source tree. On a checkout I had been told to treat as read-only this was only safe because the regenerated files happened to be byte-identical to the checked-in ones. A read-only or check-only mode for that step (or making `templates-prepared` the default when the generated files are already clean) would remove the hazard.
 - **wish:** The test-count line is the only place the suite size appears, and it moved (2,945 in a document written days ago, 2,943 today) with no way to tell whether tests were removed or simply not analyzed. A one-line summary of selected-vs-skipped-vs-filtered counts would make cross-session comparisons trustworthy.
+
+## 2026-08-17 · claude · eda — combined compiler candidate final gate
+- **good:** the full `zig build test` gate (guardian run-all + 2,943 tests) ran
+  cleanly three times with three different compiler binaries (pinned Debug,
+  retained control, combined candidate) using isolated cache dirs; cached
+  run-all correctly recognized unchanged inputs and did not re-run 79 checks
+  per compiler swap — exactly the right behavior when only the toolchain
+  binary changes.
+- **friction:** `guardian/test` still prints `failed command: … --listen=-`
+  after a PASS line (cosmetic, previously logged); each new agent in this
+  session had to independently re-discover that it is harmless before
+  trusting a green run.
