@@ -7089,3 +7089,11 @@ exercise of the new system checks. Grouped friction from all six reports:
   mutant markers in the diff) would make "is this a human edit?" instant. We caught a
   truncated-file mutant on main minutes before a merge that would have shipped it into
   the deploy build.
+
+## 2026-08-17 · claude (Fable subagent) · eda — barracuda placement-adjustment experiment (measurement only)
+
+- good: a fresh worktree's first `zig build --seed=1 -Doptimize=debug` completed clean
+  in one shot with the prebuilt `guardian-check` reuse path working exactly as
+  CLAUDE.md describes — no cold ReleaseSafe gate compile, no selfcheck complaint. The
+  whole session then needed no further gate runs (measurement task, zero source edits),
+  so Guardian cost was a single build and stayed out of the way.
