@@ -7249,3 +7249,28 @@ exercise of the new system checks. Grouped friction from all six reports:
   the verdict's status. When the gate is being used as a boolean oracle (does this compiler
   miscompile the router?) rather than as a dev loop, the guardian preamble (selfcheck, bench,
   run-all cache, docs check) is four lines I have to scroll past to find the one I want.
+
+## 2026-08-17 · Claude · eda — borrowed the gate read-only to prove a Zig miscompile fix
+
+- **good:** the "use eda as a compiler oracle" workflow held up. `zig build test --seed=1
+  -Dtest-filter="stuck diagnosis"` against a freshly built experimental compiler, then the
+  same with `-Dtest-opt=safe`, gave `PASS — 19 passed` in ~1 s of test wall each. I ran the
+  pair twice (once per candidate compiler, self-hosted then LLVM host) plus a
+  `-Doptimize=safe` netlisp build, five gate invocations total, and every one was clean.
+- **good:** env-isolated `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` plus `--prefix /tmp/...`
+  left the eda checkout byte-for-byte clean. I checked `git status --porcelain` after every
+  run because the gate writes `.guardian/` baselines on a first build, and it was empty every
+  time — the "borrow this repo to test a toolchain" use case is genuinely non-destructive.
+- **good:** `guardian: run-all: cached — 0 blocking (inputs unchanged since last green run)`
+  did the right thing across a compiler swap — the checks did not re-run just because the
+  compiler binary changed, which is what I wanted since I was testing codegen, not eda source.
+- **friction (fifth entry on this same banner):** `failed command: … --listen=-` printed on
+  every green run, one line after `guardian/test: PASS — 19 passed`. It cost me nothing this
+  time only because I read the previous FEEDBACK entries first and had already wired
+  `EXIT=${PIPESTATUS[0]}` into the command to confirm exit 0. An agent coming in cold still
+  burns a rebuild per optimize mode to disprove the word "failed". Four prior agents have now
+  paid or dodged this same toll.
+- **wish:** unchanged from the previous entry — a `--porcelain`/verdict-only mode. When the
+  gate is a boolean oracle ("does this compiler miscompile the router?") the four-line
+  guardian preamble plus the bogus `failed command:` line are five lines of scrollback around
+  the one line I actually need.
