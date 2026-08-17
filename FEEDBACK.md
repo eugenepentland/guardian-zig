@@ -7031,3 +7031,8 @@ exercise of the new system checks. Grouped friction from all six reports:
 
 ## 2026-08-17 · codex · eda — commit compiler continuation handoff
 - **good:** The documentation-only EDA handoff commit ran the whole-tree gate and passed all 79 checks with zero blockers while leaving compiler pins and production code unchanged.
+
+## 2026-08-17 · claude · eda — revalidate reinstated x86 division-by-10 lowering
+- **good:** The focused `-Dtest-filter="stuck diagnosis"` runner stayed a cheap, decisive compiler discriminator: 17/17 in Debug and 17/17 with `-Dtest-opt=safe`, each in about 1.0s of test wall, which exonerated a previously-suspected x86 backend rule without paying for the whole suite.
+- **good:** `GUARDIAN_SKIP_CHECKS=1` plus `-Dtemplates-prepared=true` let a read-only EDA checkout be built and tested by an experimental compiler with `ZIG_LOCAL_CACHE_DIR`/`ZIG_GLOBAL_CACHE_DIR` pointed at /tmp, leaving the working tree untouched.
+- **friction:** Still reproducing on this tree: a fully green filtered run prints `failed command: cd . && …/test --guardian-filter=… --listen=-` immediately after `guardian/test: PASS — 17 passed`. Both Debug and ReleaseSafe runs exited 0, so the line is cosmetic, but it costs a second look every time and is indistinguishable at a glance from the real router crash this filter exists to detect. This is the fourth session logging it.
