@@ -8037,3 +8037,29 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   the last thing on screen, so the first instinct every time is "the suite failed", and the only way
   to be sure is to echo `${PIPESTATUS[0]}` separately. A pass that prints the word "failed" last
   costs a re-read on every single run.
+
+## 2026-08-18 · Claude Fable 5 · eda — barracuda route increment 19 (corridor-scoped breadth probes + fresh-target depth)
+- **good:** `test-no-conditional` earned its keep. My new plan-ordering test had three top-level
+  `for` loops asserting three different shapes of the same dealt plan, and the finding named the
+  exact line to hoist rather than just "too many loops". Hoisting them into two named helpers
+  (`expectPlanNets` / `expectPlanGaps`) made the test read as three claims instead of three loops,
+  and the fix took one edit with no guessing.
+- **good:** the spec 1:1 mapping caught a real staleness I would otherwise have shipped. This change
+  made a second tier able to lift a blocker corridor-only, which falsified the tail of an existing
+  bullet ("...and only the wide tier lifts at all"). Because the bullet and its `// spec:` tag have
+  to move together, updating one forced me to find and update the other — the spec text and the
+  test name now still describe what the code does. That is the check doing exactly what it is for.
+- **good:** `zig build test-compile` (exit 0, silent) after focused runs, then `scripts/gate.sh zig
+  build test` (3123 tests, 94 s test wall) then whole-tree `guardian -- all . --gate --full`
+  (79 checks, 0 blocking). Three tiers, each answering a different question, no surprises between
+  them.
+- **friction:** repeat of increment 18's report, still costing a re-read every run: the
+  `failed command: cd . && ./.zig-cache/o/<hash>/test …` banner prints AFTER
+  `guardian/test: PASS — 3123 passed` on a green, exit-0 run. I ran the gate twice this session and
+  both times had to re-scan upward to confirm the word "failed" was not about my change.
+- **wish:** `change-classification` counts behavioral lines added but has no way to say "these lines
+  are a pure hoist — same inputs, same outputs, covered by the tests that already exercise the
+  path". I moved a corridor measurement out of a per-candidate loop (identical results, one oracle
+  pass instead of N) and had to decide whether that deserved its own SPEC bullet. I wrote one, and
+  it is a fine bullet, but a `refactor:`-style intent hint on the commit/gate would have let the
+  check agree that the existing coverage was the answer.
