@@ -8292,3 +8292,45 @@ days easier to audit.
   only, which is the smaller half of what a filtered tier actually costs an agent deciding whether
   to filter again or go wide. A second number (compile/analysis wall, or just total step wall) would
   make that decision measurable instead of felt.
+
+## 2026-08-18 · Claude · eda — thermal Phase 3a: 2D board spreader (placement/thermal_field.zig)
+- good: `test-no-conditional` earned its keep on a brand-new file. It flagged two `while` loops at
+  the top level of one test and an assertion-free `for` in another, and — this is the part worth
+  recording — the message NAMED the loop to hoist ("the loop at line 781 asserts nothing, so hoist
+  that one"). I hoisted three helpers (`peakRise`, `expectMonotoneRay`, `expectSymmetricAbout`) and
+  the tests read better afterwards; no guessing, no second gate cycle.
+- good: the three-tier loop cost about 8 minutes total on a ~600-line new module plus a SPEC
+  section. `-Dtest-filter=thermal_field` printed "28 test(s) selected by filter … 10 match by name,
+  18 unnamed test block(s) run regardless", which is exactly the reassurance the counting runner
+  exists for, and it also surfaced a performance problem I would otherwise have shipped: the
+  per-test wall lines showed 13.26s for ten tiny solves, which sent me back to the solver and found
+  a near-null mode the relaxation was converging on ~1e-4 per sweep. Fixing it (solve the global
+  power balance directly each sweep) took the same tests to 1.78s. A test-timing report doubling as
+  a numerical-convergence smell detector was not something I expected.
+- friction: `pub-api-surface` fires on every `pub` decl of a NEW module — 16 findings for one file
+  whose whole point is to expose a public API. The fix line ("if the change is intentional, accept
+  the snapshot") is right, but the check cannot distinguish "a new module declared its API" from
+  "an existing module's API drifted", and only the second is worth a human's attention. A new-file
+  case could be reported as one finding ("new module, 16 public decls") instead of 16, or auto-
+  accepted with the file listed in the commit's guardian summary.
+- friction (repeat, 4th session in this log): the `failed command: cd . && ./.zig-cache/o/…/test …
+  --listen=-` line printed under `guardian/test: PASS — 28 passed`. I burned a round-trip re-running
+  with `echo $?` to confirm exit 0, same as the three sessions above. It is a confirmed repeat cost,
+  not a one-off.
+- bug: a command-prefix env assignment leaked into a LATER build's recorded argv. I ran
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` once, then a separate
+  `scripts/gate.sh zig build test`; the gate's `failed command:` echo showed
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface … EDA_TEST_SHARD=7 ./…/test`, even though the variable
+  was unset in the shell at that point (`echo ${GUARDIAN_UPDATE_SNAPSHOT-unset}` → `unset`). No
+  snapshot was wrongly accepted (only the file I intended to accept was modified), so the effect
+  looks cosmetic — the echo is presumably replaying a cached step's recorded environment. But an
+  agent reading that line reasonably concludes the gate just ran in snapshot-accept mode, which is
+  a scary thing to believe about a green run. I re-ran the whole gate with `env -u` to be sure,
+  which is the cost.
+- wish: `guardian-check explain <check>` was not reachable — CLAUDE.md points at
+  `../guardian-zig/zig-out/bin/guardian-check`, and from a worktree under `.claude/worktrees/<name>/`
+  that relative path resolves nowhere. I fell back to reading `.guardian/baselines/*.txt` to infer
+  the default caps (an empty `function-length.txt` told me the default cap was uncontested; a
+  2-entry `file-size.txt` told me roughly where the file cap sat). A `zig build guardian-explain
+  -Dcheck=<name>` step, resolving the binary the same way the gate already does, would replace that
+  archaeology.
