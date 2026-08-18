@@ -8785,3 +8785,38 @@ being validated, not the EDA source.
   ones that are irrelevant when the source is fixed and the compiler is the
   variable. A `--only-tests` (or an env var with that meaning) would let this
   class of session keep the parts of Guardian that still apply.
+
+## 2026-08-18 · claude · eda — align router clearance probes with the DRC's pair rule
+
+- **good:** the `spec` check caught both new `// spec:` tags as "unlinked tag"
+  before I had touched SPEC.md, naming each tag verbatim — a copy-paste of the
+  tag text into the right `## ` section was the whole fix. Same for
+  `change-classification`, which named the exact files and behavioral line
+  counts ("src/placement/router.zig: 60 behavioral line(s) added") the moment I
+  built without tests. Both messages were actionable with no `explain` trip.
+- **good:** `test-no-conditional` fired on `for (viol) |v| if (v.kind == .via_pad) {…}`
+  at the top of a test body and its fix line explicitly offered "split a branch
+  into two independent tests" — which pushed me to a strictly better assertion
+  (checker refuses the 0.104 mm site AND accepts the 0.127 mm one) instead of
+  introspecting a violation list. A lint that improved the test rather than just
+  reshaping it.
+- **friction:** the shard-manifest test (`test_root.test.shard manifest runs
+  every named test exactly once` → `src/test_shards.zig: 0 shard(s) claim "…"`)
+  only fires in the FULL gate, and only after a ~5 minute run. A new test whose
+  name starts with an unclaimed two-letter prefix is otherwise invisible: the
+  focused run passes, `test-compile` passes, Guardian's diff-scoped run passes.
+  Since Guardian already parses test names for the `spec` check, an eda-side
+  shard gap is exactly the kind of thing a per-file check could report in
+  seconds. (eda-specific mechanism, but the cost lands on Guardian's gate.)
+- **friction:** the `failed command:` banner after a green filtered run is still
+  there — `guardian/test: PASS — 26 passed` immediately followed by
+  `failed command: cd . && ./.zig-cache/…/test --guardian-filter=…`, exit code
+  0. Reported by earlier sessions; noting the recurrence because in a session
+  whose whole subject is "the generator and the checker disagree", a spurious
+  disagreement between the printed verdict and the printed banner costs a real
+  double-take every single filtered run.
+- **good:** `guardian-check` on commit ran the whole-tree tier (79 checks, 0
+  blocking) in about a second on top of an already-green gate, so the
+  stage-and-commit step cost nothing. The ReleaseSafe-prebuilt selfcheck line
+  ("prebuilt guardian-check matches ../../canopy/guardian-zig") appearing on
+  every build is a quiet reassurance that the 40x Debug tax is not being paid.
