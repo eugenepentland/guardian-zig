@@ -8255,3 +8255,18 @@ days easier to audit.
   3182 passed, 0 failed across 8 shards`). Every agent doing compiler A/B work re-derives it with
   `grep -oE "PASS — [0-9]+ passed" | paste -sd+ | bc`, which silently mis-sums if a shard dies
   before printing its line.
+
+## 2026-08-18 · Claude · eda — wave-3 compiler: loop constants pinned in SSE registers
+- good: `GUARDIAN_SKIP_CHECKS=1 zig build test` under two experimental self-hosted compilers (a
+  candidate and a variant) gave identical 8-shard / 3,182-test results, and the `stuck diagnosis`
+  discriminator via `-Dtest-filter` behaved identically in Debug and `-Dtest-opt=safe`. Running the
+  suite as a compiler-correctness oracle worked exactly as intended: my first candidate compiler
+  had a real backend bug (a bad `unwrapBlock` on `dbg_inline_block` that segfaulted the compiler in
+  every non-stripped build), and the suite plus the probe battery pinned it in one pass.
+- friction: the `failed command: cd . && … --guardian-filter=…` echo next to a `PASS — 19 passed`
+  line still reads as a failure. Second session in a row where I had to re-read a green
+  discriminator run to convince myself it was green; the earlier entry above reported the same
+  thing, so treating it as confirmed rather than a one-off.
+- wish: still the machine-readable per-run total. I again re-derived "3,182 across 8 shards" with
+  `grep -oE "PASS — [0-9]+ passed" | awk`, twice (once per compiler variant), and that sum is only
+  trustworthy because I separately checked the shard count was 8.
