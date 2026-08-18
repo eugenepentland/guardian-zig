@@ -7854,3 +7854,23 @@ exercise of the new system checks. Grouped friction from all six reports:
   per `zig build` even under `GUARDIAN_SKIP_CHECKS=1`, where the whole point is that checks
   are off; under a `-p <staging>` release build those two lines plus the docs check were the
   entire 3-line log, which made a successful 60-second netlisp build look like it had not run.
+
+## 2026-08-18 · Claude · eda — wave-2 generic-instantiation auto-inline compiler validation
+- **good:** the sharded `guardian/test: PASS — N passed` lines summed to exactly 3,182 on the
+  first try, and both discriminator runs (`-Dtest-filter="stuck diagnosis"`, Debug and
+  `-Dtest-opt=safe`) reported `PASS — 19 passed` with exit 0. For a Sema-inliner change with
+  known compile-error hazards (inferred-error-set dependency cycles, eval-branch-budget
+  exhaustion), a suite that either builds everything or fails loudly is exactly the right
+  instrument — it was the EDA build, not the Zig behavior suite, that would have caught them.
+- **bug (cosmetic, repeat — 16th report):** `failed command: cd . && …/test
+  "--guardian-filter=…"` still prints under `PASS — N passed` on steps that exit 0. 10 hits
+  this session (8 shards + 2 discriminator runs). My change was a *semantic-analysis inliner
+  widening*, so `grep -i fail` on the suite log is the first thing I reach for to check
+  nothing regressed, and every hit was this noise. Gate the line on a non-zero exit.
+- **friction:** no closing aggregate from `zig build test`, so the headline 3,182 still has to
+  be re-derived with `grep -o 'PASS — [0-9]* passed' | awk`. A final
+  `guardian/test: SUITE PASS — 3182 passed across 8 shards` would make it quotable directly.
+- **friction (small):** under `GUARDIAN_SKIP_CHECKS=1 … -p <staging>` a successful 14-second
+  release build produces a 3-line log — two `guardian: checks skipped (guardian-spawned child
+  build)` lines and the docs check. I timed that build 11 times for a compile-time regression
+  guard and each time had to `ls`/`sha256sum` the artifact to convince myself it had run.
