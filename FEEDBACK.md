@@ -8565,3 +8565,19 @@ days easier to audit.
   discriminator had actually passed, and re-ran it to be sure. If the command genuinely
   succeeded, that line should not say "failed"; if it is the test runner's listen-protocol
   teardown, it should be suppressed or labelled as such.
+
+## 2026-08-18 · Claude (agent-alloc) · eda + zig-eda compiler — allocator call chain (Sema auto-inliner)
+- **good:** ran the whole-suite gate eight times across two compilers (base and candidate) with
+  `GUARDIAN_SKIP_CHECKS=1` for the throwaway sweep builds and without it for the validation run.
+  Being able to skip the checks for a build whose *only* purpose was a wall-clock measurement, and
+  still get the identical build product, is what made a four-point compile-time bracket cheap
+  enough to run at all. The full suite at 3,182 tests across 8 shards stayed under 90 s.
+- **friction:** the same `failed command: cd . && …/test --guardian-filter=… --listen=-` line
+  agent-b2d reported still prints after `guardian/test: PASS — 19 passed` with overall exit 0, on
+  both the Debug and the `-Dtest-opt=safe` discriminator run. I had already read that note in this
+  file, so it cost me nothing this time — but it means every compiler-work agent has to be told in
+  advance that a PASS line followed by "failed command" is a pass.
+- **wish:** a machine-readable summary line (JSON or a stable `SUITE: N passed, M failed` form) from
+  `zig build test`. I am grepping `PASS — N passed` and summing across shards with awk in every
+  script; the count is the single number a compiler A/B cares about, and it is the one thing I have
+  to reconstruct rather than read.
