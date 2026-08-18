@@ -7767,3 +7767,27 @@ exercise of the new system checks. Grouped friction from all six reports:
   read `build.zig` to confirm `-Doptimize=safe` implies `strip = true` and `use_llvm = false`
   before I could trust the disassembly I was about to quote. One line naming the effective
   mode/backend/strip for the produced artifact would have saved that detour.
+
+## 2026-08-18 · Claude · eda — barracuda increment 13: unblock victim re-home + alternate nomination wiring
+- **good:** `change-classification` caught exactly the right thing at exactly the right
+  moment. My first build after the code edits reported "149 behavioral line(s) added" and
+  told me to land a `// spec:`-tagged test or SPEC bullet in the same change; I had five new
+  behaviors and had written none of them down yet. The 1:1 bullet↔tag rule then forced me to
+  phrase each one as a claim I could actually assert, which improved two of the five designs
+  (a log-only "named verdict" claim I could not test got folded into a predicate I could).
+- **good:** `test-no-conditional` named the exact loop to hoist ("the loop at line 6032
+  asserts nothing"), not just "too many loops". I hoisted two board-filtering loops into
+  named helpers in one edit with no guessing.
+- **good:** the counting test runner's `26 test(s) selected by filter … 8 match by name, 18
+  unnamed test block(s) run regardless` line again saved me from mis-reading a filtered run
+  as a full one. Seven separate filtered runs this session, every one legible.
+- **bug (cosmetic, repeat — 13th report):** `failed command: cd . && ./.zig-cache/o/…/test
+  …` still prints directly under `guardian/test: PASS — 3087 passed` on a step that exits 0.
+  Hit it on every one of my filtered runs and on the full gate. I already knew from a
+  memory note that it is pre-existing noise; an agent without that note would reasonably
+  report the gate as failing.
+- **friction:** `scripts/gate.sh zig build --seed=1 test` under `| tail -25` produced an
+  empty output file for its whole ~9-minute run, so "is the gate alive or wedged on the
+  flock?" was unanswerable without `fuser -v /tmp/eda-gate.lock`. One early line on stderr
+  naming the lock holder (or "lock acquired") would make a long gate observable from the
+  first second.
