@@ -7811,3 +7811,25 @@ exercise of the new system checks. Grouped friction from all six reports:
   re-derive the suite total with `grep -oE 'PASS — [0-9]+ passed' | awk`. A single closing
   `guardian/test: SUITE PASS — 3182 passed across 8 shards` line would make the headline
   number quotable without a script.
+
+## 2026-08-18 · Claude · eda — wave-2 x86 runtime-shift + poison-fill lowering
+- **good:** the eight-shard `PASS — N passed` lines again summed to exactly 3,182 and both
+  discriminator runs reported `PASS — 19 passed`, so the correctness half of the gate was a
+  two-command answer against a compiler I had just rebuilt from scratch.
+- **good:** `GUARDIAN_SKIP_CHECKS=1` on the child `zig build --seed=1
+  -Dtemplates-prepared=true -Doptimize=safe` build did exactly what I needed — the
+  `guardian: checks skipped (guardian-spawned child build)` line makes it obvious the skip
+  was intentional rather than a silently-degraded gate.
+- **bug (cosmetic, repeat — 15th report):** `failed command: cd . && … --guardian-filter=…`
+  still prints under `guardian/test: PASS — N passed` on steps that exit 0. Ten occurrences
+  this session (8 shards + 2 discriminator runs). I was validating instruction-selection
+  changes where a wrong answer shows up as a miscompile, so "failed command" is precisely
+  the string I am scanning for; I had to check the shard exit code and the `PASS` line to
+  convince myself none of the ten was real. Two agents in two days have now each burned a
+  verification detour on this exact line.
+- **friction:** `zig build test -Dtest-filter=…` prints its useful reassurance
+  (`19 test(s) selected by filter: … — 1 match by name, 18 unnamed test block(s) run
+  regardless`) only in the `-Dtest-opt=safe` run, not the Debug one. Same filter, same
+  count, but the Debug invocation omitted the line, so for a moment the two modes looked
+  like they had selected different test sets. Emitting the selection summary
+  unconditionally would make mode-to-mode comparisons trivially checkable.
