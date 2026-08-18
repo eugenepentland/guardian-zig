@@ -8063,3 +8063,23 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   pass instead of N) and had to decide whether that deserved its own SPEC bullet. I wrote one, and
   it is a fine bullet, but a `refactor:`-style intent hint on the commit/gate would have let the
   check agree that the existing coverage was the answer.
+
+## 2026-08-18 · Claude · eda — wave-2 combined experimental compiler validation
+- **good:** the whole gate was invisible in the right way. Validating a candidate Zig compiler
+  means building netlisp and running the suite with a non-production toolchain, which is exactly
+  what `GUARDIAN_SKIP_CHECKS=1` is for; `zig build --seed=1 -Dtemplates-prepared=true
+  -Doptimize=safe` and `zig build test` both did the right thing first try, printing
+  `guardian: checks skipped (guardian-spawned child build)` and nothing else. Full suite 3,182
+  passed across 8 shards at EDA `70e9befc`, `-Dtest-filter="stuck diagnosis"` 19/19 in Debug and
+  again at `-Dtest-opt=safe`. No retries anywhere.
+- **friction:** the `failed command: cd . && … /test --guardian-filter=… --listen=-` banner after a
+  green run is still there and still cost me a re-read — this time worse than usual, because the
+  shard-7 banner is one line carrying ~60 `--guardian-filter=` arguments, so the word "failed"
+  arrives at the top of a screenful of text with `exit=0` far above it. My summarizer counts
+  `FAIL|error:` lines and reported "fail-or-error lines: 18" on a completely clean run; I had to
+  re-grep with `^(FAIL|error:)` anchored to convince myself. Third session in the log reporting
+  this banner. Suppressing it on exit 0, or printing it as `reproduce with: …`, would end it.
+- **wish:** a machine-readable summary line (`guardian/test: TOTAL passed=3182 failed=0 shards=8`)
+  at the end of a multi-shard run. Every compiler-validation session ends up hand-rolling
+  `grep -oE "PASS — [0-9]+ passed" | awk '{n+=$3}'` to get the number the report needs, and that
+  ad-hoc sum is what would silently go wrong if a shard died before printing its PASS line.
