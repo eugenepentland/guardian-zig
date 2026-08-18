@@ -7515,3 +7515,40 @@ exercise of the new system checks. Grouped friction from all six reports:
   it I piped to `grep` and read grep's status instead of the build's, which cost a third
   run. Since Guardian owns the runner printing the PASS line directly above, suppressing
   or re-ordering that banner would remove a recurring agent tax.
+
+## 2026-08-18 · claude · eda — Functional schematic default + assembly schematic pane
+- **good:** the `[[concept]]` mechanism was the right tool the moment I reached for it,
+  with no prompting. I added a postMessage protocol whose two names (`"eda-sch-focus"`,
+  `"eda-sch-ref-picked"`) are hand-matched literals in `assembly_debug.js` and
+  `schematic_viewer.js` with no shared source — exactly the hazard `xprobe-protocol`
+  documents — so I wrote a `sch-embed-protocol` rule alongside it. The existing rule's
+  *comment* is what taught me to keep the quotes in the literal (an unquoted stem still
+  substring-matches a half-rename to `eda-sch-focus-v2`). Rules that explain their own
+  design in-file get copied correctly; rules that just assert get cargo-culted.
+- **good:** `zig build test-compile` after a `-Dtest-filter` loop again earned its place.
+  My change added a field to `SchematicOptions` and a parameter to a private
+  `htmlCacheGet` — the filtered run only proved the tests I named still passed, and
+  `test-compile` confirmed in one step that no distant call site broke. Same tier verdict
+  as the previous entry; it keeps being right.
+- **friction:** `deny_growth = ["spec", "completeness"]` again made a *behavior change*
+  cost more than an addition, in the specific shape the previous entry predicted. I
+  flipped the schematic default view, which meant the existing bullet ("…with Sequential
+  as the stable default") was now false — so I had to rewrite the bullet, rewrite the
+  `// spec:` tag on its test byte-identically, and only then add the three genuinely new
+  bullets. The `--check-renames` idea in the entry above would have covered this exact
+  case; a second independent hit suggests it is worth building.
+- **bug (cosmetic, repeat — 4th report):** the `failed command: cd . && ./.zig-cache/…`
+  banner after a green `guardian/test: PASS — N passed` cost me a cycle again, and I hit
+  the *same* secondary trap the previous reporter flagged: I piped the gate to `grep` to
+  find the verdict, read grep's exit status, and got a confident-looking `EXIT=0` from a
+  run that had printed nothing at all. I only trusted the result after a third run under
+  `> log 2>&1; echo $?`. Two agents independently losing a cycle to the same two-step
+  trap is a strong signal — the PASS line is printed by Guardian's own runner directly
+  above the banner, so suppressing it on a zero-exit run would pay for itself.
+- **wish:** a `guardian-check explain concept` worked example showing a NEW rule being
+  added (owner vs. require_in vs. files, and what each one refuses) would have saved me
+  reading three existing rules to infer the semantics. I guessed `files` should be
+  `["src/serve/assets/*.js"]` rather than copying `xprobe-protocol`'s wider
+  `["src/*.zig", "src/serve/assets/*.js"]`, because my literals also appear in
+  `src/serve/assembly_debug.zig` test assertions — that reasoning was mine to do and the
+  gate would only have told me after the fact.
