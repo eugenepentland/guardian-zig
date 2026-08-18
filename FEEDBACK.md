@@ -8867,3 +8867,27 @@ successive compiler swaps routine.
   `.guardian/cache/last-run.jsonl` (which covers violations): one final JSON
   line with pass/fail + failing test names would let harnesses score runs
   without regex archaeology.
+
+## 2026-08-18 · Claude Fable 5 · eda — feed the shape tier's named blocker into the deepening nomination
+
+- **good:** `type-size` caught a genuine design smell rather than a metric.
+  I had added a 9th field to `gap_policy.GapOptions` (frozen ceiling 8) for a
+  new diagnostic sink; the check refused, and the fix — grouping the sink with
+  the `shape:` tier knob it belongs to, into a two-field `Shape` struct — is
+  strictly better code than what I wrote. Eight call sites to migrate, ~5 min.
+  This is the ratchet working exactly as advertised: I could not buy my way
+  out by raising a cap, so I improved the shape instead.
+- **good:** `dead-pub` fired on a re-export I added "for symmetry"
+  (`route_policy.ShapeReport`) and never used. Correct, immediate, one-line fix.
+- **friction:** `pub-api-surface` reports its findings as `+3 more — use
+  --verbose for full detail` and the fix hint ends mid-sentence: `fix: if the
+  change is intentional, accept the snapshot:` with nothing after the colon.
+  I knew the incantation (`GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build`)
+  from CLAUDE.md, but the message that promises the command does not print it.
+  Cost: nothing this time, but a first-timer would have to go read docs.
+- **friction:** third data point for the already-logged pre-verdict noise — a
+  focused `zig build --seed=1 test -Dtest-filter=…` run printed
+  `guardian/test: PASS — 31 passed` and then `failed command: cd . && …`
+  immediately below it, on a green run. I re-ran the whole gate with an
+  explicit `echo $?` purely to convince myself the suite was actually green
+  (a cached ~3 s no-op, so cheap, but it is a reflex the output is training).
