@@ -7552,3 +7552,44 @@ exercise of the new system checks. Grouped friction from all six reports:
   `["src/*.zig", "src/serve/assets/*.js"]`, because my literals also appear in
   `src/serve/assembly_debug.zig` test assertions — that reasoning was mine to do and the
   gate would only have told me after the fact.
+
+## 2026-08-18 · Claude · eda — layer-aware copper-pour clearance default (outer 0.2 / inner 0.3)
+
+- **good:** the `type-size` per-item ratchet earned its keep before I wrote a line. My
+  task brief told me to add `pour_clearance_outer` as a new field on
+  `placement/optimizer.DesignRules`; `.guardian/baselines/type-size.txt` pins that struct
+  at `13`, so the field would have been refused. Because the ratchet is a committed file
+  I could read it during planning (`grep DesignRules .guardian/baselines/type-size.txt`)
+  and design around it up front — the value went into the existing grouped
+  `env.PourRules` instead, which is exactly the grouping the struct's own doc comment says
+  those sub-structs exist for. Cost: zero rework. A ratchet I can consult *before*
+  building is worth a lot more than one that only speaks at gate time.
+- **good:** `concept` caught two genuine drifts in code I had just written, both of which
+  I would have shipped. (1) A test-helper fixture I added to
+  `src/placement/fine_accept.zig` used the literal `pour_clearance` — a legitimate Zig
+  field name, but in a file with no baseline entry, and the rule's whole point is that
+  design-rule wire keys live in one table. (2) A row description I wrote for the settings
+  UI said "outer copper face (F.Cu / B.Cu)", which tripped `layer-names` (owned by
+  `board_layers.zig`). Both fixes were real improvements — the fixture now overrides only
+  the one field it means to, and the UI copy no longer respells the layer table.
+- **friction (mild, and arguably correct behaviour):** the two `concept` hits landed
+  asymmetrically in a way that cost me a minute of confusion. I made the *same* edit in
+  four files; only the one at plain file scope flagged, because the others sat inside
+  `test { … }` bodies, which the check appears to skip. That is defensible, but nothing in
+  the finding says so, so my first reading was "the check is flaky". A one-clause note in
+  the message — "(test bodies are not scanned)" — would have closed it instantly.
+- **wish:** a `--why-not <file>` companion to a fired concept rule. Having seen
+  `fine_accept.zig` flagged, my next question was "then why is `mcp_close_gaps.zig`, which
+  I edited identically, silent?" — and the only way to answer it was to infer the
+  test-body exemption from the baseline's shape. Being able to ask why a specific file was
+  NOT reported would have turned that inference into a fact.
+- **good:** `pub-api-surface` framed its finding well. It named the one new symbol, said
+  "1 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept", and printed the
+  narrow accept command. That is exactly enough to accept a snapshot deliberately instead of
+  reflexively, and the resulting diff was the one line I expected.
+- **bug (cosmetic, repeat — 5th report):** the `failed command: cd . && ./.zig-cache/…`
+  banner printed directly under `guardian/test: PASS — 116 passed`, on a run whose only
+  real problem was an unrelated blocking check. I have now seen it on four separate runs
+  in this session and each time had to re-read the surrounding lines to confirm the tests
+  were in fact green. Previous reporters have flagged the same thing; suppressing it when
+  the runner printed PASS would remove a recurring false alarm.
