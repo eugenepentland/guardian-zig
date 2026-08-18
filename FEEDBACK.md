@@ -8233,3 +8233,7 @@ days easier to audit.
   by grepping. A `guardian-check explain spec --section <name>` (the twin of the completeness
   dry-run, which is excellent) would let an agent see a section's current bullet/tag state before
   writing any.
+
+## 2026-08-18 · claude · eda — thermal-simulation orchestration (3-agent wave)
+- good: three Opus agents each ran the full gate independently on one shared worktree branch with zero baseline churn between them; diff-scoped gate on intermediate `zig build` runs stayed ~15 s.
+- friction: none beyond what the per-leg entries (81b94f7, c499fdf, 26e2db0) already recorded; the type-size ratchet twice forced nested-struct redesigns that turned out cleaner than the flat briefs.
