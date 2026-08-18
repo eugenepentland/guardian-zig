@@ -8405,3 +8405,22 @@ days easier to audit.
 - **wish:** `pub-api-surface` printed 4 findings but only listed 2 plus "+1 more — use --verbose".
   For a snapshot check whose only action is accept-or-don't, the truncation costs a whole extra
   verbose run to see what I'd be accepting. Snapshot-diff checks would be better off never truncating.
+
+## 2026-08-18 · Claude · eda (zig-eda wave-3 combined compiler validation) — prove a three-way compiler-optimization merge
+- **friction:** the `failed command: cd . && .../test --guardian-filter=...` line under a green
+  `guardian/test: PASS — N passed` cost me a real detour this session. My validation script greps the
+  suite log for failure markers, and the full 8-shard EDA run emitted 8 of these lines while exiting 0
+  and passing 3,182 tests. I stopped a compiler validation mid-flight, dumped the failing shard's
+  filter list, and read 40 lines of shard output before finding the same 8 lines in a previously
+  *validated* run's log and concluding it was noise. This is the second session in this log to report
+  it. The cost is not the re-check, it is that the line is indistinguishable from a genuine shard
+  failure to anything scanning logs — which is what every automated harness does. If it cannot be
+  suppressed, prefixing it with something machine-skippable (`guardian/test: (pre-verdict) failed
+  command: ...`) would be enough.
+- **good:** `GUARDIAN_SKIP_CHECKS=1` on the release build did exactly what a compiler-validation run
+  needs — the two `guardian: checks skipped (guardian-spawned child build)` lines make it obvious the
+  skip was intentional and scoped, so a build log stays self-describing. Eight full ReleaseSafe
+  netlisp builds this session, zero Guardian friction.
+- **good:** the shard-level `PASS — N passed` lines are trivially machine-summable, and summing them
+  reproduced the expected 3,182 across 8 shards on the first try against a compiler that had never
+  built this application before.
