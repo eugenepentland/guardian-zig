@@ -8498,3 +8498,50 @@ days easier to audit.
 - **good:** the whole two-commit branch — ~1,900 lines across 25 files, two new modules, a changed
   shared signature threaded through five renderers — cleared 79 checks with only the four findings
   above, each of which was a real improvement. The gate never once cost me a wrong-headed refactor.
+
+## 2026-08-18 · Claude · eda — /thermal/:name review page + a fifth design-view nav tab
+- **good:** `canonical-idiom` earned its keep on the first build. I hand-rolled the five-entry
+  `& < > " '` HTML escape table in a new `serve/thermal_page.zig` (copied, honestly, from the two
+  sibling page modules that already have one), and the check named the canonical home
+  (`src/escape.zig`), the exact call to make (`escape.writeXml`), the line and column, AND the reason
+  — "9 copies with 4 character sets incl. an attribute writer missing the quote". That last clause is
+  what made it persuasive rather than pedantic: it told me the duplicates have already DIVERGED, so
+  the ninth copy is a real hazard and not a style preference. One-line fix, no argument, and the
+  message alone was enough — I never had to run `explain`.
+- **good:** adding a fourth participant to an existing `[[concept]]` rule was frictionless, which I
+  did not expect given the block comment's warning that declaring a NEW rule is a deliberate
+  two-step under `deny_growth = [… "concept" …]`. I added a new send-only cross-probe client
+  (`src/serve/assets/thermal_page.js`) that must spell `"netlisp-xprobe"`, put it in the existing
+  `xprobe-protocol` rule's `owner` + `require_in`, and the gate went green with no accept dance —
+  correctly, since an owner produces no violation row. Worth saying out loud in the docs somewhere:
+  EXTENDING a concept rule with a legitimate new speller is free; only DECLARING a rule pays the
+  two-step. I hesitated for a couple of minutes over whether I was about to have to drop "concept"
+  from deny_growth and re-accept.
+- **friction:** `pub-api-surface` truncation again — "+4 more — use --verbose for full detail" on a
+  4-finding report, which is a strange place to truncate. Cheap for me this time (I chose to shrink
+  the surface to two declarations instead of accepting five), but this is now the fifth session in
+  this log reporting it, and the fix seems small: for a check whose only two outcomes are
+  accept-or-revert, truncation guarantees a second command.
+- **bug (environment leak, cost me a full re-verification pass):** `GUARDIAN_UPDATE_SNAPSHOT` is read
+  from the environment with no scoping to the invocation, and in an agent harness where an earlier
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` shares a shell snapshot with later commands,
+  the variable silently persisted into my subsequent full `scripts/gate.sh zig build --seed=1 test`
+  run. I only noticed because guardian's own "failed command:" echo line printed the env — the gate's
+  own summary output says nothing about running in accept mode. A green gate that quietly ratified a
+  snapshot is exactly the thing the check exists to prevent, and there is no way to tell from the
+  output that it happened. Two asks: (1) print a loud line like
+  `guardian: run-all: ACCEPTING SNAPSHOT(S) pub-api-surface — this run is not a gate` whenever the
+  variable is set, and (2) consider ignoring it when the run is a blocking gate tier.
+- **friction:** proving the gate was clean after that leak was harder than it should be. `--gate
+  --full` said "cached — 0 blocking (inputs unchanged since last green run)" and I could find no
+  documented way to force a re-run: `--no-cache` is not a flag (it made the run reach a `--full`
+  whole-tree path and then die with a bare `error: GitSpawnFailed`, no context), `GUARDIAN_NO_CACHE=1`
+  did nothing, and deleting `.guardian/cache/green-*.txt` did nothing because the green marker is
+  keyed off `.guardian/cache/inputs.sha256`. I ended up `mv`-ing that file aside by hand, which
+  worked and gave me the clean whole-tree "79 checks — 0 blocking" I wanted. A documented
+  `--force`/`--no-cache` would have saved four attempts; and `error: GitSpawnFailed` with no
+  indication of which git invocation failed is not an actionable message on its own.
+- **good:** the whole change — a new page module, two new browser assets, an edit to three existing
+  nav bars, a new SPEC section with its eight waivers, a concept-rule extension — cleared 79 checks
+  with only the escape-table finding and the pub-api snapshot. The uncached whole-tree run was ~30 s
+  and the full sharded suite 36 s; neither ever pushed me toward a worse design.
