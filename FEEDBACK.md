@@ -7742,3 +7742,28 @@ exercise of the new system checks. Grouped friction from all six reports:
   fresh `ZIG_LOCAL_CACHE_DIR` re-ran anything, which redoes the whole build. Same as the
   prior report; noting the repeat because it cost another full rebuild. A re-print of the
   last run's per-shard counts, or `GUARDIAN_FORCE_RERUN=1`, would fix it.
+
+## 2026-08-18 · Claude · eda (+ zig-eda compiler branch) — register-resident 65..128-bit integer lowering in the x86-64 backend
+- **good:** the same two-run protocol paid off again on a change that rewrites how every
+  `u128`/`i128` multiply, shift and widening cast is lowered: `zig build test` gave
+  3,182 passed across 8 shards with the candidate compiler and byte-identically 3,182 with
+  the pinned `7d8c7433` baseline on the same worktree. Two invocations of one command,
+  identical totals, sign-off. Nothing else in the session gave that much confidence per
+  minute.
+- **good:** `-Dtest-filter="stuck diagnosis"` again announced `19 test(s) selected by
+  filter — 1 match by name, 18 unnamed test block(s) run regardless`, so I did not spend
+  time reconciling 19 against the 17/17 figure still recorded in EDA_COMPILER.md. Please
+  keep that line.
+- **bug (cosmetic, repeat — 12th report):** `failed command: cd . && … --guardian-filter=…`
+  still prints immediately under `guardian/test: PASS — N passed` on steps that exit 0. Hit
+  it 8 times in the full suite and on all three discriminator runs (Debug, `-Dtest-opt=safe`,
+  and the baseline control). It cost me an entire extra baseline discriminator run purely to
+  establish the noise was pre-existing — and for an agent that has just changed instruction
+  selection, "failed command" under a PASS line is the most alarming possible false signal.
+  Suppressing the line when the step exits 0 closes it.
+- **friction:** `GUARDIAN_SKIP_CHECKS=1 … zig build -Doptimize=safe -p <stage>` (the release
+  build recipe) prints `guardian: checks skipped (guardian-spawned child build)` twice and
+  nothing else — no indication of which optimize mode or backend was actually used. I had to
+  read `build.zig` to confirm `-Doptimize=safe` implies `strip = true` and `use_llvm = false`
+  before I could trust the disassembly I was about to quote. One line naming the effective
+  mode/backend/strip for the produced artifact would have saved that detour.
