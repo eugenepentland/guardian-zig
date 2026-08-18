@@ -7984,3 +7984,39 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   wall, exit 0. The `zig build test-compile` tier caught one stale `NetFacts`
   literal in `src/target_unblock.zig` that my filtered runs never compiled — the
   exact hole that tier is documented to close, ~15 s to find it.
+
+## 2026-08-18 · Claude · eda — breadth-then-depth unblock rounds + mesh pinch diagnostics
+- **friction:** `type-size` fired on THREE structs at once (`route_policy.Options`
+  12/cap 7, `cdt_route.Scene` 8/cap 7, a brand-new `pair_pinch.Report` 8/cap 7) but
+  printed a single shared fix line — "1 fields over its frozen ratchet ceiling of
+  11 — reduce it, or accept" — which is true of `Options` alone. `Scene` and
+  `Report` have no ratchet entry at all and are held to the global cap of 7, so
+  the advice read as "you're one field over on all three" when two of them were
+  four and one over a completely different limit. I only worked that out by
+  grepping `.guardian/baselines/type-size.txt` and finding one line for `Options`.
+  Cost ~10 min of guessing. A per-finding limit ("has 8 fields, global cap 7, no
+  ratchet") would have been unambiguous.
+- **friction:** `import-layering` blocked `src/serve/route_plan.zig` importing a
+  NEW `src/placement/pair_pinch.zig`, while the baseline already freezes ~20
+  `route_plan.zig → src/placement/*` edges including `route_policy.zig`. The fix
+  line's three options are all right, and the one that worked (re-export the type
+  from the already-frozen `route_policy.zig`) is not obviously "move the shared
+  type into a module both layers may import" until you go read the baseline to see
+  which placement modules serve is ALREADY allowed to compile against. Printing
+  the nearest already-allowed edge from the same `from` file — "route_plan.zig may
+  already import route_policy.zig" — would turn a 3-step search into a 1-step fix.
+- **good:** `dead-pub` caught `diff_shape.envelopeCenterline` the moment its last
+  caller moved to the new `envelopeChannel` seam — a wrapper I had deliberately
+  kept "for the existing API" that in fact nothing called. Deleting it and
+  retargeting one SPEC `Public functions:` line was the whole fix, and it kept a
+  vestigial public function out of the commit.
+- **good:** `test-no-conditional` fired on an `if (pinch.b) |other| { … }` guarding
+  assertions that only apply to a two-sided verdict. Hoisting it into a named
+  predicate (`pinchSidesDiffer`) made the test assert unconditionally AND made the
+  one-sided case an explicit documented answer instead of a silently skipped
+  branch. The check improved the test rather than merely policing it.
+- **good:** `change-classification` ("174 behavioral line(s) added") landed on the
+  first build after the scheduling rewrite and before I had written a single test,
+  which is exactly the right moment — it turned "I'll add tests at the end" into
+  four SPEC bullets and four tagged tests written while the design was still in my
+  head. Whole-suite gate after the change: 3115 tests, 94 s, exit 0.
