@@ -8850,3 +8850,20 @@ successive compiler swaps routine.
 - good: `guardian/test: N test(s) selected by filter: … — 3 match by name` is
   the line I trusted to know my new tests actually ran. Without the match count
   a typo'd filter would have looked identical to a green run.
+
+## 2026-08-18 · Claude (Fable 5) · eda — built A/B harness; validated 10 seeded bugs through the gate
+- **good:** ~20 gated builds in fresh clones (`zig build --seed=1`) each took
+  12–15 s thanks to prebuilt `guardian-check` reuse + baseline mode — cheap
+  enough to run the full 79-check gate as a per-trial prewarm step in an
+  automated harness. All 10 hand-seeded one-line *semantic* mutations passed
+  the gate quietly (correct division of labor — style-neutral behavior bugs
+  are the test suite's job) and `zig build --seed=1 test` caught every one.
+- **friction:** second data point for the already-logged pre-verdict noise:
+  the `failed command: cd . && EDA_TEST_SHARD=…` block that prints inside a
+  PASSING `zig build test` run also breaks naive machine parsing — my seed
+  validator's failure-regex captured it as a "failing test" on green runs.
+  Harnesses can rely on exit codes, but the stdout actively lies on success.
+- **wish:** a machine-readable test verdict to complement
+  `.guardian/cache/last-run.jsonl` (which covers violations): one final JSON
+  line with pass/fail + failing test names would let harnesses score runs
+  without regex archaeology.
