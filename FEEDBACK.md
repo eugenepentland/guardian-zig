@@ -8270,3 +8270,25 @@ days easier to audit.
 - wish: still the machine-readable per-run total. I again re-derived "3,182 across 8 shards" with
   `grep -oE "PASS — [0-9]+ passed" | awk`, twice (once per compiler variant), and that sum is only
   trustworthy because I separately checked the shard count was 8.
+
+## 2026-08-18 · Claude · eda — barracuda routing increment 22 (pour clipping, layer names, probe price)
+- good: the three-tier loop did its job on a three-defect increment. `-Dtest-filter` with four
+  filters printed "29 test(s) selected by filter … 6 match by name", which is exactly the reassurance
+  the counting runner was added for — I could see my new tests were actually selected instead of
+  guessing. `zig build test-compile` then caught nothing, and the full `scripts/gate.sh zig build
+  test` came back PASS — 3150 passed with 0 blocking checks. Whole run cost about 6 minutes of a
+  ~3-hour session.
+- good: the pre-commit whole-tree gate (79 checks, 0 blocking) ran clean on a commit touching four
+  files across two subsystems, with no baseline churn and no snapshot to accept. Nothing to report
+  beyond "it stayed out of the way", which is the point.
+- friction: the `failed command: cd . && ./.zig-cache/o/…/test … --listen=-` line printed directly
+  under `guardian/test: PASS — 3150 passed` (and again under every filtered run) cost me a
+  round-trip: I re-ran the filtered command with output discarded purely to read `echo $?` and
+  confirm exit 0. That is the third session in FEEDBACK.md reporting the same line, so it is now
+  costing repeat time rather than one-off confusion. Suppressing it when the step ultimately
+  succeeds, or printing the verdict AFTER it, would end it.
+- wish: `guardian/test` prints "test wall 99.15s; slowest over 50ms" for the full suite but "test
+  wall 0.00s" for a filtered run whose compile plainly took ~20s. The wall it reports is execution
+  only, which is the smaller half of what a filtered tier actually costs an agent deciding whether
+  to filter again or go wide. A second number (compile/analysis wall, or just total step wall) would
+  make that decision measurable instead of felt.
