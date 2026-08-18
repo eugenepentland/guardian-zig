@@ -7922,3 +7922,34 @@ exercise of the new system checks. Grouped friction from all six reports:
   finding. `change-classification: 58 behavioral line(s) added` in a 16k-line file
   meant scrolling my own diff to work out which lines it counted as behavioural, and
   the answer (a refactor that moved a struct literal) was not obvious.
+
+## 2026-08-18 · Claude · eda (compiler-side, via zig-eda-wt-agg-pairs) — wave-2 aggregate projection in the x86-64 backend
+
+Context: I was changing the experimental Zig compiler, then using it to build and
+gate netlisp. Guardian ran only as the EDA test gate (`zig build test` with a
+candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
+`GUARDIAN_SKIP_CHECKS=1` on the build steps.
+
+- **good:** the sharded suite is exactly the right shape for compiler validation.
+  3,182 tests across 8 shards, `PASS — N passed` per shard, and summing the shard
+  lines gave me the one number the handoff asked for. A codegen change can break
+  anything, so a whole-suite gate that stays this cheap to run is what makes an
+  experimental compiler testable at all.
+- **good:** the focused discriminator (`--test-filter "stuck diagnosis"`, 19 tests,
+  ~1 s) is a genuinely well-chosen canary. It runs in both Debug and
+  `-Dtest-opt=safe` and is the documented tripwire for the historical router
+  miscompile, so it is the first thing worth running after any backend change.
+- **bug (cosmetic, repeat of an entry already in this log):** `failed command: cd .
+  && …/test --guardian-filter=… --listen=-` still prints immediately under
+  `guardian/test: PASS — N passed` on steps that exited 0. I hit it on all three
+  gated runs this session. With ~60 `--guardian-filter=` arguments per shard the
+  spurious line is several hundred characters, so it dominates the tail of the log
+  and I re-grepped for `FAIL` each time to convince myself the run was green. The
+  cost is small but it recurs every session; it is the only thing standing between
+  "read the last line" and "parse the log".
+- **wish:** a one-line machine-readable total at the end of `zig build test` —
+  something like `guardian/test: TOTAL 3182 passed, 0 failed` after the last shard.
+  Right now the total only exists if you sum the per-shard `PASS — N passed` lines
+  yourself, and a compiler handoff is specified in terms of that total ("expect
+  3,182"). Every agent validating a toolchain re-derives it with the same
+  `grep -oE 'PASS — [0-9]+ passed' | paste -sd+ | bc`.
