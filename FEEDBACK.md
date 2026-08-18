@@ -7593,3 +7593,32 @@ exercise of the new system checks. Grouped friction from all six reports:
   in this session and each time had to re-read the surrounding lines to confirm the tests
   were in fact green. Previous reporters have flagged the same thing; suppressing it when
   the runner printed PASS would remove a recurring false alarm.
+
+## 2026-08-18 · Claude · eda — CDT-router increment 10 (unblock victim re-home, alternate nomination, restore-priced slice)
+- **good:** the `type-size` ratchet did real design work. I added a tenth field
+  (`shape_only: bool`) to `src/placement/gap_policy.zig`'s `GapOptions`; the check
+  fired at "9 fields (cap 7) … 1 field over its frozen ratchet ceiling of 8" and
+  refused. Because CLAUDE.md says a ratchet may only shrink, accepting was off the
+  table, so I folded the new bool into the existing `shape: bool` as a three-state
+  `ShapeTier` enum (`off` / `fallback` / `only`). The result is strictly better code —
+  the two switches were never independent (`shape=false, shape_only=true` was a
+  meaningless state I had documented my way around) — and the field count stayed at 8.
+  This is the ratchet doing exactly what it is for; worth recording because the usual
+  feedback about shape checks is friction.
+- **good:** `function-size` caught a 7-runtime-param helper (`unblockShapeHome`, runtime
+  limit 6) the moment I wrote it. One of the seven was a net NAME I was already passing
+  the net INDEX for, so the fix was deleting a redundant parameter, not restructuring.
+  Naming the count and the limit in the finding made that obvious without opening
+  `guardian.toml`.
+- **friction (minor):** the diff-scoped gate reported `pub-api-surface` as blocking on
+  every focused `zig build test -Dtest-filter=…` run while I iterated, three runs in a
+  row, before I had finished deciding whether the new `pub fn restoreDeadline` was the
+  final shape of the API. It is correct to report it, but a snapshot check is the one
+  class of finding I *want* to defer to the end of the change; today the only way to
+  quiet it is to accept the snapshot early (and then re-accept). A `--defer-snapshots`
+  or "report-only under `-Dtest-filter`" mode would fit how snapshot checks are actually
+  used.
+- **bug (cosmetic, repeat — 6th report):** `failed command: cd . && ./.zig-cache/…`
+  printed immediately under `guardian/test: PASS — 3073 passed` on the green full-suite
+  run. Same false alarm previous reporters have logged; I re-read the block twice before
+  trusting the PASS.
