@@ -8334,3 +8334,23 @@ days easier to audit.
   2-entry `file-size.txt` told me roughly where the file cap sat). A `zig build guardian-explain
   -Dcheck=<name>` step, resolving the binary the same way the gate already does, would replace that
   archaeology.
+
+## 2026-08-18 · Claude · eda (worktree agent-switchcold) — compiler validation: cold switch prong sinking
+- friction: the "false failure" line struck again, twice in one session. `zig build test` and
+  `zig build test -Dtest-filter="stuck diagnosis"` both exit 0 and print
+  `guardian/test: PASS — N passed`, and then immediately print a `failed command: cd . && … --listen=-`
+  line. My harness script greps the log for `FAIL|error:` to decide pass/fail, and that grep
+  reported "fail-or-error lines: 18" on a fully green 8-shard, 3,182-test run. I burned a round-trip
+  re-grepping for `^guardian/test: PASS` and summing `PASS — N passed` to convince myself nothing had
+  actually failed. This is now at least the fifth session reporting the same line; for an agent
+  driving Guardian from a script, the cost is not "confusing output", it is that the obvious
+  scripted success check is wrong.
+- good: `GUARDIAN_SKIP_CHECKS=1` did exactly what a compiler-validation session needs. I am building
+  the EDA app with an experimental zig purely to see whether the app still behaves, and the app's
+  own lint/spec gates are noise for that; the env var let me get a `-Doptimize=safe` release build
+  and the full test suite with no gate friction and no temptation to edit `guardian.toml`.
+- good: the release-invocation build (`zig build --seed=1 -Dtemplates-prepared=true -Doptimize=safe`)
+  printed `guardian: checks skipped (guardian-spawned child build)` and `docs check OK:
+  docs/language-forms.md matches the dispatch tables` and otherwise stayed out of the way. The docs
+  check is a nice signal to get for free when the change under test is a codegen change to switch
+  dispatch — it is exactly the kind of table that a miscompiled switch would corrupt.
