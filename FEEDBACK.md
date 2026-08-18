@@ -8424,3 +8424,43 @@ days easier to audit.
 - **good:** the shard-level `PASS — N passed` lines are trivially machine-summable, and summing them
   reproduced the expected 3,182 across 8 shards on the first try against a compiler that had never
   built this application before.
+
+## 2026-08-18 · Claude · eda (thermal Phase 3b) — heat-zone PNG + cooling-scenario ladder surfaces
+- **good:** `divergent-const` earned its keep on the first try. I added a new renderer
+  (`src/render_thermal_png.zig`) alongside the existing `src/render_pcb_png.zig` and copied a handful
+  of framing constants across. Every copy I made with an identical VALUE passed silently, and the one
+  I changed (`legend_h_px` 22 → 34, because my legend carries a gradient bar rather than swatches)
+  failed with both files and both values named. That is exactly the right sensitivity: it ignored the
+  six deliberate same-value twins and caught the one that was a genuine second opinion. I renamed
+  mine to `scale_band_px` and imported the one constant that IS shared (`view_margin_mm`, already pub
+  for this reason) — a better outcome than what I would have committed unprompted.
+- **good:** `import-layering` caught a real design mistake I would not have caught in review. I had
+  `src/serve/pcb_layout_page.zig` importing `src/placement/thermal_field.zig` for ONE enum
+  (`Scenario`, needed to parse `?scenario=`). The rule ('serve-placement-internals') named the rule
+  and the fix in one line, and the fix — re-exporting `Scenario` from the top-level module both
+  layers already share — is strictly better than what I had. Cost: about two minutes.
+- **good:** `stack-escape` caught a live dangling-pointer bug in a test fixture. `fn testLadder()`
+  returning `.rows = &[_]Row{ testRow(...), ... }` compiles, and on my machine it even passed three
+  of four assertions before returning the wrong row's temperature. The check pointed at the
+  `testRow` return (`returns address backed by stack storage`), which is the right frame. Without it
+  I would have shipped a fixture that reads whatever the stack last held.
+- **friction:** the substring-matching shard manifest cost me one full 8-shard suite run. I added
+  `"render_thermal_png.test."` to a shard, not realising the existing `"png.test."` filter (for
+  `src/png.zig`) already selects it unanchored — so two shards claimed the same test and
+  `shard manifest runs every named test exactly once` failed. The failure message was good (it named
+  the exact test and said "2 shard(s) claim ... (want exactly 1)"), and `src/test_shards.zig`'s own
+  module doc warns about unanchored matching, but the message stops one step short: it says WHICH
+  test is double-claimed and not WHICH TWO FILTERS claim it. Printing the two filter strings would
+  have turned a suite re-run into a one-line edit, since the colliding filter is usually not the one
+  you just added.
+- **friction (repeat, third session in this log):** the `failed command: cd . && ./.zig-cache/o/<hash>/test
+  --guardian-filter=...` line printed directly under `guardian/test: PASS — N passed` on a step that
+  exits 0. I hit it on essentially every focused run this session and re-checked the exit code each
+  time. Two previous entries below/above report the same thing; I am only adding a data point that it
+  is still costing per-invocation attention in Aug 2026.
+- **wish:** `pub-api-surface` truncation again (a third session reports this). My change added 34 new
+  public declarations and changed 2 signatures; the gate printed 3 and "+35 more — use --verbose".
+  For a check whose only remedy is accept-or-don't, I had to run `guardian-check pub-api-surface .
+  --verbose` separately just to read what I was about to ratify. The `changed:` / `delta:` block in
+  the verbose output is genuinely good (it separates new from changed from removed, which is the
+  thing you actually need to review before accepting) — it just is not reachable from the gate output.
