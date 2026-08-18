@@ -7874,3 +7874,21 @@ exercise of the new system checks. Grouped friction from all six reports:
   release build produces a 3-line log — two `guardian: checks skipped (guardian-spawned child
   build)` lines and the docs check. I timed that build 11 times for a compile-time regression
   guard and each time had to `ls`/`sha256sum` the artifact to convince myself it had run.
+
+## 2026-08-18 · Claude · eda — wave-2 LICM + rip-relative constant folding (compiler validation)
+- **good:** the eight sharded `guardian/test: PASS — N passed` lines summed to exactly 3,182 again,
+  and both discriminator runs printed `PASS — 19 passed` in Debug and `-Dtest-opt=safe`. Having a
+  known-good total from the wave-1 run made "did my compiler change break anything?" a one-line
+  `grep -oE 'PASS — [0-9]+ passed' | awk` check.
+- **bug (cosmetic, repeat — 15th report):** `failed command: cd . && … --guardian-filter=…` still
+  prints directly under `guardian/test: PASS — N passed` on steps that exit 0. I hit it 8 times in
+  the suite plus both discriminator runs. I was validating an instruction-selection change that had
+  *already* produced one real segfault earlier in the session, so "failed command" in the log was
+  exactly the string I could not afford to be noise — it cost a verification detour to confirm the
+  step's exit code was 0.
+- **friction:** `zig build test` still emits no closing aggregate; the suite total only exists as
+  eight scattered per-shard lines. A final `guardian/test: SUITE PASS — 3182 passed across 8 shards`
+  would make the headline number quotable without a script.
+- **good:** `GUARDIAN_SKIP_CHECKS=1` on the release-invocation build (`--seed=1
+  -Dtemplates-prepared=true -Doptimize=safe`) worked cleanly with a non-pinned candidate compiler and
+  printed `guardian: checks skipped (guardian-spawned child build)` twice, which was unambiguous.
