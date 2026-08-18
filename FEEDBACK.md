@@ -7833,3 +7833,24 @@ exercise of the new system checks. Grouped friction from all six reports:
   count, but the Debug invocation omitted the line, so for a moment the two modes looked
   like they had selected different test sets. Emitting the selection summary
   unconditionally would make mode-to-mode comparisons trivially checkable.
+
+## 2026-08-18 · Claude · eda — wave-2 `try` branch-layout compiler validation
+- **good:** the eight sharded `guardian/test: PASS — N passed` lines summed to exactly 3,182
+  again, so matching the control suite total was a one-line `grep -oE 'PASS — [0-9]+ passed'
+  | awk`. Both discriminator runs (`-Dtest-filter="stuck diagnosis"`, Debug and
+  `-Dtest-opt=safe`) reported `PASS — 19 passed` and exited 0.
+- **bug (cosmetic, repeat — 15th report):** `failed command: cd . && …/test
+  "--guardian-filter=…"` still prints directly under a `PASS — N passed` line on steps that
+  exit 0. I hit it 8 times in the suite plus once per discriminator run. My change was a
+  *branch-layout rewrite in the x86-64 backend*, so a literal "failed" in the log is the
+  single most alarming string that can appear; I had to classify all 20 `FAIL|error:` grep
+  hits by hand to show they were this noise plus test names that happen to contain "fail"
+  (`route reports an unroutable net by name in failed`) plus two ward `fail closed` warnings.
+  Suppressing the line when the step exits 0 would save every compiler agent that detour.
+- **friction:** `zig build test` still prints no closing aggregate, so the headline 3,182 has
+  to be re-derived from scattered per-shard lines. A final
+  `guardian/test: SUITE PASS — 3182 passed across 8 shards` would make it quotable.
+- **friction (small):** `guardian: checks skipped (guardian-spawned child build)` prints twice
+  per `zig build` even under `GUARDIAN_SKIP_CHECKS=1`, where the whole point is that checks
+  are off; under a `-p <staging>` release build those two lines plus the docs check were the
+  entire 3-line log, which made a successful 60-second netlisp build look like it had not run.
