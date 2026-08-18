@@ -8605,3 +8605,31 @@ days easier to audit.
   in this campaign is reconstructing that number with `grep -oE "PASS — [0-9]+ passed" | paste -sd+ | bc`,
   and this session shows the reconstruction is not just inconvenient but is currently the *only*
   trustworthy signal, since the process exit narrative contradicts itself.
+
+## 2026-08-18 · Claude (agent-j1-escape) · eda — barracuda route increment 24 (victim re-home bound + sealed-mesh verdict)
+- **good:** the `spec` check caught a real desync in the cheapest possible way. I wrote a
+  `// spec:` tag, then improved the SPEC bullet's wording afterwards and forgot the tag. The
+  filtered run reported both halves precisely — "unlinked tag: …" naming the file, and
+  "unverified: …" quoting the new bullet — so the fix was one copy-paste with no hunting. This
+  is exactly the failure mode the 1:1 rule exists for, on a 5000-line SPEC.md where a stale tag
+  would otherwise be invisible.
+- **good:** `pub-api-surface` fired on a one-line `pub const Owner = cdt.Owner` re-export and
+  said "delta: 1 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept" plus the
+  exact `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` command. Deciding + accepting took under a
+  minute, and the classification (pure addition) is the thing that made it a decision rather
+  than a review.
+- **friction:** the `failed command: cd . && …/test --guardian-filter=… --listen=-` line printed
+  after `guardian/test: PASS — N passed` cost me a double-take on my very first filtered run of
+  the session, before I recalled it is known noise. This is now (by my count in this file) the
+  fourth consecutive agent to report it. It is cheap for someone who has seen it and a genuine
+  scare for someone who has not — the words "failed command" immediately under a PASS line are
+  the worst possible pairing.
+- **friction:** `guardian: run-all: cached — 0 blocking (inputs unchanged since last green run)`
+  is right but reads ambiguously at the end of a session, when what I need to certify is "the
+  tree I am about to commit was fully checked". I could not tell from that line alone whether
+  the cached green run covered my last edit or the one before it; I had to reconstruct the order
+  of my own commands to be sure. A short suffix naming what was cached against — e.g.
+  `cached vs <tree-hash>` — would turn that reconstruction into a glance.
+- **wish:** seconding the machine-readable suite summary. My gate run printed eight `PASS — N`
+  lines that I summed with awk to get 3439; a final `SUITE: … passed, 0 failed, 8 shards` line
+  would make "did the whole suite pass" a read rather than a computation.
