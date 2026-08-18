@@ -8170,3 +8170,41 @@ days easier to audit.
   piped `| tail -25` that banner is the last thing you see, which reads as a
   failure; the run's exit code was 0. Costed one confused re-run with an
   explicit `echo EXIT=$?` to establish that the gate had in fact passed.
+
+## 2026-08-18 · Claude · eda — pinch-guided placement repair (new modules + MCP option)
+- **good:** `import-layering` being in `deny_growth` did exactly its job and
+  changed my architecture for the better. I had written the orchestration as
+  `src/serve/route_repair.zig`, which needed five `src/placement/*` imports; the
+  refusal ("acceptance refused because the configured deny_growth policy would
+  grow recorded debt") made me look for a home that did not add debt, and the
+  right one already existed — `src/fab_readiness.zig` sits at the source root
+  precisely because it needs the placement model and a serve seam at once. Moving
+  the file to `src/route_repair.zig` dropped the violation to zero AND left the
+  MCP handler with no new placement dependency. A ratchet that produces a better
+  design instead of a baseline row is the best possible outcome; worth keeping.
+- **good:** `test-no-conditional` caught a `switch` at the top of a test body
+  that I had written only because my helper returned a tagged union. Adding two
+  small accessors to the union fixed the test AND made the production call sites
+  read better. Precise finding, one-line fix, no argument with it.
+- **friction:** `guardian-check all . --gate --full` reported `run-all: cached —
+  0 blocking (inputs unchanged since last green run)` on a tree where I had just
+  edited two source files and SPEC.md. Deleting `.guardian/cache/run-*.json` did
+  not invalidate it; only `rm .guardian/cache/inputs.sha256` forced a real run.
+  That cost me two rounds of "is this actually green, or is it telling me about
+  a tree from ten minutes ago?" — and the failure mode is dangerous, because the
+  cached answer is the one you would quote in a handoff. Either the input hash
+  should cover the edited files (it seems not to have), or `--full` should imply
+  a cache bypass: asking for a whole-tree run and getting a cached verdict is a
+  contradiction in terms.
+- **wish:** `type-size` fired on two brand-new structs at 8 and 9 fields against
+  a cap of 7, and the fix in both cases was the right one (group the fields that
+  travel together into a sub-struct). But the message names only the count. It
+  would be much faster to act on if it printed the field list, since the grouping
+  is usually obvious once you see the names side by side — mine were
+  `from`/`to`/`layer` (already had a `Ends` type) and `baseline`/`drc_errors`/
+  `open_nets` (one `Baseline` concept).
+- **friction:** the same green-run `failed command: cd . && ./…/test …` banner
+  noted at the bottom of this log bit me again on `zig build test-compile`, where
+  the step prints nothing at all on success. "No output" and "did the command
+  even run" are indistinguishable without `echo EXIT=$?`; a one-line
+  `guardian/test-compile: N module(s) analyzed` on success would settle it.
