@@ -8717,3 +8717,41 @@ a detached worktree at `70e9befc`. Only the test stage was exercised.
   that follows does not print a matching "this WAS whole-tree" line. Having both
   states named would make it obvious from the log alone which verification a
   given run actually bought.
+
+
+## 2026-08-18 · claude · eda — route_plan: pour-component bridge re-home tier
+
+- good: `boundaries` and `import-layering` together made me build the module
+  correctly on the first correction. A new `src/placement/pour_bridge.zig`
+  importing `../fab_readiness.zig` tripped `boundaries`, and `src/serve/`
+  importing the new placement module tripped `import-layering` against a
+  baselined (from,to) pair list. Both fired in the same run, and the pair of
+  them said, in effect, "make the module pure geometry and adapt at the existing
+  seam" — which is exactly the design I ended up with (planner is oracle-free,
+  `route_close` owns the `OpenNet` adaptation). Two structural checks
+  triangulating one right answer is the best thing Guardian did this session.
+- good: `import-layering`'s baseline being keyed on (from-file, to-file) pairs
+  rather than on the rule made "do not grow this debt" actionable rather than
+  merely blocking — the fix was obvious because the frozen rows named the exact
+  allowed edges.
+- good: `function-size`'s "7 runtime params (runtime limit: 6)" landed on a
+  brand-new function the same minute I wrote it and pushed me into a `Tear`
+  struct that later grew a field for free. Catching it at birth is worth far
+  more than catching it at 12 params.
+- friction: `test-no-conditional` reported "more than one top-level loop — the
+  loop at line 8180 asserts nothing, so hoist that one" for a loop whose body was
+  a single `try testing.expect(...)`. The remedy was right (hoisting it into a
+  named helper is better) but the reason given was factually wrong about that
+  loop, which cost a re-read of the test to check whether I had actually written
+  an assertion-free loop somewhere. If the "asserts nothing" attribution is
+  heuristic, saying "the extra loop" (which the message already supports as a
+  fallback wording) would be more honest than naming the wrong cause.
+- friction: same `failed command:` banner after a green filtered run reported in
+  the previous entry, still the single biggest false-alarm source in a session
+  with ~15 filtered runs. Confirmed again: exit code 0, `guardian/test: PASS`,
+  and a red-looking banner directly underneath.
+- wish: `pub-api-surface` printed "+13 findings" with "+10 more — use --verbose
+  for full detail" and the delta classification line was itself truncated into
+  the elided tail. When the delta line says "1 new, 1 changed, 0 removed", that
+  line is the whole decision — it deserves to print before the per-symbol list
+  and never be the thing that gets elided.
