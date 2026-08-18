@@ -8828,3 +8828,25 @@ path; gate re-proved 3,182+ tests at a main that had gained the thermal tab
 since the compiler's validation point — 49s wall, zero friction. The
 five-file contract-test mirror and candidate-provenance checks made four
 successive compiler swaps routine.
+
+## 2026-08-18 · claude · eda — increment 29, naming a shape-router refusal
+
+- good: `change-classification` did exactly its job. The first `zig build` after
+  adding ~175 lines of pure diagnostic code failed with "175 behavioral line(s)
+  added — commit these lines WITH a test", which is what pushed me to write the
+  SPEC bullets and the three tagged tests in the same change instead of shipping
+  observability with no coverage. The message named the fix precisely enough
+  that no `explain` call was needed.
+- good: the diff-scoped run during iteration (79 checks, 24 files in scope,
+  ~2 s) versus the whole-tree run at `git commit` is the right split — I ran the
+  cheap gate a dozen times while editing and paid the full one once.
+- friction: `zig build test -Dtest-filter=…` prints `failed command: cd . && …`
+  on a PASSING filtered run (the line appears right after
+  `guardian/test: PASS — 25 passed`). It is Zig Maker's pre-verdict noise, not
+  Guardian's, but it sits inside Guardian's test-runner output block and reads
+  as a failure every single time. Cost: three separate re-runs to convince
+  myself the tests were green. If the counting runner can swallow or annotate
+  that line on success, it would remove a recurring false alarm.
+- good: `guardian/test: N test(s) selected by filter: … — 3 match by name` is
+  the line I trusted to know my new tests actually ran. Without the match count
+  a typo'd filter would have looked identical to a green run.
