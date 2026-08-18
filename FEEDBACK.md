@@ -7892,3 +7892,33 @@ exercise of the new system checks. Grouped friction from all six reports:
 - **good:** `GUARDIAN_SKIP_CHECKS=1` on the release-invocation build (`--seed=1
   -Dtemplates-prepared=true -Doptimize=safe`) worked cleanly with a non-pinned candidate compiler and
   printed `guardian: checks skipped (guardian-spawned child build)` twice, which was unambiguous.
+
+## 2026-08-18 · Claude · eda — CDT pair-envelope channel + iterative blocker deepening
+- **good:** `change-classification` earned its keep twice. Both times it fired on a
+  refactor I *believed* was behaviour-preserving (`router.shapeInput` extraction,
+  the `unblockPairHome` split), and both times writing the demanded `// spec:`-tagged
+  test is what made me state the rule precisely enough to notice it was not.
+- **good:** the full-suite gate caught a real regression a focused run could not have.
+  `serve.route_plan.test.a lost pair victim is re-homed coupled rather than declined`
+  is a test I never touched and whose name shares no substring with anything I was
+  filtering on; my new tier silently preempted the fallback it depended on. 1 failed
+  of 3099, named exactly, with the assertion line — nothing to hunt for.
+- **friction:** `type-size` refused `route_policy.Options` growing from 11 to 12 fields
+  (ratchet 11, cap 7). Correct outcome — I nested the new knob under `Guides` beside
+  `route_space`, which reads better — but the diagnostic (`has 12 fields (cap 7) … 1
+  fields over its frozen ratchet ceiling of 11`) says only "too many". A hint naming
+  the struct's existing nested groups ("`wave`, `stop`, `guides` are already
+  sub-structs — consider grouping") would have taken me to the right shape in one step
+  instead of three discarded designs.
+- **friction:** `stack-escape` fired on a TEST helper returning `.{ .legs = &.{…} }`
+  (a composite temporary), which is a genuine dangling-slice bug, but the message
+  ("returns address backed by stack storage 'runtime-valued temporary composite'")
+  reads as if it were about `&local`. Naming the anonymous-array-literal case would
+  have shortened the fix.
+- **bug (cosmetic, repeat):** `failed command: cd . && ./.zig-cache/o/…/test …` still
+  prints under `guardian/test: PASS — N passed` on steps that exit 0. Hit it on every
+  focused run this session (~10 times); each time I re-grepped for `FAIL` to be sure.
+- **wish:** a per-check `--why-now` that prints which of my changed lines triggered a
+  finding. `change-classification: 58 behavioral line(s) added` in a 16k-line file
+  meant scrolling my own diff to work out which lines it counted as behavioural, and
+  the answer (a refactor that moved a struct literal) was not obvious.
