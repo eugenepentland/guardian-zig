@@ -7668,3 +7668,28 @@ exercise of the new system checks. Grouped friction from all six reports:
   variable is set explicitly by the caller, one line stating that the caller disabled the
   gates (rather than that a child build inherited the skip) would be clearer — I briefly
   wondered whether my top-level build had also been treated as a child.
+
+## 2026-08-18 · Claude · eda — validating a compiler switch-lowering change (jump tables under PIC)
+- **good:** the eight-shard split is exactly the right granularity for a codegen
+  regression sweep. One `zig build test --seed=1 -Dtemplates-prepared=true` with a
+  candidate Zig compiler gave me 3,182 passing tests in eight readable
+  `guardian/test: PASS — N passed` lines, and that was the whole application-level
+  gate for a change that rewrites dispatch for every `switch` in the tree.
+- **good:** `-Dtest-filter="stuck diagnosis"` in Debug and `-Dtest-opt=safe` remains the
+  cheapest high-signal discriminator available — 19/19 each, about a second of test wall
+  once built. I ran it immediately after the full suite and it cost nothing.
+- **friction (Zig, not Guardian, but it bit me inside a Guardian-gated flow):** Zig's
+  build cache did not invalidate on a changed compiler binary. I rebuilt the candidate
+  compiler with a fix, re-ran `zig test` with the *same* `ZIG_LOCAL_CACHE_DIR`, and got
+  the pre-fix test executable back (identical `o/<hash>/test` path), so a fixed compiler
+  reported the old failure. I lost roughly 40 minutes and nearly reverted a correct fix
+  before noticing the cache hash had not moved. `EDA_COMPILER.md` already warns about
+  stale-cache reuse for *compiler host* builds; the same hazard applies to every
+  downstream `zig test`/`zig build` invocation. If Guardian ever grows a
+  "validate against candidate toolchain" mode, deriving part of the cache key from the
+  compiler binary's SHA-256 would close it.
+- **bug (cosmetic, repeat — 9th report):** `failed command: cd . && EDA_TEST_SHARD=2 …`
+  printed directly beneath `guardian/test: PASS — 363 passed` on a run that exited 0.
+  Same as the eight prior reports; same cost (two extra tool calls to prove green). I
+  mention it only to keep the count honest — suppressing the line when the step exits 0
+  would close it.
