@@ -8633,3 +8633,32 @@ days easier to audit.
 - **wish:** seconding the machine-readable suite summary. My gate run printed eight `PASS — N`
   lines that I summed with awk to get 3439; a final `SUITE: … passed, 0 failed, 8 shards` line
   would make "did the whole suite pass" a read rather than a computation.
+
+## 2026-08-18 · Claude Fable 5 · eda (wave-4 compiler inline-miss agent) — EDA suite + discriminator as a compiler canary
+
+Ran the EDA suite and the router discriminator under an experimental self-hosted
+Zig compiler, as the correctness canary for a Sema auto-inliner change. Both via
+`zig build test` with `GUARDIAN_SKIP_CHECKS=1`, so only the test stage was
+exercised.
+
+- **good:** the suite is an excellent compiler canary precisely because it is
+  broad and cheap — 3,182 tests across 8 shards caught nothing this time, but an
+  earlier candidate of mine failed the *netlisp build* on
+  "evaluation exceeded 1000 backwards branches" long before any test ran, which
+  is the fastest possible disproof. Having one command that both builds the app
+  and runs everything is what made a 10-minute compiler experiment viable.
+- **friction:** the `failed command: cd . && …/test --guardian-filter=… --listen=-`
+  line under `guardian/test: PASS — 19 passed` got me too, on the discriminator
+  run. That is now (by my count) the fifth consecutive agent to report it in this
+  file. I had already read the previous four reports of it in this very file
+  earlier in the session and it *still* cost me a re-read, because the run was a
+  correctness gate where a false negative would have been expensive.
+- **wish:** thirding (fourthing?) the machine-readable suite summary. I sum the
+  eight `PASS — N` lines with awk to get 3,182 and then compare that number
+  against a figure written down in a compiler doc three waves ago. A single
+  `SUITE: 3182 passed, 0 failed, 8 shards` line would make that a diff instead of
+  a pipeline — and for a compiler canary the *total* is the whole signal.
+- **wish:** a way to say "run the suite but tell me if the app failed to *build*
+  versus failed to *test*". Under an experimental compiler those are completely
+  different findings — one disproves the change, the other localises it — and I
+  currently distinguish them by grepping the build log for `error:`.
