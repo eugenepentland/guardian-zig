@@ -8755,3 +8755,33 @@ a detached worktree at `70e9befc`. Only the test stage was exercised.
   the elided tail. When the delta line says "1 new, 1 changed, 0 removed", that
   line is the whole decision — it deserves to print before the per-symbol list
   and never be the thing that gets elided.
+
+## 2026-08-18 · Claude · eda (via zig-eda compiler campaign) — tier-2 M0 Liveness live-in persistence
+
+Context: validating an experimental Zig compiler by running the full EDA suite
+and the router discriminator through Guardian (`zig build test`,
+`zig build test -Dtest-filter="stuck diagnosis"`, and with `-Dtest-opt=safe`),
+with `GUARDIAN_SKIP_CHECKS=1` set because the compiler under test is the thing
+being validated, not the EDA source.
+
+- **good:** all three invocations were clean first try against a
+  freshly-created `eda/.claude/worktrees/agent-m0` worktree at `70e9befc`. The
+  `guardian` build dependency resolved through `.claude/canopy` with no setup
+  beyond `git worktree add` — worth noting because the path spelling
+  (`../../canopy/guardian-zig`) is the kind of thing that usually needs a
+  README trip, and it just worked. Full suite 3,182 passed across 8 shards,
+  discriminator 19/19 in both Debug and `-Dtest-opt=safe`.
+- **friction:** the `failed command:` banner after a green filtered run is
+  still there — `guardian/test: PASS — 19 passed` immediately followed by
+  `failed command: cd . && .../test "--guardian-filter=stuck diagnosis" ...`,
+  with the step's exit code 0. Already reported by an earlier session; noting
+  the recurrence because it cost a deliberate double-check of the exit status
+  in a session where a compiler miscompile was a live hypothesis, which is
+  exactly the situation where a spurious "failed" line is most expensive.
+- **wish:** a documented, first-class way to say "run the suite, the toolchain
+  is untrusted". `GUARDIAN_SKIP_CHECKS=1` is what the compiler-campaign scripts
+  all use and it works, but it is passed by folklore from one agent's script to
+  the next, and it silences *all* checks rather than just the source-quality
+  ones that are irrelevant when the source is fixed and the compiler is the
+  variable. A `--only-tests` (or an env var with that meaning) would let this
+  class of session keep the parts of Guardian that still apply.
