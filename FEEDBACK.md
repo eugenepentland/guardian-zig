@@ -8464,3 +8464,37 @@ days easier to audit.
   --verbose` separately just to read what I was about to ratify. The `changed:` / `delta:` block in
   the verbose output is genuinely good (it separates new from changed from removed, which is the
   thing you actually need to review before accepting) — it just is not reachable from the gate output.
+
+## 2026-08-18 · Claude · eda (thermal Phase 3b follow-up) — reconcile two contradictory verdicts; declutter a heatmap
+- **good:** `catch-discipline` gave the single most useful message of the session. I had written
+  `placed.append(alloc, slot) catch {};` in a renderer's label-placement loop, reasoning that a
+  bookkeeping slot is not worth failing a render over. The check said "catch block is empty (silently
+  swallows the error) — **this file already uses `catch return` at line 449**". Naming a spelling the
+  same file already uses turned "you did a bad thing" into "here is the house style", and the fix was
+  a two-word edit plus a comment explaining which half degrades. More checks should cite an in-file
+  precedent like this; it is the difference between a lint and a reviewer.
+- **good:** `test-no-conditional` fired on a test whose body built a 14-element fixture array in a
+  loop before asserting anything. Its message — "the loop at line 802 asserts nothing, so hoist that
+  one into a named helper" — correctly identified WHICH of the two loops was the fixture and which
+  was the assertion. That is a genuinely hard call to get right automatically, and it got it right;
+  the hoisted `crowdedParts()` helper reads better than what I wrote.
+- **friction:** `stack-escape` fired on a comptime test fixture and I could not tell from the message
+  whether it was a true positive. I had `fn testLadder() Ladder { return .{ .rows = &[_]Row{ f(0),
+  f(1) } }; }`, which IS a real dangling pointer (the array is a runtime temporary), and the check was
+  right. But my second attempt — a function-local `const S = struct { const rows = ... };` returning
+  `&S.rows`, where the data is comptime-known and promoted to static — got flagged too, and that one
+  is safe. The message is identical in both cases ("returns address backed by stack storage
+  'runtime-valued temporary composite'"), so I could not use it to distinguish "you have a bug" from
+  "the analysis cannot see through this". I rewrote the fixture to take an allocator, which is fine,
+  but I spent two builds not knowing whether I was fixing a bug or appeasing a checker. If the check
+  can tell a container-level const from a stack temporary, saying so in the message would help; if it
+  cannot, saying THAT would help more.
+- **wish (repeat, and now costing more):** `pub-api-surface` truncation, fourth session in this log.
+  This change added 11 public declarations and I again had to run `guardian-check pub-api-surface .
+  --verbose` as a separate command to see the 8 it hid behind "+8 more". This is a two-commit branch,
+  so I paid it twice. The verbose output is exactly right — new / changed / removed, separated — the
+  gate just refuses to show it. For a check whose ONLY action is accept-or-don't, truncation has no
+  upside: nobody accepts a snapshot without reading it, so the truncation guarantees a second run.
+- **good:** the whole two-commit branch — ~1,900 lines across 25 files, two new modules, a changed
+  shared signature threaded through five renderers — cleared 79 checks with only the four findings
+  above, each of which was a real improvement. The gate never once cost me a wrong-headed refactor.
