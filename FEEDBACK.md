@@ -8112,3 +8112,15 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   ones. In a 15-file diff that is a `grep -n unreachable` away, but the check already knows the
   sites — printing them (like `catch-discipline` prints `src/eval/thermal.zig:700`) would make it
   self-service.
+
+## 2026-08-18 · claude · eda — wave-2 compiler pin flip and deploy verification
+
+good: full gate (79 checks, 5 report-only) + concurrent tests/build ran in
+36s wall on the pin-flip commit at a main that had moved 3 commits past the
+compiler's validation point — exactly the re-proof wanted from the gate, no
+friction.
+good: pin-consistency test caught nothing because the five-file sed covered
+all sites — the contract-test mirror keeps earning its place.
+wish: deploy-on-merge.log is the only deploy log and lives at .git/ root —
+a per-deploy log dir (or the deploy-id in each line) would make multi-deploy
+days easier to audit.
