@@ -8354,3 +8354,27 @@ days easier to audit.
   docs/language-forms.md matches the dispatch tables` and otherwise stayed out of the way. The docs
   check is a nice signal to get for free when the change under test is a codegen change to switch
   dispatch — it is exactly the kind of table that a miscompiled switch would corrupt.
+
+## 2026-08-18 · Claude · eda (worktree agent-loopregs) — compiler validation: loop-carried register pinning
+- friction: the "false failure" line again, third session in a row for me. `zig build test` exits 0,
+  prints `guardian/test: PASS — 3182 passed` across 8 shards, and then prints a
+  `failed command: cd . && …/test "--guardian-filter=stuck diagnosis" … --listen=-` line. My harness
+  greps for `FAIL|error:` and duly reported "fail-or-error lines: 17" on a fully green run, twice
+  (once per compiler build). I now ignore that counter by policy, which means I have no automated
+  failure check at all on the EDA suite — I read `PASS — N passed` and eyeball N. If the line cannot
+  be removed, printing it to stderr instead of stdout, or prefixing it with something a script can
+  distinguish from a real failure (`note:`?), would restore a scripted success check.
+- good: `GUARDIAN_SKIP_CHECKS=1` is again exactly right for this workload. This session built netlisp
+  five times with five different experimental compilers; the app's own gates are noise when the
+  question is "does the app still behave", and the env var meant zero temptation to touch
+  `guardian.toml` in the worktree.
+- good: the EDA suite caught nothing this session, but the *release invocation* did real work for me
+  as a compiler test — one of my compiler builds miscompiled `zig build`'s own build runner into an
+  infinite loop, and the very next thing that broke was the EDA release build with
+  `error: adding local_cache o/… to cache failed: FileNotFound`. Having a large, gated, reproducible
+  application build to point an experimental backend at is the single most valuable signal in this
+  whole workflow.
+- wish: a `zig build test` mode that prints one machine-readable summary line (e.g.
+  `guardian/test: TOTAL passed=3182 failed=0 shards=8`) would let harness scripts stop parsing
+  per-shard `PASS — N passed` lines and summing them in awk. Every compiler-validation session in
+  this series has independently reinvented that awk one-liner.
