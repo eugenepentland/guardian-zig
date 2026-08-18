@@ -8124,3 +8124,49 @@ all sites — the contract-test mirror keeps earning its place.
 wish: deploy-on-merge.log is the only deploy log and lives at .git/ root —
 a per-deploy log dir (or the deploy-id in each line) would make multi-deploy
 days easier to audit.
+
+## 2026-08-18 · claude · eda — thermal surfaces (review section, /api/thermal, describe_thermal MCP tool)
+
+- **good:** `canonical-idiom` earned its keep twice in one run. It caught my new
+  `pub fn writeJson` in `src/review_thermal.zig` (the `json-escaper-def` rule
+  matches the bare name) and my seventh copy of the private
+  `percentDecodeInPlace` wrapper in `src/serve/thermal_api.zig`. The second
+  finding was the valuable one: following the rule's named canonical home
+  (`src/serve/urlcodec.zig`, a file that did not exist yet) made me actually
+  write the shared helper — and writing it surfaced a latent bug all six
+  existing copies carry, namely that `percentDecodeInPlace` returns a SHORTER
+  view of the buffer it decoded into, so freeing that view is an invalid free.
+  It has never bitten anyone only because every copy runs on a request arena.
+  A style check found a correctness bug; that is the ideal outcome.
+- **good:** the `type-size` ratchet (`ReviewDoc` frozen at 14 fields) blocked me
+  from bolting a 15th field onto an already-overgrown struct and pushed me into
+  folding three related fields into one nested `PowerReport`, taking the type to
+  12. The ratchet did exactly the design work it advertises.
+- **friction:** `canonical-idiom`'s `json-escaper-def` rule matches the literal
+  fragment `fn writeJson`, so ANY function with that name is flagged as a
+  hand-rolled JSON string escaper. Mine escaped nothing — it delegated every
+  string to `json_writer.writeString` and only emitted structure — but the rule
+  cannot see that, so the fix was to rename to `writeFactsJson`. Cost was small
+  (one rename) but the message ("private JSON string writer … route through
+  json_writer") describes a defect the file did not have, which is confusing on
+  first read. A second fragment requiring an actual escape body (a `'"' =>` or
+  `\\u{` in the same function) would make the finding mean what it says.
+- **friction:** `pub-api-surface` is the only check that fires on every commit
+  that adds public API, and its `--summary` output truncates at three findings
+  ("+13 more — use --verbose for full detail"). Since accepting it is the
+  intended response for intentional new API, the truncation just costs a rerun
+  to see what you are about to accept. Printing all findings for this check
+  specifically (it is a diff, not a wall of style noise) would remove that step.
+- **wish:** adding a NEW `## ` section to SPEC.md means writing all eight
+  `completeness-waiver:` bullets by hand, copied from a neighbouring section and
+  reworded. `guardian-check spec-sync .` already suggests missing bullets; a
+  `--scaffold-section <name>` that emitted the eight waiver stubs with `TODO`
+  reasons would make a new module's spec entry a fill-in rather than a
+  copy-edit, and would stop the copied prose from carrying over claims that do
+  not apply to the new module.
+- **friction:** on a green `zig build --seed=1 test` the build runner still
+  prints a `failed command: cd . && … ./test --guardian-filter=…` banner for
+  shards that reported `PASS`, with the full sixty-filter command line. On a
+  piped `| tail -25` that banner is the last thing you see, which reads as a
+  failure; the run's exit code was 0. Costed one confused re-run with an
+  explicit `echo EXIT=$?` to establish that the gate had in fact passed.
