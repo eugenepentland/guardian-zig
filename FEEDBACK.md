@@ -7622,3 +7622,28 @@ exercise of the new system checks. Grouped friction from all six reports:
   printed immediately under `guardian/test: PASS — 3073 passed` on the green full-suite
   run. Same false alarm previous reporters have logged; I re-read the block twice before
   trusting the PASS.
+
+## 2026-08-18 · Claude · eda — barracuda routing increment 11 (gate ratchet, unblock clocks, best-board checkpoint)
+- **good:** `change-classification` fired on the very first build after I added a 49-line
+  diagnostic helper with no test ("49 behavioral line(s) added … commit these lines WITH
+  a test"). That was exactly right and it fired at the cheapest possible moment — before
+  I had built on top of the untested code. I ended up with five `// spec:`-tagged tests
+  and five SPEC bullets because the check made the omission visible immediately rather
+  than at commit time.
+- **friction (repeat of the previous entry's minor item):** `pub-api-surface` blocked
+  five consecutive focused `zig build --seed=1 test -Dtest-filter=…` runs while I was
+  still iterating on whether `drc_compose.checkFilled` was the right seam to expose. The
+  finding is correct, but a snapshot check is the one class I want deferred to the end of
+  a change: the only way to quiet it mid-iteration is to accept the snapshot early and
+  then re-accept. Seconding the earlier request for `--defer-snapshots` (or report-only
+  under `-Dtest-filter`).
+- **friction (minor):** `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` prints the
+  full report-only summary but says nothing about what it ACCEPTED. I had to run
+  `git diff .guardian/` to confirm it had taken the two rows I intended and not more.
+  One line — "accepted 2 row(s) into pub-api.txt" — would close that loop.
+- **bug (cosmetic, repeat — 7th report):** `failed command: cd . && ./.zig-cache/…`
+  printed directly under `guardian/test: PASS — 3081 passed` on the green full suite, and
+  again under every green filtered run. I have now re-read this block on four separate
+  runs in one session to confirm the suite was green. It is the single most expensive
+  cosmetic issue in the tool for an agent, because the word "failed" adjacent to a PASS
+  cannot be safely ignored.
