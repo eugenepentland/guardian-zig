@@ -8820,3 +8820,11 @@ being validated, not the EDA source.
   stage-and-commit step cost nothing. The ReleaseSafe-prebuilt selfcheck line
   ("prebuilt guardian-check matches ../../canopy/guardian-zig") appearing on
   every build is a quiet reassurance that the 40x Debug tax is not being paid.
+
+## 2026-08-18 · claude · eda — wave-4 compiler pin flip (campaign close)
+
+good: fourth pin flip of the campaign through the same five-file + gate
+path; gate re-proved 3,182+ tests at a main that had gained the thermal tab
+since the compiler's validation point — 49s wall, zero friction. The
+five-file contract-test mirror and candidate-provenance checks made four
+successive compiler swaps routine.
