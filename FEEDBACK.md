@@ -8694,3 +8694,26 @@ a detached worktree at `70e9befc`. Only the test stage was exercised.
   signal, and it is compared against a number written down in a doc three waves
   ago.
 
+
+## 2026-08-18 · claude · eda — route_plan: pour-carried re-home stitch tier
+
+- good: the spec/test pairing gate did exactly its job. Reworded one existing
+  SPEC bullet and added one new one; `deny_growth` accepted the change on the
+  first try because the new bullet arrived with its `// spec:` tagged test in
+  the same commit. No hunting, no surprise.
+- good: `pub-api-surface` caught a newly-exported `route_close.stitchRequest`
+  and printed both the exact accept command and the delta classification
+  ("1 new symbol(s), 0 changed, 0 removed — pure additions, safe to accept").
+  That is the ideal shape for a snapshot check — I knew it was safe without
+  reading the snapshot file.
+- friction: the counting test runner prints `guardian/test: PASS — N passed`
+  and then the build runner prints a `failed command: cd . && ...` banner on the
+  very next line, on a run that exits 0. Every filtered run in this session
+  looked like a failure until I checked `$?` separately. The banner is Zig's,
+  not Guardian's, but Guardian owns the line right above it — a one-line
+  "run OK" trailer after the pass count would kill the ambiguity for good.
+- wish: the diff-scoped summary line ("4/420 source file(s) in scope ... NOT a
+  whole-tree verification") is exactly right, but the whole-tree `zig build test`
+  that follows does not print a matching "this WAS whole-tree" line. Having both
+  states named would make it obvious from the log alone which verification a
+  given run actually bought.
