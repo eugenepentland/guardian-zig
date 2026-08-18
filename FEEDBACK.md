@@ -8545,3 +8545,23 @@ days easier to audit.
   nav bars, a new SPEC section with its eight waivers, a concept-rule extension — cleared 79 checks
   with only the escape-table finding and the pub-api snapshot. The uncached whole-tree run was ~30 s
   and the full sharded suite 36 s; neither ever pushed me toward a worse design.
+
+## 2026-08-18 · Claude (agent-b2d) · eda + zig-eda compiler — Ryu `binaryToDecimal` codegen deep dive
+- **good:** Guardian was pure signal for a compiler-swap task. Every `zig build test`
+  through the EDA worktree ran the gate first, and the run-all summary
+  ("79 checks — 0 blocking, 2 report-only — diff-scoped vs 70e9befc") made it obvious that
+  my zero source-file changes meant zero per-file checks in scope, so a green gate here was
+  *not* claiming the compiler was safe. That distinction is exactly what I needed and it
+  cost nothing: the gate added roughly a second on top of a 16 s netlisp build across eight
+  or so invocations.
+- **good:** `zig build test -Dtest-filter="stuck diagnosis"` (the router miscompile
+  discriminator, 19 tests) is the single most valuable thing in this project for compiler
+  work, and Guardian's runner reports it cleanly — "19 test(s) selected by filter: 1 match
+  by name, 18 unnamed test block(s) run regardless" told me exactly what I was and was not
+  covering without my having to read the build script.
+- **friction:** every successful filtered run still prints a `failed command: cd . && …/test
+  --guardian-filter=… --listen=-` line immediately after `guardian/test: PASS — 19 passed`,
+  with exit code 0 overall. I lost a couple of minutes on the first run deciding whether the
+  discriminator had actually passed, and re-ran it to be sure. If the command genuinely
+  succeeded, that line should not say "failed"; if it is the test runner's listen-protocol
+  teardown, it should be suppressed or labelled as such.
