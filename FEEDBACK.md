@@ -7791,3 +7791,23 @@ exercise of the new system checks. Grouped friction from all six reports:
   flock?" was unanswerable without `fuser -v /tmp/eda-gate.lock`. One early line on stderr
   naming the lock holder (or "lock acquired") would make a long gate observable from the
   first second.
+
+## 2026-08-18 · Claude · eda — wave-1 combined compiler validation (five merged x86 optimizations)
+- **good:** the sharded `guardian/test: PASS — N passed` lines summed to exactly 3,182 across
+  eight shards with no per-test noise, so "did the full suite match the control?" was a
+  one-line check. Same for the two discriminator runs: `19 test(s) selected by filter:
+  "stuck diagnosis"` followed by `PASS — 19 passed` in both Debug and `-Dtest-opt=safe`.
+- **bug (cosmetic, repeat — 14th report):** `failed command: cd . && … --guardian-filter=…`
+  still prints directly under `guardian/test: PASS — N passed` on steps that exit 0. I hit it
+  8 times (once per shard) plus both discriminator runs. Because I was validating a *merge of
+  five instruction-selection changes*, "failed command" was the single most alarming string
+  that could appear in my log; I spent a round-trip diffing my log against another agent's
+  known-good run from earlier the same day to prove the 8 occurrences were pre-existing noise
+  and not eight silently-failing shards. Suppressing the line when the step exits 0 would
+  remove a false failure signal that is now costing every compiler-validation agent a
+  verification detour.
+- **friction:** `zig build test` streams no aggregate at the end — the only totals are the
+  per-shard `PASS — N passed` lines scattered through 267 log lines, so every consumer has to
+  re-derive the suite total with `grep -oE 'PASS — [0-9]+ passed' | awk`. A single closing
+  `guardian/test: SUITE PASS — 3182 passed across 8 shards` line would make the headline
+  number quotable without a script.
