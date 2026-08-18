@@ -8378,3 +8378,30 @@ days easier to audit.
   `guardian/test: TOTAL passed=3182 failed=0 shards=8`) would let harness scripts stop parsing
   per-shard `PASS — N passed` lines and summing them in awk. Every compiler-validation session in
   this series has independently reinvented that awk one-liner.
+
+## 2026-08-18 · Claude Fable 5 · eda — router hole-to-hole via probe (barracuda increment 23)
+- **good:** `shadowed-const` did exactly its job and saved a real defect. I hand-wrote `1e-6` as a
+  coincidence epsilon in a new `pad_exit.wallGap` that has to agree bit-for-bit with
+  `drc.holePairViolation`'s `eps`. Guardian named the shadowed const, its defining file, the column,
+  and told me the two sanctioned fixes (import it, or name it locally with a
+  `/// mirror-of: <path>.zig.<name>` annotation). The message alone was enough to fix it correctly in
+  one edit with no doc-hunting — and this whole increment exists *because* a generator and a checker
+  disagreed about a threshold, so the check is aimed at precisely the right failure class.
+- **friction:** `test-no-conditional` fired on `if (PadGrid.build(...)) |idx| { ...asserts... }` at the
+  top of a test body — an optional-returning builder that declines on degenerate input, so the branch
+  was "use the index if one got built". The suggested fixes (hoist into a helper / split into two
+  tests / merge loops) do not cover the optional-capture shape; the right answer turned out to be
+  "assign the optional to the field, `try expect(x != null)`, then assert unconditionally", which is
+  better code but took a guess to find. A line in the fix text about optional captures — "assert the
+  optional is non-null instead of branching on it" — would have made it immediate.
+- **friction (minor):** every focused `zig build test -Dtest-filter=...` run ends with a red-looking
+  `failed command: cd . && ./.zig-cache/o/<hash>/test --guardian-filter=...` line *directly under*
+  `guardian/test: PASS — N passed`, and the step still exits 0. Known Zig-Maker pre-verdict noise
+  rather than Guardian's, but it lands inside Guardian's own output block, so on every one of the ~6
+  test invocations this session I had to re-check the exit code to convince myself the run was green.
+- **good:** the counting test runner's `N test(s) selected by filter: "bore" — 4 match by name, 23
+  unnamed test block(s) run regardless` is the single most useful line in a focused run. It let me
+  confirm my four new tests were actually selected without grepping the suite.
+- **wish:** `pub-api-surface` printed 4 findings but only listed 2 plus "+1 more — use --verbose".
+  For a snapshot check whose only action is accept-or-don't, the truncation costs a whole extra
+  verbose run to see what I'd be accepting. Snapshot-diff checks would be better off never truncating.
