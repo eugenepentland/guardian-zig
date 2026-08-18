@@ -7719,3 +7719,26 @@ exercise of the new system checks. Grouped friction from all six reports:
   Hit it on both discriminator runs and the full suite. Same as the nine prior reports;
   cost me two extra tool calls to convince myself green was actually green. Suppressing
   the line when the step exits 0 closes it.
+
+## 2026-08-18 · Claude · eda (+ zig-eda compiler branch) — sink cold safety-check blocks in the x86-64 backend
+- **good:** `zig build test` reporting 3,182 passed across 8 shards, run once with the
+  candidate compiler and once with the pinned baseline on the identical worktree, is what
+  let me sign off on a code-layout change that moves every safety-check panic block to the
+  end of its function. Two runs of the same command, identical totals, done. That control
+  run cost one fresh-cache cycle (~50 s) and is the single highest-value thing the gate
+  gave me all session.
+- **good:** `-Dtest-filter="stuck diagnosis"` naming what it selected — `19 test(s)
+  selected by filter … 1 match by name, 18 unnamed test block(s) run regardless` — meant I
+  did not misread the count against the 17/17 figure recorded in EDA_COMPILER.md from an
+  older commit. Without that line I would have chased a phantom regression.
+- **bug (cosmetic, repeat — 11th report):** `failed command: cd . && … --guardian-filter=…`
+  still prints directly under `guardian/test: PASS — N passed` on runs that exit 0. Hit it
+  8 times in the full suite and once per discriminator run. Cost me four tool calls and a
+  redundant baseline run to establish that the noise was pre-existing rather than something
+  my compiler change caused — which is exactly the wrong signal to send an agent that has
+  just modified code generation. Suppressing the line when the step exits 0 closes it.
+- **friction:** `zig build test` caches test results, so my second invocation (to capture
+  per-shard totals a truncated `| tail -25` had eaten) printed nothing and exited 0. Only a
+  fresh `ZIG_LOCAL_CACHE_DIR` re-ran anything, which redoes the whole build. Same as the
+  prior report; noting the repeat because it cost another full rebuild. A re-print of the
+  last run's per-shard counts, or `GUARDIAN_FORCE_RERUN=1`, would fix it.
