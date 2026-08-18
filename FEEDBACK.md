@@ -8020,3 +8020,20 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   which is exactly the right moment — it turned "I'll add tests at the end" into
   four SPEC bullets and four tagged tests written while the design was still in my
   head. Whole-suite gate after the change: 3115 tests, 94 s, exit 0.
+
+## 2026-08-18 · Claude Fable 5 · eda — barracuda route increment 18 (funded-ladder deepening budget)
+- **good:** `--seed=1 test -Dtest-filter=…` printed `23 test(s) selected by filter … 3 match by
+  name`, which is exactly the reassurance the counting runner exists for — I was adding one new
+  test and editing another, and the count told me both were reached without my having to trust a
+  green exit. Whole-suite gate after the change: 3120 tests, 94 s test wall, exit 0; whole-tree
+  `guardian -- all . --gate --full` reported 79 checks, 0 blocking.
+- **good:** the diff-scoped default (`28/409 source file(s) in scope`) plus the explicit
+  "NOT a whole-tree verification — use --full" line meant I never had to guess whether the fast
+  gate I ran mid-iteration was the same one the commit would face. I ran `--full` once at the end
+  on purpose because of that sentence.
+- **friction:** minor and probably known — every gated run ends with a
+  `failed command: cd . && ./.zig-cache/o/<hash>/test …` banner printed AFTER
+  `guardian/test: PASS — 3120 passed` and with an overall exit of 0. On a 94 s suite that banner is
+  the last thing on screen, so the first instinct every time is "the suite failed", and the only way
+  to be sure is to echo `${PIPESTATUS[0]}` separately. A pass that prints the word "failed" last
+  costs a re-read on every single run.
