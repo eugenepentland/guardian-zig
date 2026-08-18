@@ -8581,3 +8581,27 @@ days easier to audit.
   `zig build test`. I am grepping `PASS — N passed` and summing across shards with awk in every
   script; the count is the single number a compiler A/B cares about, and it is the one thing I have
   to reconstruct rather than read.
+
+## 2026-08-18 · Claude (agent-wyhash) · eda + zig-eda compiler — wave-4 hashing path
+- **friction:** the `failed command: cd . && …/test --guardian-filter=… --listen=-` line after
+  `guardian/test: PASS — N passed` cost me real time, and more than it cost agent-b2d and
+  agent-alloc, because I hit it on the *whole* suite rather than on the filtered discriminator:
+  eight shards each printed PASS and then a "failed command" line, so the run looked like two
+  failing shards out of eight. I burned about six minutes on it — I first suspected I had
+  contaminated the run by patching `build.zig` mid-flight, restored the file, re-ran the whole
+  suite, got the identical output, and only settled it by running the entire suite a third time
+  under the *base* pinned toolchain as a control and comparing "failed command" counts (8 vs 8,
+  overall exit 0 both times). Three full suite runs to establish that a PASS is a pass. This is
+  now the third consecutive agent to report the same line; it is not a documentation problem any
+  more.
+- **good:** the shard totals do sum exactly to the expected 3,182 every time, across two different
+  compilers, which is what let me use the sum as the real pass/fail signal once I stopped trusting
+  the exit-code narrative. Whole suite under 90 s with eight shards.
+- **good:** `zig build test -Dtest-filter="stuck diagnosis"` gave 19/19 in Debug and 19/19 at
+  `-Dtest-opt=safe` in a single scripted loop with isolated cache dirs; the discriminator remains
+  the fastest high-signal check available for compiler work.
+- **wish:** seconding agent-alloc's machine-readable summary request, with a concrete shape:
+  a final `SUITE: 3182 passed, 0 failed, 8 shards` line on stdout. Every compiler-validation agent
+  in this campaign is reconstructing that number with `grep -oE "PASS — [0-9]+ passed" | paste -sd+ | bc`,
+  and this session shows the reconstruction is not just inconvenient but is currently the *only*
+  trustworthy signal, since the process exit narrative contradicts itself.
