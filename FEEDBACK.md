@@ -7953,3 +7953,34 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   yourself, and a compiler handoff is specified in terms of that total ("expect
   3,182"). Every agent validating a toolchain re-derives it with the same
   `grep -oE 'PASS — [0-9]+ passed' | paste -sd+ | bc`.
+
+## 2026-08-18 · Claude · eda — residual routing: guided-phase seal skip + rank negotiation
+- **good:** `type-size` earned its keep. Adding one bool to `vacate_policy.NetFacts`
+  tripped "8 fields (cap 7)", and the fix — nesting the authored priority and the
+  new negotiation permission into a `Rank` struct — is genuinely the better model
+  (the guard fires on the number, and the permission answers that same question).
+  The check turned a field-bag drift into a naming decision. ~3 min to resolve.
+- **good:** `import-layering` caught a test-only fixture reaching for
+  `placement/net_rules.zig` from `src/serve/route_plan.zig` and its fix note named
+  the remedy directly; `std.meta.Child(@TypeOf(placement.rules.net))` gets the same
+  type through the model the serve layer is allowed to see. Found in the FIRST
+  gated build after writing the test, not at commit time.
+- **friction (small, and probably correct):** `test-no-conditional`'s "more than one
+  top-level loop" fired on two tests where the loops were table-driven assertions
+  over independent cases (a list of `Protected` variants, then a list of `Kind`
+  variants). Both were legible as written. The fix — hoist one into a named helper
+  or unroll it — was cheap (~5 min for both), and the resulting helper
+  (`expectRankRefused`) did read better, so I am not asking for the rule to change.
+  What would have helped is the message naming BOTH loop line numbers rather than
+  only the second, since deciding which one to hoist means looking at both.
+- **wish:** `pub-api-surface` reported "+3 more — use --verbose for full detail" in
+  the summary, and the fix line said "accept the snapshot:" with the command on the
+  NEXT line, which my tail-only grep cut off. Three new `HopMemo` accessors is a
+  case where the whole list is short enough to print inline; the truncation made me
+  run the check again with `--verbose` to confirm nothing unintended had become
+  public before accepting. `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` worked
+  exactly as documented once found.
+- **good:** whole-suite gate from a warm cache after this change: 3104 tests, 93.7 s
+  wall, exit 0. The `zig build test-compile` tier caught one stale `NetFacts`
+  literal in `src/target_unblock.zig` that my filtered runs never compiled — the
+  exact hole that tier is documented to close, ~15 s to find it.
