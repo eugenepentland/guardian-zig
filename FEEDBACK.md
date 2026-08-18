@@ -7693,3 +7693,29 @@ exercise of the new system checks. Grouped friction from all six reports:
   Same as the eight prior reports; same cost (two extra tool calls to prove green). I
   mention it only to keep the count honest — suppressing the line when the step exits 0
   would close it.
+
+## 2026-08-18 · Claude (Fable 5) · eda — widen Zig auto-inliner to small aggregate returns
+- **good:** the discriminator/full-suite pair did exactly its job again. Building the EDA
+  app with a candidate compiler surfaced two compiler bugs that the entire Zig
+  `test/behavior.zig` suite (2,170 tests) missed: an inferred-error-set dependency loop
+  through `std.zig.Parse`, and eval-branch-quota exhaustion from inlining
+  `heap.ArenaAllocator.deinit`. Both appeared within 15 seconds of `zig build
+  -Doptimize=safe`. The app build is a better compiler test than the compiler's own
+  test suite, and it is cheap.
+- **good:** `zig build test` totalling 3,182 passed across 8 shards, byte-matching the
+  pinned-toolchain control on the same tree, is what let me call a fairly invasive Sema
+  change safe. Running the same command with the baseline compiler as a control cost one
+  extra fresh-cache cycle (~2 min) and was worth it — without it "3,182 passed" is a
+  number with nothing to compare against.
+- **friction:** `zig build test` caches test *results*, so re-running it to capture the
+  per-shard `PASS — N passed` totals after a truncated first run produced zero output and
+  exit 0. `--seed=99` did not force a rerun either; only a fresh `ZIG_LOCAL_CACHE_DIR`
+  did, which re-does the whole build. Cost: three tool calls plus a full rebuild to
+  recover numbers I had already produced once and merely failed to capture. A
+  `--summary`-style re-print of the last run's per-shard counts (or honoring a
+  `GUARDIAN_FORCE_RERUN=1`) would remove this entirely.
+- **bug (cosmetic, repeat — 10th report):** `failed command: cd . && … --guardian-filter=…`
+  printed immediately beneath `guardian/test: PASS — 19 passed` on runs that exited 0.
+  Hit it on both discriminator runs and the full suite. Same as the nine prior reports;
+  cost me two extra tool calls to convince myself green was actually green. Suppressing
+  the line when the step exits 0 closes it.
