@@ -7473,3 +7473,45 @@ exercise of the new system checks. Grouped friction from all six reports:
 - good: filtered `zig build test -Dtest-filter=silk` printed "71 test(s) selected — 53 match by name, 18 unnamed" — the count line made it obvious the drift/parity tests were actually in the run.
 - good: pub-api-surface named exactly the 8 added/removed silk_font symbols; `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` accepted them even on a red run and said so ("kept named refresh(es) despite the red run").
 - friction: panic-budget reported "comptime_calls: 3 found, 1 budgeted" with no file/line detail at default verbosity, and `explain panic-budget` describes @panic/unreachable/TODO — nothing suggests `comptime` params/blocks are what "comptime_calls" counts. I removed two @compileError table assertions (moved them into a test) and the count stayed 3, so the finding was really about comptime call sites that existed before my edit in some form; accepted via `zig build guardian-accept -Dguardian-checks=panic-budget` without ever seeing the three sites listed. Cost ~10 min of guessing; a per-site listing (file:line) in the default failure output would have made it one edit.
+
+## 2026-08-18 · Claude · eda — assembly page datasheet links, no click-scroll, parts as default tab
+- **good:** the per-item `type-size` ratchet steered the design before I wrote a line.
+  I wanted a `datasheets` field on the part record the assembly page builds, and the
+  obvious home was `src/bom.zig`'s `pub const FlatInfo` — but that struct sits in
+  `.guardian/baselines/type-size.txt` at 9, so a 10th field would have failed. Checking
+  the baseline first cost ~2 minutes and pushed me to a component-name→datasheets map
+  local to `src/serve/assembly_debug.zig`, which is the better boundary anyway (datasheets
+  are a library-component property, not a flattened-instance one). Worth noting the check
+  only tracks `pub` types: the private `Part`/`BomGroup` in the same file are 9-10 fields
+  and absent from the baseline, which is what made the local fix legal. That asymmetry is
+  correct but not obvious — I only worked it out by grepping which baseline entries were
+  `pub`.
+- **friction:** `deny_growth = ["spec", "completeness"]` did its job, but the 1:1
+  bullet↔tag mapping made a pure *behavior change* more expensive than a feature add. Two
+  of my three changes REPLACED behavior the spec already asserted ("assembly sidebar
+  selections pin the chosen row at a stable top position" — the exact thing the user asked
+  me to remove), so I had to rewrite the bullet, rewrite the `// spec:` tag on its test,
+  and keep them byte-identical. Getting that wrong is a full gate cycle to discover. A
+  `guardian-check spec-sync . --check-renames` that flagged "this bullet's tag moved but
+  the text didn't" (or vice versa) at the same tier as `spec-sync`'s missing-bullet
+  suggestions would catch the mismatch before the gate does.
+- **good:** `zig build test-compile` at 0 s (cached, unchanged tree) after a filtered run
+  is exactly the right middle tier. My change touched a function signature
+  (`partsFromFlat` gained a parameter) whose only other caller was a test in the same
+  file — the filtered run found it, but I ran `test-compile` anyway and it confirmed no
+  distant call site in ~0 s. That is the tier that stops the "two commits landed green on
+  a suite that would not compile" failure this repo has had before.
+- **good:** the whole-tree `--full` gate on a 4-file diff (Zig + JS asset + CSS + SPEC.md)
+  came back `79 checks — 0 blocking, 5 report-only` in about a second. The `agent` policy
+  profile demoting line-length/repeated-string-literal to report-only is right: my new
+  `{s}/lib/datasheets/{s}` allocPrint is the 7th in the tree and would have been pure
+  noise as a blocking finding, while the checks that could have caught a real defect
+  (ban-fs on the new `statFile` call, type-size, spec) all still ran hard.
+- **bug (cosmetic, repeat — 3rd report):** the green filtered run still ends with
+  `failed command: cd . && ./.zig-cache/o/<hash>/test --guardian-filter=...` printed
+  AFTER `guardian/test: PASS — 50 passed`, exiting 0. Same on the sharded full suite:
+  8× `PASS` then one `failed command:` line naming shard 6. I again burned a cycle
+  re-running under `> log; echo exit=$?` to confirm — and the first time I tried to check
+  it I piped to `grep` and read grep's status instead of the build's, which cost a third
+  run. Since Guardian owns the runner printing the PASS line directly above, suppressing
+  or re-ordering that banner would remove a recurring agent tax.
