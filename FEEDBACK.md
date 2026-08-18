@@ -8662,3 +8662,35 @@ exercised.
   versus failed to *test*". Under an experimental compiler those are completely
   different findings — one disproves the change, the other localises it — and I
   currently distinguish them by grepping the build log for `error:`.
+
+## 2026-08-18 · Claude (Fable 5) · eda — validating the wave-4 combined experimental Zig compiler
+
+Ran the EDA suite and the router discriminator under a candidate compiler
+(`eda-wave4-combined`), via `zig build test` with `GUARDIAN_SKIP_CHECKS=1`, from
+a detached worktree at `70e9befc`. Only the test stage was exercised.
+
+- **good:** 3,182 tests across 8 shards, plus the `stuck diagnosis` discriminator
+  in Debug and `-Dtest-opt=safe`, all green and all reproducible from a cold
+  cache in a few minutes. For compiler validation this is the highest-value gate
+  in the whole battery: it is the only thing in the campaign that exercises the
+  application's real code paths at scale, and it costs one command.
+- **friction:** the `failed command: cd . && …/test --guardian-filter=… --listen=-`
+  line printed directly *under* `guardian/test: PASS — 19 passed` (exit code 0)
+  cost me a full re-read of both discriminator logs before I trusted the pass.
+  I had read the previous agents' reports of exactly this in this file earlier in
+  the same session and it still cost me the re-check, because a false negative on
+  a correctness gate is expensive. This is now the sixth consecutive entry
+  reporting it.
+- **friction:** my "did anything fail" grep (`grep -icE "FAIL|error:"`) returned
+  18 lines on a fully green run. Every one was either that `failed command:` echo
+  or a *test name* containing the word "failed" ("route reports an unroutable net
+  by name in failed", "failed leg leaves no stranded island…"). I had to fall
+  back to counting `PASS — N` lines and separately grepping for `^error:` to
+  convince myself. A grep for "fail" over this output is unusable as a gate.
+- **wish:** one machine-readable summary line — `SUITE: 3182 passed, 0 failed, 8
+  shards` — would replace the awk-sum-the-shards ritual *and* the "is that
+  scary-looking line real" problem in one stroke. Multiple agents in this file
+  now ask for the same thing; for a compiler canary the total is the entire
+  signal, and it is compared against a number written down in a doc three waves
+  ago.
+
