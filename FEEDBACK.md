@@ -8208,3 +8208,28 @@ days easier to audit.
   the step prints nothing at all on success. "No output" and "did the command
   even run" are indistinguishable without `echo EXIT=$?`; a one-line
   `guardian/test-compile: N module(s) analyzed` on success would settle it.
+
+## 2026-08-18 · Claude · eda — power-budget: credit sub-block loads to the parent rail
+- **good:** the 4-second whole-tree `guardian-check all . --gate` is now my inner loop for anything
+  structural. I hoisted two local structs to file scope, added four helpers and a recursive walk to
+  `eval/power_budget.zig`, and got "0 blocking" back before the Zig test binary had even been
+  compiled once. On a change that touches a frozen-ratchet file that confidence is worth a lot.
+- **good:** `pub-api-surface` caught the one API-shaped thing in a 600-line diff — a single new
+  `Port.isDeclaredNonPower` method — and said "1 new symbol(s), 0 changed, 0 removed — pure
+  additions, safe to accept". That is exactly the right amount of information: I could accept it
+  without re-reading the diff.
+- **friction:** `zig build -p <scratch-prefix>` gates the INSTALL on a green gate, which is correct
+  but surprising in the middle of a measurement loop. I was building a throwaway binary into
+  /tmp to A/B a real board against the running dev server, the gate failed on the un-accepted
+  pub-api snapshot, and the prefix silently kept the PREVIOUS binary — so my "after" measurement
+  was actually a second "before" until I noticed the mtime hadn't moved. The `caution: zig-out
+  binaries predate this failed run (installs are gated on green)` line is printed, and it saved me,
+  but it names `zig-out` specifically while I had passed `-p`. Naming the actual prefix would have
+  made it unmissable.
+- **wish:** `spec` and `completeness` disagree about what a section-level "Public functions:" line
+  is. `## eval/power_budget` had that line and zero `- ` bullets, so it read as a documented
+  section with 8 categories of frozen debt; adding the first four real bullets to it was
+  friction-free, but nothing told me the section was bullet-less in the first place — I found out
+  by grepping. A `guardian-check explain spec --section <name>` (the twin of the completeness
+  dry-run, which is excellent) would let an agent see a section's current bullet/tag state before
+  writing any.
