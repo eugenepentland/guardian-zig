@@ -8083,3 +8083,32 @@ candidate compiler, plus `-Dtest-filter="stuck diagnosis"`), with
   at the end of a multi-shard run. Every compiler-validation session ends up hand-rolling
   `grep -oE "PASS — [0-9]+ passed" | awk '{n+=$3}'` to get the number the report needs, and that
   ad-hoc sum is what would silently go wrong if a shard died before printing its PASS line.
+
+## 2026-08-18 · Claude · eda — thermal Phase 1: (thermal …)/(power …) forms + lumped analyzer
+- **good:** `type-size` did exactly the job it exists for, and did it in 4 seconds. Adding one
+  field to `eval/env.zig::Instance` (frozen at 24) and one to `evaluator.zig::ComponentData`
+  (frozen at 14) failed the gate instantly, which pushed the design toward folding the
+  `datasheets` + `datasheet_review` pair — always read together — into one `ComponentDocs` and
+  bundling the new thermal facts into one `InstanceThermal`. The feature landed with no record
+  growing. Probing the ceiling cost one throwaway field and one `guardian-check all . --gate` run.
+- **good:** `guardian-check explain completeness --section "eval/thermal" .` on a section that did
+  not exist yet is the single most useful thing in the CLI. It printed the paste-ready 8-waiver
+  skeleton, I replaced the ones I could genuinely address with real bullets, re-ran it, and got
+  `8/8 categories satisfied … would pass the completeness gate as written` — before writing a line
+  of SPEC.md into the file. Zero gate cycles spent on completeness.
+- **friction:** the shape checks all fired at once on the first `zig build` after writing a new
+  600-line module (`doc-comments`, `panic-budget`, `catch-discipline`, `dead-pub`, `stack-escape`,
+  `spec`, `pub-api-surface` — 7 blocking). Every finding was fair and each fix was small, but they
+  are only discoverable by running the full build, which also compiles the app. A
+  `guardian-check all <file> --gate` that scopes the per-file checks to one path (the diff-scoping
+  already exists — this is the same thing without needing a commit) would turn that into a
+  sub-second loop while a module is being written.
+- **friction:** `stack-escape` flagged two TEST-only helpers (`fn oneInstanceBlock(inst) DesignBlock`
+  returning a block whose `.instances = &.{inst}` points at the callee frame). The finding is
+  correct Zig and I fixed it properly by passing caller-owned slices, but it took a minute to see
+  that the named function was a fixture builder under `// ── Tests ──`, not production code. The
+  message could say so when the enclosing decl is only reachable from `test` blocks.
+- **wish:** `panic-budget` reports `unreachables: 4 found, 2 budgeted` without naming the two new
+  ones. In a 15-file diff that is a `grep -n unreachable` away, but the check already knows the
+  sites — printing them (like `catch-discipline` prints `src/eval/thermal.zig:700`) would make it
+  self-service.
