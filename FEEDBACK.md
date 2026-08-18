@@ -7647,3 +7647,24 @@ exercise of the new system checks. Grouped friction from all six reports:
   runs in one session to confirm the suite was green. It is the single most expensive
   cosmetic issue in the tool for an agent, because the word "failed" adjacent to a PASS
   cannot be safely ignored.
+
+## 2026-08-18 · Claude · eda — compiler-side division-by-constant strength reduction (validation only)
+- **good:** the shard split made a compiler-change regression sweep cheap to read. Eight
+  `guardian/test: PASS — N passed` lines was all I needed to conclude that a codegen
+  change touching every integer division in the tree had not moved application behaviour
+  (3,182 tests, `zig build test` with a candidate Zig compiler on `GUARDIAN_SKIP_CHECKS=1`).
+- **good:** `-Dtest-filter="stuck diagnosis"` is the right shape for a compiler
+  discriminator. Two invocations (Debug and `-Dtest-opt=safe`) gave 19/19 each in well
+  under a minute, which is what made it affordable to re-run after every candidate build.
+- **bug (cosmetic, repeat — 8th report):** `failed command: cd . && EDA_TEST_SHARD=3 …`
+  printed directly under `guardian/test: PASS — 582 passed` on a fully green run that
+  exited 0. Eight of them, one per shard. I spent three tool calls (grep for "failed",
+  re-read the tail, check `$?`) proving the suite was green, and only settled it by
+  finding the previous entry in this file describing the same thing. For an agent this is
+  not cosmetic: "failed" adjacent to "PASS" is unignorable, and the cost is paid on every
+  green run. Suppressing the line when the step's exit status is 0 would close it.
+- **wish:** `GUARDIAN_SKIP_CHECKS=1` skips the gates but still prints
+  `guardian: checks skipped (guardian-spawned child build)` twice per build. When the
+  variable is set explicitly by the caller, one line stating that the caller disabled the
+  gates (rather than that a child build inherited the skip) would be clearer — I briefly
+  wondered whether my top-level build had also been treated as a child.
