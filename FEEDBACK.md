@@ -8237,3 +8237,21 @@ days easier to audit.
 ## 2026-08-18 · claude · eda — thermal-simulation orchestration (3-agent wave)
 - good: three Opus agents each ran the full gate independently on one shared worktree branch with zero baseline churn between them; diff-scoped gate on intermediate `zig build` runs stayed ~15 s.
 - friction: none beyond what the per-leg entries (81b94f7, c499fdf, 26e2db0) already recorded; the type-size ratchet twice forced nested-struct redesigns that turned out cleaner than the flat briefs.
+
+## 2026-08-18 · Claude · eda — wave-3 compiler: OPV arguments exempt from the auto-inline Guard B
+- good: `zig build test` with `GUARDIAN_SKIP_CHECKS=1` under an experimental self-hosted compiler
+  ran the full 8-shard suite (3,182 tests) cleanly against six differently-built hosts in one
+  session, with per-run isolated `--cache-dir`/`--global-cache-dir`. That the shard split and the
+  `guardian/test: PASS — N passed` lines are stable across compiler binaries is what let me use
+  the suite as a compiler-correctness oracle at all.
+- friction: on a *failing* compiler invocation the runner prints a full `failed command: cd . && …`
+  line with all ~60 `--guardian-filter=` arguments, per shard, even when the overall run then
+  exits 0. My first EDA run failed for an unrelated reason (the compiler prefix had no `lib/`,
+  built with `-Dno-lib`), and the log was dominated by these command echoes; I initially read a
+  green run as failed because `failed command:` appears next to `PASS — 394 passed`. If the
+  command echo is diagnostic rather than a failure, it would help for it not to lead with
+  "failed command" — or to be suppressed when the step ultimately succeeds.
+- wish: a machine-readable one-line total for the whole sharded run (e.g. `guardian/test: TOTAL —
+  3182 passed, 0 failed across 8 shards`). Every agent doing compiler A/B work re-derives it with
+  `grep -oE "PASS — [0-9]+ passed" | paste -sd+ | bc`, which silently mis-sums if a shard dies
+  before printing its line.
