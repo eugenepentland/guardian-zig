@@ -7421,3 +7421,50 @@ exercise of the new system checks. Grouped friction from all six reports:
   campaign wants. A `guardian-check commit --paths ... --hunks ...` (or just accepting a
   staged subset) would let the size of a commit be a review decision rather than a
   diff-splitting risk assessment.
+
+## 2026-08-18 · Claude · eda — finish an interrupted routing-policy increment (target-unblock ordering + wide-retry skip)
+
+- **good:** the whole-gate input cache made "did the killed agent leave this tree green?" a
+  one-command answer. I picked up an uncommitted ~340-line diff from an agent that was
+  killed mid-increment, and `guardian-check all . --gate --full` replied `run-all: cached —
+  0 blocking (inputs unchanged since last green run)`. Because the cache is keyed on the
+  tree's content, that told me the exact bytes in front of me had already passed 79 checks,
+  which is precisely the question a recovery session opens with. Saved a full gate run.
+- **friction:** ...but only because I already knew the cache was content-keyed. My first
+  instinct on seeing `cached` over a dirty tree was distrust — "the previous agent ran this
+  BEFORE it finished editing, so the green is stale" — and I spent a few minutes trying to
+  bust the cache before falling back to running `spec`, `pub-api-surface`, `spec-quality`,
+  `completeness`, `dead-pub`, `doc-comments` and `test-coverage` individually to confirm.
+  The message could close that doubt in the line itself: `run-all: cached — 0 blocking
+  (tree content unchanged since last green run at <timestamp>)`. Naming *content* (not
+  "inputs") and stamping the run would make the cache self-justifying to a reader who did
+  not perform the earlier run.
+- **good:** the per-check invocations are the right escape hatch for that doubt — they
+  bypass the run-all cache, run in ~1 s each at ReleaseSafe, and report the baseline delta
+  (`spec: baseline matches (103 violation(s))`, `pub-api-surface: baseline matches (0)`).
+  With `deny_growth` on `spec` active, "baseline matches" was exactly the proof I needed
+  that the previous agent's SPEC bullet rewrite + two new bullets had landed with their
+  `// spec:` tagged tests, without me re-deriving the 1:1 mapping by hand.
+- **wish:** `completeness` and `doc-comments` both reported `N resolved (run
+  guardian-check accept ... to prune the baseline)` on a tree I did not author. I had no
+  way to tell whether those resolutions came from this uncommitted diff or from an older
+  commit on the branch, and pruning someone else's debt felt out of scope for a recovery
+  session, so I left them — meaning the next agent gets the same prompt. A
+  `guardian-check debt . --since <ref>` (or having the resolved line name the commit/tree
+  that resolved it) would let a picking-up-someone-else's-work session decide whether the
+  prune belongs in its commit.
+- **good:** the counting test runner's `N test(s) selected by filter: ... — 6 match by
+  name` line is doing real work in exactly this situation. Verifying an inherited diff
+  means proving the new tests RUN, not just that the suite is green, and "6 match by name"
+  against my 6 filters was that proof in one line. The `18 unnamed test block(s) run
+  regardless` half is a nice touch — it explains the otherwise-confusing gap between the
+  match count and the pass count.
+- **bug (cosmetic, repeat):** a fully green filtered run still prints `failed command: cd
+  . && ./.zig-cache/o/<hash>/test --guardian-filter=...` as its last line, after
+  `guardian/test: PASS — 24 passed`, while exiting 0. Reproduced on
+  `zig build --seed=1 test -Dtest-filter=...` in the eda worktree. I burned a verification
+  cycle re-running with an explicit `echo "EXIT=$?"` to confirm the run really passed.
+  Believed to be Zig's build runner emitting a pre-verdict banner rather than Guardian's
+  own output, but since Guardian owns the test runner that prints the PASS line
+  immediately above it, Guardian is where the contradiction is visible — and the last line
+  on screen is the one an agent trusts.
