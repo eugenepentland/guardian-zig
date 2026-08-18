@@ -7468,3 +7468,8 @@ exercise of the new system checks. Grouped friction from all six reports:
   own output, but since Guardian owns the test runner that prints the PASS line
   immediately above it, Guardian is where the contradiction is visible — and the last line
   on screen is the one an agent trusts.
+
+## 2026-08-18 · claude · eda — replace hand-made silk stroke font with Hershey Simplex
+- good: filtered `zig build test -Dtest-filter=silk` printed "71 test(s) selected — 53 match by name, 18 unnamed" — the count line made it obvious the drift/parity tests were actually in the run.
+- good: pub-api-surface named exactly the 8 added/removed silk_font symbols; `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface` accepted them even on a red run and said so ("kept named refresh(es) despite the red run").
+- friction: panic-budget reported "comptime_calls: 3 found, 1 budgeted" with no file/line detail at default verbosity, and `explain panic-budget` describes @panic/unreachable/TODO — nothing suggests `comptime` params/blocks are what "comptime_calls" counts. I removed two @compileError table assertions (moved them into a test) and the count stayed 3, so the finding was really about comptime call sites that existed before my edit in some form; accepted via `zig build guardian-accept -Dguardian-checks=panic-budget` without ever seeing the three sites listed. Cost ~10 min of guessing; a per-site listing (file:line) in the default failure output would have made it one edit.
