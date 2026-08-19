@@ -8891,3 +8891,36 @@ successive compiler swaps routine.
   immediately below it, on a green run. I re-ran the whole gate with an
   explicit `echo $?` purely to convince myself the suite was actually green
   (a cached ~3 s no-op, so cheap, but it is a reflex the output is training).
+
+## 2026-08-19 · Claude Fable 5 · eda — unblock named-wall survival + promise class
+- **good:** `test-no-conditional` fired correctly on a new test I had written
+  with three top-level loops (an enum sweep, a two-case `rf`/`fenced` fixture
+  loop, and a second enum sweep). Its message named the loop to hoist by line
+  number and said *why* ("the loop at line 11950 asserts nothing"), which made
+  the fix mechanical: two named helpers plus replacing the two-case loop with
+  two direct calls. Roughly 5 min, and the result reads better than what I
+  wrote — the helpers now state what they assert instead of burying it in a
+  loop body. Ratchet working as intended.
+- **good:** the diff-scoped `zig build` gate (27/422 files in scope, ~15 s with
+  the prebuilt ReleaseSafe `guardian-check`) meant every one of my four build
+  iterations paid essentially nothing for the gate. `guardian-check commit`'s
+  whole-tree run at commit time then confirmed 0 blocking. The two-tier split
+  is the right shape for this kind of iterate-then-commit work.
+- **friction:** fourth data point for the already-logged pre-verdict noise. A
+  focused `zig build --seed=1 test -Dtest-filter=…` printed
+  `guardian/test: PASS — 40 passed` and then `failed command: cd . && ./…test
+  --guardian-filter=… --listen=-` directly underneath, on a green run; the full
+  `scripts/gate.sh zig build --seed=1 test` did the same, printing
+  `guardian/test: PASS — 662 passed` followed by a ~2 KB `failed command:` line
+  listing every shard filter. Both were exit 0. Cost: I re-ran both commands
+  redirecting to /dev/null with an explicit `echo exit=$?` purely to prove the
+  suite was green — two extra invocations (one cached ~3 s, one ~30 s) spent on
+  disbelief rather than on the code. The banner is also actively misleading in
+  a report to a human: "failed command" next to "PASS" reads like a flake.
+- **wish:** `guardian/test`'s filter line (`40 test(s) selected by filter: … —
+  16 match by name, 24 unnamed test block(s) run regardless`) is the single most
+  useful line the runner prints, because it is what proves a `-Dtest-filter`
+  actually named something. It would be worth surfacing the same count in the
+  *sharded* full run, per shard and as a total — the full gate printed only
+  `PASS — 662 passed` for the one shard whose tail I captured, so quoting a
+  whole-suite test count in a hand-off report meant re-running or guessing.
