@@ -9465,3 +9465,52 @@ wish: the `spec` check knows a tag is unlinked, and the SPEC section it belongs 
   is the tag's own prefix (`serve/thermal - …`). Printing the file:line of that
   section's last bullet ("insert after SPEC.md:1234") would remove the only manual
   step left — finding where the bullet goes in a 3000-line SPEC.md.
+
+## 2026-08-19 · Claude · eda — PCB viewer load-time audit (hoisting recomputed rasters out of the page render)
+
+good: `pub-api-surface` earned its keep twice in one session. Both times I widened
+  a private helper to share work across callers (`fab_readiness.userZoneFills`,
+  then `pour.EdgeField`/`sharedEdgeField`/`computeShared`), and both times the
+  check printed the exact new signatures plus the accept command. That is the
+  right shape for this check: making something `pub` IS the reviewable decision,
+  and it made me stop and confirm each one was a deliberate contract rather than
+  a leak.
+
+friction: accepting that snapshot costs a whole extra build. `zig build` fails with
+  `pub-api-surface (5 findings) … fix: accept the snapshot`, and the fix is
+  `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` — a SECOND full compile of
+  an already-built tree, several minutes on this repo, purely to write 3 lines
+  into `.guardian/pub-api.txt`. The failing run already parsed the tree and knows
+  the exact diff. A `guardian-check accept pub-api-surface` (or `--accept` on the
+  failing invocation) that writes the snapshot from the analysis it just did,
+  without re-invoking the Zig build graph, would save a build every time.
+
+friction: `test-no-conditional` fires only AFTER the code compiles, which put it at
+  the end of the slowest possible loop. I wrote a table-driven test (200 synthetic
+  pads, ~1900 probe boxes) that built its fixtures with two top-level `while`
+  loops, spent a full gate round getting it to compile, and only then learned the
+  test body may have one top-level loop. The fix was mechanical — hoist each
+  fixture loop into a helper (`indexProbePads` / `indexProbeBoxes`) — but it cost
+  a ~5-minute round. This rule is decidable from the AST alone, so running it in
+  the same early, compile-free pass as `spec` / `change-classification` would
+  surface it before the build instead of after.
+
+friction: `zig build` does not type-check test blocks, so a type change that is
+  clean for the shipping tree can be silently broken in six test-only call sites
+  — which is exactly what happened when a field went from `[]const PadObstacle`
+  to a `PadField` struct. The gate reported `3016/3016 tests passed` alongside
+  `compile test debug native 6 errors`, which reads as contradictory until you
+  realise the passing count came from a cached shard. Two asks: (a) surface
+  `test-compile` as an early gate stage so test-only type breakage lands in the
+  first round, and (b) suppress the stale "N passed" line when the test binary
+  for that target failed to compile in this run.
+
+friction: `shadowed-const` flagged two bare `1e-6` literals I added, pointing at an
+  `eps` const in an unrelated file (`src/placement/drc.zig:350`) as the thing they
+  shadow. Mine were not a clearance epsilon at all — they floor a degenerate
+  bounding-box extent so a grid cell size stays finite — so annotating them as a
+  `mirror-of` that `eps` would have recorded a relationship that does not exist.
+  I named a local `min_extent_mm = 0.001` instead, which is better code, but the
+  check reached that outcome by accusing me of a link I had to refuse. When the
+  match is a bare numeric literal with no shared name, the finding would be more
+  honest as "name this magic number" than as "you are shadowing X".
