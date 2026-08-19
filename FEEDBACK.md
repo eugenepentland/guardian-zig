@@ -9551,3 +9551,29 @@ wish: a `--only compile` (or documented equivalent) for the loop where the tree
   the cached-verdict line ("inputs unchanged since last green run") means the
   static checks are nearly free, the wall time still went to a full build+test
   every round.
+
+## 2026-08-19 · Claude Opus 5 · eda — thermal solve speed + stuck progress veil
+
+good: the commit gate was effectively free once the tree was green — `guardian:
+  run-all: cached — 0 blocking (inputs unchanged since last green run)` plus the
+  bench line, in under a second. Two files of behaviour change, one new public
+  function, and the only thing between me and the commit was work I actually
+  needed to do.
+
+friction: one new `pub fn` needs edits in two places, and the check only names
+  one of them. `pub-api-surface` blocked with `+ src/placement/pour.zig::computeMasks`,
+  so I ran `GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build` — and the next
+  run blocked again, this time because SPEC.md's `Public functions:` line for
+  that section did not list the symbol either. Both are the same fact ("this
+  module now exports computeMasks") recorded twice, and I paid a full
+  build+test round to learn the second half. The first failure could say
+  "also add it to SPEC.md's Public functions line for ## placement/pour" — it
+  already knows the section, since that is how it resolves the module.
+
+wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
+  of this fix lives in two JS files, and the honest test is a Zig test that
+  greps the embedded source for the functions that must exist. That works and
+  is tagged, but nothing in the gate knows the assertion is about JS, so a
+  rename in the JS fails as an opaque `expect(false)` rather than "the asset no
+  longer contains `veilArm`". Not a check so much as a nicer failure for a
+  pattern this repo uses in several places.
