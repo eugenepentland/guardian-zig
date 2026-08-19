@@ -9577,3 +9577,34 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   rename in the JS fails as an opaque `expect(false)` rather than "the asset no
   longer contains `veilArm`". Not a check so much as a nicer failure for a
   pattern this repo uses in several places.
+
+## 2026-08-19 · claude · eda — PCB editor "layout changed in another window" deadlock
+
+- good: `zig build test-affected` gave the whole verdict in one run (692 tests,
+  27 s wall) and the diff-scoped run-all named both blockers precisely, with the
+  exact accept command for the snapshot. No guessing about what would fail at
+  commit time.
+- friction: the fix's entire new surface is two 3-line duck-typed structs
+  (`StoreRevCheck` in the handler, a `StubRev` in the test file) that exist only
+  because `pcb_page_cache.store` takes `anytype`. Both `pub fn moved` tripped
+  doc-comments AND pub-api-surface — 2 blocking checks, 4 findings, one
+  snapshot-accept round for ~6 lines of code. A method that is `pub` solely
+  because Zig has no crate-internal visibility, on a struct declared `const`
+  (not exported), reads as public API to the checks but is not reachable from
+  anywhere but the one call site. A test-file-local stub especially: `StubRev`
+  is `const`, used 3 lines below its declaration, and can never be another
+  module's dependency.
+- wish: exempt `pub fn`s on non-`pub` (file-private) container types from
+  doc-comments and pub-api-surface, or at least from pub-api-surface — the
+  snapshot is meant to catch changes to what other modules can call, and a
+  `const Foo = struct { pub fn ... }` is not that.
+- friction: `affected-tests: strategy FULL — 485 filters exceed the 400-filter
+  cutoff` fired for a 3-file diff whose only test-bearing change was one new
+  test in `serve.pcb_page_cache`. Touching `pcb_layout_page.zig` (a very large,
+  widely-@import-ed file) apparently fans out to nearly every filter, so the
+  cheap path degrades to the full suite exactly where it would help most.
+- bug (cosmetic, still costs a read): every passing shard prints a `failed
+  command: cd . && EDA_TEST_SHARD=N ...` banner immediately after
+  `guardian/test: PASS — N passed`. It is Zig Maker pre-verdict noise, but on a
+  log the first grep for `fail` lands on it and has to be ruled out by hand
+  every single time.
