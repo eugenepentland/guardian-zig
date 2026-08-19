@@ -9062,3 +9062,31 @@ wish: `pub-api-surface` prints `fix: if the change is intentional, accept the
   (`GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build`) is in the project's
   CLAUDE.md but not in the finding. The trailing colon suggests a command was
   meant to follow and got lost.
+
+## 2026-08-19 · claude · eda — schematic page load audit + infinite-loop fix
+
+good: the whole-tree blocking gate on `git commit` ran 79 checks and came back
+  "0 blocking, 5 report-only" on a one-line deletion plus a new ~40-line test,
+  with no hand-holding. For a change whose entire point was "this loop must
+  terminate", having the gate stay silent rather than inventing an opinion about
+  a deleted assignment was the right behaviour.
+good: `zig build --seed=1 test` reporting "3 match by name" for the
+  `render_html.test.functional pin order` filter (up from 2) was the cheapest
+  possible proof that a newly added test is actually compiled AND selected, not
+  silently dropped by the aggregator. That count line has now caught the
+  "test exists but nothing imports it" failure mode for me twice.
+friction: the "PASS — 661 passed" verdict is still followed by a bare
+  `failed command:` banner on an exit-0 build. I have a memory note saying this
+  is Zig Maker pre-verdict noise and to ignore it, which is exactly the problem —
+  every agent has to learn independently that the scariest line in the output is
+  meaningless. Either suppress it when the build exits 0, or prefix it with
+  something like `(non-fatal, superseded by verdict below)`.
+wish: no way to ask the gate "prove this change cannot regress" for a
+  termination bug. The defect here was an infinite loop in an ordering walk that
+  only fires when two elements resolve to the same earlier anchor; nothing in
+  the 79 checks could have caught it, and nothing will catch its reintroduction
+  except the regression test I hand-wrote. A `loop-progress` style check — flag
+  a `while`/walk whose induction variable is assigned non-monotonically inside
+  the body — would have flagged the original `source_idx = target_idx + 1;`
+  the day it was written. This bug made a 1.1 MB schematic page unservable in
+  production (28.7 s of arena growth, then `error.OutOfMemory`, HTTP 000).
