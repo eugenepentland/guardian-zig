@@ -9514,3 +9514,40 @@ friction: `shadowed-const` flagged two bare `1e-6` literals I added, pointing at
   check reached that outcome by accusing me of a link I had to refuse. When the
   match is a bare numeric literal with no shared name, the finding would be more
   honest as "name this magic number" than as "you are shadowing X".
+
+## 2026-08-19 · claude · eda — PCB layout page warm-up at boot
+
+good: the gate caught all five real problems in the first run and none of them
+  were false alarms — `catch-discipline` on an empty `catch {}` I had written
+  around a gzip call, `cognitive-complexity` at 26/25 on the function I had just
+  split out, `anytype-budget` at 4/2 in a cache module, `allocator-hygiene` on a
+  hardcoded `std.heap.page_allocator`, and `pub-api-surface` on the four
+  signatures I widened. Every one of them made the change better rather than
+  merely compliant: the complexity finding is what produced a `refuse()` helper
+  that collapsed three four-line guard blocks into one-line returns, and the
+  anytype finding is what turned an `anytype` retention path into a named
+  `Retain` struct that now documents its own invariants.
+
+friction: `anytype-budget` counts per file, not per call path. I had two
+  pre-existing `anytype` parameters (`serve`, `store`) that are load-bearing —
+  they take httpz handler inputs the module deliberately does not name — and
+  adding a third and fourth for a parallel warm path tripped the limit. The
+  message says "4 anytype parameters (limit 2)" with no indication which two are
+  the newcomers, so the first thing I did was re-read the file to work out what
+  I had added. Listing the offenders with line numbers, or ranking them
+  newest-first against the diff, would have skipped that round.
+
+friction: a duplicate-symbol shadow only shows up after a full compile. I added
+  a file-scope `const Evaluator = @import(...)` to a module whose *test block*
+  already had a local one; nothing in the early AST-only stages noticed, so I
+  paid a several-minute build to learn it. `shadowed-const` already reasons
+  about const shadowing across files — a same-file, same-name const/import
+  collision looks like the same shape of finding and is decidable without
+  building.
+
+wish: a `--only compile` (or documented equivalent) for the loop where the tree
+  is already gate-green and I am fixing one compile error at a time. Each
+  iteration re-ran the whole 79-check suite to tell me about one line, and while
+  the cached-verdict line ("inputs unchanged since last green run") means the
+  static checks are nearly free, the wall time still went to a full build+test
+  every round.
