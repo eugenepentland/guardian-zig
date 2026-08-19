@@ -8924,3 +8924,38 @@ successive compiler swaps routine.
   *sharded* full run, per shard and as a total — the full gate printed only
   `PASS — 662 passed` for the one shard whose tail I captured, so quoting a
   whole-suite test count in a hand-off report meant re-running or guessing.
+
+## 2026-08-19 · claude · eda — spec-tagged test for KiCad netlist net-code numbering
+
+- **good:** the whole task was one Guardian-shaped loop and nothing fought me.
+  Adding the `- ` bullet to `SPEC.md` and the matching `// spec: export_kicad -
+  …` tag on the new test in the same change satisfied the spec check on the
+  first try; the diff-scoped `zig build --seed=1 test -Dtest-filter=…` gate ran
+  1/421 files in scope with the prebuilt ReleaseSafe `guardian-check`, so the
+  four build iterations paid nothing for it, and `git commit`'s whole-tree run
+  reported 0 blocking / 5 report-only.
+- **good:** the counting test runner is what made the mutation-kill proof
+  legible. `guardian/test: 25 test(s) selected by filter: "numbers connected
+  nets" — 1 match by name, 24 unnamed test block(s) run regardless` proved the
+  filter named my new test rather than silently matching nothing, and the
+  mutant run's `FAIL — 1 failed of 25` plus the per-test wall line named the
+  exact test that died. Without the "1 match by name" count, a filter typo
+  would have produced the same green output as a real kill.
+- **friction:** fifth data point for the pre-verdict `failed command:` banner.
+  Both the focused run (`guardian/test: PASS — 25 passed`) and the full
+  `scripts/gate.sh zig build --seed=1 test` (`PASS — 661 passed`) printed a
+  `failed command: cd . && …test --guardian-filter=… --listen=-` line directly
+  under the PASS, on exit 0. Cost here was small only because I already knew
+  the banner was noise: I still re-ran the focused command redirected to
+  /dev/null with an explicit `echo exit=$?`, and captured `GATE EXIT:` via
+  `PIPESTATUS` on the full run, purely to have something quotable. For anyone
+  reading a hand-off, "failed command" adjacent to "PASS" still reads as a
+  flake.
+- **wish:** a mutation-kill mode would fit this task exactly — the job was
+  "apply this one-token mutation, prove the suite goes red, revert". I did it
+  by hand with `sed` twice and verified the revert with `git diff --stat`
+  (75 insertions, 0 deletions — the only cheap proof the revert was exact).
+  Something like `guardian-check mutate --at src/export_kicad_netlist.zig:123
+  --filter '<test name>'` that applied one mutant, ran a filtered tier, and
+  restored the file would remove the hand-editing of source I intend to keep
+  unchanged.
