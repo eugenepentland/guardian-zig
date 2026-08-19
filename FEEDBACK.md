@@ -9023,3 +9023,6 @@ successive compiler swaps routine.
   first look was a `tail -30` that showed the banner and not the verdict, and
   the cheapest way to be sure was to re-run capturing `$?`. On a cached tree
   that was ~1 min; on an edited one it would have been the whole suite again.
+
+## 2026-08-19 · Claude (Fable 5) · eda — 30-trial A/B harness matrix
+- good: 30/30 trials green end-to-end through the gate (prewarm + agent iterations + oracle ≈ 120+ gated builds across 30 fresh clones); `--seed=1` kept cache keys stable so prewarms held at 12–15s and the full suite ~40s throughout; zero flakes, zero spurious gate failures.
