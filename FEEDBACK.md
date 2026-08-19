@@ -9425,3 +9425,43 @@ wish: `function-size` counts params but has no notion of "these three always
   `Board` struct satisfied the check and genuinely read better — but that was my
   judgement, not the tool's. A hint ("3 of these params are passed unchanged
   through N call sites") would turn a cap into a design nudge.
+
+## 2026-08-19 · claude-opus-5 · eda — thermal page screens/compares saved PCB layouts
+
+good: the diff-scoped `run-all` at the end of `zig build --seed=1 test` named all
+  three blockers at once (spec, pub-api-surface, canonical-idiom) with the exact
+  offending text, so one edit round cleared all three. The `spec` finding quoted
+  the unlinked tag verbatim — pasting it into SPEC.md as a bullet was mechanical,
+  no guessing at wording.
+
+good: `zig build guardian-accept -Dguardian-checks=pub-api-surface` was one
+  command, printed the 1-new/4-changed delta before applying, and re-verified the
+  named check afterwards ("verified 1 named check(s); review and commit the
+  .guardian/ diff"). No ambiguity about what got refreshed.
+
+friction: `canonical-idiom`'s `xml-escape-table` rule fires on a bare `"&amp;"`
+  string literal even when it is a URL query SEPARATOR, not an escape table. My
+  helper took the separator as a parameter — `writeLayoutParam(w, v, "&amp;")` —
+  so four call sites each carried one entity literal and the rule read them as a
+  hand-rolled entity table with the advice "call escape.writeXml", which does not
+  apply (escaping `&` here would produce `&amp;amp;`). Worse, the threshold is 1:
+  after folding the four call sites into one `if (first) "?" else "&amp;"` the
+  check STILL failed on that single line, so the only way out was to fold the
+  entity into a longer literal (`"?layout="` / `"&amp;layout="`). Format strings
+  containing `&amp;` alongside other text are not flagged, so the rule is really
+  "no string literal that is EXACTLY an entity" — a literal `"&amp;"` in an href
+  builder is idiomatic and unrelated to escaping. Suggest exempting a lone `&amp;`
+  (and `&nbsp;`), or keying the rule on ≥2 DISTINCT entities in one construct.
+
+friction (third sighting, sharded path): `failed command: cd . && EDA_TEST_SHARD=6
+  ./.zig-cache/o/<hash>/test --guardian-filter=… (60+ filters)` printed on the line
+  directly after `guardian/test: PASS — 428 passed`, once per shard. On a green
+  8-shard run that is eight contradictory banners, each ~2 KB of filter flags, and
+  the real verdict (all shards PASS, `run-all: 79 checks — 0 blocking`) is what
+  you have to grep back for. Previously reported for the filtered path; it is the
+  same shape on the sharded one.
+
+wish: the `spec` check knows a tag is unlinked, and the SPEC section it belongs to
+  is the tag's own prefix (`serve/thermal - …`). Printing the file:line of that
+  section's last bullet ("insert after SPEC.md:1234") would remove the only manual
+  step left — finding where the bullet goes in a 3000-line SPEC.md.
