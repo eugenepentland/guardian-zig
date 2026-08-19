@@ -8959,3 +8959,40 @@ successive compiler swaps routine.
   --filter '<test name>'` that applied one mutant, ran a filtered tier, and
   restored the file would remove the hand-editing of source I intend to keep
   unchanged.
+
+## 2026-08-19 · claude · eda — spec-tagged test for per-pin load-current attribution
+
+- **good:** same Guardian-shaped loop as the netlist net-code task two entries
+  up, and again nothing fought me. One `- ` bullet in `SPEC.md` plus the
+  matching `// spec: eval/instance - …` tag on the new test in the same change
+  satisfied the spec check first try; diff-scoped runs stayed at 1/421 files in
+  scope across six build iterations, and the whole-tree `--gate --full` came
+  back 79 checks / 0 blocking / 5 report-only in seconds on the prebuilt
+  ReleaseSafe `guardian-check`.
+- **good:** the counting runner again carried the mutation proof. `25 test(s)
+  selected by filter: "multi-pin shorthand attributes the load current" — 1
+  match by name` proved the filter bit, and each of the three mutants reported
+  `FAIL — 1 failed of 25` with `expected 1, found 3` and the exact test name in
+  the per-test wall list. This is the second task in a row where that one line
+  is the difference between "the mutant died" and "my filter matched nothing".
+- **friction:** sixth data point for the pre-verdict `failed command:` banner,
+  and this time it also fired under `scripts/gate.sh zig build --seed=1 test`
+  on a green sharded full suite — the banner sat directly under
+  `guardian/test: PASS — 660 passed` with `EXIT=0`, quoting an 60-plus-filter
+  shard command line. On a sharded run the noise is much worse than on a
+  focused one: the banner is roughly 15 lines of `--guardian-filter=` flags, so
+  it buries the PASS line it contradicts, and `tail -12` of the gate output
+  showed me the "failed" text and none of the verdict.
+- **friction:** the sharded full run prints `PASS — 660 passed` per shard and
+  no total, so there is still no whole-suite count to quote in a hand-off
+  (raised in the entry above; repeating it because it cost me a second look at
+  the output here too).
+- **wish:** repeat of the mutation-kill wish, now with a concrete shape. I
+  mutated three sibling lines in `src/eval/instance.zig` one at a time. The
+  first revert I did with `git checkout src/eval/instance.zig`, which silently
+  threw away the new test I had just written in the same file — the mutant and
+  the test I was proving with it lived in one file, so the obvious revert was
+  the wrong one, and I had to re-append 55 lines from scratch. `guardian-check
+  mutate --at <file>:<line> --filter '<test name>'` that applied one mutant,
+  ran the filtered tier, and restored *only that line* would have removed both
+  the hand `sed` round-trips and that whole footgun.
