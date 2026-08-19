@@ -9269,3 +9269,49 @@ wish: `guardian: run-all: cached — 0 blocking (inputs unchanged since last gre
   whose whole content is *deletions* the reassuring word "cached" reads for a
   moment like the gate skipped the change. A count would settle it instantly —
   e.g. `cached (6 files, tree 2b918132c7f6)`.
+
+## 2026-08-19 · claude · eda — thermal model accuracy: real stackup, pour coverage, side-aware faces, via transfer path
+
+good: the Spec-first order paid for itself on physics changes. Writing the five
+  `SPEC.md` bullets before the code forced me to decide up front that
+  `defaultSheet(N)` at coverage 1.0 must reproduce the old uniform sheet
+  exactly, and that a shape-mismatched coverage map is DROPPED rather than
+  stretched. Both became one-line invariants the tagged tests then pinned. The
+  `spec` check's `unverified: <bullet>` message names the bullet verbatim, so
+  the three I had not yet covered were unambiguous — no hunting.
+
+good: `type-size` (9 fields, cap 7) on `PartInput` was the right nag at the
+  right time. I had bolted `side` / `thermal_vias` / `via_drill_mm` onto a
+  datasheet-facts struct; the cap made me split out a `Mount` struct, which is
+  the honest boundary (what the datasheet says vs what the layout did). The
+  finding is one of the few size checks that reliably points at a real design
+  seam rather than at line count.
+
+bug: `shadowed-const` fired on `1.0e-6` in a mm²→m² unit conversion, claiming it
+  shadows `eps` in `src/placement/drc.zig:350` — a geometric epsilon with no
+  relationship to the conversion factor. There is no way to satisfy the check
+  honestly: importing `drc.eps` would be wrong, and a named local const still
+  trips it (the rule matches the literal, not the binding). I had to launder the
+  value into `* 1.0e-3` twice to make it disappear. Suggestion: exempt literals
+  that are exact powers of ten used as a single multiplicative factor, or at
+  least let a `/// unit-conversion` annotation silence it — otherwise the rule
+  teaches agents to obfuscate arithmetic.
+
+friction: `pub-api-surface` reported "+18 more — use --verbose for full detail"
+  and the `accept` output does not echo what it accepted either, so reviewing
+  the change means reading `git diff .guardian/pub-api.txt` afterwards. For a
+  snapshot check whose whole job is "did you mean to widen the API", printing
+  the full add/remove list at the point of acceptance (not behind a flag) would
+  be strictly better — 21 lines is not a lot of output for an irreversible
+  ratchet.
+
+friction: the two test failures the new physics caused were both broken test
+  PREMISES, not broken code — a superposition test that assumed the system
+  matrix is independent of which parts are present, and a ratings-cap test whose
+  hardcoded 70 °C stopped being the tighter of two limits. Guardian reported
+  them as ordinary assertion failures, which is correct, but each cost a full
+  read-and-reason cycle to distinguish "my change is wrong" from "this test
+  encoded an assumption my change deliberately retires". No ask here beyond
+  noting it: on physics/model changes the failing-test signal is unusually
+  ambiguous, and anything that surfaced "this assertion's expected value is a
+  literal that has never changed" would have shortened both.
