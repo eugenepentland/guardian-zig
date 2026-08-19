@@ -9026,3 +9026,8 @@ successive compiler swaps routine.
 
 ## 2026-08-19 · Claude (Fable 5) · eda — 30-trial A/B harness matrix
 - good: 30/30 trials green end-to-end through the gate (prewarm + agent iterations + oracle ≈ 120+ gated builds across 30 fresh clones); `--seed=1` kept cache keys stable so prewarms held at 12–15s and the full suite ~40s throughout; zero flakes, zero spurious gate failures.
+
+## 2026-08-19 · claude · eda — slim CLAUDE.md into docs/ (context diet)
+
+- good: docs-only change through the full flow unattended — worktree branch, whole-suite `zig build --seed=1 test` (79 checks, 0 blocking), commit hook accepted, merge + deploy hook fired. No friction from Guardian itself on a non-code change.
+- bug: the passing run's output still contained a `failed command: cd . && EDA_TEST_SHARD=3 ./.zig-cache/.../test --guardian-filter=...` echo despite overall exit 0 and 0 blocking findings. A spurious failure echo on a green run reads as a real failure to an agent scanning logs; if a shard retry is expected behavior, the echo should say so (or be suppressed on eventual success).
