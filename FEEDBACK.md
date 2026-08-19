@@ -9391,3 +9391,37 @@ friction: `.githooks/wait-deploy.sh` run from a feature worktree compares the
   matched each other exactly. It also emitted ~18 `flock: 9: Bad file descriptor`
   lines. Not a Guardian file, but it is in the same merge-and-verify path and the
   false negative is the kind that teaches an agent to ignore a real one.
+
+## 2026-08-19 · Claude · eda — PCB viewer cold-load performance (pour + silkscreen hoists)
+
+good: the gate caught all four issues in ONE run and each message named the fix
+  verbatim (`function-size` gave the param count and the cap, `doc-comments`
+  named the declaration, `pub-api-surface` gave the exact accept command,
+  `change-classification` said "commit these lines WITH a test"). Four blocking
+  checks went to zero in two edit rounds with no guessing.
+
+friction: `change-classification` and `spec` fire in SEQUENCE, not together. I
+  added the `// spec:`-tagged test that `change-classification` demanded, re-ran,
+  and only THEN did `spec` tell me the tag was unlinked and needed a matching
+  SPEC.md bullet. That is a second full gate run (~4 min of LLVM wall on an
+  edited tree) to learn a requirement that was already knowable at the moment
+  `change-classification` was satisfied. If `change-classification`'s fix line
+  said "…add a `// spec:`-tagged test AND its SPEC.md bullet", or if `spec`
+  ran in the same pass, the second round disappears.
+
+good: `run-all: cached — 0 blocking (inputs unchanged since last green run)` on
+  the follow-up filtered test run was instant and unambiguous — no wondering
+  whether the green verdict was stale.
+
+friction: a filtered run (`zig build test -Dtest-filter="one shared zone raster"`)
+  still prints `failed command: cd . && ./.zig-cache/o/<hash>/test …` on the line
+  AFTER `guardian/test: PASS — 24 passed`. The PASS is the real verdict and the
+  banner is Zig's pre-verdict noise, but the two lines adjacent and contradictory
+  is exactly the shape that makes an agent re-run to be sure. (Known issue; this
+  is a second sighting, on the filtered path.)
+
+wish: `function-size` counts params but has no notion of "these three always
+  travel together". Bundling `placement` + `copper` + `zone_fills` into a local
+  `Board` struct satisfied the check and genuinely read better — but that was my
+  judgement, not the tool's. A hint ("3 of these params are passed unchanged
+  through N call sites") would turn a cap into a design nudge.
