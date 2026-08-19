@@ -9219,3 +9219,17 @@ wish: no way to ask the gate "prove this change cannot regress" for a
   essentially nothing, so splitting the work into three reviewable commits was free.
 - **wish:** `guardian-check accept` has no `--help`; `accept --help` is parsed as a check
   named "--help". A one-line usage on unknown/absent check names would help.
+
+## 2026-08-19 · Claude · eda — schematic page performance (merge addendum)
+
+- good: `prepare-release.sh` as the branch's final step paid off exactly as
+  documented. Whole-tree gate ran 79 checks / 0 blocking in ~9 s, the
+  candidate built in 53 s, and the `--no-ff` merge then deployed in **4 s**
+  because the merge tree (`360335d575ce`) was byte-identical to the prepared
+  one — the deploy log says "adopted verified candidate for identical tree".
+  That is the difference between a 4-second and a ~6-minute merge.
+- good: `change-classification` blocking my third commit ("32 behavioral
+  line(s) added" on what I'd called a pure refactor) was correct and useful.
+  Writing the two tests it forced pinned the legacy `.autolayout.json`
+  fallback — the one path in that refactor that could have silently
+  regressed, since no design in the corpus currently exercises it.
