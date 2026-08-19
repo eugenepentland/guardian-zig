@@ -9315,3 +9315,38 @@ friction: the two test failures the new physics caused were both broken test
   noting it: on physics/model changes the failing-test signal is unusually
   ambiguous, and anything that surfaced "this assertion's expected value is a
   literal that has never changed" would have shortened both.
+
+## 2026-08-19 · Claude · eda — drop the schematic page's module-layout panel and embedded sub-circuit PCB iframes
+
+good: a pure-deletion change (-173 lines across render_html.zig, a CSS block and
+  a module header) ran the whole-tree commit gate at 0 blocking findings with no
+  fuss. `pub-api-surface` correctly noticed nothing because the four deleted
+  functions were all private — exactly the behaviour you want from a ratchet
+  that should stay quiet on internal cleanup.
+
+friction: deleting a function whose only caller I also deleted left three
+  orphaned doc comments and three now-dead `const` cells that nothing flagged.
+  Zig's `unused function parameter` error caught the one dead *parameter*
+  (`has_modules` in `writeSidebar`) and a missing struct field caught a second
+  construction site, so the compiler did the load-bearing work — but dead
+  module-level constants and doc comments detached from any declaration both
+  survived to the gate silently. A `dead-const` / `orphan-doc-comment` check
+  would be cheap and would pair naturally with the existing dead-code rules;
+  on a deletion-heavy change these are the residue you actually leave behind.
+
+wish: this was the second change in a row (see the 2026-08-19 thermal entry)
+  where the *real* verification was "does the rendered page still contain X",
+  answered by starting a ReleaseSafe server and grepping HTML — about 5 minutes
+  of build plus a 49-second startup warm-up, per binary, per side of an A/B.
+  Guardian has `bench` for recorded metrics; something analogous for "recorded
+  output fixtures" (run this command, diff against a stored artifact, report
+  the delta) would turn a hand-rolled bench script into a checked-in check.
+  Not asking for a browser — just a place to hang golden-output comparisons so
+  they survive the session that wrote them.
+
+friction: minor and recurring — `zig build --seed=1 test` interleaves
+  `failed command: <the full 70-filter shard invocation>` into the output while
+  every shard still reports PASS and the run exits 0. I now know to trust the
+  exit code, but it costs a re-read every time, and the line is ~2 KB of filter
+  flags. If that is Zig's build runner rather than Guardian, a note in the
+  Guardian docs saying so would still save the next agent the double-take.
