@@ -9627,3 +9627,40 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   API for the outside world", and the check does not distinguish them.
 - good: the whole amended change (2 files + spec + test) verified in one
   `zig build && zig build test` round at ~30s wall, then committed clean.
+
+## 2026-08-19 · claude · eda — PCB layout page: sub-second cold render (pour fill memo + fab-identity worker)
+
+- good: `import-layering` caught the one architectural mistake in the change —
+  `src/serve/warmup.zig` reaching straight into `src/placement/pour.zig` to reset
+  a request-scoped cache. The fix it forced (a `beginRenderUnit()` adapter on
+  `src/serve.zig`, which warmup already imported) is genuinely the right shape,
+  and it named the offending edge precisely enough that I did not have to guess.
+- good: `unsafe-ops-budget` flagged an `@intFromPtr` I had added incidentally
+  inside a hash helper. Swapping it for `asBytes` on the pointer itself is
+  bit-identical and strictly better; without the budget I would never have
+  looked at that line again.
+- good: `file-size`'s hard recovery band on a 9000-line file cannot be accepted,
+  only fixed. That is the right call — it pushed a self-contained worker (~70
+  lines) out into its own module instead of letting the biggest file in the repo
+  grow again to buy a perf win.
+- friction: the `spec` check requires a test per SPEC bullet in both directions,
+  which is right for behavior but has no answer for a bullet that states an
+  ownership/cost property ("the identity is computed once and lent to the
+  writers rather than rebuilt per layer"). It is true, it is the point of the
+  change, and it is unobservable from outside. I deleted the bullet — the check
+  won, but the spec is poorer for it. A `note:`-style bullet exempt from the
+  test pairing would keep that kind of statement in the spec honestly.
+- friction: adding one new root module needs THREE registrations — the
+  `src/main.zig` test block, the `src/test_root.zig` shard import bridge, and a
+  SPEC bullet — and only the second is discovered at build time, by a failure in
+  shard 5 of a full suite run. The failure message was excellent (it printed the
+  exact missing `_ = @import(...)` line), but it cost a whole suite round to
+  learn something a single check over `src/*.zig` could have said in a second.
+- friction (repeat, still costing a read every time): every PASSING shard still
+  prints `failed command: cd . && EDA_TEST_SHARD=N ...` right under
+  `guardian/test: PASS — N passed`. Three suite runs this session, three times
+  grepping the log for `fail` and landing on noise first.
+- wish: `guardian-check commit` phase 2 prints the `test_command is not the
+  default zig build test` / `addTestCompileProbe` advisory on every single green
+  commit. After the first read it is pure scroll; it would land better as a
+  once-per-repo nag, or attached to `run-all` rather than to each commit.
