@@ -9090,3 +9090,35 @@ wish: no way to ask the gate "prove this change cannot regress" for a
   the body — would have flagged the original `source_idx = target_idx + 1;`
   the day it was written. This bug made a 1.1 MB schematic page unservable in
   production (28.7 s of arena growth, then `error.OutOfMemory`, HTTP 000).
+
+## 2026-08-19 · claude · eda — home page perf (src index, verdict memo, startup warm-up)
+
+- good: `allocator-hygiene` and `ban-globals` both name the exact escape hatch
+  in the fix line (`// allocator-ok:` / "scope mutable state to a struct
+  field"). I hit both, and both were fixable in one edit without reading docs.
+- friction: `// allocator-ok:` is only honoured on the line IMMEDIATELY above
+  the allocator. I wrote a two-line rationale ending in the marker's
+  continuation and the check still fired, with the same message as before — no
+  hint that a marker had been seen but rejected for placement. A "found
+  `allocator-ok` 2 lines above; it must be the preceding line" note would have
+  saved a build cycle. (Same shape as the `///` vs `//` issue I logged on
+  2026-08-19 earlier.)
+- friction: `type-size` fired on `Evaluator` for going 21 fields against a
+  frozen ceiling of 20, from ONE added field. That's correct as a ratchet, but
+  the only offered fixes are "reduce it" or `accept`. In a change whose subject
+  is elsewhere, both are bad: accepting ratchets the wrong way, and merging two
+  unrelated fields is churn in an unrelated file. I redesigned to avoid the
+  field, which was genuinely better — but that was luck, not guidance. A hint
+  like "this type is AT its ceiling; adding state here needs a merge or an
+  explicit accept" at 20 fields (before the failure) would let a change plan
+  around it instead of discovering it after the code is written.
+- good: the counting test runner's zero-match failure caught a real mistake —
+  I appended a test to a file created at the wrong path (worktree root instead
+  of `src/serve/`), and "0 match by name" plus the explanation made the cause
+  obvious immediately. Without it the run would have exited 0 and I'd have
+  shipped an unrun test.
+- wish: `change-classification` lists the files with "N behavioral line(s)
+  added" but not WHICH lines. On a 93-line addition to `paths.zig` I could not
+  tell whether my new test already covered the flagged lines or not; I ended up
+  adding tests and re-running to see the count drop. Naming a couple of the
+  uncovered line numbers would turn that into one pass.
