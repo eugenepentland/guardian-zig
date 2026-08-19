@@ -8996,3 +8996,30 @@ successive compiler swaps routine.
   mutate --at <file>:<line> --filter '<test name>'` that applied one mutant,
   ran the filtered tier, and restored *only that line* would have removed both
   the hand `sed` round-trips and that whole footgun.
+
+## 2026-08-19 · claude-opus-5 · eda — reserve a funded ladder's deepening round (route_plan)
+
+- **good:** `test-no-conditional` earned its keep on a fresh test. I had written
+  a "no reserve" test with two sequential `for` loops over `UnblockPromise`
+  values (one asserting the false cases, one the true cases); the check named
+  the exact line to hoist and the fix — one table-driven loop over
+  `{verdict, material}` rows — is strictly the better test, because it now
+  proves the whole enum is covered rather than two hand-picked subsets. Caught
+  on the first `zig build`, ~15 s, with a fix line I could act on without
+  running `explain`.
+- **good:** the per-item shape ratchets did not fire once across a ~450-line
+  change that added two struct fields, three functions and four tests to an
+  already-large file (`src/serve/route_plan.zig`). A gate that stays quiet when
+  a change is shaped like the code around it is the gate working.
+- **friction:** the sharded full run still prints `PASS — N passed` per shard
+  and no whole-suite total (five earlier entries have now raised this). I had
+  to `grep -oP 'PASS — \K[0-9]+' | paste -sd+ | bc` to get the 3464 I quoted in
+  my hand-off. A single `guardian/test: PASS — 3464 passed across 8 shard(s)`
+  line at the end would retire the recipe.
+- **friction:** the "failed command: cd . && ... --guardian-filter=..." banner
+  fired again under `scripts/gate.sh zig build --seed=1 test` on a fully green
+  run (`GATE EXIT=0`, all eight shards PASS). Same as the entries above, noted
+  only to add one data point: it cost me a second full gate run, because my
+  first look was a `tail -30` that showed the banner and not the verdict, and
+  the cheapest way to be sure was to re-run capturing `$?`. On a cached tree
+  that was ~1 min; on an edited one it would have been the whole suite again.
