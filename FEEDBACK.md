@@ -9608,3 +9608,22 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   `guardian/test: PASS — N passed`. It is Zig Maker pre-verdict noise, but on a
   log the first grep for `fail` lands on it and has to be ruled out by hand
   every single time.
+
+## 2026-08-19 · claude · eda — PCB layout page cold-render perf (net_open zone raster hoist)
+
+- good: `change-classification` earned its keep here. The hoist looked like a pure
+  refactor to me, but the gate insisted on a test; writing it surfaced that the
+  shared-raster path had to give a *second* net its own pour credit, which a
+  one-net test would never have shown.
+- friction: `function-size` counted 7 runtime params on a private helper that had
+  just grown one field of already-computed state. Bundling three of them into a
+  `Board` struct satisfied it, but the struct exists only to appease the counter —
+  the call is no simpler to read. A cap that ignored params threaded unchanged
+  from an enclosing loop would have cost me one fewer edit round.
+- friction: `pub-api-surface` fired for two functions that went `pub` purely so a
+  sibling module in the same feature area could call them. Accepting the snapshot
+  is one env-var away and documented, so this is minor, but "made pub for a
+  same-subsystem caller" is a distinct and much less interesting event than "new
+  API for the outside world", and the check does not distinguish them.
+- good: the whole amended change (2 files + spec + test) verified in one
+  `zig build && zig build test` round at ~30s wall, then committed clean.
