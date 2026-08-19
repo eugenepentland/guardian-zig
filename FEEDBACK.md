@@ -9179,3 +9179,43 @@ wish: no way to ask the gate "prove this change cannot regress" for a
   signature, a report-only warning at 6 ("this fn is AT the cap") in the same
   run that first sees the function would let the next edit plan around it —
   same shape as the `type-size` 20-field wish logged earlier today.
+
+## 2026-08-19 · Claude · eda — schematic page performance (loop fix, gzip memo, sidecar single-parse)
+- **friction:** `ban-globals` correctly rejected my first cut of a new cross-request
+  cache (`src/serve/gzip_cache.zig`) that used module-level `var`, but the fix hint
+  says only "mutable global var outside wiring/main". It doesn't say what the project's
+  accepted alternative is. The codebase already has the answer — a `Store` struct held
+  as a field on `ServerState` (`pcb_page_cache.Store`) — and I only found it by grepping
+  the baseline file to see which globals were grandfathered. Cost: one failed gate plus
+  a restructure. A hint that named one in-tree example of the accepted shape would have
+  been a straight-line fix.
+- **friction:** `spec` rejected five tests sharing one SPEC.md bullet with "duplicate tag:
+  <text>", which is right, but the message doesn't say the rule is *one bullet per test*.
+  I first assumed the tag text was malformed and re-read the tag syntax docs before
+  working out that duplication itself was the problem. Cost: one wasted gate cycle.
+- **friction:** `change-classification` flagged "32 behavioral line(s) added" on a pure
+  refactor whose whole point was that output is unchanged — I had verified byte-identical
+  responses from the old and new binaries on three endpoints. The check was still *useful*
+  (it pushed me to pin the legacy `.autolayout.json` cache fallback with a test, which is
+  the one part of that refactor that could silently regress), but there's no way to say
+  "this is a refactor, here is the equivalence evidence" other than adding tests. That's
+  probably the right default; noting it because the friction was real and the outcome good.
+- **bug:** two shard-bookkeeping tests (`test_root.test.shard manifest runs every named
+  test exactly once`, `test_root.test.the shard import bridge lists every module whose
+  tests run`) fail whenever a new `src/**.zig` with tests is added, which is correct — but
+  they fail from a *different shard* than the one that would own the new module, and the
+  build prints the failing shard's full ~60-filter command line. The actual instruction
+  ("add `serve.gzip_cache.test.` to src/test_shards.zig and `_ = @import(...)` to
+  test_root.zig") is only inferable from the assertion source. The `shard import bridge`
+  test already prints a perfect one-line fix ("shard import bridge is missing ...") — the
+  manifest test should print its sibling ("no shard claims \"serve.gzip_cache.test....\"").
+  Cost: one full suite run plus source reading to find both registration points.
+- **good:** `cognitive-complexity` caught `solveForRequest` crossing 25→27 on the exact
+  edit where I inlined a helper. Rather than ratchet the baseline I extracted two small
+  helpers, which left the function more readable than before the perf work. The check
+  offering `guardian-check accept <check> .` as an explicit alternative made it easy to
+  see that ratcheting was a choice, not the only escape.
+- **good:** diff-scoped runs are fast enough that gating three separate commits cost
+  essentially nothing, so splitting the work into three reviewable commits was free.
+- **wish:** `guardian-check accept` has no `--help`; `accept --help` is parsed as a check
+  named "--help". A one-line usage on unknown/absent check names would help.
