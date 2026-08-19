@@ -9350,3 +9350,44 @@ friction: minor and recurring — `zig build --seed=1 test` interleaves
   exit code, but it costs a re-read every time, and the line is ~2 KB of filter
   flags. If that is Zig's build runner rather than Guardian, a note in the
   Guardian docs saying so would still save the next agent the double-take.
+
+## 2026-08-19 · claude · eda — merging the thermal branch into a main that moved 6 commits ahead
+
+good: the `.guardian` merge driver is quietly excellent. `git merge main` printed
+  `guardian: merge-file: merged 3835 pub_api row(s)` and `pub-api.txt` came out
+  clean while three real source conflicts needed hand resolution. A snapshot file
+  that big would be a guaranteed conflict-and-regenerate ritual otherwise, and
+  "regenerate the snapshot to resolve a merge" is exactly how a snapshot check
+  stops being evidence.
+
+good: `type-size` caught a collision neither branch could have seen alone. `main`
+  had grown `ServerState` to exactly 7 fields (the cap) with `progress_json` and
+  `gzip`; my branch added `thermal_solves`. Each side was legal; the merge was 8.
+  The fix — grouping the four derived caches into a `Caches` struct with its own
+  init/deinit — is better than either branch had, and the check found it at the
+  moment the two designs actually met. This is the strongest argument I have seen
+  for a structural cap over a review convention.
+
+friction: `accept <check>` re-runs and re-prints the whole `bench` ledger twice
+  (once for the preview, once for the verify) — 16 lines of unrelated benchmark
+  provenance around 3 lines of "here is the drift you are accepting". The delta
+  summary it prints (`3 new symbol(s), 0 changed, 0 removed — pure additions,
+  safe to accept`) is genuinely the useful line and it scrolls away.
+
+bug: `doc-comments` fired on `pub const ServerState` after I inserted a new
+  `pub const Caches` *between* ServerState's `///` block and its declaration.
+  Correct verdict, but the message ("has no /// doc comment") sent me looking for
+  a missing comment rather than an orphaned one — the comment was right there,
+  six lines up, now attached to nothing. If the checker can see a `///` run that
+  terminates in a blank-line-free gap before a *different* declaration, saying
+  "doc comment above line N now documents `Caches`" would have saved the lookup.
+  This is the same orphaned-doc-comment shape I wished for a check on in the
+  entry above; here Guardian half-detected it from the other side.
+
+friction: `.githooks/wait-deploy.sh` run from a feature worktree compares the
+  deploy hash against *that worktree's* HEAD, so after a `--no-ff` merge into
+  main it reported `deploy NOT confirmed (timeout 600s)` for a deploy that had
+  finished successfully 10 minutes earlier — main's HEAD and `deploy-last-hash`
+  matched each other exactly. It also emitted ~18 `flock: 9: Bad file descriptor`
+  lines. Not a Guardian file, but it is in the same merge-and-verify path and the
+  false negative is the kind that teaches an agent to ignore a real one.
