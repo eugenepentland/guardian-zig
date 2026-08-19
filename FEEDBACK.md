@@ -9031,3 +9031,34 @@ successive compiler swaps routine.
 
 - good: docs-only change through the full flow unattended — worktree branch, whole-suite `zig build --seed=1 test` (79 checks, 0 blocking), commit hook accepted, merge + deploy hook fired. No friction from Guardian itself on a non-code change.
 - bug: the passing run's output still contained a `failed command: cd . && EDA_TEST_SHARD=3 ./.zig-cache/.../test --guardian-filter=...` echo despite overall exit 0 and 0 blocking findings. A spurious failure echo on a green run reads as a real failure to an agent scanning logs; if a shard retry is expected behavior, the echo should say so (or be suppressed on eventual success).
+
+## 2026-08-19 · claude · eda — home-page perf (sidecar memo, progress-ladder cache) + navbar change
+
+good: the gate caught every real issue in one pass and each `fix:` line was
+  actionable without guessing — `divergent-const` flagged that my new
+  `max_cache_bytes` silently disagreed with `pcb_page_cache.zig`'s (8 MiB vs
+  64 MiB) which is exactly the copy-paste I'd made; `bool-ops-per-condition`
+  pointed at a 5-op admission test that genuinely read badly; `twin-referent`
+  caught a "Mirrors `modules.loadModuleFile`" comment naming a symbol that does
+  not exist. All three were correct and none were noise.
+good: `guardian-check explain <check>` paid for itself twice. `ban-globals`
+  told me a struct-scope non-pub container `var` is out of scope, which let me
+  fix the finding by *improving* the design (state scoped into a `Memo` struct)
+  rather than exempting it. `allocator-hygiene` named the `// allocator-ok:`
+  escape hatch for a genuinely process-lifetime memo.
+friction: `allocator-hygiene`'s `// allocator-ok:` marker is not recognised on a
+  `///` doc comment — I wrote the justification as doc-comment prose above
+  `const store = std.heap.page_allocator;` and the check still fired, with no
+  hint that the comment style mattered. Cost one build cycle to discover.
+  Either accept `///` or have `explain` say "must be a `//` line comment".
+friction: the `spec` check reports `duplicate tag: <tag>` followed by bare
+  `- in: ./src/serve/progress_cache.zig` lines repeated once per offending
+  test. It never names WHICH tests collided, so on a file with three tests
+  sharing one tag I had to re-read the file to find them. Printing the test
+  names (or line numbers) instead of repeating the file path would make it a
+  one-look fix.
+wish: `pub-api-surface` prints `fix: if the change is intentional, accept the
+  snapshot:` and then the message ends — the actual command
+  (`GUARDIAN_UPDATE_SNAPSHOT=pub-api-surface zig build`) is in the project's
+  CLAUDE.md but not in the finding. The trailing colon suggests a command was
+  meant to follow and got lost.
