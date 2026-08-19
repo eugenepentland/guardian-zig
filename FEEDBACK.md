@@ -9233,3 +9233,39 @@ wish: no way to ask the gate "prove this change cannot regress" for a
   Writing the two tests it forced pinned the legacy `.autolayout.json`
   fallback — the one path in that refactor that could have silently
   regressed, since no design in the corpus currently exercises it.
+
+## 2026-08-19 · claude · eda — schematic page: drop the embedded thermal panel
+
+good: The `spec` check made the deletion honest. Removing `review_html.writeThermal`
+  orphaned four `// spec:` tags, and the gate named each one rather than just
+  failing the file — so rewriting the `## review_html` SPEC.md section to say
+  *why* thermal left (it needed the layout sidecars; the page is `.sexp`-only)
+  was a two-minute edit with the list in front of me, not an archaeology dig.
+
+good: `pub-api-surface` caught the stale `.guardian/pub-api.txt` row for the
+  deleted `writeThermal` immediately. Deleting a public fn is exactly the case
+  where the tracked-surface file goes stale silently, and it did not.
+
+friction: A module that legitimately drops to *zero* tests takes two coordinated
+  edits to stay green, and the failure only shows on a full-suite run. Deleting
+  the thermal cluster left `src/review_html.zig` with no tests at all, so the
+  shard prefix `"review_html.test."` in `src/test_shards.zig` matched nothing and
+  `test_root.test.every shard filter still names at least one test` failed — 1 of
+  3453, ~4 min into the run. The message was clear once seen, but the check that
+  knows this (the shard manifest) is not reachable from a filtered run of the
+  module you just edited: `-Dtest-filter='review_html'` passes happily with zero
+  tests selected. A cheap win would be for the gate's changed-file pass to run
+  the three `test_root` bookkeeping tests whenever `src/test_shards.zig` or any
+  file named by a shard prefix is touched, so the failure lands in seconds.
+
+good: `prepare-release.sh` as the final step on a freshly-rebased branch paid off
+  again — candidate ready in 46 s wall (tests 39 s and ReleaseSafe build 19 s
+  concurrent), and the `--no-ff` merge tree matched, so the deploy adopts rather
+  than rebuilds. This is now reliable enough that it is worth stating in the
+  README as the intended flow rather than a trick.
+
+wish: `guardian: run-all: cached — 0 blocking (inputs unchanged since last green
+  run)` prints on `git commit` too. That is correct and fast, but on a commit
+  whose whole content is *deletions* the reassuring word "cached" reads for a
+  moment like the gate skipped the change. A count would settle it instantly —
+  e.g. `cached (6 files, tree 2b918132c7f6)`.
