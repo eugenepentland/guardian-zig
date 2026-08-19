@@ -9122,3 +9122,60 @@ wish: no way to ask the gate "prove this change cannot regress" for a
   tell whether my new test already covered the flagged lines or not; I ended up
   adding tests and re-running to see the count drop. Naming a couple of the
   uncovered line numbers would turn that into one pass.
+
+## 2026-08-19 · claude · eda — thermal solve caching + PCB board-frame thermal viewer
+- good: `guardian-check all --only spec,function-size,import-layering,pub-api-surface,divergent-const,ban-globals .` against the standalone binary
+  (`~/ai/canopy/guardian-zig/zig-out/bin/guardian-check`) is a seconds-fast loop
+  next to a multi-minute `zig build --seed=1 test`. Iterating on six failing
+  checks took ~5 rounds and cost under a minute total; doing that through the
+  build step would have burned half an hour. This is the single biggest
+  time-saver in the toolchain and it isn't mentioned anywhere in eda's
+  CLAUDE.md — agents find it by accident.
+- good: `pub-api-surface --dry-run` labelling the diff "pure additions, safe to
+  accept" is exactly the signal needed. I accepted it without reading all 13
+  findings because the classification did the reasoning for me. Same for
+  `ban-globals`, where the two findings were a deliberate module-level
+  singleton pair and the fix line names the escape hatch.
+- friction: `completeness` matches its scenario categories by KEYWORD
+  SUBSTRING, and the failure message only says `missing 'concurrent access'`.
+  My first SPEC bullet said "request threads sharing one store can read and
+  retain at the same time without tearing an entry" — semantically exactly the
+  concurrency case, but it contains none of `concurrent|parallel|race|
+  thread-safe|threadsafe|simultaneous`, so it failed identically to having no
+  bullet at all. Cost two rounds plus a `guardian-check explain completeness`
+  to discover the keyword table. A "no bullet in this section matched; the
+  closest was line N — accepted keywords are: …" hint would have made the
+  first round succeed. Bonus: the keyword requirement quietly pushes prose
+  toward robot-speak, since the natural English phrasing is the one that fails.
+- friction: `test-no-conditional` reports `src/serve/thermal_api.zig:NNN: if at
+  top level of test body` but the fix line is generic. In one file the flagged
+  snippet (`defer if (module_res) |mr| { … };`) appeared IDENTICALLY in a
+  production fn and in a test; I edited the production copy first, re-ran, and
+  got the same finding at a different line before realising which one it meant.
+  Naming the enclosing `test "…"` block in the finding would have removed the
+  ambiguity in one line of output.
+- friction: `divergent-const` flagged `max_cache_bytes` at 32 MiB in my new
+  `serve/thermal_cache.zig` against 64 MiB in `serve/pcb_page_cache.zig`. The
+  two caps are deliberately different (thermal fields are far smaller than
+  rendered page bodies) but they are NOT a mirror of each other, so the
+  `/// mirror-of:` escape hatch is the wrong annotation and importing one from
+  the other would be a lie. What I actually wanted was "these share a name but
+  not a fact — rename one" and that's what I did, but the check's fix line
+  offers only unify-or-mirror. A third suggested resolution ("if they are
+  unrelated facts, give them distinct names") would match this case.
+- bug-ish: full-gate output captured via a background task got TRUNCATED AT THE
+  HEAD in the task output file, so the shard's failing assertion scrolled out
+  and I could see only the `Build Summary` tail. Re-running as
+  `(zig build --seed=1 -j1 test 2>&1; echo EXIT=$?) > gate.log` and reading the
+  file directly worked. Not Guardian's fault, but Guardian's per-shard failure
+  detail is exactly the payload that gets lost — printing a compact
+  "N failed: file:line — message" recap AFTER the Build Summary would survive
+  any truncation of the middle.
+- wish: `function-size` fired on `Store.put` at 7 runtime params (limit 6). The
+  params were `(self, scratch_alloc, store_alloc, eval, key, results, now)` —
+  all genuinely needed, and the honest fix is a params struct. That's fine, but
+  the finding arrives only after the function is written and its callers exist,
+  so the refactor touches call sites too. Since Guardian already parses the
+  signature, a report-only warning at 6 ("this fn is AT the cap") in the same
+  run that first sees the function would let the next edit plan around it —
+  same shape as the `type-size` 20-field wish logged earlier today.
