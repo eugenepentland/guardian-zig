@@ -499,6 +499,7 @@ src/dora.zig::Outcome enum_
 src/dora.zig::RunRecord struct_
 src/dora.zig::Stopwatch struct_
 src/dora.zig::elapsedMs | fn elapsedMs(self: *Stopwatch) u64
+src/dora.zig::nowNs | fn nowNs() u64
 src/dora.zig::parseRecord | fn parseRecord(arena: Allocator, line: []const u8) ?RunRecord
 src/dora.zig::recordRun | fn recordRun( arena: Allocator, project_dir: []const u8, cfg: config_mod.DoraCfg, outcome: Outcome, failed_checks: []const []const u8, duration_ms: u64, ) void
 src/dora.zig::renderRecord | fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8

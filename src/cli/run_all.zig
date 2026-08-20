@@ -155,6 +155,14 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     defer ctx.renames = null;
     try prepareSources(ctx, &index_storage, &scoped_storage, writes);
     try prepareRenames(ctx);
+    // Cold-cache marker: a whole-tree run with no prior green stamp is the
+    // "first gate" whose verdict an agent should not treat as cache-confirmed
+    // (baseline mode records-then-enforces, and a cold tool cache is where a
+    // stale compile hides). Naming it once lets the agent decide whether a
+    // second run is worth its cost instead of rediscovering the ritual by
+    // trial. A diff-scoped or filtered run never stamps green and is cold by
+    // construction, so the marker would be permanent noise there.
+    announceColdCache(ctx);
 
     // Time the run for the DORA sink. Started here (after the cache-skip guard)
     // so a cache-skipped run — which returns above — records nothing.
@@ -471,11 +479,20 @@ fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
         const heading = failureGroupLine(ctx.allocator, name, total) catch name;
         reporter.detail("  {s}\n", .{heading});
         var shown: usize = 0;
+        var last_hint: []const u8 = "";
         for (acc.records.items) |v| {
             if (!std.mem.eql(u8, v.check, name)) continue;
             if (shown == failure_sample_limit) break;
             const line = reporter.flatLine(ctx.allocator, v) catch continue;
             reporter.detail("    - {s}\n", .{line});
+            // Each sampled finding carries its own remedy when it has one —
+            // formatting's `zig fmt <file>` differs per file, a ban rule names
+            // its own subject — deduped so a check whose findings share one
+            // remedy (a ratchet's accept command) still prints it once.
+            if (v.fix_hint) |hint| {
+                if (!std.mem.eql(u8, hint, last_hint)) reporter.detail("      fix: {s}\n", .{hint});
+                last_hint = hint;
+            }
             shown += 1;
         }
         if (total == 0) {
@@ -483,17 +500,18 @@ fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
         } else if (omittedLine(ctx.allocator, total, shown) catch null) |line| {
             reporter.detail("    - {s}\n", .{line});
         }
-        // One remedy per group, from its first finding: concise mode hides the
-        // check's own output, so without this the reader is told what broke and
-        // never what to do about it. A per-finding hint would triple the group.
-        printGroupHint(acc.records.items, name);
+        // Fall back to the first finding's remedy when none of the sampled
+        // findings carried their own hint (concise mode hides the check's own
+        // output, so a hintless group would otherwise say what broke and never
+        // what to do about it).
+        if (last_hint.len == 0) printGroupHint(acc.records.items, name);
     }
 }
 
-/// Prints a failing group's remedy line — the first finding's `fix_hint`, which
-/// for a prose check is its own trailing `fix:` line and for a ratchet
-/// regression names the ceiling and the accept command. Silent when the check
-/// supplied no hint (better an absent line than filler).
+/// Fallback remedy for a failure group whose sampled findings carried no hint
+/// of their own: the first finding's `fix_hint` (a prose check's trailing
+/// `fix:` line, a ratchet regression's ceiling + accept command). Silent when
+/// the check supplied no hint (better an absent line than filler).
 fn printGroupHint(records: []const reporter.Violation, name: []const u8) void {
     const v = firstRecordFor(records, name) orelse return;
     const hint = v.fix_hint orelse return;
@@ -524,6 +542,55 @@ test "a concise failure group ends in its first finding's fix hint" {
     cap.buf.clearRetainingCapacity();
     printGroupHint(&records, "spec");
     try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
+}
+
+// spec: Run Summary - Prints each sampled finding's own remedy, deduping repeats
+
+test "a concise failure group prints per-finding hints and dedupes repeats" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const cfg: config.Config = .{};
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+
+    // Two findings with DIFFERENT per-file remedies: each sampled finding must
+    // carry its own `fix:` — the first finding's alone would leave the second
+    // file's command to be guessed.
+    var acc: Sink = .{};
+    defer acc.records.deinit(a);
+    defer acc.failed_checks.deinit(a);
+    try acc.records.append(a, .{ .check = "formatting", .file = "src/a.zig", .line = 1, .message = "non-conforming", .fix_hint = "zig fmt src/a.zig" });
+    try acc.records.append(a, .{ .check = "formatting", .file = "src/b.zig", .line = 2, .message = "non-conforming", .fix_hint = "zig fmt src/b.zig" });
+    try acc.failed_checks.append(a, "formatting");
+    printFailureGroups(&ctx, &acc);
+    const out = cap.buf.items;
+    try std.testing.expect(std.mem.indexOf(u8, out, "fix: zig fmt src/a.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "fix: zig fmt src/b.zig") != null);
+
+    // A check whose findings SHARE one remedy prints it once, not once per
+    // finding — a ratchet regression names one accept command for the group.
+    cap.buf.clearRetainingCapacity();
+    var acc2: Sink = .{};
+    defer acc2.records.deinit(a);
+    defer acc2.failed_checks.deinit(a);
+    const shared = "reduce it, or `guardian-check accept file-size .`";
+    try acc2.records.append(a, .{ .check = "file-size", .file = "src/x.zig", .message = "m", .fix_hint = shared });
+    try acc2.records.append(a, .{ .check = "file-size", .file = "src/y.zig", .message = "m", .fix_hint = shared });
+    try acc2.failed_checks.append(a, "file-size");
+    printFailureGroups(&ctx, &acc2);
+    const out2 = cap.buf.items;
+    var remaining: []const u8 = out2;
+    var hits: usize = 0;
+    while (std.mem.indexOf(u8, remaining, "fix: reduce it, or")) |i| {
+        hits += 1;
+        remaining = remaining[i + 1 ..];
+    }
+    try std.testing.expectEqual(@as(usize, 1), hits);
 }
 
 // spec: Run Summary - Groups blocking failures by check with a bounded sample
@@ -639,6 +706,33 @@ fn warnStaleBinary(ctx: *types.RunCtx) void {
 fn staleBinaryWarnable(stored: ?cache.Digest, current: cache.Digest) bool {
     const s = stored orelse return false;
     return !cache.eql(s, current);
+}
+
+/// Pure decision for the cold-cache marker: a run is "cold" (the first gate on
+/// this tree) exactly when no prior green stamp was recorded.
+fn coldGate(stored: ?cache.Digest) bool {
+    return stored == null;
+}
+
+/// Prints a one-line cold-cache note when this whole-tree run has never been
+/// stamped green — the first gate, where a false green (a stale tool/test
+/// cache, or baseline mode's record-then-enforce first pass) is most likely. A
+/// re-run after a green populates the skip-cache, and its `cached` verdict is
+/// the confirmation; an agent can then skip the "run twice" ritual on every
+/// other gate. Routed through the always-visible detail channel (the build
+/// wiring runs `all --quiet`). Best-effort: an unreadable stamp prints nothing.
+fn announceColdCache(ctx: *types.RunCtx) void {
+    // Only a whole-tree, unfiltered run may stamp green, so only it has a
+    // meaningful "first gate"; a diff-scoped or filtered run is cold by
+    // construction and the marker would fire on every dev build.
+    if (ctx.scoped != null or isFiltered(ctx)) return;
+    const stored = cache.readStored(ctx.allocator, ctx.project_dir) catch return;
+    if (!coldGate(stored)) return;
+    reporter.detail(
+        reporter.prefix ++ "cold gate — no prior green stamp on this tree; " ++
+            "a re-run after a green will skip via the cache and confirm\n",
+        .{},
+    );
 }
 
 /// Printed under every run-all failure. With install gating (the build-helper
@@ -825,7 +919,11 @@ fn requireKnownCheck(name: []const u8, origin: []const u8) types.RunError!void {
 /// spurious re-run next build (and, if that stale state were ever restored,
 /// wrongly skip it).
 fn shouldSkipRun(ctx: *types.RunCtx) bool {
-    const enabled = ctx.cfg.cache_enabled;
+    // A --full run is a request to actually verify the tree, so it must not be
+    // answered by the green cache: "whole-tree run" and "cached verdict" are
+    // contradictions. The bypass sits before the digest walk, so the expensive
+    // walk isn't paid for a run that cannot skip.
+    const enabled = ctx.cfg.cache_enabled and !ctx.full;
     const refresh = ctx.refresh.len > 0 or snapshot_helper.shouldUpdate(ctx.allocator);
     // Only pay for the digest walk when a skip is still possible (cache on, no
     // refresh) — the `and` short-circuits otherwise. A Git-clean tree is NOT a
@@ -1628,6 +1726,17 @@ test "staleBinaryWarnable fires only on a present, differing stamp" {
     try std.testing.expect(staleBinaryWarnable(a, b));
 }
 
+// spec: Run All - Marks the first gate on a tree that has no prior green stamp
+
+test "coldGate is true only with no stored green stamp" {
+    var d: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("a prior green", &d, .{});
+    // No stamp yet (first gate): cold.
+    try std.testing.expect(coldGate(null));
+    // A stored green digest means the tree has been gated before: not cold.
+    try std.testing.expect(!coldGate(d));
+}
+
 // spec: Run All - Runs a metadata transaction only when the run can write metadata
 
 test "writesMetadata is true only for a writable or refreshing run" {
@@ -1801,6 +1910,17 @@ test "skipDecision requires cache on, a digest match, and no pending refresh" {
     try std.testing.expect(!skipDecision(true, false, false));
     // A disabled cache never skips.
     try std.testing.expect(!skipDecision(false, false, true));
+}
+
+// spec: Run All - Runs the whole suite despite a matching digest when the full flag is set
+
+test "the full flag bypasses the green cache before the digest walk" {
+    // A --full run is a request to verify the tree, not to be told it is
+    // unchanged, so it must run even with the cache enabled and a matching
+    // digest. The bypass short-circuits before the digest is even computed.
+    const cfg: config.Config = .{ .cache_enabled = true };
+    var ctx: types.RunCtx = .{ .allocator = std.testing.allocator, .project_dir = ".", .cfg = &cfg, .full = true, .quiet = true };
+    try std.testing.expect(!shouldSkipRun(&ctx));
 }
 
 // spec: Diff Scoping - Hands the narrowed index only to per-file checks

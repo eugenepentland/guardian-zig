@@ -327,12 +327,14 @@ pub const Verdict = struct {
     }
 };
 
-/// Renders the one line every run ends with, whichever way it ended. Overflow
-/// truncates rather than dropping the line, as everywhere else here: a verdict
+/// Renders the two lines every run ends with, whichever way it ended: the
+/// human verdict line, then the machine-readable RESULT line. Overflow
+/// truncates rather than dropping a line, as everywhere else here: a verdict
 /// that disappeared would be worse than a short one.
 pub fn renderVerdict(buf: []u8, verdict: Verdict) []const u8 {
     var w = std.Io.Writer.fixed(buf);
     writeVerdictLine(&w, verdict) catch return w.buffered();
+    writeResultLine(&w, verdict) catch return w.buffered();
     return w.buffered();
 }
 
@@ -353,6 +355,23 @@ fn writeVerdictLine(w: *std.Io.Writer, verdict: Verdict) std.Io.Writer.Error!voi
     if (tally.log_err != 0) try w.print(", {d} error(s) logged", .{tally.log_err});
     if (verdict.caps_broken) try w.writeAll(", over an opt-in time cap");
     try w.writeByte('\n');
+}
+
+/// The machine-readable result line printed after the verdict: one stable,
+/// grep-able line carrying the tally, so a multi-shard run's totals can be
+/// summed by a script instead of re-parsed from prose. Same `guardian/test:`
+/// prefix as the verdict, so one grep finds both; the JSON object is
+/// hand-assembled (only integers, so no escaping) and deliberately minimal:
+/// passed/failed/skipped are the fields a shard total needs, and `aborted`
+/// marks a run that ended before its suite finished. A consumer sums these
+/// lines across shards; `commit` already does (see cli/commit.zig).
+fn writeResultLine(w: *std.Io.Writer, verdict: Verdict) std.Io.Writer.Error!void {
+    const tally = verdict.tally;
+    try w.print("{s}RESULT {{\"passed\":{d},\"failed\":{d},\"skipped\":{d}", .{
+        prefix, tally.ok, tally.fail, tally.skip,
+    });
+    if (verdict.aborted != null) try w.writeAll(",\"aborted\":true");
+    try w.writeAll("}\n");
 }
 
 /// Hundredths of a second below the whole seconds already printed.
@@ -510,13 +529,15 @@ test "an absent, blank, zero or unparseable cap variable is no cap at all" {
 }
 
 // spec: Test Runner Verdict - Ends a green run with a PASS line stating the passed count, and the skipped count when any were skipped
+// spec: Test Runner Verdict - Prints a machine-readable result line after the verdict, carrying the passed failed and skipped counts
 
 test "the green verdict states the passed count and any skips" {
     var tally: Tally = .{};
     for (0..3) |_| tally.record(.pass);
     var buf: [128]u8 = undefined;
     try testing.expectEqualStrings(
-        "guardian/test: PASS — 3 passed\n",
+        "guardian/test: PASS — 3 passed\n" ++
+            "guardian/test: RESULT {\"passed\":3,\"failed\":0,\"skipped\":0}\n",
         renderVerdict(&buf, .{ .tally = tally }),
     );
 
@@ -526,7 +547,8 @@ test "the green verdict states the passed count and any skips" {
     tally.record(.skip);
     try testing.expectEqual(@as(usize, 5), tally.total());
     try testing.expectEqualStrings(
-        "guardian/test: PASS — 3 passed, 2 skipped\n",
+        "guardian/test: PASS — 3 passed, 2 skipped\n" ++
+            "guardian/test: RESULT {\"passed\":3,\"failed\":0,\"skipped\":2}\n",
         renderVerdict(&buf, .{ .tally = tally }),
     );
 }
@@ -541,7 +563,8 @@ test "the failing verdict states the failures against the total" {
     var buf: [128]u8 = undefined;
     try testing.expect(tally.failed());
     try testing.expectEqualStrings(
-        "guardian/test: FAIL — 2 failed of 9\n",
+        "guardian/test: FAIL — 2 failed of 9\n" ++
+            "guardian/test: RESULT {\"passed\":7,\"failed\":2,\"skipped\":0}\n",
         renderVerdict(&buf, .{ .tally = tally }),
     );
 }
@@ -555,25 +578,29 @@ test "leaks, logged errors and a broken cap each red an otherwise-passing run" {
     var leaked: Tally = .{ .ok = 4, .leak = 1 };
     try testing.expect(leaked.failed());
     try testing.expectEqualStrings(
-        "guardian/test: FAIL — 0 failed of 4, 1 leaked\n",
+        "guardian/test: FAIL — 0 failed of 4, 1 leaked\n" ++
+            "guardian/test: RESULT {\"passed\":4,\"failed\":0,\"skipped\":0}\n",
         renderVerdict(&buf, .{ .tally = leaked }),
     );
     const logged: Tally = .{ .ok = 4, .log_err = 3 };
     try testing.expectEqualStrings(
-        "guardian/test: FAIL — 0 failed of 4, 3 error(s) logged\n",
+        "guardian/test: FAIL — 0 failed of 4, 3 error(s) logged\n" ++
+            "guardian/test: RESULT {\"passed\":4,\"failed\":0,\"skipped\":0}\n",
         renderVerdict(&buf, .{ .tally = logged }),
     );
     // A broken cap fails a tally that is itself entirely clean.
     const clean: Tally = .{ .ok = 4 };
     try testing.expect(!clean.failed());
     try testing.expectEqualStrings(
-        "guardian/test: FAIL — 0 failed of 4, over an opt-in time cap\n",
+        "guardian/test: FAIL — 0 failed of 4, over an opt-in time cap\n" ++
+            "guardian/test: RESULT {\"passed\":4,\"failed\":0,\"skipped\":0}\n",
         renderVerdict(&buf, .{ .tally = clean, .caps_broken = true }),
     );
     // All of them at once, in one line.
     leaked.log_err = 3;
     try testing.expectEqualStrings(
-        "guardian/test: FAIL — 0 failed of 4, 1 leaked, 3 error(s) logged, over an opt-in time cap\n",
+        "guardian/test: FAIL — 0 failed of 4, 1 leaked, 3 error(s) logged, over an opt-in time cap\n" ++
+            "guardian/test: RESULT {\"passed\":4,\"failed\":0,\"skipped\":0}\n",
         renderVerdict(&buf, .{ .tally = leaked, .caps_broken = true }),
     );
 }
@@ -581,11 +608,12 @@ test "leaks, logged errors and a broken cap each red an otherwise-passing run" {
 // spec: Test Runner Verdict - States the reason instead of the counts when a run ends before its suite finished
 
 test "an aborted run states its reason in place of counts" {
-    var buf: [128]u8 = undefined;
+    var buf: [160]u8 = undefined;
     // The zero-match filter guard exits before a single test runs, so
     // `0 failed of 0` would be true and useless.
     try testing.expectEqualStrings(
-        "guardian/test: FAIL — nothing the filter named ran\n",
+        "guardian/test: FAIL — nothing the filter named ran\n" ++
+            "guardian/test: RESULT {\"passed\":0,\"failed\":0,\"skipped\":0,\"aborted\":true}\n",
         renderVerdict(&buf, .{ .aborted = "nothing the filter named ran" }),
     );
 }

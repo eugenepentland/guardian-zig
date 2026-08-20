@@ -192,6 +192,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Rejects an only or skip name that is not a runnable check
 - Detects a filtered run so the green cache stamp is suppressed
 - Skips a full run when the input digest matches the last green run and no refresh is pending
+- Runs the whole suite despite a matching digest when the full flag is set
 - Rejects an unknown refresh target or deny_growth check name
 - Cautions on failure that zig-out binaries predate the red run
 - Blocks the build only when forced or configured to block
@@ -200,6 +201,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Warns before the run when the binary differs from the last green stamp
 - Runs a metadata transaction only when the run can write metadata
 - Names a check that runs past the heartbeat threshold
+- Marks the first gate on a tree that has no prior green stamp
 - Runs the cheapest formatting gate before the rest of the suite
 - Names each failing check's first finding under the run summary
 
@@ -221,6 +223,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Resolves the verbose flag ahead of the summary flag
 - Appends a plus-N-more count when a failing check has several findings
 - Names which binary is newer when the gating binary differs from the last green stamp
+- Prints each sampled finding's own remedy, deduping repeats
 
 ## Nightly
 
@@ -237,6 +240,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Suggests the direct check spelling after a run or check verb
 - Reports a quiet accept as before and after counts with the metadata paths that moved
 - Parses the tree once for every pass of one accept
+- Prints the accept usage when an unknown check name begins with a dash
 
 ## Explain
 
@@ -266,6 +270,11 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports up front when the change set contains no gate inputs
 - Treats paths matched by external input globs as gate inputs
 - Records the test count its own passing test run reported
+- Refuses a stale self-hosted binary before it can act on newer source
+- Skips the test suite when the change set contains no test-relevant path
+- Heartbeats a long test run so a slow suite reads as progress, not a hang
+- Kills the whole test process group when the commit is interrupted
+- Sums the runner's machine-readable result lines across shards into one total
 
 ## Commit Hygiene
 
@@ -714,6 +723,7 @@ lives in a fixed-size buffer.
 
 - Renders a run record as one JSON line with outcome and failed checks
 - Includes the git branch and commit or null when absent
+- Reports the commit heartbeat's monotonic now in nanoseconds
 - Appends a run record to the sink without overwriting
 - Parses a stored run line back into a run record
 - Rejects a line that is not a known run record
@@ -786,6 +796,7 @@ lives in a fixed-size buffer.
 - Adds a leak count, a logged-error count, or a broken time cap to the failing verdict
 - States the reason instead of the counts when a run ends before its suite finished
 - Reads the printed verdict and the run's exit status off one predicate
+- Prints a machine-readable result line after the verdict, carrying the passed failed and skipped counts
 
 ## Build Helper
 

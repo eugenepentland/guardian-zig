@@ -23,6 +23,7 @@
 //! defensively so it can never be treated as a gate.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const wiring = @import("../wiring.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
@@ -33,6 +34,10 @@ const dora = @import("../dora.zig");
 const config = @import("../config.zig");
 const external_inputs = @import("../external_inputs.zig");
 const test_count = @import("../test_count.zig");
+const journal = @import("../mutation/journal.zig");
+const fs = @import("../fs.zig");
+const source_digest = @import("../source_digest.zig");
+const build_options = @import("build_options");
 
 const Allocator = std.mem.Allocator;
 
@@ -66,11 +71,19 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // the old always-writing auto-path staged).
     ctx.metadata_writable = true;
 
+    // Self-hosting staleness guard: when this project dir IS the guardian
+    // checkout, a `zig build test` can go green on a freshly compiled suite
+    // while the installed `guardian-check` binary acting here predates it
+    // (test builds never refresh zig-out). Acting on stale logic sweeps the
+    // wrong files into the commit. Refuse before gating anything.
+    try refuseStaleSelfBuild(ctx);
+
     // Say up front when nothing in the change set is an input any check reads:
     // every finding below then describes pre-existing state, not this change —
     // the difference between "my commit broke 49 things" and "this worktree
     // never built its generated files". The gate still runs; nothing is skipped.
-    noticeNoGateInputs(ctx);
+    const changed = git.changedPaths(ctx.allocator, ctx.project_dir) catch null;
+    noticeNoGateInputs(ctx, changed);
 
     // Phase markers + a per-phase timing split turn a long commit from a silent
     // wait into a visibly-progressing gate → tests → stage → commit sequence.
@@ -89,10 +102,17 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const gate_ms = gate_sw.elapsedMs();
 
     // The static gate is green; the project's own tests must also pass before
-    // anything enters history.
+    // anything enters history — unless the change set contains no path the
+    // tests could read (embedded assets, SPEC.md, scripts, .guardian metadata):
+    // then the whole-suite test step would be pure cost, and the gate — which
+    // DOES read some of those paths — already ran in full.
     reporter.ok("commit: phase 2/4 — tests", .{});
     var tests_sw = dora.startStopwatch();
-    try runTests(ctx);
+    if (testsSkippable(changed)) {
+        reporter.ok("commit: tests skipped — no changed path is a test input (.zig/.zon/guardian.toml)", .{});
+    } else {
+        try runTests(ctx);
+    }
     const tests_ms = tests_sw.elapsedMs();
     reporter.ok("commit: timing — {s}", .{try formatTimingSplit(ctx.allocator, gate_ms, tests_ms)});
 
@@ -109,15 +129,38 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// Prints the up-front notice when no path in the change set is something a
 /// check reads. Best-effort: no git, no notice (the gate is unaffected either
 /// way — this only tells the reader where the findings came from).
-fn noticeNoGateInputs(ctx: *types.RunCtx) void {
-    const changed = (git.changedPaths(ctx.allocator, ctx.project_dir) catch return) orelse return;
-    if (changed.len == 0) return;
-    if (anyGateInput(changed, ctx.cfg.spec_file, ctx.cfg.external_gates)) return;
+fn noticeNoGateInputs(ctx: *types.RunCtx, changed: ?[]const git.ChangedPath) void {
+    const list = changed orelse return;
+    if (list.len == 0) return;
+    if (anyGateInput(list, ctx.cfg.spec_file, ctx.cfg.external_gates)) return;
     reporter.ok(
         "commit: staged diff contains no gate inputs ({d} path(s), none of them .zig/SPEC/guardian config) " ++
             "— any findings below are pre-existing state, not this change",
-        .{changed.len},
+        .{list.len},
     );
+}
+
+/// True when the change set contains no path the test suite could read, so
+/// phase 2's whole-suite run would be pure cost. Test-relevant means a Zig or
+/// Zon source (build.zig, build.zig.zon, any src/test .zig) or guardian.toml
+/// (which can change `[gate] test_command` itself). A change confined to
+/// embedded assets, SPEC.md, scripts, or .guardian metadata cannot alter what
+/// the tests compile or assert — the marker/asset tests and shape checks that
+/// DO see some of those paths ran in the gate, which still runs in full.
+/// Null or empty change sets still run the tests: that is the "re-verify this
+/// tree" case, where the commit is the whole point.
+fn testsSkippable(changed: ?[]const git.ChangedPath) bool {
+    const list = changed orelse return false;
+    if (list.len == 0) return false;
+    for (list) |c| if (isTestRelevantPath(c.path)) return false;
+    return true;
+}
+
+/// True when `path` is a file the test suite could read: a Zig or Zon source,
+/// or the guardian config that selects the test command itself.
+fn isTestRelevantPath(path: []const u8) bool {
+    if (std.mem.endsWith(u8, path, ".zig") or std.mem.endsWith(u8, path, ".zon")) return true;
+    return std.mem.eql(u8, path, "guardian.toml");
 }
 
 /// True when at least one changed path is an input some check consumes.
@@ -184,6 +227,7 @@ fn runTests(ctx: *types.RunCtx) types.RunError!void {
     }
     recordTestCount(ctx, outcome.output);
     reporter.ok("commit: tests passed", .{});
+    reportTestTotal(outcome.output);
 }
 
 /// Records how many tests the run just executed, from the runner's own
@@ -313,20 +357,174 @@ fn splitCommand(a: Allocator, cmd: []const u8) Allocator.Error![]const []const u
 /// (stderr preferred — where a Zig test failure report lands — else stdout).
 const TestOutcome = struct { passed: bool, output: []const u8 };
 
-/// Spawns `argv` in `project_dir` with `child_skip_env` set, capturing output.
+/// Interval between heartbeat lines while the test child runs. A commit's test
+/// phase is the project's whole test binary — minutes on a real project, silent
+/// for all of it — so a tick keeps a slow-but-healthy run readable as progress
+/// instead of a hang (agents have killed commits reading as hung, orphaning the
+/// test child; the heartbeat exists alongside the kill-on-signal fix below).
+/// Named for the commit command (unlike mutate's own same-constant), because
+/// the two tick cadences are deliberately different.
+const commit_heartbeat_secs: u64 = 10;
+const commit_heartbeat_ns: u64 = std.time.ns_per_s * commit_heartbeat_secs;
+
+/// Shared state for the heartbeat thread: when the child started, and an event
+/// the main thread SETS once the child is reaped. Setting the event wakes the
+/// ticker out of its timed wait immediately, so a fast suite's join returns
+/// without waiting out a full tick.
+const Heartbeat = struct {
+    start_ns: u64,
+    done: std.Io.Event = .unset,
+};
+
+/// Renders one heartbeat line for an elapsed second count — pure so the
+/// wording is testable without waiting a real tick of a live suite.
+fn heartbeatLine(buf: []u8, secs: u64) []const u8 {
+    return std.fmt.bufPrint(buf, "commit: tests running — {d}s elapsed (still compiling/running)", .{secs}) catch
+        "commit: tests running ...";
+}
+
+/// Ticks every `commit_heartbeat_secs` while the test child runs, printing
+/// elapsed wall time. The wait is on the stop event with the tick as its
+/// timeout: a timed-out wait IS the tick, a set event is the stop signal, and
+/// any other error ends the thread. Runs on its own thread with a fresh
+/// thread-local reporter (no capture), so the line lands on stderr like every
+/// other commit line.
+fn heartbeatThread(hb: *Heartbeat) void {
+    var line_buf: [160]u8 = undefined;
+    while (true) {
+        var ticked = false;
+        hb.done.waitTimeout(wiring.io(), .{ .duration = .{
+            .clock = .awake,
+            .raw = .fromNanoseconds(@intCast(commit_heartbeat_ns)),
+        } }) catch |e| switch (e) {
+            error.Timeout => ticked = true, // the tick: the stop event is never set during a live run
+            else => return, // cancel/broken pipe: the run is going away
+        };
+        if (!ticked) return; // the stop event was set: the child was reaped
+        const secs = (dora.nowNs() - hb.start_ns) / std.time.ns_per_s;
+        reporter.ok("{s}", .{heartbeatLine(&line_buf, secs)});
+    }
+}
+
+/// Spawns `argv` in `project_dir` with `child_skip_env` set, capturing output,
+/// and supervises it: the child runs in its OWN process group so a SIGINT/
+/// SIGTERM handler can kill the whole tree (`kill(-pgid)`, reaping the
+/// compile/test grandchildren a killed commit would otherwise leave spinning on
+/// the zig cache), and a heartbeat thread keeps a long suite visibly alive.
 fn spawnTests(a: Allocator, project_dir: []const u8, argv: []const []const u8) !TestOutcome {
+    // Install the same SIGINT/SIGTERM handler the mutation runner uses: kill
+    // the child group on the way out, then re-raise with the default
+    // disposition so the exit status still reads as the signal. Idempotent.
+    journal.install();
+
     var env = try wiring.cloneEnviron(a);
+    defer env.deinit();
     try env.put(child_skip_env, "1");
-    const res = try std.process.run(a, wiring.io(), .{
+
+    const io = wiring.io();
+    var child = try std.process.spawn(io, .{
         .argv = argv,
         .cwd = .{ .path = project_dir },
         .environ_map = &env,
-        .stdout_limit = .limited64(max_test_output_bytes),
-        .stderr_limit = .limited64(max_test_output_bytes),
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .pipe,
+        .pgid = 0, // own process group → -pgid kills the whole tree
     });
-    const passed = res.term.success();
-    const output = if (res.stderr.len > 0) res.stderr else res.stdout;
-    return .{ .passed = passed, .output = output };
+    defer child.kill(io); // no-op after wait
+    journal.trackChild(child.id.?);
+    defer journal.trackChild(0);
+
+    var hb: Heartbeat = .{ .start_ns = dora.nowNs() };
+    const hb_thread: ?std.Thread = if (builtin.single_threaded)
+        null
+    else
+        std.Thread.spawn(.{}, heartbeatThread, .{&hb}) catch null;
+    // LIFO: kill, untrack, then set the stop event (wakes the ticker), then
+    // join — the event makes the join return immediately for a fast suite.
+    defer if (hb_thread) |t| t.join();
+    defer hb.done.set(wiring.io());
+
+    const output = try drainChildOutput(a, io, &child);
+    const term = try child.wait(io);
+    return .{ .passed = term.success(), .output = output };
+}
+
+/// Drains the child's stdout+stderr pipes to EOF (blocking until the write ends
+/// close — i.e. until the child and its descendants are done), bounded by the
+/// same cap `std.process.run` applied, and returns the combined output with
+/// stderr preferred, mirroring the previous `std.process.run`-based behavior.
+fn drainChildOutput(a: Allocator, io: std.Io, child: *std.process.Child) ![]const u8 {
+    var multi_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+    var multi: std.Io.File.MultiReader = undefined;
+    multi.init(a, io, multi_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi.deinit();
+    const stdout_reader = multi.reader(0);
+    const stderr_reader = multi.reader(1);
+    while (multi.fill(0, .none)) |_| {
+        if (stdout_reader.buffered().len > max_test_output_bytes) return error.StreamTooLong;
+        if (stderr_reader.buffered().len > max_test_output_bytes) return error.StreamTooLong;
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => return err,
+    }
+    try multi.checkAnyError();
+    const stdout_slice = try multi.toOwnedSlice(0);
+    errdefer a.free(stdout_slice);
+    const stderr_slice = try multi.toOwnedSlice(1);
+    if (stderr_slice.len > 0) {
+        a.free(stdout_slice);
+        return stderr_slice;
+    }
+    a.free(stderr_slice);
+    return stdout_slice;
+}
+
+/// Sums the runner's machine-readable `guardian/test: RESULT {...}` lines in
+/// `output` into one total. A sharded suite prints one such line per shard, so
+/// summing them states the whole-suite number — replacing the awk-sum-the-shards
+/// ritual that silently mis-adds when a shard dies before printing its line.
+/// `shards` counts the RESULT lines found; zero means the suite isn't wired to
+/// Guardian's runner and nothing is reported.
+const TestTotal = struct { passed: u64 = 0, failed: u64 = 0, skipped: u64 = 0, shards: u32 = 0 };
+
+const result_marker = "guardian/test: RESULT ";
+
+fn sumTestResults(output: []const u8) TestTotal {
+    var total: TestTotal = .{};
+    var rest = output;
+    while (std.mem.indexOf(u8, rest, result_marker)) |idx| {
+        const line_start = idx + result_marker.len;
+        const line_end = std.mem.indexOfScalarPos(u8, rest, line_start, '\n') orelse rest.len;
+        const line = rest[line_start..line_end];
+        total.passed +|= jsonInt(line, "passed");
+        total.failed +|= jsonInt(line, "failed");
+        total.skipped +|= jsonInt(line, "skipped");
+        total.shards +|= 1;
+        rest = rest[line_end..];
+    }
+    return total;
+}
+
+/// The integer after `"key":` in one result line; 0 when absent. The needle is
+/// comptime (callers pass literals), so it is assembled without allocation.
+fn jsonInt(line: []const u8, comptime key: []const u8) u64 {
+    const needle = "\"" ++ key ++ "\":";
+    const idx = std.mem.indexOf(u8, line, needle) orelse return 0;
+    const start = idx + needle.len;
+    var end = start;
+    while (end < line.len and line[end] >= '0' and line[end] <= '9') end += 1;
+    return std.fmt.parseInt(u64, line[start..end], 10) catch 0;
+}
+
+/// Prints the summed whole-suite total after a passing test run, when the run
+/// emitted any RESULT lines. Silent for a suite not wired to Guardian's runner.
+fn reportTestTotal(output: []const u8) void {
+    const total = sumTestResults(output);
+    if (total.shards == 0) return;
+    reporter.ok("commit: tests — {d} passed, {d} failed, {d} skipped across {d} shard(s)", .{
+        total.passed, total.failed, total.skipped, total.shards,
+    });
 }
 
 /// Trims `intent`; null when absent or blank — so a missing/empty `--intent`
@@ -335,6 +533,44 @@ fn validIntent(intent: ?[]const u8) ?[]const u8 {
     const s = intent orelse return null;
     const trimmed = std.mem.trim(u8, s, &std.ascii.whitespace);
     return if (trimmed.len == 0) null else trimmed;
+}
+
+/// Pure decision behind the self-hosting staleness guard: the running binary
+/// is stale exactly when its embedded source digest differs from the digest of
+/// the Guardian source tree it is about to gate.
+fn staleSelfBuild(embedded: []const u8, actual: []const u8) bool {
+    return !std.mem.eql(u8, embedded, actual);
+}
+
+/// True when `project_dir` is the guardian checkout itself, not a consumer
+/// project. The fingerprint is a file only Guardian's own tree carries — a
+/// consumer's `src/` has no such marker, so this never fires on their commits.
+fn isGuardianSourceRoot(ctx: *const types.RunCtx) bool {
+    var buf: [fs.max_path_bytes]u8 = undefined;
+    const marker = std.fmt.bufPrint(&buf, "{s}/src/source_digest.zig", .{ctx.project_dir}) catch return false;
+    fs.cwd().access(marker, .{}) catch return false;
+    return true;
+}
+
+/// Refuses to gate/commit when the running binary was built from a different
+/// Guardian source than the tree it is about to act on. This is the self-
+/// hosting trap: `zig build test` compiles the suite from the NEW source but
+/// never refreshes the installed `guardian-check`, so the binary that ACTS
+/// (sweeps files, writes baselines, commits) predates the source it is gating.
+/// Best-effort on the digest read — a consumer project is never fingerprinted
+/// as a guardian root, and an unreadable tree falls through to the normal gate.
+fn refuseStaleSelfBuild(ctx: *types.RunCtx) types.RunError!void {
+    if (!isGuardianSourceRoot(ctx)) return;
+    const root = fs.cwd().openDir(ctx.project_dir, .{}) catch return;
+    defer root.close();
+    const actual = source_digest.compute(wiring.io(), ctx.allocator, root.inner) catch return;
+    if (!staleSelfBuild(build_options.source_digest, &actual)) return;
+    reporter.fail(
+        "commit: this guardian-check binary predates the source it would gate — " ++
+            "run `zig build` first, then re-run commit",
+        .{},
+    );
+    return error.CheckFailed;
 }
 
 /// Stages the eligible change set (skipping/reporting forbidden paths) and
@@ -575,7 +811,6 @@ fn containsAny(s: []const u8, needles: []const []const u8) bool {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
-const fs = @import("../fs.zig");
 
 // spec: Commit - Records the test count its own passing test run reported
 
@@ -633,6 +868,92 @@ test "a globbed external input makes its matching changed path checkable" {
     try std.testing.expect(!isGateInput("assets/app.css", "SPEC.md", &externals));
 }
 
+// spec: Commit - Skips the test suite when the change set contains no test-relevant path
+
+test "testsSkippable skips only a change set with no test input" {
+    // The reported case: an embedded-asset-only change (one JS file under
+    // src/serve/assets). Nothing the test suite compiles or asserts changed,
+    // so the whole-suite run would be pure cost — the gate still ran in full.
+    const assets_only = [_]git.ChangedPath{tracked("src/serve/assets/pcb_board.js")};
+    try std.testing.expect(testsSkippable(&assets_only));
+
+    // A SPEC.md-only change is equally invisible to the test binary.
+    const spec_only = [_]git.ChangedPath{tracked("SPEC.md")};
+    try std.testing.expect(testsSkippable(&spec_only));
+
+    // Any Zig source flips it back on — including a test block in src/.
+    const zig_change = [_]git.ChangedPath{ tracked("src/serve/assets/pcb_board.js"), tracked("src/serve.zig") };
+    try std.testing.expect(!testsSkippable(&zig_change));
+
+    // build.zig.zon is a Zon source: a dependency change recompiles everything.
+    const zon_change = [_]git.ChangedPath{tracked("build.zig.zon")};
+    try std.testing.expect(!testsSkippable(&zon_change));
+
+    // guardian.toml can change [gate] test_command itself, so it must run.
+    const toml_change = [_]git.ChangedPath{tracked("guardian.toml")};
+    try std.testing.expect(!testsSkippable(&toml_change));
+
+    // No change set at all (or no git) still runs the tests: the commit is the
+    // "re-verify this tree" case, where skipping would defeat the request.
+    try std.testing.expect(!testsSkippable(null));
+    try std.testing.expect(!testsSkippable(&[_]git.ChangedPath{}));
+}
+
+// spec: Commit - Sums the runner's machine-readable result lines across shards into one total
+
+test "sumTestResults totals the RESULT lines of a sharded run" {
+    // Three shards, each printing the runner's machine line; the sum is the
+    // whole-suite number the commit reports instead of an awk pipeline.
+    const output =
+        "guardian/test: 1200 test(s) selected\n" ++
+        "guardian/test: PASS — 1200 passed\n" ++
+        "guardian/test: RESULT {\"passed\":1200,\"failed\":0,\"skipped\":0}\n" ++
+        "guardian/test: PASS — 990 passed\n" ++
+        "guardian/test: RESULT {\"passed\":990,\"failed\":0,\"skipped\":2}\n" ++
+        "guardian/test: FAIL — 1 failed of 992\n" ++
+        "guardian/test: RESULT {\"passed\":991,\"failed\":1,\"skipped\":0,\"aborted\":true}\n";
+    const total = sumTestResults(output);
+    try std.testing.expectEqual(@as(u64, 3181), total.passed);
+    try std.testing.expectEqual(@as(u64, 1), total.failed);
+    try std.testing.expectEqual(@as(u64, 2), total.skipped);
+    try std.testing.expectEqual(@as(u32, 3), total.shards);
+
+    // A suite not wired to Guardian's runner prints no RESULT lines at all.
+    const foreign = "All 42 tests passed.\n";
+    try std.testing.expectEqual(@as(u32, 0), sumTestResults(foreign).shards);
+
+    // A test NAME containing the marker must not be mistaken for a result line:
+    // the marker is matched, then only the JSON fields on that line are read.
+    const tricky = "guardian/test: PASS — 1 passed\n" ++
+        "guardian/test: RESULT {\"passed\":7,\"failed\":0,\"skipped\":0}\n";
+    try std.testing.expectEqual(@as(u64, 7), sumTestResults(tricky).passed);
+    try std.testing.expectEqual(@as(u32, 1), sumTestResults(tricky).shards);
+}
+
+// spec: Commit - Heartbeats a long test run so a slow suite reads as progress, not a hang
+
+test "the heartbeat line names the elapsed seconds" {
+    var buf: [160]u8 = undefined;
+    const line = heartbeatLine(&buf, 42);
+    try std.testing.expect(std.mem.indexOf(u8, line, "42s elapsed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, line, "still compiling/running") != null);
+}
+
+// spec: Commit - Kills the whole test process group when the commit is interrupted
+
+test "spawnTests puts the test child in its own process group" {
+    // `kill -0 -$$` succeeds only when the shell's pid names its own process
+    // group — i.e. the child was spawned as a group leader (pgid 0). That is
+    // the property the SIGINT/SIGTERM handler relies on to kill the whole tree
+    // (`kill(-pgid)`) instead of leaving an orphaned `zig build test` spinning
+    // on the zig cache. POSIX-only, like the rest of the process supervision.
+    const argv = [_][]const u8{ "sh", "-c", "kill -0 -$$ 2>/dev/null && echo GROUPED || echo NOT-GROUPED" };
+    const outcome = try spawnTests(std.testing.allocator, ".", &argv);
+    defer std.testing.allocator.free(outcome.output);
+    try std.testing.expect(outcome.passed);
+    try std.testing.expect(std.mem.indexOf(u8, outcome.output, "GROUPED") != null);
+}
+
 // spec: Commit - Requires a non-empty intent message
 
 test "validIntent rejects null and blank, trims otherwise" {
@@ -640,6 +961,17 @@ test "validIntent rejects null and blank, trims otherwise" {
     try testing.expect(validIntent("") == null);
     try testing.expect(validIntent("   ") == null);
     try testing.expectEqualStrings("fix bug", validIntent("  fix bug  ").?);
+}
+
+// spec: Commit - Refuses a stale self-hosted binary before it can act on newer source
+
+test "staleSelfBuild is true only when the embedded digest differs from the tree's" {
+    // A binary whose embedded digest matches the source it gates is current.
+    try testing.expect(!staleSelfBuild("0123abcd", "0123abcd"));
+    // Any difference — even a later prefix — means the binary predates source.
+    try testing.expect(staleSelfBuild("0123abcd", "0123abce"));
+    try testing.expect(staleSelfBuild("0123abcd", ""));
+    try testing.expect(staleSelfBuild("", "anything"));
 }
 
 /// Test shorthand for an untracked porcelain entry (`??`).

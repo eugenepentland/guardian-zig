@@ -32,6 +32,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         reporter.detail("         raw CLI fallback: guardian-check accept file-size,line-length .\n", .{});
         return error.CheckFailed;
     }
+    try rejectDashNames(ctx.refresh);
     try run_all.validateCheckNames(ctx.refresh, "accept");
 
     // Acceptance depends on run_all returning the blocking verdict (CheckFailed
@@ -78,6 +79,20 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// and verify passes must pass, and a quiet run replays their output when they
 /// do not — a silent failure would leave nothing to diagnose from.
 const PassKind = enum { drift_expected, must_pass };
+
+/// `guardian-check accept --help` parses `--help` as a check name (the CLI has
+/// no accept-specific flag parsing); the unknown-name error that follows is
+/// correct but terminal. A name beginning with a dash is a flag-shaped typo, so
+/// say so and print the usage instead of a bare "unknown check name".
+fn rejectDashNames(names: []const []const u8) types.RunError!void {
+    for (names) |name| {
+        if (!std.mem.startsWith(u8, name, "-")) continue;
+        reporter.fail("accept: {s} is not a check name (did you mean `guardian-check accept <check> .`?)", .{name});
+        reporter.detail("  usage: zig build guardian-accept -Dguardian-checks=file-size,line-length\n", .{});
+        reporter.detail("         raw CLI fallback: guardian-check accept file-size,line-length .\n", .{});
+        return error.CheckFailed;
+    }
+}
 
 /// Runs one `all` pass, recording what it found. Under `--quiet` the pass's own
 /// output is captured instead of printed, so the command's whole output is its
@@ -210,6 +225,27 @@ fn recordSession(ctx: *types.RunCtx) void {
 
 test "accept command name remains stable for build-helper integration" {
     try std.testing.expectEqualStrings("accept", command_name);
+}
+
+// spec: Command Ergonomics - Prints the accept usage when an unknown check name begins with a dash
+
+test "a dash-shaped accept name gets usage instead of a bare unknown-name error" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    // `accept --help` reaches the command as a check name; the message says it
+    // is not one and names the working spelling.
+    try std.testing.expectError(error.CheckFailed, rejectDashNames(&.{"--help"}));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "is not a check name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian-check accept <check>") != null);
+
+    // A genuine check name passes straight through.
+    cap.buf.clearRetainingCapacity();
+    try rejectDashNames(&.{ "pub-api-surface", "type-size" });
+    try std.testing.expectEqual(@as(usize, 0), cap.buf.items.len);
 }
 
 // spec: Command Ergonomics - Reports a quiet accept as before and after counts with the metadata paths that moved

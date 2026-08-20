@@ -1011,13 +1011,15 @@ fn sinkRegressed(
     }
     for (reg.grown) |g| sinkRatchetKey(check_name, records, g.key, try std.fmt.allocPrint(
         a,
-        "{d} {s} over its frozen ratchet ceiling of {d} — reduce it, or `guardian-check accept {s} .`",
-        .{ g.new - g.old, unit, g.old, check_name },
+        "{d} {s} over its frozen ratchet ceiling of {d} — reduce it, or accept: `guardian-check accept {s} .` " ++
+            "(or `zig build guardian-accept -Dguardian-checks={s}`)",
+        .{ g.new - g.old, unit, g.old, check_name, check_name },
     ));
     for (reg.new_offenders) |o| sinkRatchetKey(check_name, records, o.key, try std.fmt.allocPrint(
         a,
-        "a new offender at {d} {s} — reduce it below the cap, or `guardian-check accept {s} .` to ratchet it",
-        .{ o.value, unit, check_name },
+        "a new offender at {d} {s} — reduce it below the cap, or accept: `guardian-check accept {s} .` " ++
+            "(or `zig build guardian-accept -Dguardian-checks={s}`)",
+        .{ o.value, unit, check_name, check_name },
     ));
 }
 
@@ -1891,10 +1893,13 @@ test "a regressed file-size key reaches the JSONL sink with its file, metric and
     try std.testing.expectEqualStrings("src/big.zig", row.file.?);
     try std.testing.expectEqual(@as(?u64, 10), row.metric);
     // The hint carries what the check itself cannot know: the ceiling it broke,
-    // by how much, and the command that would ratify it.
+    // by how much, and the command that would ratify it — in both the raw CLI
+    // and repo-wired `guardian-accept` forms, so neither consumer shape has to
+    // translate the remedy.
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "frozen ratchet ceiling of 8") != null);
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "2 code lines") != null);
     try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "guardian-check accept file-size .") != null);
+    try std.testing.expect(std.mem.indexOf(u8, row.fix_hint.?, "zig build guardian-accept -Dguardian-checks=file-size") != null);
 }
 
 // ── Hysteresis: trip → no accept → shrink to recover ───────────────────

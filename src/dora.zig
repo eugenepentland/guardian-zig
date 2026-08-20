@@ -74,6 +74,15 @@ pub fn startStopwatch() Stopwatch {
     return .{ .started = std.Io.Clock.awake.now(wiring.io()) };
 }
 
+/// Current monotonic wall time in nanoseconds — the commit test-phase heartbeat
+/// displays elapsed seconds off this. Lives here (not in cli/commit.zig) because
+/// this module is guardian's one ban-time-allowlisted clock consumer; the
+/// caller degrades gracefully when the clock is unavailable, so a heartbeat
+/// still proves aliveness without a working clock.
+pub fn nowNs() u64 {
+    return @intCast(std.Io.Clock.awake.now(wiring.io()).toNanoseconds());
+}
+
 /// Whole milliseconds in `ns` (floored). Pure, so the conversion is unit-tested
 /// without touching a clock.
 fn nsToMs(ns: u64) u64 {
@@ -330,5 +339,15 @@ test "elapsedMs is zero when unavailable and non-decreasing otherwise" {
     var sw = startStopwatch();
     const first = sw.elapsedMs();
     const second = sw.elapsedMs();
+    try std.testing.expect(second >= first);
+}
+
+// spec: Delivery Metrics - Reports the commit heartbeat's monotonic now in nanoseconds
+
+test "nowNs is non-decreasing over time" {
+    // The commit test-phase heartbeat renders elapsed seconds off this; the
+    // only honest claim about a monotonic clock is that it never goes back.
+    const first = nowNs();
+    const second = nowNs();
     try std.testing.expect(second >= first);
 }
