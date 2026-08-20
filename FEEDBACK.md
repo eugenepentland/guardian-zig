@@ -9747,3 +9747,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** The first diff-scoped run caught the exact missing SPEC link, five public-doc comments, one unsafe float-to-fin-count conversion, two compound validation conditions, and the intentional public/type-size changes; after those fixes the whole-tree commit and concurrent release gates passed with zero blocking findings.
 - **friction:** Selective `type-size` acceptance again refreshed unrelated downward ratchets (`ReviewDoc` 14→12 and `PngRequest` 28→27), so I had to restore them manually to keep the feature metadata diff scoped.
 - **friction:** Passing filtered runs still printed `failed command:` immediately after `guardian/test: PASS`, and one mistyped zero-match filter failed only after compiling; the explicit zero-match protection was useful, but the success-path wording remains misleading.
+
+## 2026-08-20 · codex · eda — edit existing heatsink geometry
+- **good:** The diff-scoped browser contract, whole-tree commit gate, and concurrent release gate accepted direct heatsink move/resize handles and fin-count editing with zero blocking findings.
+- **friction:** The passing filtered browser-contract run again printed `failed command:` immediately after `guardian/test: PASS`, leaving the zero process exit status as the only unambiguous success signal.
