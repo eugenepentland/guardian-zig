@@ -9710,3 +9710,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** The release gate's shard-coverage test caught both new named Elmer tests being absent from `src/test_shards.zig`; the failure named the exact tests and prevented them from being silently omitted from future full suites.
 - **good:** The `spec` and `pub-api-surface` checks gave actionable fixes for the new FEM export contract and intentional thermal-grid API additions, and the final whole-tree gate passed with zero blocking findings.
 - **friction:** The missing shard registration surfaced only after a 49-second release attempt, even though the earlier focused tests passed because explicit test filters compile and run the selected tests outside their manifest shard; a fast pre-release shard-manifest check would have avoided the retry.
+
+## 2026-08-20 · codex · eda — compare Elmer forced-air thermal scenarios
+- **good:** The diff-scoped spec linkage, whole-tree commit gate, and concurrent release gate all accepted the new 1 m/s and 2 m/s Elmer scenario paths with zero blocking findings on the first run.
+- **friction:** A passing filtered test again printed `failed command:` immediately after `guardian/test: PASS`, so the zero exit status remained the only unambiguous success signal.
