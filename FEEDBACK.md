@@ -9742,3 +9742,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — protect tightened 3x3 thermal via fields
 - **good:** Focused density and route-order tests, the whole-tree gate, and the concurrent release gate all passed with zero blocking findings; the guarded policy also improved the Barracuda benchmark from 105/116 to 107/116 while keeping GND connected.
 - **friction:** Both green filtered tests again printed `failed command:` after an explicit `guardian/test: PASS`, requiring exit-code inspection to distinguish success.
+
+## 2026-08-20 · codex · eda — author physical heatsinks in PCB layouts
+- **good:** The first diff-scoped run caught the exact missing SPEC link, five public-doc comments, one unsafe float-to-fin-count conversion, two compound validation conditions, and the intentional public/type-size changes; after those fixes the whole-tree commit and concurrent release gates passed with zero blocking findings.
+- **friction:** Selective `type-size` acceptance again refreshed unrelated downward ratchets (`ReviewDoc` 14→12 and `PngRequest` 28→27), so I had to restore them manually to keep the feature metadata diff scoped.
+- **friction:** Passing filtered runs still printed `failed command:` immediately after `guardian/test: PASS`, and one mistyped zero-match filter failed only after compiling; the explicit zero-match protection was useful, but the success-path wording remains misleading.
