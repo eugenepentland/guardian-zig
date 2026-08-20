@@ -9705,3 +9705,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** The `spec` check caught a duplicate tag when the saved-layout parser and browser contract initially shared one Web Server bullet; retaining one tagged behavior test plus an untagged parser regression made the ownership explicit, and the whole-tree commit and release gates passed with zero blocking findings.
 - **friction:** Selective `guardian-accept` for `type-size` refreshed two unrelated downward ratchets (`ReviewDoc` 14→12 and `PngRequest` 28→27) because the whole tree had improved since the baseline; I had to restore those lines manually to keep the feature diff scoped.
 - **friction:** The passing filtered run still printed `failed command:` immediately after `guardian/test: PASS`, so the process exit status remained the only unambiguous success signal.
+
+## 2026-08-20 · codex · eda — export and compare Elmer thermal cases
+- **good:** The release gate's shard-coverage test caught both new named Elmer tests being absent from `src/test_shards.zig`; the failure named the exact tests and prevented them from being silently omitted from future full suites.
+- **good:** The `spec` and `pub-api-surface` checks gave actionable fixes for the new FEM export contract and intentional thermal-grid API additions, and the final whole-tree gate passed with zero blocking findings.
+- **friction:** The missing shard registration surfaced only after a 49-second release attempt, even though the earlier focused tests passed because explicit test filters compile and run the selected tests outside their manifest shard; a fast pre-release shard-manifest check would have avoided the retry.
