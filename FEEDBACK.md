@@ -9674,3 +9674,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — restore the thermal page after solving
 - **good:** The diff-scoped `spec` check caught a newly introduced standalone browser-regression tag before commit; folding the CSS assertion into the already-linked thermal overlay contract kept the test traceable, and the subsequent whole-tree commit and release gates passed with zero blocking findings.
 - **friction:** Every passing filtered run still printed `failed command:` immediately after `guardian/test: PASS`, making a green run look failed until the build exit status was checked; this was especially confusing after an earlier sandbox-only socket-permission crash.
+
+## 2026-08-20 · codex · eda — add left-drag panning to the thermal board
+- **good:** The existing linked thermal live-viewer contract accepted a focused interaction regression assertion without new spec metadata, and both the whole-tree commit gate and concurrent release gate passed with zero blocking findings on the first run.
