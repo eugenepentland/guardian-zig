@@ -9714,3 +9714,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — compare Elmer forced-air thermal scenarios
 - **good:** The diff-scoped spec linkage, whole-tree commit gate, and concurrent release gate all accepted the new 1 m/s and 2 m/s Elmer scenario paths with zero blocking findings on the first run.
 - **friction:** A passing filtered test again printed `failed command:` immediately after `guardian/test: PASS`, so the zero exit status remained the only unambiguous success signal.
+
+## 2026-08-20 · codex · eda — pack the thermal solver into SIMD lanes
+- **good:** The diff-scoped `spec`, `function-size`, and `pub-api-surface` findings all named actionable fixes while the solver was still being shaped; after linking the benchmark contract, bundling the packed configuration, and accepting the intentional CLI seam, the whole-tree Guardian gate was green.
+- **good:** The release gate caught a two-decimal thermal API assertion whose exact `0.01` tolerance failed when equivalent f32 and f64 values rounded to adjacent centidegrees; the focused fix kept the public formatting contract explicit, and the second release run passed all 3,529 tests.
+- **friction:** Passing filtered thermal runs still printed `failed command:` immediately after `guardian/test: PASS`, so every green iteration required checking the process exit status separately.
