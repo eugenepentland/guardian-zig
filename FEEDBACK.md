@@ -9751,3 +9751,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — edit existing heatsink geometry
 - **good:** The diff-scoped browser contract, whole-tree commit gate, and concurrent release gate accepted direct heatsink move/resize handles and fin-count editing with zero blocking findings.
 - **friction:** The passing filtered browser-contract run again printed `failed command:` immediately after `guardian/test: PASS`, leaving the zero process exit status as the only unambiguous success signal.
+
+## 2026-08-20 · codex · eda — switch thermal board faces
+- **good:** The diff-scoped SPEC linkage and browser contract accepted the top/bottom orientation bridge, visible-face labels, and URL state without new baselines; the whole-tree commit and concurrent release gates passed with zero blocking findings.
+- **friction:** The sandboxed focused thermal-page test crashed when httpz's local harness was denied `setsockopt`, requiring an escalated rerun; that green rerun still printed `failed command:` after `guardian/test: PASS`.
