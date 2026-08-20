@@ -9727,3 +9727,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — accelerate the full thermal page
 - **good:** The diff-scoped `spec` check caught an unlinked sampling-fill contract, and `cognitive-complexity` caught a one-point regression in `writePcbData`; extracting the policy helper fixed both without accepting ratchets, and the whole-tree commit and release gates passed with zero blocking findings.
 - **friction:** The sandboxed focused thermal run reported 23 crashes from denied `setsockopt` calls while its other 120 tests passed, requiring an escalated rerun to establish the clean 143/143 result; passing filtered runs also continued to print `failed command:` after `guardian/test: PASS`.
+
+## 2026-08-20 · codex · eda — center practical exposed-pad thermal via arrays
+- **good:** The diff-scoped `spec` and `pub-api-surface` checks immediately caught an unlinked density contract and an unnecessary new cross-file public helper; keeping the exact containment helper private and linking the SPEC bullet made both focused tests and the whole-tree release gate pass with zero blocking findings.
+- **friction:** Both passing filtered routing tests again printed `failed command:` immediately after `guardian/test: PASS`, so the successful exit status remained the only unambiguous result.
