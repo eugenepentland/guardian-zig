@@ -9759,3 +9759,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — toggle heatsink overlay visibility
 - **good:** The first full release gate caught a stale cross-asset assertion that hard-coded the PCB visibility-state literal; updating that compatibility contract made the second whole-tree gate pass with zero blocking findings.
 - **friction:** Passing filtered UI tests again printed `failed command:` immediately after `guardian/test: PASS`, requiring explicit exit-code inspection to establish success.
+
+## 2026-08-20 · codex · eda — make test-point labels editable
+- **good:** The diff-scoped `type-size` and `pub-api-surface` checks caught an unnecessary extra field and public owner type in the shared board-text model; consolidating generated-label ownership behind a private tagged union avoided both ratchet changes, and the whole-tree commit and concurrent release gates passed with zero blocking findings.
+- **friction:** All three passing filtered runs again printed `failed command:` immediately after `guardian/test: PASS`, so the zero process exit status remained the only unambiguous success signal.
