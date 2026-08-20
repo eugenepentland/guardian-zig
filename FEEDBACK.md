@@ -9738,3 +9738,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — protect practical thermal via arrays from early signal waves
 - **good:** The diff-scoped spec gate, focused routing regressions, whole-tree gate, and concurrent release gate accepted the large-array prepass and compact-array ordering policy with zero blocking findings.
 - **friction:** Both passing filtered routing tests printed `failed command:` immediately after `guardian/test: PASS`, so the zero process exit status was again required to establish that the tests succeeded.
+
+## 2026-08-20 · codex · eda — protect tightened 3x3 thermal via fields
+- **good:** Focused density and route-order tests, the whole-tree gate, and the concurrent release gate all passed with zero blocking findings; the guarded policy also improved the Barracuda benchmark from 105/116 to 107/116 while keeping GND connected.
+- **friction:** Both green filtered tests again printed `failed command:` after an explicit `guardian/test: PASS`, requiring exit-code inspection to distinguish success.
