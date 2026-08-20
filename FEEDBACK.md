@@ -9734,3 +9734,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-20 · codex · eda — model directional heatsink paths
 - **good:** The `pub-api-surface` check isolated the seven intentional public thermal assembly types, selective acceptance refreshed only those entries, and the subsequent whole-tree release gate passed all tests with zero blocking findings on the first run.
+
+## 2026-08-20 · codex · eda — protect practical thermal via arrays from early signal waves
+- **good:** The diff-scoped spec gate, focused routing regressions, whole-tree gate, and concurrent release gate accepted the large-array prepass and compact-array ordering policy with zero blocking findings.
+- **friction:** Both passing filtered routing tests printed `failed command:` immediately after `guardian/test: PASS`, so the zero process exit status was again required to establish that the tests succeeded.
