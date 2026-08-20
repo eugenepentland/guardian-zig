@@ -9677,3 +9677,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-20 · codex · eda — add left-drag panning to the thermal board
 - **good:** The existing linked thermal live-viewer contract accepted a focused interaction regression assertion without new spec metadata, and both the whole-tree commit gate and concurrent release gate passed with zero blocking findings on the first run.
+
+## 2026-08-20 · codex · eda — render PCB outlines and bottom-side parts in 3D
+- **good:** The diff-scoped `spec` check caught that the new PCB 3D browser-contract test lacked its matching Web Server SPEC bullet; after linking it, the filtered gates, whole-tree commit gate, and concurrent release gate all passed with zero blocking findings.
+- **friction:** Both passing filtered test runs printed `failed command:` immediately after `guardian/test: PASS` despite exiting zero, so each green result required checking the process status rather than trusting the visible test summary.
