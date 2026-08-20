@@ -9697,3 +9697,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-20 · codex · eda — stop PCB 3D face clipping and open drills
 - **good:** The new Node geometry gate exercised the real bundled Three.js extrusion and proved round and slotted drill centers stay absent from both textured faces and both substrate caps; the whole-tree release gate then passed with zero blocking findings.
+
+## 2026-08-20 · codex · eda — include generated silkscreen in PCB 3D faces
+- **good:** The existing spec-linked browser contract accepted exact markers for the shared generated-silk API and all three consumers (sub-circuits, test points, pin-1); JavaScript syntax checks, the whole-tree commit gate, and the concurrent release gate all passed with zero blocking findings.
