@@ -9694,3 +9694,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — refresh newly uploaded models in an open PCB 3D view
 - **good:** The focused diff gate, rebased focused rerun, commit gate, and whole-tree release gate all passed with zero blocking findings.
 - **friction:** Both passing filtered runs printed `failed command:` after `guardian/test: PASS`, so the process exit status was still needed to distinguish success from failure.
+
+## 2026-08-20 · codex · eda — stop PCB 3D face clipping and open drills
+- **good:** The new Node geometry gate exercised the real bundled Three.js extrusion and proved round and slotted drill centers stay absent from both textured faces and both substrate caps; the whole-tree release gate then passed with zero blocking findings.
