@@ -9690,3 +9690,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** The `test-no-conditional` check caught two top-level loops in the new browser-contract test and guided it into one table-driven assertion pass; the added JavaScript syntax gates and the final whole-tree gate then passed with zero blocking findings.
 - **friction:** The first release run spent 44 seconds discovering a stale cross-file assertion in `serve.drc_rules.test.viewer JS honors pad-local rotation in rendering and geometry`; a dependency-aware check tying embedded asset-marker tests to changed assets could have surfaced that in the earlier focused PCB 3D run.
 - **friction:** The passing filtered regression again printed `failed command:` immediately after `guardian/test: PASS`, making the successful exit status the only unambiguous result.
+
+## 2026-08-20 · codex · eda — refresh newly uploaded models in an open PCB 3D view
+- **good:** The focused diff gate, rebased focused rerun, commit gate, and whole-tree release gate all passed with zero blocking findings.
+- **friction:** Both passing filtered runs printed `failed command:` after `guardian/test: PASS`, so the process exit status was still needed to distinguish success from failure.
