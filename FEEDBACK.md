@@ -9700,3 +9700,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-20 · codex · eda — include generated silkscreen in PCB 3D faces
 - **good:** The existing spec-linked browser contract accepted exact markers for the shared generated-silk API and all three consumers (sub-circuits, test points, pin-1); JavaScript syntax checks, the whole-tree commit gate, and the concurrent release gate all passed with zero blocking findings.
+
+## 2026-08-20 · codex · eda — add editable side-aware fabrication backing
+- **good:** The `spec` check caught a duplicate tag when the saved-layout parser and browser contract initially shared one Web Server bullet; retaining one tagged behavior test plus an untagged parser regression made the ownership explicit, and the whole-tree commit and release gates passed with zero blocking findings.
+- **friction:** Selective `guardian-accept` for `type-size` refreshed two unrelated downward ratchets (`ReviewDoc` 14→12 and `PngRequest` 28→27) because the whole tree had improved since the baseline; I had to restore those lines manually to keep the feature diff scoped.
+- **friction:** The passing filtered run still printed `failed command:` immediately after `guardian/test: PASS`, so the process exit status remained the only unambiguous success signal.
