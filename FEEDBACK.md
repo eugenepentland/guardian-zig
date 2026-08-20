@@ -9681,3 +9681,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — render PCB outlines and bottom-side parts in 3D
 - **good:** The diff-scoped `spec` check caught that the new PCB 3D browser-contract test lacked its matching Web Server SPEC bullet; after linking it, the filtered gates, whole-tree commit gate, and concurrent release gate all passed with zero blocking findings.
 - **friction:** Both passing filtered test runs printed `failed command:` immediately after `guardian/test: PASS` despite exiting zero, so each green result required checking the process status rather than trusting the visible test summary.
+
+## 2026-08-20 · codex · eda — allow hash-suffixed manufacturer names for 3D uploads
+- **good:** The diff-scoped Guardian gate passed the focused regression cleanly with zero blocking findings.
+- **friction:** The passing filtered run still printed `failed command:` after `guardian/test: PASS`, requiring the process exit status to confirm success.
