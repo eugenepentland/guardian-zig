@@ -9664,3 +9664,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   default zig build test` / `addTestCompileProbe` advisory on every single green
   commit. After the first read it is pure scroll; it would land better as a
   once-per-repo nag, or attached to `run-all` rather than to each commit.
+
+## 2026-08-20 · codex · eda — deduplicate the generated PCB fabrication ID
+- **good:** The diff-scoped gate caught both the missing SPEC linkage and the intentional public-API snapshot addition before the focused tests; after those metadata fixes, the whole-tree release gate passed cleanly on the first run.
