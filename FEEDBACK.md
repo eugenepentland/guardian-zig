@@ -9731,3 +9731,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — center practical exposed-pad thermal via arrays
 - **good:** The diff-scoped `spec` and `pub-api-surface` checks immediately caught an unlinked density contract and an unnecessary new cross-file public helper; keeping the exact containment helper private and linking the SPEC bullet made both focused tests and the whole-tree release gate pass with zero blocking findings.
 - **friction:** Both passing filtered routing tests again printed `failed command:` immediately after `guardian/test: PASS`, so the successful exit status remained the only unambiguous result.
+
+## 2026-08-20 · codex · eda — model directional heatsink paths
+- **good:** The `pub-api-surface` check isolated the seven intentional public thermal assembly types, selective acceptance refreshed only those entries, and the subsequent whole-tree release gate passed all tests with zero blocking findings on the first run.
