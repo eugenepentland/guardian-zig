@@ -9723,3 +9723,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — reserve exposed-pad thermal via arrays first
 - **good:** The diff-scoped `type-size`, `function-size`, and `spec` checks caught an unnecessary router-terminal expansion, two seven-parameter helpers, and a duplicate behavior tag during the first focused iterations; restructuring around existing pad geometry and a bundled thermal context fixed all three without accepting new ratchets, and the whole-tree commit and release gates passed with zero blocking findings.
 - **friction:** Passing filtered plane-via tests again printed `failed command:` immediately after `guardian/test: PASS`, so the visible output still contradicted the successful process result on every focused run.
+
+## 2026-08-20 · codex · eda — accelerate the full thermal page
+- **good:** The diff-scoped `spec` check caught an unlinked sampling-fill contract, and `cognitive-complexity` caught a one-point regression in `writePcbData`; extracting the policy helper fixed both without accepting ratchets, and the whole-tree commit and release gates passed with zero blocking findings.
+- **friction:** The sandboxed focused thermal run reported 23 crashes from denied `setsockopt` calls while its other 120 tests passed, requiring an escalated rerun to establish the clean 143/143 result; passing filtered runs also continued to print `failed command:` after `guardian/test: PASS`.
