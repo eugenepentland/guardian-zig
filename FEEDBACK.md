@@ -9860,3 +9860,13 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** Across five rapid iterations (all of them test-fixture fixes, no production change), `run-all: 79 checks — 0 blocking` held steady every time, so the only signal in the log was my own failing assertion. A gate that goes quiet once the code is right is exactly what you want during a debug loop; the noisy ones train you to skim.
 - **good:** `anytype-budget` fired once at the start of the previous wave and never again — the redesign it forced (reuse the module's existing join-seam contract instead of four callback params) survived four more refactors without re-tripping. A check that changes the shape once and then stays out of the way earns its place.
 - **friction:** `zig build test-affected` re-runs the whole 3,500-test suite for a one-line change in a single test fixture, so each of those five iterations cost 2-4 minutes of a machine that was already busy with someone else's job. `strategy FULL` was chosen because `src/test_root.zig` is in the changed set — but it was only ever changed to REGISTER the new file, and its content is a list of imports. A test-root diff that only adds an `@import` line could keep the narrower strategy for the file it imports, rather than escalating the whole tree.
+
+## 2026-08-21 · claude-fable · eda — manhattan-first RF routing + big fillets
+- good: `run-all: cached — 0 blocking` made every post-agent verification in the
+  main loop ~3 s; two implementation agents sharing one worktree with per-file
+  ownership never tripped each other's gate runs.
+- friction: router.zig sits at its 10k code-line hard cap, so a 2-line hook
+  relocation would have needed compensating deletions elsewhere; we designed
+  around it (all new logic in manhattan_route.zig) rather than fight the
+  ratchet. Cap pressure on the hottest file steers architecture — intended,
+  but worth knowing it now binds on every router change.
