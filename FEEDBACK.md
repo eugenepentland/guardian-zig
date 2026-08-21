@@ -9940,3 +9940,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — schematic pin-net editing and part deletion
 - **good:** The `spec` check immediately caught the new schematic-editor browser contract before commit; adding the exact Web Server bullet cleared it, and the final 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 48 seconds.
 - **friction:** The passing focused regression run again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, leaving the process exit status as the only unambiguous verdict.
+
+## 2026-08-21 · codex · eda — enable edits on standalone module schematics
+- **good:** The exact SPEC-linked browser regression kept the module-page exception explicit, and the corrected commit passed all 79 whole-tree checks, the full Debug suite, and the ReleaseSafe build concurrently in 45 seconds.
+- **friction:** The passing focused regression again printed `failed command:` after `guardian/test: PASS — 24 passed`; the zero exit code was the only unambiguous verdict.
