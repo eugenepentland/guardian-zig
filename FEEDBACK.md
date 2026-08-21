@@ -9915,3 +9915,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — remove passive-island bus tails
 - **good:** `pub-api-surface`, `cognitive-complexity`, and `function-size` caught an accidental renderer-internal API expansion, one-point growth in two already-large layout functions, and a seven-parameter helper during the first focused runs; moving the work into private preprocessing helpers cleared all three without accepting debt.
 - **good:** The final 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 49 seconds.
+
+## 2026-08-21 · codex · eda — current-aware PCB autorouting
+- **good:** The full release test caught both new named power-routing tests missing from `src/test_shards.zig`; the shard-coverage diagnostic named the exact unclaimed test each time, preventing a locally green focused run from shipping tests the parallel suite would omit.
+- **good:** `completeness` made the new shared IPC-2221 module document its behavior for invalid geometry, empty stacks, bounded stack size, concurrency, I/O, and access before the public-API snapshot was accepted.
+- **friction:** Passing focused runs still printed `failed command:` immediately after `guardian/test: PASS`, so the process exit status remained the only unambiguous verdict.
