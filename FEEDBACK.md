@@ -9896,3 +9896,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — solve routed power branch currents
 - **good:** `cognitive-complexity` caught a 33-point nodal-solver function and prompted a clean split into input validation, matrix stamping, and result extraction; the whole-tree 79-check gate and 3,600-test Debug suite then passed with zero blocking findings.
 - **bug:** `guardian-check commit . --intent 'power integrity: solve routed branch currents'` entered phase 2, re-ran the already-green `zig build --seed=1 test`, then spun at 100% CPU indefinitely after its `maker` child became defunct. It printed “tests running” heartbeats through 340 seconds with no live child process and required Ctrl-C; running the same full test command directly had completed successfully, and the normal pre-commit `guardian-check all . --gate` remained green. The failure cost about six minutes and forced a manual `git commit`.
+
+## 2026-08-21 · codex · eda — include planes and pours in power analysis
+- **good:** `spec`, `doc-comments`, `type-size`, and `bool-ops-per-condition` each caught a concrete first-pass integration issue; the selective public-API acceptance then moved only the intended snapshot, and the 79-check whole-tree release gate plus full tests and ReleaseSafe build completed in 46 seconds with zero blocking findings.
+- **friction:** Passing filtered test runs still printed `failed command:` immediately after `guardian/test: PASS`, so the process exit status remained the only unambiguous verdict.
