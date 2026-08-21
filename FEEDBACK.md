@@ -9931,3 +9931,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — retain the first PCB item in Ctrl multi-selection
 - **good:** The `spec` check caught the new browser-contract regression's missing SPEC link, and the first full release suite then caught a stale marker in the pre-existing modifier-selection test that the new shared commit helper had invalidated; after correcting that assertion, all 79 checks, 3,619 Debug tests, and the ReleaseSafe build passed.
 - **friction:** Passing focused runs still printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero process exit status remained necessary to distinguish a green filtered run from failure.
+
+## 2026-08-21 · codex · eda — routed PDN impedance screening
+- **good:** `nesting-depth` and `change-classification` caught a deeply nested selected-BOM loading path and its missing behavioral contract before commit; extracting the loader and adding a focused test plus exact SPEC link cleared both without accepting debt.
+- **good:** The final whole-tree 79-check gate, full Debug suite, and ReleaseSafe build passed concurrently in 47 seconds and produced the exact-commit deployment candidate.
+- **friction:** The passing focused regression run again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, leaving the process exit status as the only unambiguous verdict.
