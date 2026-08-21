@@ -9908,3 +9908,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — board-specific via plating for power analysis
 - **good:** `pub-api-surface` isolated the single intentional default-plating constant addition, the named acceptance refreshed only that snapshot, and the final 79-check whole-tree gate plus full Debug tests and ReleaseSafe build passed in 51 seconds.
 - **good:** The zero-match test-filter guard rejected my imprecise `power integrity` filter instead of presenting an empty run as evidence; correcting it to the exact test names produced focused green runs.
+
+## 2026-08-21 · codex · eda — fix TSY functional schematic routing
+- **good:** The `spec` check immediately caught both new renderer regressions whose behavior tags were not yet linked in `SPEC.md`; after adding the exact contracts, the focused runs and the 79-check whole-tree release gate passed with zero blocking findings.
