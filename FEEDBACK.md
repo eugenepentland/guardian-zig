@@ -9780,3 +9780,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — thin PCB courtyard outlines
 - **good:** The spec-linked browser contract, whole-tree commit gate, and concurrent release gate accepted the courtyard stroke reduction with zero blocking findings on the first run.
 - **friction:** The passing focused browser-contract run printed `failed command:` immediately after `guardian/test: PASS`, so the zero process exit status was again required to interpret the result.
+
+## 2026-08-21 · codex · eda — cache assembly workspace pages
+- **good:** The release gate's shard-coverage test caught both new assembly-cache tests missing from `src/test_shards.zig`, named the first uncovered test exactly, and prevented a silently incomplete suite; after adding the shard filter and linked Web Server spec bullet, all 3,542 tests and the ReleaseSafe build passed.
+- **friction:** The missing shard registration surfaced only after a 41-second release attempt even though the focused cache tests were green; running the fast shard-manifest coverage check before the expensive parallel suite would avoid that retry for every new test file.
