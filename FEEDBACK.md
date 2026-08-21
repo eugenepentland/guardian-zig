@@ -9794,3 +9794,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **friction:** Those two registrations are separate from `src/main.zig`'s aggregator, so a new module needs three edits in three files and you only learn about the second and third from a full-suite run (~4 min each). A single check that reports all three missing registrations at once — or one that runs before the test binaries compile — would collapse two cycles into zero.
 - **friction:** `affected-tests: strategy FULL — src/test_root.zig controls the test or build graph` means touching the aggregator always costs the whole Debug suite. Correct, but it means the module-registration iteration above is the most expensive possible loop.
 - **good:** The suite caught a wrong expectation in my OWN new unit test (`expected 3, found 2` on a via use-count where a layer-0 pour and a layer-0 track share one layer bit) rather than letting a plausible-looking number bake in.
+
+## 2026-08-21 · codex · eda — simplify PCB editor workspace chrome
+- **good:** The first full release gate caught a stale route-plan location assertion after the control moved from the scorebar into the Autorouter dock; correcting that contract made the second whole-tree gate and concurrent ReleaseSafe build pass with zero blocking findings.
+- **friction:** Moving the existing `// spec:` tag one ordinary explanatory comment away from its test produced `tag not on a test`; the diagnostic named the exact line, but requiring the tag to be immediately adjacent cost one otherwise unnecessary focused gate retry.
+- **friction:** Passing filtered UI tests again printed `failed command:` immediately after `guardian/test: PASS`, leaving the process exit code as the only unambiguous success signal.
