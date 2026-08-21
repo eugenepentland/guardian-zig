@@ -9944,3 +9944,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — enable edits on standalone module schematics
 - **good:** The exact SPEC-linked browser regression kept the module-page exception explicit, and the corrected commit passed all 79 whole-tree checks, the full Debug suite, and the ReleaseSafe build concurrently in 45 seconds.
 - **friction:** The passing focused regression again printed `failed command:` after `guardian/test: PASS — 24 passed`; the zero exit code was the only unambiguous verdict.
+
+## 2026-08-21 · codex · eda — remove the standalone schematic editor
+- **good:** `pub-api-surface` precisely identified the retired page handler, scene endpoint, and asset-version helper; accepting only that snapshot left all 79 blocking checks green, and the full Debug suite plus ReleaseSafe build passed concurrently in 50 seconds.
+- **friction:** The passing focused regressions again printed `failed command:` after `guardian/test: PASS — 24 passed`; the zero exit code remained the only unambiguous verdict.
