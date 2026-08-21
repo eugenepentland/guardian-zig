@@ -9767,3 +9767,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — open solder mask behind exposed paddles
 - **good:** The spec-linked Gerber regression, adjacent mask/custom-pad tests, whole-tree gate, and concurrent release gate all passed with zero blocking findings; the implementation reused the router's existing paddle threshold without expanding the public API.
 - **friction:** Each passing filtered Gerber test again printed `failed command:` after `guardian/test: PASS`, so the successful exit status remained necessary to interpret the result.
+
+## 2026-08-21 · codex · eda — keep signals masked beneath thermal windows
+- **good:** The spec gate caught both the stale original behavior tag and a duplicate replacement tag while the Gerber safety regression was being split into exact-window and signal-protection contracts; the focused tests, whole-tree gate, and concurrent release gate then passed with zero blocking findings.
+- **friction:** Both passing filtered Gerber runs printed `failed command:` immediately after `guardian/test: PASS`, again requiring the process exit status to establish success.
