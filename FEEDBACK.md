@@ -9870,3 +9870,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   around it (all new logic in manhattan_route.zig) rather than fight the
   ratchet. Cap pressure on the hottest file steers architecture — intended,
   but worth knowing it now binds on every router change.
+
+## 2026-08-21 · codex · eda — consolidate same-net pad fanouts
+- **good:** The SPEC check and public-API snapshot caught the new post-route pad-fusion seam during the first focused run; after linking the exact behaviors and accepting the intentional API addition, the 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed with zero blocking findings.
+- **friction:** Passing filtered runs still printed `failed command:` immediately after `guardian/test: PASS`, so the process exit code remained the only unambiguous success signal.
