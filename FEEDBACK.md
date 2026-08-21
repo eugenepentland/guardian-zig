@@ -9900,3 +9900,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — include planes and pours in power analysis
 - **good:** `spec`, `doc-comments`, `type-size`, and `bool-ops-per-condition` each caught a concrete first-pass integration issue; the selective public-API acceptance then moved only the intended snapshot, and the 79-check whole-tree release gate plus full tests and ReleaseSafe build completed in 46 seconds with zero blocking findings.
 - **friction:** Passing filtered test runs still printed `failed command:` immediately after `guardian/test: PASS`, so the process exit status remained the only unambiguous verdict.
+
+## 2026-08-21 · codex · eda — recognize external board power sources
+- **good:** `cognitive-complexity` caught that adding top-level port collection directly to the already-large power-budget analyzer exceeded its frozen ceiling; extracting the logic into a focused helper restored the ratchet without accepting debt, and the 79-check whole-tree gate plus full tests and ReleaseSafe build passed.
+- **friction:** Both passing focused runs again printed `failed command:` immediately after `guardian/test: PASS`, so the zero process exit status remained necessary to establish success.
