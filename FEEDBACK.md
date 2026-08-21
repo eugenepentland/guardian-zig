@@ -9924,3 +9924,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — fabricated reference-path DRC
 - **good:** The full release suite caught two enum-expansion omissions that focused feature tests missed: the canonical warning-severity coverage ratchet and the settings drawer's required help text for every DRC kind. Adding the exact-return-fill checks to those exhaustive surfaces made the second 79-check Guardian gate, 3,617-test Debug suite, and ReleaseSafe build pass cleanly.
 - **good:** Selective `pub-api-surface` and `type-size` acceptance isolated the intended return-path policy, exact plane-stack identity, and checker seam; regenerated language docs then passed the drift check without unrelated snapshot changes.
+
+## 2026-08-21 · codex · eda — PCB layout sidebar rename and delete
+- **good:** `change-classification` required the new sidebar behavior to be linked to an exact SPEC contract and focused test, while `panic-budget` caught an unnecessary `unreachable` introduced by sharing rename and delete error sets; separating those sets removed the panic before the 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed in 49 seconds.
