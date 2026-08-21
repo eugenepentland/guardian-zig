@@ -9825,3 +9825,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - good: pub-api-surface, function-size (7-param `salvageDamagedNets`), and test-no-conditional each caught real drift across a 4-commit wave, and every printed fix hint was directly actionable.
 - friction: `zig build guardian-accept` mutates `.guardian/pub-api.txt` AFTER `git add -A` has already staged, so the first commit landed without the snapshot and needed an immediate amend. An accept that stages its own diff — or a commit-hook warning when `.guardian/` is dirty — would remove the trap.
 - friction: each blocked-then-retried commit pays a cold whole-tree gate run (minutes); three blocks in this wave paid it three times on an unchanged tree between attempts.
+
+## 2026-08-21 · codex · eda — click-and-hold PCB overlap picker
+- **good:** The diff-scoped and whole-tree gates accepted the new selection-filter interaction contract with zero blocking findings, and the concurrent full test/ReleaseSafe release gate completed in 48 seconds.
+- **friction:** An unlinked `// spec:` label on a new browser-contract test cost two focused gate retries—first because a wrapped explanatory continuation separated the tag from the test, then because the new behavior had no matching SPEC bullet; using an ordinary test comment was the correct outcome, but the passing filtered run still printed `failed command:` after `guardian/test: PASS`.
