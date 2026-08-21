@@ -9927,3 +9927,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-21 · codex · eda — PCB layout sidebar rename and delete
 - **good:** `change-classification` required the new sidebar behavior to be linked to an exact SPEC contract and focused test, while `panic-budget` caught an unnecessary `unreachable` introduced by sharing rename and delete error sets; separating those sets removed the panic before the 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed in 49 seconds.
+
+## 2026-08-21 · codex · eda — retain the first PCB item in Ctrl multi-selection
+- **good:** The `spec` check caught the new browser-contract regression's missing SPEC link, and the first full release suite then caught a stale marker in the pre-existing modifier-selection test that the new shared commit helper had invalidated; after correcting that assertion, all 79 checks, 3,619 Debug tests, and the ReleaseSafe build passed.
+- **friction:** Passing focused runs still printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero process exit status remained necessary to distinguish a green filtered run from failure.
