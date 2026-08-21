@@ -9911,3 +9911,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-21 · codex · eda — fix TSY functional schematic routing
 - **good:** The `spec` check immediately caught both new renderer regressions whose behavior tags were not yet linked in `SPEC.md`; after adding the exact contracts, the focused runs and the 79-check whole-tree release gate passed with zero blocking findings.
+
+## 2026-08-21 · codex · eda — remove passive-island bus tails
+- **good:** `pub-api-surface`, `cognitive-complexity`, and `function-size` caught an accidental renderer-internal API expansion, one-point growth in two already-large layout functions, and a seven-parameter helper during the first focused runs; moving the work into private preprocessing helpers cleared all three without accepting debt.
+- **good:** The final 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 49 seconds.
