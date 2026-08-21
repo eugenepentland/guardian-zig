@@ -9763,3 +9763,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-20 · codex · eda — make test-point labels editable
 - **good:** The diff-scoped `type-size` and `pub-api-surface` checks caught an unnecessary extra field and public owner type in the shared board-text model; consolidating generated-label ownership behind a private tagged union avoided both ratchet changes, and the whole-tree commit and concurrent release gates passed with zero blocking findings.
 - **friction:** All three passing filtered runs again printed `failed command:` immediately after `guardian/test: PASS`, so the zero process exit status remained the only unambiguous success signal.
+
+## 2026-08-21 · codex · eda — open solder mask behind exposed paddles
+- **good:** The spec-linked Gerber regression, adjacent mask/custom-pad tests, whole-tree gate, and concurrent release gate all passed with zero blocking findings; the implementation reused the router's existing paddle threshold without expanding the public API.
+- **friction:** Each passing filtered Gerber test again printed `failed command:` after `guardian/test: PASS`, so the successful exit status remained necessary to interpret the result.
