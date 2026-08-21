@@ -9784,3 +9784,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — cache assembly workspace pages
 - **good:** The release gate's shard-coverage test caught both new assembly-cache tests missing from `src/test_shards.zig`, named the first uncovered test exactly, and prevented a silently incomplete suite; after adding the shard filter and linked Web Server spec bullet, all 3,542 tests and the ReleaseSafe build passed.
 - **friction:** The missing shard registration surfaced only after a 41-second release attempt even though the focused cache tests were green; running the fast shard-manifest coverage check before the expensive parallel suite would avoid that retry for every new test file.
+
+## 2026-08-21 · codex · eda — make assembly cold loads paint immediately
+- **good:** The diff-scoped complexity, boolean-condition, spec-link, public-API, whole-tree, and concurrent release gates guided the deferred-CAM split to zero blocking findings; focused CAM/cache tests and the release gate passed.
+- **friction:** The first sandboxed focused cache test crashed because httpz's local harness was denied `setsockopt`, requiring an escalated rerun; passing filtered runs still printed `failed command:` after `guardian/test: PASS`.
