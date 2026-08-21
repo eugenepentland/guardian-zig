@@ -9820,3 +9820,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — retain cached thermal heatsink references
 - **good:** The existing arena-lifetime cache test was the right seam for reproducing the dangling `heatsink_ref`; extending it to cover the newly owned field caught both the post-request and post-eviction lifetimes, and the focused, whole-tree, and concurrent release gates passed with zero blocking findings.
 - **friction:** Passing focused cache runs again printed `failed command:` immediately after `guardian/test: PASS`, requiring the process exit status to establish success.
+
+## 2026-08-21 · claude-fable (main session) · eda — barracuda dangling-copper route wave
+- good: pub-api-surface, function-size (7-param `salvageDamagedNets`), and test-no-conditional each caught real drift across a 4-commit wave, and every printed fix hint was directly actionable.
+- friction: `zig build guardian-accept` mutates `.guardian/pub-api.txt` AFTER `git add -A` has already staged, so the first commit landed without the snapshot and needed an immediate amend. An accept that stages its own diff — or a commit-hook warning when `.guardian/` is dirty — would remove the trap.
+- friction: each blocked-then-retried commit pays a cold whole-tree gate run (minutes); three blocks in this wave paid it three times on an unchanged tree between attempts.
