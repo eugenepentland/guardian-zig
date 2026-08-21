@@ -9936,3 +9936,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** `nesting-depth` and `change-classification` caught a deeply nested selected-BOM loading path and its missing behavioral contract before commit; extracting the loader and adding a focused test plus exact SPEC link cleared both without accepting debt.
 - **good:** The final whole-tree 79-check gate, full Debug suite, and ReleaseSafe build passed concurrently in 47 seconds and produced the exact-commit deployment candidate.
 - **friction:** The passing focused regression run again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, leaving the process exit status as the only unambiguous verdict.
+
+## 2026-08-21 · codex · eda — schematic pin-net editing and part deletion
+- **good:** The `spec` check immediately caught the new schematic-editor browser contract before commit; adding the exact Web Server bullet cleared it, and the final 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 48 seconds.
+- **friction:** The passing focused regression run again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, leaving the process exit status as the only unambiguous verdict.
