@@ -10034,3 +10034,11 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — reset stale PCB selection filters on reload
 - **good:** The focused Appearance and selection-filter contracts, JavaScript parse check, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; the exact-tree candidate completed in 35 seconds and deployed with healthy probes.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — stable inspector-visible via IDs
+- **good:** `file-size` forced the legacy-via ID hash out of the near-cap `pcb_layout_page.zig`, while scoped `type-size` and `pub-api-surface` acceptance recorded exactly the intentional `SavedVia.id` schema field and helper export; the final 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in 30 seconds and deployed with healthy probes.
+- **friction:** Passing focused ID and sidecar regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — honor child route plans in hierarchical routing
+- **good:** The first full sharded release run caught a saved-module fixture whose moved one-shot local route was incomplete; updating the assertion to require deferral instead of freezing partial copper made the intended complete-only contract explicit. The corrected run passed all 79 checks and 3,643 tests while producing the ReleaseSafe candidate in 31 seconds.
+- **friction:** Adding diagnostics to the already-near-cap `pcb_layout_page.zig` crossed the frozen `file-size` growth threshold at 9,693 code lines, but the message only prescribed shrinking to 8,000. Moving the work out until the file was 9,650 cleared the gate, so mentioning “restore or reduce the prior frozen size” would make the actionable path clearer.
