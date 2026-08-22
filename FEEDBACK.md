@@ -9948,3 +9948,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-21 · codex · eda — remove the standalone schematic editor
 - **good:** `pub-api-surface` precisely identified the retired page handler, scene endpoint, and asset-version helper; accepting only that snapshot left all 79 blocking checks green, and the full Debug suite plus ReleaseSafe build passed concurrently in 50 seconds.
 - **friction:** The passing focused regressions again printed `failed command:` after `guardian/test: PASS — 24 passed`; the zero exit code remained the only unambiguous verdict.
+
+## 2026-08-22 · codex · eda — PCB editor routed/total header
+- **good:** The focused browser-contract test, 79-check whole-tree gate, full Debug suite, and ReleaseSafe build all passed without snapshot acceptance; the exact-commit release candidate completed in 46 seconds and deployed cleanly.
+- **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so confirming the process exit code was still necessary to distinguish success from failure.
