@@ -9998,3 +9998,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — refresh passive PCB footprints without navigation
 - **good:** `file-size` pushed the shared PCB part/pad JSON writer out of the already-near-cap `pcb_layout_page.zig`, and scoped `pub-api-surface` acceptance exposed exactly the two intentional module exports; the final 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 34 seconds and the exact-commit candidate deployed with healthy probes.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — parametric PCB outline sketch editor
+- **good:** Scoped `pub-api-surface` acceptance isolated the intentional versioned sketch/compiler exports, and the full release suite caught both a stale browser-contract assertion and the two new test modules missing from the exhaustive shard manifest; after those fixes, all 79 checks, 3,625 tests, and the concurrent ReleaseSafe build passed in 37 seconds.
+- **friction:** Passing focused regressions continued to print `failed command:` after `guardian/test: PASS`, requiring the enclosing process exit code to distinguish success from failure.
