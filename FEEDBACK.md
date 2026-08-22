@@ -9972,3 +9972,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda/ward — production server cutover gates
 - **good:** Netlisp's fresh-host `prepare-release` passed all 79 whole-tree checks with zero blockers, completed the full Debug suite and ReleaseSafe build concurrently in 35 seconds, and produced a healthy exact-commit deployment candidate.
 - **friction:** Ward's `deploy/deploy.sh` says its `zig build` runs the full Guardian gate, but the cutover output explicitly reported a diff-scoped run with 0/85 source files in scope and only 26 whole-tree checks; deployment confidence therefore depended on the separate whole-tree migration verification rather than the deploy command alone.
+
+## 2026-08-22 · codex · eda — bound interactive PCB routing
+- **good:** Two exact browser-contract filters, the 79-check whole-tree gate, the full Debug suite, and the ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 31 seconds.
