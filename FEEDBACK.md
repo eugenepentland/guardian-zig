@@ -9994,3 +9994,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — render PCB-editor vias at physical size
 - **good:** `spec` caught an accidentally invented browser-contract tag and `test-no-conditional` caught two top-level assertion loops in the focused regression; one ordinary comment and one table-driven loop cleared both without weakening coverage, then the 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 33 seconds.
 - **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — refresh passive PCB footprints without navigation
+- **good:** `file-size` pushed the shared PCB part/pad JSON writer out of the already-near-cap `pcb_layout_page.zig`, and scoped `pub-api-surface` acceptance exposed exactly the two intentional module exports; the final 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 34 seconds and the exact-commit candidate deployed with healthy probes.
+- **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero enclosing process exit status remained the only unambiguous success signal.
