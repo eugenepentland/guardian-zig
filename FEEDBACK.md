@@ -10046,3 +10046,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — add subcircuits-only autoroute stage
 - **good:** The scoped `file-size` and `import-layering` checks kept the new stage out of the near-cap PCB page and placement internals; the first full release run then caught one stale exact browser-control assertion. Preserving that contract produced a clean 79-check gate, all 3,646 Debug tests, and the concurrent ReleaseSafe candidate in 29 seconds.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — route local passive supply bonds
+- **good:** `import-layering` rejected a direct serve-to-plane-stitch dependency, `test-no-conditional` prompted a reusable assertion helper, and `pub-api-surface` isolated the intentional router adapter; after those fixes the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in 30 seconds.
