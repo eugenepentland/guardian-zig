@@ -9987,3 +9987,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — simplify the autorouter sidebar
 - **good:** The full sharded release suite caught a stale browser-contract assertion that still required the removed routing-wave selector; correcting it to verify the new whole-board custom-pour payload led to a clean second pass of all 79 checks and 3,628 tests, plus the concurrent ReleaseSafe build in 29 seconds.
 - **friction:** Passing focused regressions again printed `failed command:` after `guardian/test: PASS`; checking the enclosing `zig build` exit code was still necessary to distinguish the noisy success from a real test failure.
+
+## 2026-08-22 · codex · eda — replace MCP transport with structured CLI
+- **good:** `pub-api-surface` precisely isolated the intentional removal of the MCP WebSocket/JSON-RPC exports and addition of `tool_cli.run`, while the full release suite named the new CLI test missing from the import/shard manifest; scoped snapshot acceptance plus the manifest fix led to a clean 79-check gate, all 3,622 tests, and the concurrent ReleaseSafe build in 31 seconds.
