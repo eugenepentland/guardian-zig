@@ -10002,3 +10002,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — parametric PCB outline sketch editor
 - **good:** Scoped `pub-api-surface` acceptance isolated the intentional versioned sketch/compiler exports, and the full release suite caught both a stale browser-contract assertion and the two new test modules missing from the exhaustive shard manifest; after those fixes, all 79 checks, 3,625 tests, and the concurrent ReleaseSafe build passed in 37 seconds.
 - **friction:** Passing focused regressions continued to print `failed command:` after `guardian/test: PASS`, requiring the enclosing process exit code to distinguish success from failure.
+
+## 2026-08-22 · codex · eda — box-select and remove native outline fillets
+- **good:** The focused browser contracts, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 37 seconds.
