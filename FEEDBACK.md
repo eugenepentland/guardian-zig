@@ -10062,3 +10062,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — constrain outline edge slides to their normal
 - **good:** The updated SPEC-linked browser contract, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 34 seconds.
+
+## 2026-08-22 · codex · eda — share ground returns for optional NC pads
+- **good:** Scoped `type-size` and `pub-api-surface` acceptance isolated exactly the intentional placement-role field and plane-stitch helper; the first full release run then caught a `Prepared` test fixture missing the new role slice even though the other 2,984 tests passed. Adding that initializer produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 33 seconds, followed by healthy deployment probes.
+- **friction:** Passing focused NC and HMC routing regressions again printed `failed command:` immediately after `guardian/test: PASS`, so the enclosing process exit status remained the only unambiguous success signal.
