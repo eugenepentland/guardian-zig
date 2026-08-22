@@ -9960,3 +9960,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** `layering`, `canonical-idiom`, and `pub-api-surface` caught an undeclared placement dependency, duplicated net-name normalization, and the intentional new optimizer API during focused iteration; the diagnostics led directly to a narrow layer allowance, the canonical helper, and a scoped API snapshot.
 - **good:** The full release suite caught both new test-bearing modules missing from the exhaustive import/shard manifest, named the exact missing imports and unclaimed test, and passed all 3,628 tests after the four-line manifest fix.
 - **friction:** Passing focused runs continued to print `failed command:` after `guardian/test: PASS`, so the process exit status remained the only unambiguous verdict.
+
+## 2026-08-22 · codex · eda/ward — fresh-server migration verification
+- **good:** `guardian-selfcheck` verified the prebuilt checker's exact source digest on both freshly copied projects, and the diff-scoped Ward gate passed all 79 checks while preserving its intentional uncommitted migration work.
+- **friction:** With EDA's tracked `core.hooksPath=.githooks`, `guardian-check install-hook .` created `.githooks/pre-commit` but a fresh clone had no matching `.git/info/exclude` entry, so installing the managed machine-local hook immediately dirtied `main`; reproducing the old host's local exclude was an extra diagnostic and setup step.
