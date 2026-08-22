@@ -10055,3 +10055,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — anchor constrained outline endpoint drags
 - **good:** The `spec` check immediately caught a new endpoint-drag behavior tag that had no matching `SPEC.md` behavior; after linking it to a focused browser contract, the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot acceptance in 36 seconds.
+
+## 2026-08-22 · codex · eda — restore bounded local supply trees
+- **good:** `pub-api-surface` isolated the two intentional saved-supply policy helpers, and the final 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build produced the exact-commit candidate in 31 seconds.
+- **friction:** A passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, leaving the enclosing exit status as the only unambiguous success signal.
