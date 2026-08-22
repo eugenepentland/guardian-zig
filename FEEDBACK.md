@@ -9990,3 +9990,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — replace MCP transport with structured CLI
 - **good:** `pub-api-surface` precisely isolated the intentional removal of the MCP WebSocket/JSON-RPC exports and addition of `tool_cli.run`, while the full release suite named the new CLI test missing from the import/shard manifest; scoped snapshot acceptance plus the manifest fix led to a clean 79-check gate, all 3,622 tests, and the concurrent ReleaseSafe build in 31 seconds.
+
+## 2026-08-22 · codex · eda — render PCB-editor vias at physical size
+- **good:** `spec` caught an accidentally invented browser-contract tag and `test-no-conditional` caught two top-level assertion loops in the focused regression; one ordinary comment and one table-driven loop cleared both without weakening coverage, then the 79-check whole-tree gate, full Debug suite, and ReleaseSafe build passed concurrently in 33 seconds.
+- **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero enclosing process exit status remained the only unambiguous success signal.
