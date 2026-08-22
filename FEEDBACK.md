@@ -10049,3 +10049,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — route local passive supply bonds
 - **good:** `import-layering` rejected a direct serve-to-plane-stitch dependency, `test-no-conditional` prompted a reusable assertion helper, and `pub-api-surface` isolated the intentional router adapter; after those fixes the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in 30 seconds.
+
+## 2026-08-22 · codex · eda — preserve exact bypass pin routes
+- **good:** Scoped `pub-api-surface` acceptance isolated the new placement-only bypass-intent predicate, and the final 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in 32 seconds before the exact commit deployed with healthy probes.
