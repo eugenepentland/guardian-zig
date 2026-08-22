@@ -10009,3 +10009,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — suppress passive-footprint editor reloads
 - **good:** The focused schematic and PCB browser contracts, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 37 seconds and deployment health probes passed.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — outline-only selection and snapping line sketches
+- **good:** `bool-ops-per-condition` caught an overgrown browser-asset routing expression and prompted a clearer typed contract table; the full suite then identified all three stale exact browser assertions, and the corrected release passed all 79 checks, 3,632 tests, and the concurrent ReleaseSafe build in 33 seconds.
+- **friction:** Passing focused regressions continued to print `failed command:` immediately after `guardian/test: PASS`, so the enclosing exit status was still required to identify success.
