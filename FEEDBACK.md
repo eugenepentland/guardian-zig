@@ -10005,3 +10005,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — box-select and remove native outline fillets
 - **good:** The focused browser contracts, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 37 seconds.
+
+## 2026-08-22 · codex · eda — suppress passive-footprint editor reloads
+- **good:** The focused schematic and PCB browser contracts, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 37 seconds and deployment health probes passed.
+- **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
