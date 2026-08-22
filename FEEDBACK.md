@@ -10026,3 +10026,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — allow open PCB outline sketch editing
 - **good:** The focused outline and selection-filter browser contracts, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; the exact-tree candidate completed in 31 seconds and deployed with healthy probes.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — replay local sub-circuit routing first
+- **good:** The exact SPEC-linked replay regression verified both the server timeline's initial local copper and the browser's local-first label; the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in 31 seconds without snapshot acceptance.
+- **friction:** Passing focused replay runs again printed `failed command:` immediately after `guardian/test: PASS`, so the enclosing process exit status remained the only unambiguous success signal.
