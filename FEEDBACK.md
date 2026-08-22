@@ -9952,3 +9952,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — PCB editor routed/total header
 - **good:** The focused browser-contract test, 79-check whole-tree gate, full Debug suite, and ReleaseSafe build all passed without snapshot acceptance; the exact-commit release candidate completed in 46 seconds and deployed cleanly.
 - **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so confirming the process exit code was still necessary to distinguish success from failure.
+
+## 2026-08-22 · codex · eda — fresh Linux development and production runbook
+- **good:** A documentation-only server migration guide passed the cold 79-check whole-tree gate with zero blockers, the commit reused its green input stamp, and `prepare-release` completed the full Debug suite plus custom-compiler ReleaseSafe build concurrently in 49 seconds; the verified tree candidate was then adopted by the merge commit and deployed with passing health probes.
