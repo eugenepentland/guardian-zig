@@ -10022,3 +10022,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — delete selected native outline segments
 - **good:** Runtime geometry checks, focused browser contracts, the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; the exact-commit candidate completed in 36 seconds.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS`, so the enclosing exit status remained the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — allow open PCB outline sketch editing
+- **good:** The focused outline and selection-filter browser contracts, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed without snapshot acceptance; the exact-tree candidate completed in 31 seconds and deployed with healthy probes.
+- **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
