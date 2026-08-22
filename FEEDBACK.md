@@ -9964,3 +9964,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda/ward — fresh-server migration verification
 - **good:** `guardian-selfcheck` verified the prebuilt checker's exact source digest on both freshly copied projects, and the diff-scoped Ward gate passed all 79 checks while preserving its intentional uncommitted migration work.
 - **friction:** With EDA's tracked `core.hooksPath=.githooks`, `guardian-check install-hook .` created `.githooks/pre-commit` but a fresh clone had no matching `.git/info/exclude` entry, so installing the managed machine-local hook immediately dirtied `main`; reproducing the old host's local exclude was an extra diagnostic and setup step.
+
+## 2026-08-22 · codex · guardian-zig — deterministic import-cycle reporting
+- **bug:** The same Guardian source digest, Netlisp tree, and three-entry `imports` baseline passed on the old ext4 host but selected three different cycle paths and blocked the fresh host's release gate; `findCycle` seeded DFS in filesystem walk order, so a graph with multiple cycles had a host-dependent snapshot representative.
+- **good:** Sorting DFS roots by path plus a two-permutation regression passed all 1,180 tests and 79 checks, and Netlisp's exact `guardian -- all . --gate --full` release command then returned 0 blocking findings on the fresh host without expanding its baseline.
