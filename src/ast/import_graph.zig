@@ -210,6 +210,9 @@ const CycleFinder = struct {
 pub fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]const []const u8 {
     const colors = try allocator.alloc(Color, nodes.len);
     @memset(colors, .white);
+    const root_order = try allocator.alloc(usize, nodes.len);
+    for (root_order, 0..) |*root, i| root.* = i;
+    std.mem.sort(usize, root_order, nodes, nodeIndexLessThan);
     var finder: CycleFinder = .{
         .allocator = allocator,
         .nodes = nodes,
@@ -217,12 +220,19 @@ pub fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]c
         .stack = .empty,
         .cycle = null,
     };
-    for (nodes, 0..) |_, i| {
+    for (root_order) |i| {
         if (finder.colors[i] == .white) try finder.dfs(i);
         if (finder.cycle != null) break;
     }
     const indices = finder.cycle orelse return null;
     return try indicesToPaths(allocator, nodes, indices);
+}
+
+// Filesystem walkers do not promise directory-entry order. Sort DFS roots by
+// path so two hosts select the same representative when a graph has multiple
+// cycles and the imports snapshot therefore remains portable.
+fn nodeIndexLessThan(nodes: []const Node, a: usize, b: usize) bool {
+    return std.mem.order(u8, nodes[a].path, nodes[b].path) == .lt;
 }
 
 // Maps a list of node indices to their paths. OOM propagates.
@@ -421,6 +431,33 @@ test "findCycle detects two-node cycle" {
     const cycle = try findCycle(a, nodes);
     try std.testing.expect(cycle != null);
     try std.testing.expect(cycle.?.len >= 2);
+}
+
+// spec: Imports - Selects the same cycle regardless of filesystem walk order
+test "findCycle selects a stable cycle when node order changes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const first = &[_]Node{
+        .{ .path = "src/z.zig", .edges = &.{"src/y.zig"} },
+        .{ .path = "src/y.zig", .edges = &.{"src/z.zig"} },
+        .{ .path = "src/a.zig", .edges = &.{"src/b.zig"} },
+        .{ .path = "src/b.zig", .edges = &.{"src/a.zig"} },
+    };
+    const second = &[_]Node{
+        .{ .path = "src/b.zig", .edges = &.{"src/a.zig"} },
+        .{ .path = "src/a.zig", .edges = &.{"src/b.zig"} },
+        .{ .path = "src/y.zig", .edges = &.{"src/z.zig"} },
+        .{ .path = "src/z.zig", .edges = &.{"src/y.zig"} },
+    };
+    const first_cycle = (try findCycle(a, first)).?;
+    const second_cycle = (try findCycle(a, second)).?;
+    try std.testing.expectEqual(@as(usize, 3), first_cycle.len);
+    try std.testing.expectEqual(@as(usize, 3), second_cycle.len);
+    for (first_cycle, second_cycle) |first_path, second_path| {
+        try std.testing.expectEqualStrings(first_path, second_path);
+    }
+    try std.testing.expectEqualStrings("src/a.zig", first_cycle[0]);
 }
 
 // spec: Assertion Discipline - Cycle detection visits a node reached by multiple import paths only once

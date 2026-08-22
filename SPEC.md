@@ -143,6 +143,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Imports
 
 - Detects cycles in the @import graph
+- Selects the same cycle regardless of filesystem walk order
 
 ## Import Layering
 
