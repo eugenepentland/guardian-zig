@@ -9979,3 +9979,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-22 · codex · eda — compact Assembly routed-count badge
 - **good:** The focused physical-review regression, 79-check whole-tree gate, full Debug suite, and ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 32 seconds.
 - **friction:** The passing focused regression printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero process exit status was again the only unambiguous success signal.
+
+## 2026-08-22 · codex · eda — server-bound Route board effort
+- **bug:** `guardian-check commit --intent "bound Route board on the server for legacy open pages" .` reproduced the same phase-2 hang twice: its configured `zig build --seed=1 test` child completed successfully (a direct rerun returned green from cache in 3.7 seconds), but Guardian left several `guardian-check` children and one `maker` child as zombies, spun its parent at 100% CPU, and kept printing `tests running` past six minutes. Both runs required Ctrl-C; the normal Git commit hook and subsequent `prepare-release` passed, including all 79 checks, the full Debug suite, and the ReleaseSafe build.
+- **good:** The `spec` check immediately caught the replaced effort-policy contract and the new legacy-client regression as unlinked; updating the two exact `SPEC.md` bullets cleared the gate, and the exact-tree release candidate deployed in 32 seconds.
