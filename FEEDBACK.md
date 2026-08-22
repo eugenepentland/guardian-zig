@@ -9955,3 +9955,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — fresh Linux development and production runbook
 - **good:** A documentation-only server migration guide passed the cold 79-check whole-tree gate with zero blockers, the commit reused its green input stamp, and `prepare-release` completed the full Debug suite plus custom-compiler ReleaseSafe build concurrently in 49 seconds; the verified tree candidate was then adopted by the merge commit and deployed with passing health probes.
+
+## 2026-08-22 · codex · eda — constrained connector pinout optimizer
+- **good:** `layering`, `canonical-idiom`, and `pub-api-surface` caught an undeclared placement dependency, duplicated net-name normalization, and the intentional new optimizer API during focused iteration; the diagnostics led directly to a narrow layer allowance, the canonical helper, and a scoped API snapshot.
+- **good:** The full release suite caught both new test-bearing modules missing from the exhaustive import/shard manifest, named the exact missing imports and unclaimed test, and passed all 3,628 tests after the four-line manifest fix.
+- **friction:** Passing focused runs continued to print `failed command:` after `guardian/test: PASS`, so the process exit status remained the only unambiguous verdict.
