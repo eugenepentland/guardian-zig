@@ -9975,3 +9975,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — bound interactive PCB routing
 - **good:** Two exact browser-contract filters, the 79-check whole-tree gate, the full Debug suite, and the ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 31 seconds.
+
+## 2026-08-22 · codex · eda — compact Assembly routed-count badge
+- **good:** The focused physical-review regression, 79-check whole-tree gate, full Debug suite, and ReleaseSafe build all passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 32 seconds.
+- **friction:** The passing focused regression printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the zero process exit status was again the only unambiguous success signal.
