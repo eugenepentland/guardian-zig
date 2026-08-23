@@ -10094,3 +10094,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — reduce ground and connectivity DRC marker noise
 - **good:** The `spec` check immediately caught both the updated own-land behavior tag and the new browser-marker contract before the focused tests ran; linking their exact `SPEC.md` bullets produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 33 seconds.
 - **friction:** Passing focused DRC regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-23 · codex · eda — probe fine-pitch gateways at pad-neck width
+- **good:** The whole-tree release gate caught a helper-module test that the focused run admitted but the shard import and ownership manifests did not cover; moving its assertions into the existing router test module produced a clean 79-check gate, all 3,657 tests, and a concurrent ReleaseSafe candidate in 30 seconds.
+- **friction:** The initial release failure summary reported only the passing shard tails and `3,657/3,659`; identifying the two manifest failures required opening the saved `test.log`, where the actionable errors were clear.
