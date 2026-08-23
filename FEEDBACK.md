@@ -10073,3 +10073,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — defer repeated subcircuit topology pruning
 - **good:** The `spec` check caught both an invented behavior tag and then a duplicate exact tag while the regression was being attached; folding the assertion into the existing SPEC-linked hierarchical-routing test produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 33 seconds.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-23 · codex · eda — stream progressive subcircuit routing
+- **good:** Diff-scoped `function-size` caught an eight-parameter progress serializer and `test-no-conditional` caught a second top-level marker loop; consolidating the context and table made both production and browser-contract code clearer. The final 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate passed in 33 seconds.
+- **friction:** Passing focused server and browser regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
