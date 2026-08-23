@@ -10081,3 +10081,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — distinguish autorouter phase timing
 - **good:** The SPEC-linked browser contract, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot acceptance; `prepare-release` produced the exact-commit candidate in 35 seconds.
 - **friction:** Passing focused browser regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-23 · codex · eda — share package ground returns for input straps
+- **good:** The first full sharded release run caught an incorrect obstacle-index assertion in the new package tie-off regression that the initial, differently worded focused filter had not selected; the exact-name rerun and corrected release passed all 79 checks and 3,653 tests while producing the ReleaseSafe candidate in 32 seconds.
+- **friction:** The passing exact-name focused regression still printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
