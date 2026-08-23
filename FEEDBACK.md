@@ -10069,3 +10069,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-22 · codex · eda — freeze the autorouter timer on Stop
 - **good:** The new SPEC-linked Stop-state contract, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot acceptance both before and after rebasing onto a concurrently updated `main`; the final exact-commit candidate completed in 32 seconds.
+
+## 2026-08-23 · codex · eda — defer repeated subcircuit topology pruning
+- **good:** The `spec` check caught both an invented behavior tag and then a duplicate exact tag while the regression was being attached; folding the assertion into the existing SPEC-linked hierarchical-routing test produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 33 seconds.
+- **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
