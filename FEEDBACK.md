@@ -10085,3 +10085,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — share package ground returns for input straps
 - **good:** The first full sharded release run caught an incorrect obstacle-index assertion in the new package tie-off regression that the initial, differently worded focused filter had not selected; the exact-name rerun and corrected release passed all 79 checks and 3,653 tests while producing the ReleaseSafe candidate in 32 seconds.
 - **friction:** The passing exact-name focused regression still printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing process exit status remained the only unambiguous success signal.
+
+## 2026-08-23 · codex · eda — taper wide traces at fine-pitch pads
+- **good:** Scoped `type-size` and `pub-api-surface` acceptance isolated exactly the new net-class pad-neck profile and its two placement seams; the first full sharded release run then caught both the new test module missing from `test_root.zig` and its named tests missing from `test_shards.zig`. After adding those manifest entries, all 79 checks and 3,657 Debug tests passed while the ReleaseSafe candidate completed in 32 seconds.
+- **friction:** The frozen `file-size` ratchet blocked a small pad-gateway experiment in the grandfathered 8,500-line router with generic advice to shrink it below 8,000 lines. Avoiding growth also clears that ratchet, but the diagnostic still does not name the prior frozen ceiling as the practical option.
+- **friction:** Passing focused neck-profile tests again printed `failed command:` immediately after `guardian/test: PASS`, so the enclosing process exit status remained the only unambiguous success signal.
