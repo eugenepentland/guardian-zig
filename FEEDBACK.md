@@ -10132,3 +10132,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-23 · codex · eda — preserve board role across board geometry
 - **good:** The exact SPEC-linked Barracuda-order regression, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed first try; `prepare-release` produced the correction candidate in 33 seconds and deployment health probes passed.
+
+## 2026-08-23 · codex · eda — add a subcircuit power-plane toggle
+- **good:** The `file-size` hard cap rejected extending the 9,685-line PCB page and pushed the control into the existing client asset while a source-level setting centralized routing, DRC, reload, and fabrication semantics. Scoped `type-size` and `pub-api-surface` acceptance captured only the intentional additions; the 79-check gate, full Debug suite, and concurrent ReleaseSafe build produced the exact-commit candidate in 31 seconds.
+- **friction:** A combined acceptance attempt that included the unacceptably hysteretic `file-size` check restored the other named snapshots too, requiring a second scoped acceptance run for `type-size` and `pub-api-surface` even though both changes were intentional.
