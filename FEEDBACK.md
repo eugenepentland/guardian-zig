@@ -10129,3 +10129,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — edit board role from the schematic header
 - **good:** The `spec` check caught the two unlinked source-rewrite contracts and `function-size` caught an eighth header parameter before commit; linking exact SPEC bullets and carrying the role in the existing options struct produced a clean 79-check gate, full Debug suite, and concurrent ReleaseSafe candidate in 33 seconds. Scoped `pub-api-surface` acceptance added exactly the intentional `setBoardRoleApi` handler.
 - **friction:** Passing focused role tests again printed `failed command:` immediately after `guardian/test: PASS`, so only the enclosing process exit status made success unambiguous.
+
+## 2026-08-23 · codex · eda — preserve board role across board geometry
+- **good:** The exact SPEC-linked Barracuda-order regression, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed first try; `prepare-release` produced the correction candidate in 33 seconds and deployment health probes passed.
