@@ -10098,3 +10098,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — probe fine-pitch gateways at pad-neck width
 - **good:** The whole-tree release gate caught a helper-module test that the focused run admitted but the shard import and ownership manifests did not cover; moving its assertions into the existing router test module produced a clean 79-check gate, all 3,657 tests, and a concurrent ReleaseSafe candidate in 30 seconds.
 - **friction:** The initial release failure summary reported only the passing shard tails and `3,657/3,659`; identifying the two manifest failures required opening the saved `test.log`, where the actionable errors were clear.
+
+## 2026-08-23 · codex · eda — lower the default component-edge clearance
+- **good:** The first full sharded release gate caught three stale assertions in unrelated geometry, severity-coverage, and router fixtures that still depended on the former 2.5 mm default; making the intended 2.5 mm cases explicit and updating the default-dependent count produced a clean 79-check gate, all 3,659 tests, and a concurrent ReleaseSafe candidate in 29 seconds.
