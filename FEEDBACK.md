@@ -10101,3 +10101,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-23 · codex · eda — lower the default component-edge clearance
 - **good:** The first full sharded release gate caught three stale assertions in unrelated geometry, severity-coverage, and router fixtures that still depended on the former 2.5 mm default; making the intended 2.5 mm cases explicit and updating the default-dependent count produced a clean 79-check gate, all 3,659 tests, and a concurrent ReleaseSafe candidate in 29 seconds.
+
+## 2026-08-23 · codex · eda — suppress ground-plane surface routing
+- **good:** The zero-match test-filter refusal exposed a guessed filter that selected no regressions, and the derived exact filters then exercised all 52 affected routing tests; `file-size` also kept the behavioral seam out of the grandfathered 8,500-line router and led to a cleaner plane-stitch-owned policy. The final 79-check gate, all 3,659 Debug tests, and concurrent ReleaseSafe candidate passed in 48 seconds.
+- **bug:** `guardian-check commit --intent "autorouter: keep ground-plane returns off surface"` rewrote nine `.guardian/baselines/*.txt` files and remained CPU-bound in its test phase for 1,190 seconds until interrupted. Immediately afterward, the ordinary sharded full suite passed all 3,659 tests in about 51 seconds and `prepare-release.sh` passed in 48 seconds. A read-only commit audit should not mutate baselines, and its test runner should share the normal sharded path rather than taking over 20× as long without progress detail.
