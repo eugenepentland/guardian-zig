@@ -10109,3 +10109,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — preserve tapered subcircuit supply bonds
 - **good:** The `spec` check caught an unlinked exact-bypass normalization contract and scoped `pub-api-surface` acceptance isolated the intentional plane-stitch API. After linking the behavior, the whole-tree 79-check gate, full Debug suite, and concurrent ReleaseSafe build produced the exact-commit candidate in 37 seconds.
 - **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so only the enclosing exit status made success unambiguous.
+
+## 2026-08-23 · codex · eda — preserve assembled subcircuit route parity
+- **good:** SPEC-linked local-obstacle, completion-tier, and supply-bond regressions passed the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build; `prepare-release` produced the exact-commit candidate in 30 seconds without snapshot acceptance.
+- **friction:** Passing focused regressions again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so only the enclosing exit status made success unambiguous.
