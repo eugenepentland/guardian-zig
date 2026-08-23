@@ -10121,3 +10121,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — taper only at undersized lands
 - **good:** The first full sharded release run caught a stale module-retry fixture that still expected a 0.5 mm square land to neck below a 0.2532 mm trunk; changing it to a genuinely narrow 0.2 mm land aligned the regression with the new pad-size-aware rule, after which all 3,723 tests and the concurrent ReleaseSafe candidate passed in 30 seconds.
 - **friction:** Passing focused regressions still printed `failed command:` immediately after `guardian/test: PASS`, so only the enclosing process exit status made success unambiguous.
+
+## 2026-08-23 · codex · eda — route QFN decoupling legs through pad necks
+- **good:** The `file-size` check kept the profile-clearance logic in a cohesive `pad_neck_route.zig` helper instead of extending the already-grandfathered router, and the public-API acceptance isolated the one intentional seam.
+- **friction:** The first release-gate failure summary showed only passing shard tails and the aggregate `3,721/3,723`; the actionable missing test-shard and import-bridge failures were visible only in the retained `test.log`.
