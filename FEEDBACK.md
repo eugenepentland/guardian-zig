@@ -10224,3 +10224,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — split DRC marker visibility by severity
 - **friction:** The first two focused EDA runs stopped at Guardian's stale-prebuilt selfcheck; `GUARDIAN_PREBUILT=off` reused the configure-time cached choice, and the first fresh cache under `/tmp` failed with `DiskQuota`. Moving the fresh local cache into the feature worktree made the 67-check gate pass, but cost three invocations and about two minutes before the regression could run behind a current checker.
+
+## 2026-08-24 · codex · eda — lower the default solder-mask web to 0.1 mm
+- **friction:** Two focused EDA runs stopped at the stale-prebuilt selfcheck even with `GUARDIAN_PREBUILT=off`, because the existing `--seed=1` configuration cache retained the prebuilt choice. Re-running with a new build seed finally compiled Guardian from source; an attempted manual rebuild meanwhile became stale before completion because the dirty Guardian checkout was changing concurrently. This cost four failed/restarted invocations and about two minutes before the actual mask tests ran.
