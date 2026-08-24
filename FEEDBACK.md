@@ -10284,3 +10284,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — resume differential pairs from inner copper
 - **good:** The focused 55-test viewer run, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first code attempt; the exact candidate deployed with healthy service probes.
+
+## 2026-08-24 · codex · eda — serialize non-finite DRC measurements safely
+- **good:** The Barracuda-shaped JSON regression, diff-scoped gate, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first attempt; the exact candidate deployed healthy and its 2.6 MB board page contained zero bare `inf` literals.
