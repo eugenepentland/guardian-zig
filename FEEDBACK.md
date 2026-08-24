@@ -10212,3 +10212,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — carry stamped pour fills during subcircuit drag
 - **good:** The focused browser contract, real Barracuda LT3045 drag/refill reproduction, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed; `prepare-release` produced the exact-commit candidate in 32 seconds and deployment health probes passed.
 - **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing process exit status made success unambiguous.
+
+## 2026-08-24 · codex · eda — hide fabrication IDs on reusable subcircuits
+- **good:** `type-size` rejected widening the already-ratcheted `BoardRules` record and led to carrying board role in its cohesive physical-fabrication subrecord instead; the corrected exact commit passed all 79 checks, the full Debug suite, and the concurrent ReleaseSafe build in 31 seconds.
+- **friction:** Both passing focused runs again printed `failed command:` immediately after `guardian/test: PASS`, so the enclosing shell exit status was the only unambiguous success signal.
