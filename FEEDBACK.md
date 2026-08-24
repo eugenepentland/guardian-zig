@@ -10222,3 +10222,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — prefer current-layer pads while drawing traces
 - **good:** The diff-scoped `spec` check caught the new browser contract's missing exact SPEC bullet before commit; after linking it, all 79 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed, producing the exact-commit candidate in 34 seconds and a healthy deployment.
+
+## 2026-08-24 · codex · eda — recover PCB autosave failures
+- **good:** The diff-scoped `spec` check immediately caught an unnecessary unlinked formal tag on the layout-history ordering regression; keeping it as a local contract test produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 70 seconds, followed by a healthy deployment.
+- **friction:** Guardian source changed repeatedly during verification while its installed checker remained stale. The documented `GUARDIAN_PREBUILT=off` override reused Zig's configure-time choice until paired with a fresh `ZIG_LOCAL_CACHE_DIR`; one attempt then compiled an intermediate dirty Guardian revision that no longer matched by completion. Cost: four failed/restarted build invocations and roughly four minutes before the EDA gate could run against a consistent checker.
