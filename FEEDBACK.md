@@ -10185,3 +10185,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — preview exact-object picker rows on the board
 - **good:** The diff-scoped browser-contract regression, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed on the first run; `prepare-release` produced the exact-commit candidate in 34 seconds and deployment health probes passed.
 - **friction:** The passing focused browser regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing shell exit status made success unambiguous.
+
+## 2026-08-24 · codex · eda — open the View sidebar with V
+- **good:** After removing an unnecessary formal-spec tag from the local keyboard-contract regression, the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed; `prepare-release` produced the exact-commit candidate in 40 seconds and deployment health probes passed.
+- **friction:** The initial diff-scoped `spec` failure correctly identified the unlinked `// spec:` tag, but the subsequent passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`; one retry was required and only the enclosing shell exit status made success unambiguous.
