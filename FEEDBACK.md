@@ -10227,3 +10227,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — lower the default solder-mask web to 0.1 mm
 - **friction:** Two focused EDA runs stopped at the stale-prebuilt selfcheck even with `GUARDIAN_PREBUILT=off`, because the existing `--seed=1` configuration cache retained the prebuilt choice. Re-running with a new build seed finally compiled Guardian from source; an attempted manual rebuild meanwhile became stale before completion because the dirty Guardian checkout was changing concurrently. This cost four failed/restarted invocations and about two minutes before the actual mask tests ran.
+
+## 2026-08-24 · codex · eda — align nearby subcircuit box edges
+- **good:** The first full release suite caught that broad cross-edge snapping violated the established chained-overlap geometry contract; after restricting cross-edge snaps to boxes that overlap on the perpendicular axis, the exact SPEC-linked regressions, all 67 whole-tree checks, all 3,786 Debug tests, and the concurrent ReleaseSafe build passed in 31 seconds.
