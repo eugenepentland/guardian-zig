@@ -10164,3 +10164,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — fillet selected trace segments
 - **good:** The diff-scoped `spec` check caught the new browser contract before commit; linking the exact Web Server requirement produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 31 seconds.
 - **friction:** The passing focused fillet run printed `failed command:` immediately after `guardian/test: PASS — 30 passed`, so the enclosing process exit status was again the only unambiguous success signal.
+
+## 2026-08-24 · codex · eda — snap hand-drawn traces to same-net pad centres
+- **good:** The diff-scoped `spec` check immediately rejected an unnecessary unlinked formal-spec tag on the browser regression; keeping the behavior as a local contract test produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 32 seconds.
+- **friction:** Both passing focused browser regressions printed `failed command:` immediately after `guardian/test: PASS — 25 passed`, so only the enclosing shell exit status made success unambiguous.
