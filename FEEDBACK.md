@@ -10249,3 +10249,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — expose selected subcircuit layout actions
 - **good:** The diff-scoped `spec` check caught both a misplaced tag and its missing exact SPEC bullet before commit; after linking it, all 79 whole-tree checks, the focused browser-contract regression, full Debug suite, and concurrent ReleaseSafe build passed, producing the rebased exact-commit candidate in 33 seconds and a healthy deployment.
+
+## 2026-08-24 · codex · eda — accept reordered copper-sketch contours
+- **good:** The first full release suite caught that a branched contour must retain its established `OpenProfile` classification even after the compiler learned to traverse reordered/reversed curves; the corrected exact commit passed all 79 checks, all 3,782 Debug tests, and the concurrent ReleaseSafe build in 29 seconds.
+- **friction:** While amending that one-line compatibility correction, `change-classification` compared only the working delta against the already-committed test additions and demanded a test change in the amendment itself. Renaming the existing branched-profile regression satisfied it, but an amend-aware staged-versus-base view would recognize the test already traveling in the final commit.
