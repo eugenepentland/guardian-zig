@@ -10219,3 +10219,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — simplify selected subcircuit highlighting
 - **good:** The focused embedded-JavaScript regression, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first run; `prepare-release` produced the exact-commit candidate in 34 seconds.
+
+## 2026-08-24 · codex · eda — prefer current-layer pads while drawing traces
+- **good:** The diff-scoped `spec` check caught the new browser contract's missing exact SPEC bullet before commit; after linking it, all 79 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed, producing the exact-commit candidate in 34 seconds and a healthy deployment.
