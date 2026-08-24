@@ -10266,3 +10266,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — toggle manual trace bend angles
 - **good:** The diff-scoped `spec` and hysteretic `file-size` checks caught an unlinked browser contract and a three-line increase to the near-cap PCB page during the focused run; moving the contract to the asset module and keeping the page at its frozen size produced a clean 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 32 seconds.
+
+## 2026-08-24 · codex · eda — make angled trace tapers pad-aware
+- **friction:** Both corrected focused regressions reported `guardian/test: PASS — 26 passed` but also printed Zig's contradictory `failed command:` banner; distinguishing a genuine test failure from the known runner artifact required polling through both invocations and checking the enclosing shell exit status before starting the 30-second release gate.
