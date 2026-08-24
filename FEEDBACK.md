@@ -10208,3 +10208,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — keep refreshed subcircuit Stamp actions visible
 - **good:** The diff-scoped `spec` check immediately caught the new browser contract's missing exact SPEC bullet; after linking it, all 79 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed, producing the exact-commit candidate in 32 seconds.
+
+## 2026-08-24 · codex · eda — carry stamped pour fills during subcircuit drag
+- **good:** The focused browser contract, real Barracuda LT3045 drag/refill reproduction, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed; `prepare-release` produced the exact-commit candidate in 32 seconds and deployment health probes passed.
+- **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing process exit status made success unambiguous.
