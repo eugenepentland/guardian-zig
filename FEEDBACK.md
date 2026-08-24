@@ -10233,3 +10233,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — auto-close unambiguous copper-profile gaps
 - **friction:** Both passing focused EDA runs printed Zig's `failed command:` banner immediately after `guardian/test: PASS — 26 passed`; the enclosing shell exit status was still the only unambiguous result, adding a manual status check before the 67-check whole-tree gate and release run.
+
+## 2026-08-24 · codex · eda — keep hand-route starts on the active copper layer
+- **good:** The focused browser and layer-aware DRC regressions, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed; `prepare-release` produced the rebased exact-commit candidate in 29 seconds and deployment health probes passed.
