@@ -10181,3 +10181,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — extend the shared shape engine across custom geometry
 - **good:** Scoped `pub-api-surface` acceptance captured the intentional neutral-module relocation and new fabrication-region writer, while the first full release run caught two stale embedded-JavaScript interaction markers. After updating those contracts, the exact commit passed all 79 checks, all 3,763 Debug tests, and the concurrent ReleaseSafe build in 30 seconds.
+
+## 2026-08-24 · codex · eda — preview exact-object picker rows on the board
+- **good:** The diff-scoped browser-contract regression, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed on the first run; `prepare-release` produced the exact-commit candidate in 34 seconds and deployment health probes passed.
+- **friction:** The passing focused browser regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing shell exit status made success unambiguous.
