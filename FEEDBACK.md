@@ -10201,3 +10201,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — snap custom copper-pour segments to axes
 - **good:** The diff-scoped `spec` check immediately caught a duplicate exact behavior tag; keeping the tag only on the focused browser-contract regression produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 31 seconds.
 - **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing process exit status made success unambiguous.
+
+## 2026-08-24 · codex · eda — verify LT3045 custom-pour stamping on Barracuda
+- **good:** `bool-ops-per-condition` caught the first four-part custom-zone eligibility guard; splitting copper-kind and geometry validation produced a clean 79-check whole-tree gate. The real Barracuda Stamp/refill reproduction, focused subseed tests, full Debug suite, and concurrent ReleaseSafe build all passed, with the exact-commit candidate ready in 32 seconds.
+- **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing process exit status made success unambiguous.
