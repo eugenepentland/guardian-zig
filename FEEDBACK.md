@@ -10257,3 +10257,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — group open-net DRC findings by net
 - **friction:** The focused test and the first two `prepare-release.sh` runs stopped at `guardian-selfcheck` because Guardian source was newer than its installed checker. `GUARDIAN_PREBUILT=off` compiled from source under the normal development compiler but the pinned release compiler reused its cached prebuilt selection, so the documented fallback did not reach the release gate. A manual `zig build` in the already-dirty Guardian checkout was required to refresh only the generated checker before the 67-check gate, full Debug suite, and ReleaseSafe build could run; cost three failed invocations and about two minutes.
+
+## 2026-08-24 · codex · eda — save parent PCB placement back to a subcircuit
+- **friction:** Two focused runs stopped at `guardian-selfcheck` because the installed checker was stale; `GUARDIAN_PREBUILT=off` reused the consumer's configure-time prebuilt choice, a manual Guardian rebuild became stale again as its dirty source changed concurrently, and a fresh cache under `/tmp` failed with `DiskQuota`. Using a fresh persistent local cache finally reached the 67-check gate, costing four failed/restarted invocations and roughly three minutes before feature verification could proceed.
