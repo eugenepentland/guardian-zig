@@ -10239,3 +10239,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — hide opposite-face PCB annotations
 - **friction:** The new focused browser-contract regression passed, but the first full release gate then found an older `serve.drc_rules` test coupled to the exact one-line body of `drcMarkerVisible`; adding the intended layer-visibility clause broke that textual assertion even though severity behavior was preserved. Updating the older contract cost one extra 29-second full-suite/ReleaseSafe attempt; related embedded-JavaScript assertions split across modules are easy for a focused name filter to miss.
+
+## 2026-08-24 · codex · eda — hide opposite-face sub-circuit boxes
+- **good:** The focused browser-contract regression, 67-check whole-tree gate, all 3,789 Debug tests, and concurrent ReleaseSafe build passed on the first attempt; the exact verified candidate deployed with healthy service probes.
