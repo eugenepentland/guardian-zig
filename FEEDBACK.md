@@ -10281,3 +10281,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — speed up copper-pour refills
 - **good:** The first focused run caught both the missing exact SPEC link and a three-line increase over `pcb_layout_page.zig`'s frozen 9,687-line ceiling; linking the contract and reusing the endpoint writer kept the near-cap file net-zero, after which all 67 checks, 139 pour tests, the full Debug suite, and ReleaseSafe build passed and the exact candidate deployed healthy.
+
+## 2026-08-24 · codex · eda — resume differential pairs from inner copper
+- **good:** The focused 55-test viewer run, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first code attempt; the exact candidate deployed with healthy service probes.
