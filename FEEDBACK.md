@@ -10160,3 +10160,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — keep adjacent traces fixed during segment drag
 - **good:** The diff-scoped `spec` check immediately caught a wording mismatch between the updated PCB segment-drag contract and its browser regression tag; making them exact produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 32 seconds.
 - **friction:** The passing focused browser regression again printed `failed command:` immediately after `guardian/test: PASS — 25 passed`, so only the enclosing shell exit code made success unambiguous.
+
+## 2026-08-24 · codex · eda — fillet selected trace segments
+- **good:** The diff-scoped `spec` check caught the new browser contract before commit; linking the exact Web Server requirement produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 31 seconds.
+- **friction:** The passing focused fillet run printed `failed command:` immediately after `guardian/test: PASS — 30 passed`, so the enclosing process exit status was again the only unambiguous success signal.
