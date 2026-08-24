@@ -10217,3 +10217,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · guardian-zig — hardening audit implementation
 - **friction:** A direct `zig build test` still printed Zig's parent-owned `failed command:` banner after `guardian/test: PASS — 1138 passed`; the final PASS made the outcome recoverable, but the contradictory banner remains unavoidable outside Guardian-parented commands and should stay documented as WONTFIX.
+
+## 2026-08-24 · codex · eda — make copper-profile save failures repairable
+- **good:** The diff-scoped `spec` check immediately caught the new clickable-zone/Close-profile browser contract's missing exact SPEC bullet; after linking it, the whole-tree gate passed all 67 active checks and `prepare-release` produced the full-Debug/ReleaseSafe exact-commit candidate in 37 seconds.
+- **friction:** Guardian source changed repeatedly while the installed checker was stale. `GUARDIAN_PREBUILT=off` still selected the stale prebuilt through the existing EDA cache, a fresh cache attempt failed with `DiskQuota`, and two manual Guardian rebuilds were needed before one source revision stayed stable long enough to verify; this cost four failed verification attempts and about three minutes.
