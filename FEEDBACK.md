@@ -10248,3 +10248,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — recover broken hidden copper-sketch topology
 - **good:** The selective public-API refresh captured only the intended polygon-rebuild helper; the exact SPEC-linked regressions, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed, producing the exact-commit candidate in 30 seconds and a healthy deployment.
+
+## 2026-08-24 · codex · eda — restrict PCB interaction to the visible face
+- **friction:** The focused side-visibility regression and `test-compile` passed, but the first full release suite found three older embedded-JavaScript tests in `serve.assembly_debug` and `serve.drc_rules` coupled to exact pre-change source strings for hit-testing and carried-copper selection. Updating those preserved-behavior assertions cost one extra 29-second full-suite/ReleaseSafe attempt; a source-marker change can invalidate contract tests outside the focused feature name even when compilation succeeds.
