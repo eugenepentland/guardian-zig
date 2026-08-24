@@ -10239,3 +10239,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — centre off-grid subcircuit GND vias
 - **good:** The hysteretic `file-size` gate prevented a small fix from growing the 8,548-code-line router and led to a cohesive button-seam implementation in `ground_via_seed.zig`; the exact SPEC-linked regression, all 79 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed, producing the candidate in 35 seconds.
 - **friction:** The first focused run could not reach the gate because the installed Guardian checker was stale against concurrently edited Guardian source, and `GUARDIAN_PREBUILT=off` still reused the stale configured helper. A manual `zig build` in Guardian was required before EDA verification could proceed, costing two failed focused invocations.
+
+## 2026-08-24 · codex · eda — lock and unlock multi-selected components
+- **good:** The diff-scoped `spec` check caught the browser contract's missing exact SPEC bullet before commit; after linking it, all 79 whole-tree checks, the focused regression, full Debug suite, and concurrent ReleaseSafe build passed, producing the rebased exact-commit candidate in 32 seconds.
