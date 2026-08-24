@@ -10197,3 +10197,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — render trace tapers as swept polygons
 - **good:** The first full release gate caught that the new `path_copper` test module was imported but missing from both the root manifest and shard registry. After registration, the exact commit passed all 79 checks, all 3,765 Debug tests, and the concurrent ReleaseSafe build in 33 seconds.
 - **bug:** `guardian-check commit . --intent "Render trace tapers as custom swept polygons while retaining compact editable centerlines and private DRC chords."` stalled in phase 2 for more than eight minutes at about 99% CPU after its `maker` child became defunct, while continuing to print `tests running` progress. It required Ctrl-C; the normal commit hook and `.githooks/prepare-release.sh` subsequently completed, isolating the failure to the commit wrapper's child-exit handling.
+
+## 2026-08-24 · codex · eda — snap custom copper-pour segments to axes
+- **good:** The diff-scoped `spec` check immediately caught a duplicate exact behavior tag; keeping the tag only on the focused browser-contract regression produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 31 seconds.
+- **friction:** The passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`, so only the enclosing process exit status made success unambiguous.
