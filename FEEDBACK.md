@@ -10293,3 +10293,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — add contextual PCB selection tools
 - **friction:** The focused PCB-editor contracts, `test-compile`, Debug build, and 67-check whole-tree commit gate all passed, but the first `prepare-release.sh` run found an older `serve.drc_rules` test coupled to the exact one-line `else if(gcu)inspShow(gcu,ev);` branch. Adding cycle-cache bookkeeping preserved selected-copper drag behavior but invalidated that hidden source string, costing one extra 32-second full-suite/ReleaseSafe attempt; cross-module embedded-JavaScript contracts remain invisible to focused feature-name filters.
+
+## 2026-08-24 · codex · eda — reuse DRC connectivity and plane fills
+- **friction:** The focused connectivity, prepared-fill parity, endpoint-wiring, and pour-refill tests all passed, but the first `prepare-release.sh` run found an older `serve.drc_rules` source-contract assertion coupled to the exact `const violations = drc_rules.checkFilteredZones` spelling in `pcb_layout_page.zig`. Replacing that call with the optimized report-and-tally adapter preserved the endpoint response byte-for-byte but cost one extra 30-second full-suite/ReleaseSafe attempt; focused DRC filters did not reveal the adjacent cross-feature pour-refill contract.
