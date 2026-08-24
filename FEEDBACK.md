@@ -10287,3 +10287,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — serialize non-finite DRC measurements safely
 - **good:** The Barracuda-shaped JSON regression, diff-scoped gate, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first attempt; the exact candidate deployed healthy and its 2.6 MB board page contained zero bare `inf` literals.
+
+## 2026-08-24 · codex · eda — cull distant copper from clipped pours
+- **good:** The diff-scoped gate caught a new seven-parameter helper at the `function-size` limit before commit; grouping segment endpoints fixed it without an acceptance, after which all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on both the original and rebased exact commits, and deployment health probes passed.
