@@ -10260,3 +10260,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — save parent PCB placement back to a subcircuit
 - **friction:** Two focused runs stopped at `guardian-selfcheck` because the installed checker was stale; `GUARDIAN_PREBUILT=off` reused the consumer's configure-time prebuilt choice, a manual Guardian rebuild became stale again as its dirty source changed concurrently, and a fresh cache under `/tmp` failed with `DiskQuota`. Using a fresh persistent local cache finally reached the 67-check gate, costing four failed/restarted invocations and roughly three minutes before feature verification could proceed.
+
+## 2026-08-24 · codex · eda — focus open-net DRC connection gaps
+- **good:** Selective `type-size` acceptance previewed and added only the intended 8-field `drc.Parties` baseline; the exact SPEC-linked geometry and browser regressions, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build then passed, producing a healthy exact-commit deployment.
