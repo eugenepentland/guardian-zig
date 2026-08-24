@@ -10216,3 +10216,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — hide fabrication IDs on reusable subcircuits
 - **good:** `type-size` rejected widening the already-ratcheted `BoardRules` record and led to carrying board role in its cohesive physical-fabrication subrecord instead; the corrected exact commit passed all 79 checks, the full Debug suite, and the concurrent ReleaseSafe build in 31 seconds.
 - **friction:** Both passing focused runs again printed `failed command:` immediately after `guardian/test: PASS`, so the enclosing shell exit status was the only unambiguous success signal.
+
+## 2026-08-24 · codex · eda — simplify selected subcircuit highlighting
+- **good:** The focused embedded-JavaScript regression, 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first run; `prepare-release` produced the exact-commit candidate in 34 seconds.
