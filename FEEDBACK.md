@@ -10230,3 +10230,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — align nearby subcircuit box edges
 - **good:** The first full release suite caught that broad cross-edge snapping violated the established chained-overlap geometry contract; after restricting cross-edge snaps to boxes that overlap on the perpendicular axis, the exact SPEC-linked regressions, all 67 whole-tree checks, all 3,786 Debug tests, and the concurrent ReleaseSafe build passed in 31 seconds.
+
+## 2026-08-24 · codex · eda — auto-close unambiguous copper-profile gaps
+- **friction:** Both passing focused EDA runs printed Zig's `failed command:` banner immediately after `guardian/test: PASS — 26 passed`; the enclosing shell exit status was still the only unambiguous result, adding a manual status check before the 67-check whole-tree gate and release run.
