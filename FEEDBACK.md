@@ -10254,3 +10254,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · guardian-zig — close hardening review gaps
 - **bug:** The first writer-lock implementation used dead-PID delete/recreate takeover, allowing two post-crash writers to unlink one another's fresh lock and both enter metadata writes. Replacing it with a persistent kernel advisory lock, plus crash-window and live-owner regressions, removed the split-brain window.
+
+## 2026-08-24 · codex · eda — group open-net DRC findings by net
+- **friction:** The focused test and the first two `prepare-release.sh` runs stopped at `guardian-selfcheck` because Guardian source was newer than its installed checker. `GUARDIAN_PREBUILT=off` compiled from source under the normal development compiler but the pinned release compiler reused its cached prebuilt selection, so the documented fallback did not reach the release gate. A manual `zig build` in the already-dirty Guardian checkout was required to refresh only the generated checker before the 67-check gate, full Debug suite, and ReleaseSafe build could run; cost three failed invocations and about two minutes.
