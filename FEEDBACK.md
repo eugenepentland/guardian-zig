@@ -10189,3 +10189,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — open the View sidebar with V
 - **good:** After removing an unnecessary formal-spec tag from the local keyboard-contract regression, the 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed; `prepare-release` produced the exact-commit candidate in 40 seconds and deployment health probes passed.
 - **friction:** The initial diff-scoped `spec` failure correctly identified the unlinked `// spec:` tag, but the subsequent passing focused regression again printed `failed command:` immediately after `guardian/test: PASS — 26 passed`; one retry was required and only the enclosing shell exit status made success unambiguous.
+
+## 2026-08-24 · codex · eda — stamp custom subcircuit copper pours
+- **good:** The `type-size` and hysteretic `file-size` checks caught an over-wide saved-zone record and a one-line growth past the PCB page's frozen 9,687-line baseline; grouping the two zone flags kept the persisted Stamp owner without snapshot debt, and splitting the four-part eligibility guard cleared `bool-ops-per-condition`. The rebased exact commit passed all 79 checks, the full Debug suite, and the concurrent ReleaseSafe build in 33 seconds.
+- **friction:** Passing focused Stamp regressions again printed `failed command:` immediately after `guardian/test: PASS`, so only the enclosing process exit status made success unambiguous.
