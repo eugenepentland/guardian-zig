@@ -10245,3 +10245,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — show net names on PCB hover
 - **good:** The diff-scoped spec check caught the missing exact Web Server bullet on the first focused run; after linking it, the 67-check whole-tree gate, focused regression, full Debug suite, and concurrent ReleaseSafe build passed, producing the exact-commit candidate in 31 seconds and a healthy deployment.
+
+## 2026-08-24 · codex · eda — recover broken hidden copper-sketch topology
+- **good:** The selective public-API refresh captured only the intended polygon-rebuild helper; the exact SPEC-linked regressions, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed, producing the exact-commit candidate in 30 seconds and a healthy deployment.
