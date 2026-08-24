@@ -10178,3 +10178,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — stamp subcircuits by stable part origin
 - **good:** The first full release suite caught an unexpected cross-test collision where a new Stamp-local `byOrigin` variable violated an older whole-file JavaScript assertion for exact-ref layout loading. Renaming the local kept both contracts intact; the corrected exact commit passed all 79 checks, all 3,761 Debug tests, and the concurrent ReleaseSafe build in 30 seconds.
+
+## 2026-08-24 · codex · eda — extend the shared shape engine across custom geometry
+- **good:** Scoped `pub-api-surface` acceptance captured the intentional neutral-module relocation and new fabrication-region writer, while the first full release run caught two stale embedded-JavaScript interaction markers. After updating those contracts, the exact commit passed all 79 checks, all 3,763 Debug tests, and the concurrent ReleaseSafe build in 30 seconds.
