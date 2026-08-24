@@ -10251,3 +10251,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — restrict PCB interaction to the visible face
 - **friction:** The focused side-visibility regression and `test-compile` passed, but the first full release suite found three older embedded-JavaScript tests in `serve.assembly_debug` and `serve.drc_rules` coupled to exact pre-change source strings for hit-testing and carried-copper selection. Updating those preserved-behavior assertions cost one extra 29-second full-suite/ReleaseSafe attempt; a source-marker change can invalidate contract tests outside the focused feature name even when compilation succeeds.
+
+## 2026-08-24 · codex · guardian-zig — close hardening review gaps
+- **bug:** The first writer-lock implementation used dead-PID delete/recreate takeover, allowing two post-crash writers to unlink one another's fresh lock and both enter metadata writes. Replacing it with a persistent kernel advisory lock, plus crash-window and live-owner regressions, removed the split-brain window.
