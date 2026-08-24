@@ -10140,3 +10140,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — extend the subcircuit power-plane toggle to authored stackups
 - **good:** Diff-scoped `canonical-idiom` caught a hand-rolled hierarchical-net leaf split and pointed directly to `src/net_name.zig`; `bool-ops-per-condition` also caught the new four-part policy guard. Using the shared helper and splitting the guard produced a clean 79-check whole-tree gate, full Debug suite, and exact-commit ReleaseSafe candidate in 32 seconds.
 - **friction:** Passing focused evaluator and nested-module source-edit tests again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so only the enclosing process exit status made success unambiguous.
+
+## 2026-08-24 · codex · eda — manually drag generated pin-one markers
+- **good:** The diff-scoped `spec` and `file-size` checks caught a duplicate behavior tag and an unnecessary edit to the near-cap 9,685-line PCB page; moving persistence coverage into the owning sidecar/silkscreen modules cleared all blockers. The first full release suite then caught one stale embedded-JavaScript assertion, and the corrected exact commit passed all 3,732 tests plus the concurrent ReleaseSafe build in 32 seconds.
+- **friction:** Passing focused regressions still printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing shell exit code remained the only unambiguous success signal.
