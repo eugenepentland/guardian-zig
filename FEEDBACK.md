@@ -10242,3 +10242,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — lock and unlock multi-selected components
 - **good:** The diff-scoped `spec` check caught the browser contract's missing exact SPEC bullet before commit; after linking it, all 79 whole-tree checks, the focused regression, full Debug suite, and concurrent ReleaseSafe build passed, producing the rebased exact-commit candidate in 32 seconds.
+
+## 2026-08-24 · codex · eda — show details for design-note update failures
+- **good:** `debug-print-ban` caught the direct `std.log.err` call added for server-side failure diagnostics, and the corrected change passed all 79 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build in 34 seconds.
+- **friction:** The check's fix said to “alias once at file scope,” so the first correction used `const log = std.log.scoped(...)`; Guardian rejected that alias too, requiring a second gate run and a direct function alias (`const logError = std.log.err`). Naming that exact allowed form in the diagnostic would avoid the retry.
