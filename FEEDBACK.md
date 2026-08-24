@@ -10275,3 +10275,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — choose a saved subcircuit layout when stamping
 - **friction:** The focused named-layout and endpoint regressions passed, but the first full release suite found four older embedded-JavaScript tests coupled to the exact `stampGroup(g)` signature, palette-IIFE terminator, and Properties markup. Extending Stamp with an optional layout argument preserved behavior but invalidated those source strings, costing one extra 32-second full-suite/ReleaseSafe attempt; a broader `viewer JS` filter caught all four once the dependency was known.
+
+## 2026-08-24 · codex · eda — keep custom-pour drawing active over existing pours
+- **good:** The focused browser-contract regression, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed; `prepare-release` produced the exact-commit candidate in 33 seconds.
