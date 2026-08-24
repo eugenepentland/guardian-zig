@@ -10242,3 +10242,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — hide opposite-face sub-circuit boxes
 - **good:** The focused browser-contract regression, 67-check whole-tree gate, all 3,789 Debug tests, and concurrent ReleaseSafe build passed on the first attempt; the exact verified candidate deployed with healthy service probes.
+
+## 2026-08-24 · codex · eda — show net names on PCB hover
+- **good:** The diff-scoped spec check caught the missing exact Web Server bullet on the first focused run; after linking it, the 67-check whole-tree gate, focused regression, full Debug suite, and concurrent ReleaseSafe build passed, producing the exact-commit candidate in 31 seconds and a healthy deployment.
