@@ -10144,3 +10144,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — manually drag generated pin-one markers
 - **good:** The diff-scoped `spec` and `file-size` checks caught a duplicate behavior tag and an unnecessary edit to the near-cap 9,685-line PCB page; moving persistence coverage into the owning sidecar/silkscreen modules cleared all blockers. The first full release suite then caught one stale embedded-JavaScript assertion, and the corrected exact commit passed all 3,732 tests plus the concurrent ReleaseSafe build in 32 seconds.
 - **friction:** Passing focused regressions still printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so the enclosing shell exit code remained the only unambiguous success signal.
+
+## 2026-08-24 · codex · eda — match KiCad differential-pair routing rules
+- **good:** Diff-scoped `doc-comments`, `pub-api-surface`, and `type-size` rejected an over-broad first cut that exposed three naming declarations and added a field to every `NetRule`; keeping naming private and carrying the imported via gap only on `DiffPair` cleared all 79 checks without snapshot acceptance. The full Debug suite and concurrent ReleaseSafe build then produced the exact-commit candidate in 36 seconds.
