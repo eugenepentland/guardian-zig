@@ -1,15 +1,15 @@
 # Guardian Usage Feedback Log
 
-Append-only log of real-world Guardian experience, written by whichever agent
-(Claude, Codex/ChatGPT, or a human) just finished work in a Guardian-gated
-project. Eugene reviews this list periodically and turns entries into Guardian
-changes; the entries themselves are the triage backlog.
+Append-only log of concrete Guardian problems. Eugene reviews this list
+periodically and turns entries into Guardian changes; the entries themselves
+are the triage backlog.
 
 ## How to add an entry (agents: follow this exactly)
 
 1. Write the entry **at the bottom of the Log section** — never edit, reorder,
    or delete existing entries (pruning happens at triage, by Eugene only).
-2. Make it self-contained: another agent (or Eugene, weeks later) has none of
+2. Log only a real problem. A smooth session writes and commits nothing. Make
+   each problem self-contained: another agent (or Eugene, weeks later) has none of
    your session context. Name the check, the project, what happened, and what
    it cost you (retries, wasted builds, confusion).
 3. Commit the append in this repo immediately, so the tree stays clean:
@@ -19,56 +19,17 @@ changes; the entries themselves are the triage backlog.
    git -C ~/ai/canopy/guardian-zig commit -m "feedback: <project> — <one-liner>"
    ```
 
-4. A smooth session is signal too — a one-line `good:` entry is enough.
-   Skip logging only when the session never touched a Guardian gate.
-
 ### Entry format
 
 ```markdown
 ## YYYY-MM-DD · <agent> · <project> — <task one-liner>
 - **friction:** <what slowed you down — check name, what happened, cost>
 - **bug:** <behavior that looks wrong, with repro if cheap>
-- **good:** <what worked well / caught a real mistake>
-- **wish:** <feature or change that would have helped>
-- **prototyping:** <a change that would make exploratory work faster WITHOUT
-  weakening what ships — say which half of the boundary it moves>
 ```
 
-Use only the bullet kinds you have something to say about. Multiple bullets of
-the same kind are fine.
-
-### On the `prototyping:` bullet
-
-Guardian's guarantees currently attach to **code that exists in the tree**, not
-to **code that ships**. Every line therefore pays full authoring tax the moment
-it compiles — spec bullets, API snapshots, shape ratchets — whether it is headed
-for production or the bin. That cost is invisible in a normal review-a-diff
-session and brutal in an exploratory one, where most of what you write is meant
-to be thrown away.
-
-It is worth logging because it has a measurable failure mode: agents leave the
-repo. When exploring a new algorithm costs a 40 s whole-tree gate and a
-multi-minute test cycle per iteration, the rational move is to prototype in
-Python against the HTTP/MCP surface — and then the capability never lands in the
-product at all. That has happened here at least once.
-
-So when you log one of these, be specific about **which half of the boundary you
-are moving**:
-
-- *Cheaper iteration, same guarantee* — diff-scoped local runs, test filters,
-  incremental caches. These are pure wins; the merge/CI boundary is untouched.
-- *Deferred obligation* — WIP spec bullets, auto-accepted ratchets on a branch.
-  The tax still gets paid, just at merge instead of at every save. Say what
-  enforces it at the boundary, or it is not deferral, it is a hole.
-- *Scoped exemption* — an `experimental`/prototype area excluded from the
-  authoring checks. Only safe with a hard, enforced rule that production cannot
-  import it, plus visibility so prototypes cannot quietly become permanent.
-  Note that this only helps NEW leaf code; it does nothing for iterating on an
-  existing production file, which is where most work actually happens.
-
-A suggestion that speeds up prototyping by weakening what reaches `main` is not
-useful here — say plainly how robustness is preserved at the boundary, or log it
-as a `wish:` instead.
+Use only `bug:` and `friction:`. Multiple bullets of the same kind are fine. A
+fix proposal attached to a real problem belongs inside that bullet; standalone
+feature wishes are out of scope while Guardian is hardening.
 
 ---
 
@@ -10253,3 +10214,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — accept reordered copper-sketch contours
 - **good:** The first full release suite caught that a branched contour must retain its established `OpenProfile` classification even after the compiler learned to traverse reordered/reversed curves; the corrected exact commit passed all 79 checks, all 3,782 Debug tests, and the concurrent ReleaseSafe build in 29 seconds.
 - **friction:** While amending that one-line compatibility correction, `change-classification` compared only the working delta against the already-committed test additions and demanded a test change in the amendment itself. Renaming the existing branched-profile regression satisfied it, but an amend-aware staged-versus-base view would recognize the test already traveling in the final commit.
+
+## 2026-08-24 · codex · guardian-zig — hardening audit implementation
+- **friction:** A direct `zig build test` still printed Zig's parent-owned `failed command:` banner after `guardian/test: PASS — 1138 passed`; the final PASS made the outcome recoverable, but the contradictory banner remains unavoidable outside Guardian-parented commands and should stay documented as WONTFIX.
