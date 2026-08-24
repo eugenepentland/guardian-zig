@@ -10269,3 +10269,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — make angled trace tapers pad-aware
 - **friction:** Both corrected focused regressions reported `guardian/test: PASS — 26 passed` but also printed Zig's contradictory `failed command:` banner; distinguishing a genuine test failure from the known runner artifact required polling through both invocations and checking the enclosing shell exit status before starting the 30-second release gate.
+
+## 2026-08-24 · codex · eda — count routed logical nets
+- **friction:** The focused tally/UI regressions and `test-compile` passed, but the first full release suite found an older live-route test coupled to contiguous JSON fields around `routed`/`total`; inserting the intended `unique_routed`/`unique_total` fields broke only that textual assertion. Updating the full payload contract cost one extra 30-second full-suite/ReleaseSafe attempt, and focused feature-name filters did not reveal the cross-module contract dependency.
