@@ -10136,3 +10136,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-23 · codex · eda — add a subcircuit power-plane toggle
 - **good:** The `file-size` hard cap rejected extending the 9,685-line PCB page and pushed the control into the existing client asset while a source-level setting centralized routing, DRC, reload, and fabrication semantics. Scoped `type-size` and `pub-api-surface` acceptance captured only the intentional additions; the 79-check gate, full Debug suite, and concurrent ReleaseSafe build produced the exact-commit candidate in 31 seconds.
 - **friction:** A combined acceptance attempt that included the unacceptably hysteretic `file-size` check restored the other named snapshots too, requiring a second scoped acceptance run for `type-size` and `pub-api-surface` even though both changes were intentional.
+
+## 2026-08-24 · codex · eda — extend the subcircuit power-plane toggle to authored stackups
+- **good:** Diff-scoped `canonical-idiom` caught a hand-rolled hierarchical-net leaf split and pointed directly to `src/net_name.zig`; `bool-ops-per-condition` also caught the new four-part policy guard. Using the shared helper and splitting the guard produced a clean 79-check whole-tree gate, full Debug suite, and exact-commit ReleaseSafe candidate in 32 seconds.
+- **friction:** Passing focused evaluator and nested-module source-edit tests again printed `failed command:` immediately after `guardian/test: PASS — 24 passed`, so only the enclosing process exit status made success unambiguous.
