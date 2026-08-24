@@ -10290,3 +10290,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — cull distant copper from clipped pours
 - **good:** The diff-scoped gate caught a new seven-parameter helper at the `function-size` limit before commit; grouping segment endpoints fixed it without an acceptance, after which all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on both the original and rebased exact commits, and deployment health probes passed.
+
+## 2026-08-24 · codex · eda — add contextual PCB selection tools
+- **friction:** The focused PCB-editor contracts, `test-compile`, Debug build, and 67-check whole-tree commit gate all passed, but the first `prepare-release.sh` run found an older `serve.drc_rules` test coupled to the exact one-line `else if(gcu)inspShow(gcu,ev);` branch. Adding cycle-cache bookkeeping preserved selected-copper drag behavior but invalidated that hidden source string, costing one extra 32-second full-suite/ReleaseSafe attempt; cross-module embedded-JavaScript contracts remain invisible to focused feature-name filters.
