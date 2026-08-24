@@ -10168,3 +10168,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-24 · codex · eda — snap hand-drawn traces to same-net pad centres
 - **good:** The diff-scoped `spec` check immediately rejected an unnecessary unlinked formal-spec tag on the browser regression; keeping the behavior as a local contract test produced a clean 79-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe candidate in 32 seconds.
 - **friction:** Both passing focused browser regressions printed `failed command:` immediately after `guardian/test: PASS — 25 passed`, so only the enclosing shell exit status made success unambiguous.
+
+## 2026-08-24 · codex · eda — refresh subcircuit layouts before Stamp
+- **good:** The hysteretic `file-size` gate prevented adding a small endpoint to the 9,685-line PCB page and the `import-layering` gate made the new serve-to-placement adapter explicit; the resulting focused `pcb_subseeds.zig` endpoint has direct read-after-write coverage. The corrected exact commit passed all 79 checks, the full Debug suite, and the concurrent ReleaseSafe build in 32 seconds.
+- **friction:** The first release run failed only because the new named endpoint regression was absent from `test_shards.zig`; the release summary showed passing shard tails and `3,750/3,751`, while the actionable `0 shard(s) claim serve.pcb_subseeds.test...` assertion required a separate search through the retained log.
