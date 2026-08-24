@@ -56,7 +56,7 @@ only re-reads what you changed. Guardian diffs the working tree against the
 merge base with `main` (then `master`) and hands the *per-file* checks — shape,
 naming, complexity, per-file style, the hidden-dependency bans — only those
 files. Checks whose verdict is inherently whole-tree keep reading everything:
-import cycles, cross-file duplicate literals/consts, repeated enum switches,
+import cycles, cross-file duplicate literals/consts,
 dead-pub and test-coverage reference maps, orphan-file and test reachability, the
 SPEC↔tag map, and every tree-wide snapshot/budget (`pub-api-surface`,
 `panic-budget`, `int-from-float-budget`, `unsafe-ops-budget`). The capability
@@ -201,7 +201,18 @@ const unit_tests = b.addTest(.{
 });
 const run_tests = b.addRunArtifact(unit_tests);
 guardian.announceFilters(run_tests, filters);         // <-- what the filter was
+const test_step = b.step("test", "Run unit tests");
+test_step.dependOn(&run_tests.step);
+// Call last, after every test-step dependency has been attached.
+guardian.addFinalTestVerdict(b, test_step);
 ```
+
+Zig may still print a `failed command:` banner for a successful server-mode
+test runner when `zig build test` is invoked directly; that text is emitted by
+Zig's parent build runner and Guardian cannot retract it. The final
+`guardian/test: PASS — complete build step succeeded` line is authoritative.
+When Guardian is the parent (`commit`), it captures the child transcript and
+suppresses that misleading banner on exit 0.
 
 Zig never tells a runner what the filter was, so `announceFilters` forwards the
 texts as `--guardian-filter=` arguments. That is worth wiring: with the filters
@@ -275,12 +286,14 @@ guardian-check commit --intent "..."                     # the gate: whole suite
 
 ## What It Checks
 
-Guardian's self-build runs 68 registered checks. Most hard-block under the default
-`strict` policy; `stdout-flush` remains report-only unless explicitly promoted,
-and several checks are opt-in or become active only when configured. The list
+Guardian's self-build runs the registered checks below. Most hard-block under the
+default `strict` policy; several checks are opt-in or become active only when configured. The list
 below is grouped by FRAMEWORK.md tier; defaults are recalibrated toward larger,
 evidence-based thresholds. Retired and folded check names remain tolerated in a
-`disabled` list so upgrades do not break existing configuration.
+`disabled` or `[policy]` list so upgrades do not break existing configuration.
+The retired `[stdout_flush]`, `[escape_discipline]`, and `[magic_number]`
+sections are parsed and ignored with a migration note. The removed `history`
+command points callers at `.guardian/cache/dora.jsonl` for external analysis.
 
 ### Spec workflow
 | Check | Blocks on |
@@ -378,9 +391,7 @@ discoverable only by reading the check's source.
 | **doc-comments** | `pub fn` or `pub struct/enum/union` missing a `///` doc comment (protocol names `deinit`/`format`/`next`/`reset` exempt, extend via `doc_quality.exempt_names`), or one that's empty / placeholder / under `min_chars` (default 12) |
 | **cognitive-complexity** | Per-function complexity score (default 25) |
 | **anytype-budget** | More than `max_per_file` `anytype` parameters (default 2) |
-| **usingnamespace-ban** | Any `usingnamespace` in `src/` |
 | **deprecated-alias** | Deprecated 0.15 std spellings by token match: `std.ArrayListUnmanaged` (→ `std.ArrayList`), `std.array_list.Managed`, managed `std.StringHashMap`/`AutoHashMap`(`+Array`) constructions (→ the `*Unmanaged` maps — discouraged, not deprecated; `[[allow]]` opts out per path), `usingnamespace` (removed in 0.15), and pre-Writergate `getStdOut`/`getStdErr`. String/comment mentions are never flagged |
-| **stdout-flush** *(report-only by default)* | A function that builds a buffered `std.fs.File.stdout()`/`stderr()` writer (`.writer` / `.writerStreaming`) but has no reachable `flush()` — in 0.15 a missing flush truncates the output. Intra-procedural heuristic (a flush in a called helper reads as a false positive), so it is **report-only by default** — findings surface without failing the build. Set `[stdout_flush] enabled = true` to promote it to a gating hard-block; the default (absent/`false`) keeps the report-only behavior. Exempt paths via `[[allow]] check = "stdout-flush"` |
 
 ### Error handling
 | Check | Blocks on |
@@ -400,7 +411,6 @@ discoverable only by reading the check's source.
 | Check | Blocks on |
 |---|---|
 | **allocator-hygiene** | Hardcoded `std.heap.page_allocator` / `c_allocator` / `GeneralPurposeAllocator` / `testing.allocator` outside `pub fn main` / tests (suppress a deliberate site with a `// allocator-ok:` comment) |
-| **escape-discipline** *(opt-in)* | Raw `{s}` interpolation into HTML/SVG markup without an escape helper (XSS sink) |
 | **oom-discipline** *(opt-in)* | A swallowing `catch` on an allocating call that conflates `OutOfMemory` with "not found" |
 
 ### Hidden Dependency Bans (Tier 1)
@@ -423,9 +433,6 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 ### Constructor & DI Hygiene (Tier 1)
 | Check | Blocks on |
 |---|---|
-| **compile-error-explanation** | `@compileError` without a non-empty string literal |
-| **init-hygiene** | `init` / `create` / `make` body containing `if`, `while`, `for`, or `switch` |
-| **static-factory-ban** | `.getDefault()`, `.singleton()`, `.shared()` etc. outside `main` / `wiring` |
 | **init-deinit-symmetry** | A pub struct with an `allocator:` / `gpa:` field but no `pub fn deinit` |
 | **errdefer-in-init** | An `init` body with 2+ `try` calls and no `errdefer` |
 
@@ -447,31 +454,16 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | Check | Blocks on |
 |---|---|
 | **line-length** | Warn above `max_len` (default 120); fail above `hard_max_len` (default 240; `\\` multiline-string lines skipped) |
-| **boolean-param-ban** | A `bool` parameter in any `pub fn` |
-| **magic-number** *(opt-in)* | Bare integer literals outside the small allowlist (float idioms like `0.5` / `1e-9` allowed) |
 | **repeated-string-literal** | The same string literal appearing 3+ times in one file, or the same `pub const NAME = "literal"` across 2+ files |
-<<<<<<< HEAD
-| **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
 | **canonical-idiom** *(configured)* | An EXPRESSION SHAPE named by an `[[idiom]]` entry, found on a line of a file the rule's `allow` list doesn't cover. The gap between the other two ownership checks: `[[ban]]` owns a NAME and `[[concept]]` owns a LITERAL, and neither can express a shape assembled out of ordinary std calls — which is exactly the form an agent re-derives from scratch every time, because it has no name to search for. Measured in the flagship consumer (2026-08-14), each with the canonical version already in the tree: **51** sites hand-rolling a sub-block leaf split as `lastIndexOfScalar(u8, <x>, '/')` under **8** different function names, **6** byte-identical `urlDecodeAlloc` wrappers around `std.Uri.percentDecodeInPlace`, **8** private tmp+rename atomic writes, and **~24** private JSON escaper loops in **7** incompatible tiers despite `json_writer.zig`. `fragments` is a **conjunction** — a LINE matches only when EVERY fragment appears on it — and that is the whole design: it narrows a legitimate std call back down to the one expression that means the idiom, where banning `lastIndexOfScalar` outright would reject every honest use of it. Plain substrings, no regex, and **single-line only** (multi-line shapes are deliberately out of scope: fragments satisfied on adjacent lines never match). `files` scopes the scan, default `["src/*.zig"]` — note Guardian's `*` spans `/`, so that already means the whole `src` subtree while a `src/**/*.zig` spelling would read as "requires an intermediate directory". `allow` names the canonical home (somebody has to write the shape once). `reason` is **required**, unlike `[[ban]]`/`[[concept]]`: "you hand-rolled a shape" is unactionable without the name of the thing to call, so omitting it is a config error rather than a violation with a placeholder. Comment lines and Zig `test` blocks are blanked before matching (shared with `concept` via `lexical_scan.zig`), so the migration note quoting the idiom and the golden test pinning the canonical helper are not themselves reported. One violation per (rule, file) naming the matching-line count and the first line + column; keyed `<name>|<file>` — rule FIRST, because an idiom's ledger is read as "which files still hand-roll THIS shape", so a sorted baseline groups one rule's whole cleanup campaign. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
-=======
 | **concept** *(configured)* | A literal spelling named by a `[[concept]]` entry, found in a file the rule's `owner` list doesn't cover. Guardian's first **relational** check: every other one judges a single item (a file, a function), this one says a literal has a HOME and anywhere else is a copy that will drift. `literals` are exact substrings; `patterns` add a minimal wildcard (`*` = one or more characters that are not whitespace, a quote, or structural punctuation (`,;=:(){}[]`), so `In*.Cu` catches `In1.Cu` inside a string but never spans two tokens, a newline, or minified code; `*` is the only metacharacter and a run of them collapses to one). Matching is **lexical, not AST, on purpose** — drift crosses languages, so `files` globs scan any extension (`*.css`, `*.js`). Two contexts are exempt so the frozen ledger stays real: a line that IS a comment (line-leading `//`, or a line-leading `/* … */` block in a `.css` file; a trailing comment of either shape shares a code line, which counts whole), and a Zig `test` block — a golden literal there is the independent witness a sync-triangle test is supposed to spell, not a second authority. Blanking never eats a newline, so a reported line is the SOURCE line. A rule's `files` globs scope THAT rule only (a JS-only rule never reports a Zig offender); a rule with no `files` key is judged against the walked source set. String escapes resolve, so `literals = ["\"id\""]` names a spelling that CONTAINS quotes — the discriminator between a wire-format id and a bare enum tag of the same name. One violation per (file, concept) naming the count, each occurrence line WITH the text that matched there (the concrete `In1.Cu`, not the `In*.Cu` that found it), the owner and the `reason`; keyed `<file>|<name>`, so an offender file freezes as a whole and a NEW file fails. **`require_in` reads the same relation the other way**: those files must EACH spell EVERY literal, so a mirror the project decided to keep cannot quietly fall behind — the case being a DRC kind string renamed in Zig that left the viewer's hand-mirrored JS branch dead, past 531 grep-marker tests, with the JS gate table failing PERMISSIVELY on the rename. A required mirror is owner-equivalent (never also drift), `patterns` are excluded (a wildcard names a shape, not a spelling), a comment-only mention does not satisfy it, and a `require_in` glob naming no file is itself a violation. **`literals_from = { file, fragments }` makes the family TOTAL**: every double-quoted string on a line of `file` carrying ALL the `fragments` joins (union with `literals`, deduped, comments blanked, escapes NOT resolved), so a new enum variant enrols itself — an unreadable file or an empty extraction is a violation, because an empty family passes every mirror. Keyed `<rule>|<literal>|<file>`, `<rule>|require_in|<glob>` and `<rule>|literals_from`. `guardian.toml` and `.guardian/` are always exempt; no entries = a trivial pass |
->>>>>>> claude/twin-parity
 | **divergent-const** | One file-scope `const NAME` holding **different** values in 2+ files — `silk_stroke_mm` 0.12 in the Gerber writer and 0.15 in the `.kicad_mod` writer, `max_footprint_bytes` 1 MiB in four readers and 256 KiB in two. Note the polarity against repeated-string-literal: same name + same value is harmless here, same name + DIFFERENT value is the risk. Values are compared FOLDED (`16 << 20` = `16 * 1024 * 1024` = `16_777_216`, `1_000_000` = `1_000_000.0`); an initializer that does not fold to a number is skipped. Default `mode = "units"` groups only names whose trailing `_` segment is a unit (`_mm`, `_bytes`, `_ms`, `_hz`, …); `mode = "all"` groups every name and `ignore_names` exempts the generic ones. A `/// mirror-of: <path>.zig.<name>` doc annotation exempts a const from the divergence rule and instead requires it to EQUAL that referent. Keyed by the NAME |
 | **shadowed-const** | A value that already HAS a name reappearing somewhere else as a **bare literal** — divergent-const's blind spot, since that check compares one NAME across files and a copy that never got a name is invisible to it. Measured in eda (2026-08-14) with divergent-const at zero rows: `export_fab.zig` declares `auto_outline_margin_mm = 1.0` while `placement/pour.zig` and `placement/route_free_space.zig` each re-derive the same rectangle from a bare `1.0` ("Replicated here to avoid an import cycle"), so changing the constant silently desyncs the pour raster from the Edge.Cuts outline; three files hold a `1e-6` clearance epsilon under three names; a `0.05` mm step sits bare in two files. Two modes: `declared` (default) is the **gate** — one `[[shadow]]` rule per constant that matters, `const = "<path>.zig.<name>"` (the `mirror-of:` referent spelling) plus optional `files`/`ignore`/`reason`, zero rules is a zero-config pass, and a rule whose referent resolves to nothing is itself a violation. `[shadowed_const] mode = "auto"` is a **measurement** tier: it sweeps every unit-suffixed file-scope const and reports bare occurrences elsewhere, filtered by `ignore_values` (folded compare) and the `min_float_digits`/`min_int_digits` floors. BARE means unnamed — a literal that IS a named const's initializer is divergent-const's subject, comments and strings are not literals at all, `test` blocks are skipped, and a file declaring the value under any name is skipped for it. Keyed `<referent>|<file>` |
 | **twin-referent** | A comment CLAIMING a relationship (`mirrors`, `same as`, `twin of`, `in lockstep with`, `verified against`, `matches`) whose named referent does not resolve — a doc pointing at a deleted function, a file that was split into a directory, `optimizer.INNER_LAYER_COLORS` where the symbol is lowercase. Precision by construction: the phrase alone is never reported, only a phrase followed IN THE SAME SENTENCE by something code-shaped — a word ending in `.zig` (no glob, non-empty basename) or a dotted chain rooted in a module of the tree. Resolution is containment, not semantics: a path must name an indexed file (exactly or as a tail at `/`), a chain's final symbol must be declared, named as a field, or dereferenced anywhere in the tree; `std.*` / `builtin.*` are skipped. A hard-coded `file.zig:120-160` range is reported outright. Keyed `<file>|<referent>` |
 | **twin-parity** *(configured)* | A capability a `[[twin]]` entry says is reachable on 2+ surfaces (a CLI subcommand, an HTTP route, an MCP tool) with nothing proving the surfaces still agree. Nothing in a compiler can see that three implementations are meant to return one answer — they share no type, no call, often no file — so they drift while every surface keeps passing its own tests. Measured in eda (2026-08-14): ~19 capabilities on 2+ surfaces, exactly ONE with a test asserting the surfaces return the same bytes, and the reimplemented pairs already diverged into different BOM-merge gating, different clamps, and different JSON for one field. Two rules: a twin NAMING a `parity_test` must have it (a test named in config and absent from the tree is a rename nobody propagated — that one always blocks), and a twin naming none is reported as `twin-uncovered`, one row per twin, so today's uncovered set freezes and can only shrink (`[baseline] deny_growth = ["twin-parity"]` then refuses a row that LOSES its test). `surfaces` are free-form labels nothing resolves — the count is what is enforced, since fewer than two is a config error. Matching is CONTAINMENT against test names declared under `src/` and `test/` on disk (never the compiled test set), so a clarifying rename does not red the gate. Keyed `parity <name>` / `uncovered <name>` — apart on purpose, so a frozen uncovered row can never absorb the missing-test failure |
 | **duplicate-json-key** | One function writing the same `"key":` twice into the same JSON object — last-wins today, a `SyntaxError` under any strict reader. Scoped by OBJECT SEGMENT so a function writing two sibling objects is silent: a `{`/`}` a literal actually emits (`{{`/`}}` included) ends a segment, and so does a completed call between two literals, an `else` / switch `=>` / `return` (alternatives, not a sequence). A format placeholder (`{d}`, `{s}`) is a value, not a brace. A literal must also be an argument to a call that WRITES (`print`/`write`/`format`/`append`), so `std.mem.indexOf(u8, body, "\"dnp\":true")` is not a write. Test blocks are never scanned. Keyed `<file>|<fn>|<key>` |
-| **struct-method-cap** | Pub container with > 20 `pub fn` methods |
-| **optional-density** | Pub struct where > 50% of fields are `?T` |
-| **stringly-typed-switches** | `switch` whose case keys are string literals |
-
-### Tier 3 Architectural Fitness
-| Check | Blocks on |
-|---|---|
-| **repeated-switch-on-enum** | The same enum prong-set switched in 2+ production files; test blocks are ignored and the diagnostic names every collision file |
-
 Plus `zig fmt --check`, wired as a format gate alongside the checks. The
-`spec-init`, `mutate`, `debt`, and `history` steps are non-gating — see [Tools](#tools).
+`spec-init`, `mutate`, and `debt` steps are non-gating — see [Tools](#tools).
 
 ## Mutation testing (`mutate`)
 
@@ -766,7 +758,7 @@ never churns git or invalidates the build cache, and none carries a timestamp
 | File | Written by | Contents |
 |---|---|---|
 | `last-run.jsonl` | every `all` / `nightly` run | one `violation` record per finding + a final `summary` (detailed below) |
-| `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run; read back by `guardian-check history` (see [Delivery metrics](#delivery-metrics-dora)) |
+| `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run for external analysis |
 | `last-mutate.jsonl` | every `mutate` run | one `survivor` record per surviving mutant + a `summary` (see [Survivor report](#survivor-report)) |
 | `mutants.jsonl` | every `mutate` run | per-mutant result cache for resume / re-run (see [Result cache](#result-cache-resume--re-run)) |
 
@@ -786,12 +778,12 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 80 registry entries — `skipped` is
-  the 4 built-in non-gates (`spec-init` / `mutate` / `debt` / `history`) plus
+  `passed` + `failed` + `skipped` sum to the 70 registry entries — `skipped` is
+  the 3 built-in non-gates (`spec-init` / `mutate` / `debt`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
 - Threshold checks (function-length, nesting-depth, cognitive-complexity,
-  function-size, type-size, file-size, struct-method-cap, optional-density,
-  bool-ops, line-length) emit a **`ratchet_key`** (stable per-subject identity —
+  function-size, type-size, file-size, bool-ops, line-length) emit a
+  **`ratchet_key`** (stable per-subject identity —
   `file|fn`, `file|Type`, or `file`) and a **`metric`** (the measured value).
   Other checks contribute at least `check` + `message` (the rest `null`).
 - **`file` / `line` are filled for a prose-reporting check too.** A check that
@@ -858,41 +850,7 @@ Run duration is guardian's one legitimate wall-clock read — the sink module
 carries a `ban-time` `[[allow]]` for `std.time.Timer` that does **not** propagate
 to consumers.
 
-### Reading it back: `guardian-check history`
-
-The sink is only half the loop. **`guardian-check history [dir]`** is the read
-surface over the same file — how often the gate is green, what a run costs,
-which checks actually block, and how long the current red patch has run:
-
-```
-guardian: history: 430 run(s) recorded in .guardian/cache/dora.jsonl
-  outcome    371 green / 59 red — 86.3% pass rate
-  streak     current: 3 red — failing spec, test-coverage
-             longest: 5 red — last failing ban-globals
-  duration   median 2214 ms · p90 2997 ms (last 430 run(s))
-  trend      last 20: 2066 ms · prior 100: 1199 ms — slower than before
-  failures   check                     runs
-             file-size                24
-             function-length          9
-  last red   commit    branch            checks
-             83967325  main              completeness, stack-escape
-```
-
-- **`--check <name>`** narrows the report to one check's failure history: how
-  many runs it failed, its share of them, and the last few with their commit,
-  branch, and what else failed alongside it.
-- **`--json`** writes the whole report to **stdout** as one object
-  (`runs` / `streaks` / `durations` / `top_failures` / `recent_red` / `check`),
-  so a caller can pipe it. The report itself stays on stderr.
-- It **streams**. The log is append-only and unbounded, so it is read one line
-  at a time and every remembered figure lives in a fixed-size buffer; duration
-  statistics cover the most recent 512 runs and the report always names that
-  window. A line that is not a decodable run record is counted and skipped, and
-  an absent log is the ordinary answer "no runs recorded yet".
-- Never a gate: it is a registry entry (so `--only`/`--skip` and `explain` know
-  it) but a built-in non-gate, like `debt`, so `all` never runs it.
-
-## Benchmark ledger (`bench`)
+ ## Benchmark ledger (`bench`)
 
 Agents measure expensive things — a full-board route, a suite wall clock, a
 mutation kill score — and then the number survives only in a chat report. The
@@ -986,7 +944,7 @@ Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is w
 
 Baseline mode runs one of two lifecycles per check, chosen automatically:
 
-- **Per-item ratchets (baseline v2)** for the ten **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `struct-method-cap`, `optional-density`, `bool-ops-per-condition`, `line-length`. Each blocking offender is stored as a `<value> <key>` line and gets a **personal, only-shrinks ceiling**. The advisory tier for file size, function length, and line length is deliberately excluded from ratchets.
+- **Per-item ratchets (baseline v2)** for the eight **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `bool-ops-per-condition`, `line-length`. Each blocking offender is stored as a `<value> <key>` line and gets a **personal, only-shrinks ceiling**. The advisory tier for file size, function length, and line length is deliberately excluded from ratchets.
 - **Identity baselines (v3)** for every other check — each violation is frozen under a **content-derived key**, not its rendered text; a new key fails, a resolved key auto-prunes.
 
 This split fixes the structural flaw that made consumers raise global caps: a text baseline embeds the metric in the line, so *any* metric change (including a shrink) reads as a new violation. Ratchets store the metric as a comparable number instead.
@@ -1230,13 +1188,7 @@ stays a single build:
    files. Put them in **one** module (the extracted file, or a small shared
    `keys.zig`) and have the other side `@import` it. A `const` per literal in
    each file is what the check exists to stop; a single owner is the fix.
-2. **`repeated-switch-on-enum` — move the switch onto the type, don't duplicate
-   it.** A `switch` over the same prong set in two files (the classic case: a
-   JSON-coercion `switch (value) { .float, .integer, else }` in both halves)
-   fails even when each copy is small. Give the enum — or the module that owns
-   it — one method (`fn asF32(self: Value) ?f32`) and call it from both sides.
-   That is nearly always the better API, not a workaround.
-3. **`deprecated-alias` — write the current idiom in the new file.** Fresh code
+2. **`deprecated-alias` — write the current idiom in the new file.** Fresh code
    copied from an older file carries older spellings: use `.empty` rather than
    `std.ArrayListUnmanaged{}`, `std.ArrayList` rather than the `Unmanaged`
    alias. `guardian-check explain deprecated-alias` lists the pairs.
@@ -1461,8 +1413,6 @@ owner = ["src/board_layers.zig"]
 files = ["src/*.zig", "assets/*.css"]
 reason = "layer names come from board_layers.LayerTable"
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 # Your own owned expression shapes, enforced by the `canonical-idiom` check. Use
 # one when a SHAPE — not a name, not a literal — has a canonical implementation
 # and keeps getting re-derived: a leaf split, a percent-decode wrapper, a
@@ -1480,7 +1430,6 @@ fragments = ["lastIndexOfScalar", "'/'"]
 files = ["src/*.zig"]
 allow = ["src/subblock.zig"]
 reason = "call subblock.leafOf() — 51 sites hand-rolled this under 8 names"
-=======
 # Your own import DIRECTIONS, enforced by the `import-layering` check. Use one
 # when a layer may only be depended on, never depend back — the edge is acyclic
 # and compiles fine, so the `imports` (cycle) check has nothing to say about it.
@@ -1499,8 +1448,6 @@ from = ["src/kicad_pcb/*", "src/placement/*"]
 to = ["src/serve/*"]
 allow = ["src/kicad_pcb/serve_adapter.zig"]
 reason = "sidecar persistence lives in serve/; the format layer must not reach up into the web layer"
->>>>>>> claude/import-layering
-=======
 # The same relation read the OTHER way, plus a family that reads itself.
 # require_in: mirrors that must EACH spell EVERY literal (owner says "only
 # here"; require_in says "and definitely there"). A required mirror is
@@ -1532,7 +1479,6 @@ reason = "DRC kind strings come from drc.Kind.wire"
 name = "export-pdf"
 surfaces = ["cli:export-pdf", "http:/api/schematic-pdf", "mcp:export_pdf"]
 parity_test = "pdf export matches"
->>>>>>> claude/twin-parity
 
 # divergent-const: one file-scope const NAME holding DIFFERENT values in two
 # files. Default `mode = "units"` groups only names whose trailing `_` segment
@@ -1571,35 +1517,17 @@ Patterns use `*` as a wildcard; without `*`, substring matching is used.
 `required_inputs` is intentionally stricter: entries without `*` are exact
 project-relative paths, while glob entries must match at least one file or
 directory. Guardian checks them before `all`, individual gates, acceptance,
-commit, nightly, or mutation can update metadata.
+migration, nightly, or mutation can update metadata. `commit` audits metadata
+read-only; it stages metadata edits that already exist but creates none itself.
 
 ### Complete key reference
 
-Every setting `src/config_parser.zig` understands (the parser fails closed —
-unknown names, malformed values, incomplete
-<<<<<<< HEAD
-<<<<<<< HEAD
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[idiom]]` entries, a `[[ban]]`
-chain segment that isn't a bare identifier, a `[[concept]]`/`[[idiom]]` name that
-isn't kebab-case or that a previous entry already used, an `[[idiom]]` missing its
-required `reason`, and unsafe mutation ranges are hard errors
-=======
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[layering]]` entries, a
-`[[ban]]` chain segment that isn't a bare identifier, a `[[concept]]` or
-`[[layering]]` name that isn't kebab-case or that a previous entry already used,
-and unsafe mutation ranges are hard errors
->>>>>>> claude/import-layering
-with a `guardian.toml:line:` diagnostic). String arrays may span lines and
-include comments and trailing commas.
-=======
-`[[boundary]]`/`[[allow]]`/`[[ban]]`/`[[concept]]`/`[[twin]]` entries, a
-`[[ban]]` chain segment that isn't a bare identifier, a `[[concept]]`/`[[twin]]`
-name that isn't kebab-case or that a previous entry already used, a `[[twin]]`
-with fewer than two `surfaces`, a malformed `literals_from` table, and unsafe
-mutation ranges are hard errors with a `guardian.toml:line:` diagnostic). String
-arrays may span lines and include comments and trailing commas; an inline table
-is a single-line value.
->>>>>>> claude/twin-parity
+Every setting `src/config_parser.zig` understands is listed below. The parser
+fails closed with a `guardian.toml:line:` diagnostic on unknown names,
+malformed values, incomplete tables, duplicate or malformed rule names,
+missing required fields, invalid inline tables, and unsafe mutation ranges.
+String arrays may span lines and include comments and trailing commas; an
+inline table is a single-line value.
 
 | Scope | Keys |
 |---|---|
@@ -1607,18 +1535,11 @@ is a single-line value.
 | `[[boundary]]` | `module`, `forbidden` |
 | `[[allow]]` | `check`, `paths` |
 | `[[ban]]` | `chain` (required, one identifier per segment), `paths`, `allow`, `reason` |
-<<<<<<< HEAD
-| `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns` (at least one of the two required), `owner`, `files`, `reason` |
-<<<<<<< HEAD
 | `[[idiom]]` | `name` (required, kebab-case, unique), `fragments` (required, non-empty), `files` (default `["src/*.zig"]`; may not be an empty array), `allow`, `reason` (**required**) |
-=======
 | `[[layering]]` | `name` (required, kebab-case, unique), `from` (required, non-empty), `to` (required, non-empty), `reason` (required), `allow` |
->>>>>>> claude/import-layering
-=======
 | `[[concept]]` | `name` (required, kebab-case, unique), `literals`, `patterns`, `literals_from` (at least one of the three required), `owner`, `files`, `require_in`, `reason` |
 | `[[concept]] literals_from` | inline table, one line: `file` (required, non-empty), `fragments` (required, non-empty string array) |
 | `[[twin]]` | `name` (required, kebab-case, unique), `surfaces` (required, 2+ entries), `parity_test` |
->>>>>>> claude/twin-parity
 | `[[external]]` | `name`, `command`, `inputs`, `paths`, `benchmark`, `max_regression_pct`, `timeout_secs`, `max_rss_mib` |
 | `[gate]` | `on_build` (`"report"`\|`"block"`), `test_command`, `install_hook` |
 | `[test_filter]` | `flag` (default `-Dtest-filter=`) — read only by the non-gating `test-filter` report |
@@ -1639,9 +1560,7 @@ is a single-line value.
 | `[line_length]` | `enabled`, `max_len`, `hard_max_len` |
 | `[baseline]` | `enabled`, `deny_growth` |
 | `[hysteresis]` | `enabled` (default `true`), `recover_pct` (1..90, default `20`), `checks` (default `["file-size", "function-length"]`; only `file-size`/`function-length`/`line-length` are valid) |
-| `[escape_discipline]` | `enabled` |
 | `[oom_discipline]` | `enabled` |
-| `[magic_number]` | `enabled` |
 | `[dead_pub]` | `ignore_test_refs` |
 | `[change_classification]` | `enabled`, `against`, `gate_last_commit` |
 | `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `fast_max_mutants`, `smoke_step`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_retry_multiplier`, `timeout_secs`, `retained_cache_suites` |
@@ -1711,7 +1630,6 @@ flags *is* the act of instrumenting:
 | `ban-globals` | a per-cause counter is a file-scope `pub var`; the check's own fix (scope it to a struct field) is the production plumbing you are trying not to grow |
 | `ban-time` | a phase timer is `std.time.nanoTimestamp` / `Timer.start`; its fix is to inject a Clock port |
 | `debug-print-ban` | `std.debug.print` in the loop is the read-out |
-| `stdout-flush` | the hand-rolled buffered dump of those counters |
 | `pub-api-surface` | a counter a second module reads must be `pub`, so the surface snapshot drifts for the life of the experiment (drift is filtered per file; the snapshot itself is never rewritten from the filtered view) |
 
 Everything else keeps working normally inside a measurement path — in
@@ -1778,9 +1696,6 @@ guardian-check debt . --assert-density # Add assert/KLOC diagnostics on demand
 guardian-check debt . --check spec   # Restrict the debt report to one check
 guardian-check debt . --prune-stale  # Preview obsolete baseline removal (dry run)
 guardian-check debt . --prune-stale --yes # Explicitly delete the previewed files
-guardian-check history .             # Gate outcomes, durations, and failing checks from the run log
-guardian-check history . --check spec # One check's failure history
-guardian-check history . --json      # The whole report as one JSON object on stdout
 guardian-check doctor .              # Read-only metadata/integration health audit
 guardian-check spec-sync .           # Suggest missing SPEC.md bullets (dry run)
 guardian-check test-filter .         # Report the diff-derived test-name filter (never gates)
@@ -1824,8 +1739,8 @@ guardian-check version               # Print the guardian version + source diges
   three and "no guardian output" is never a possible reading:
 
   ```
-  run-all: 76 check(s) passed
-  run-all: 76 checks — 0 blocking, 3 report-only
+  run-all: 67 check(s) passed
+  run-all: 67 checks — 0 blocking, 3 report-only
   run-all: 2/72 failed (type-size, naming) — 3 report-only
   run-all: cached — 0 blocking (inputs unchanged since last green run)
   ```
@@ -1946,10 +1861,11 @@ change set it just verified.
   never skipped** — it was deliberately added to the repo, and dropping it would
   leave the commit not matching the gated tree; `git add`ing an untracked path
   yourself is the deliberate escape hatch that lifts the rail the same way.
-  `.guardian/` metadata and `SPEC.md` are **always
-  included**, so the baseline/snapshot churn a run produced rides the commit
-  that caused it — making that churn attributable instead of smeared across
-  unrelated commits. Never pushes, never amends. A green gate with nothing left
+  `.guardian/` metadata and `SPEC.md` are **always included**, so explicit
+  acceptance/migration edits already in the worktree ride the commit that
+  caused them. The commit gate itself is metadata-read-only, so an interrupted
+  test phase cannot create unrelated ratchet churn. Never pushes, never amends.
+  A green gate with nothing left
   to stage reports "nothing to commit" and exits 0.
 - **Closes the diff-timing hole.** Because `commit` gates the exact working-tree
   diff it is about to commit, change-classification (which diffs the same tree)

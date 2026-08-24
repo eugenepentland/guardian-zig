@@ -139,7 +139,7 @@ pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
         },
     };
     var diag: Diagnostic = .{};
-    return parseInto(allocator, content, &diag) catch |e| switch (e) {
+    const cfg = parseInto(allocator, content, &diag) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.UnknownSection,
         error.UnknownKey,
@@ -152,6 +152,18 @@ pub fn load(allocator: Allocator, dir: []const u8) LoadError!Config {
             return e;
         },
     };
+    noteRetiredSections(content);
+    return cfg;
+}
+
+fn noteRetiredSections(content: []const u8) void {
+    const names = [_][]const u8{ "stdout_flush", "escape_discipline", "magic_number" };
+    for (names) |name| {
+        var buf: [64]u8 = undefined;
+        const header = std.fmt.bufPrint(&buf, "[{s}]", .{name}) catch continue;
+        if (std.mem.indexOf(u8, content, header) != null)
+            reporter.ok("note: guardian.toml section [{s}] is retired and ignored", .{name});
+    }
 }
 
 const Section = enum {
@@ -171,10 +183,8 @@ const Section = enum {
     line_length,
     baseline,
     hysteresis,
-    escape_discipline,
+    retired_check,
     oom_discipline,
-    magic_number,
-    stdout_flush,
     module_doc_header,
     dead_pub,
     change_classification,
@@ -1075,7 +1085,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
             'r' => .unsigned,
             else => .string_array,
         },
-        .escape_discipline, .oom_discipline, .magic_number, .stdout_flush, .dead_pub => .boolean,
+        .retired_check, .oom_discipline, .dead_pub => .boolean,
         .module_doc_header => .unsigned,
         .change_classification => if (key[0] == 'a') .string else .boolean,
         .mutation => if (key[0] == 's') .string else .unsigned,
@@ -1219,7 +1229,16 @@ fn validateHysteresis(
     diag: *Diagnostic,
 ) ParseError!void {
     if (std.mem.eql(u8, kv.key, recover_pct_key)) {
-        const pct = std.fmt.parseInt(u32, kv.val, 10) catch return;
+        const pct = std.fmt.parseInt(u32, kv.val, 10) catch {
+            try setDiag(
+                allocator,
+                diag,
+                line_no,
+                "hysteresis recover_pct must be an integer in {d}..{d} (got '{s}')",
+                .{ hysteresis.min_recover_pct, hysteresis.max_recover_pct, kv.val },
+            );
+            return error.InvalidValue;
+        };
         if (pct >= hysteresis.min_recover_pct and pct <= hysteresis.max_recover_pct) return;
         try setDiag(
             allocator,
@@ -1485,7 +1504,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .line_length => &.{ "enabled", max_len_key, hard_max_len_key },
         .baseline => &.{ "enabled", "deny_growth" },
         .hysteresis => &.{ "enabled", recover_pct_key, "checks" },
-        .escape_discipline, .oom_discipline, .magic_number, .stdout_flush => &.{"enabled"},
+        .retired_check, .oom_discipline => &.{"enabled"},
         .module_doc_header => &.{"min_lines"},
         .dead_pub => &.{"ignore_test_refs"},
         .change_classification => &.{ "enabled", "against", "gate_last_commit" },
@@ -1557,10 +1576,8 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .type_size => try applyTypeSizeKey(ctx, kv),
         .baseline => try applyBaselineKey(ctx, kv),
         .hysteresis => try applyHysteresisKey(ctx, kv),
-        .escape_discipline => applyEnabledCfg("escape_discipline", ctx, kv),
+        .retired_check => {},
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
-        .magic_number => applyEnabledCfg("magic_number", ctx, kv),
-        .stdout_flush => applyEnabledCfg("stdout_flush", ctx, kv),
         .module_doc_header => applyModuleDocHeaderKey(ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
@@ -1620,10 +1637,10 @@ fn sectionFor(name: []const u8) Section {
         .{ "line_length", Section.line_length },
         .{ "baseline", Section.baseline },
         .{ "hysteresis", Section.hysteresis },
-        .{ "escape_discipline", Section.escape_discipline },
+        .{ "stdout_flush", Section.retired_check },
+        .{ "escape_discipline", Section.retired_check },
+        .{ "magic_number", Section.retired_check },
         .{ "oom_discipline", Section.oom_discipline },
-        .{ "magic_number", Section.magic_number },
-        .{ "stdout_flush", Section.stdout_flush },
         .{ "module_doc_header", Section.module_doc_header },
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
@@ -1977,7 +1994,7 @@ test "parse policy doctor and external gate settings" {
     const cfg = try parse(arena.allocator(),
         \\[policy]
         \\profile = "agent"
-        \\report = ["optional-density"]
+        \\report = ["line-length"]
         \\ratchet = ["file-size"]
         \\lock_enabled = true
         \\lock_against = "origin/main"
@@ -3040,6 +3057,19 @@ test "parse disabled check list" {
     try std.testing.expectEqualStrings("magic-number", cfg.disabled[1]);
 }
 
+test "retired per-check sections remain parse-compatible and are ignored" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    _ = try parse(arena.allocator(),
+        \\[stdout_flush]
+        \\enabled = true
+        \\[escape_discipline]
+        \\enabled = false
+        \\[magic_number]
+        \\enabled = true
+    );
+}
+
 // spec: Hysteresis - Parses the hysteresis section and defaults it on for the two volume caps
 
 test "parse [hysteresis] and its defaults" {
@@ -3083,6 +3113,7 @@ test "parse rejects an out-of-range recover_pct and a non-two-tier check name" {
     try std.testing.expectEqual(@as(u32, 2), diag.line);
     try std.testing.expect(std.mem.indexOf(u8, diag.message, "outside 1..90") != null);
     try std.testing.expectError(error.InvalidValue, parse(a, "[hysteresis]\nrecover_pct = 91\n"));
+    try std.testing.expectError(error.InvalidValue, parse(a, "[hysteresis]\nrecover_pct = nope\n"));
     // The edges themselves are accepted.
     _ = try parse(a, "[hysteresis]\nrecover_pct = 1\n");
     _ = try parse(a, "[hysteresis]\nrecover_pct = 90\n");
@@ -3153,36 +3184,6 @@ test "parse [[allow]] per-check path overrides" {
     try std.testing.expectEqualStrings("src/walk*", fs_allowed[0]);
     try std.testing.expectEqualStrings("src/reporter.zig", cfg.extraAllowed("debug-print-ban")[0]);
     try std.testing.expectEqual(@as(usize, 0), cfg.extraAllowed("nonexistent").len);
-}
-
-// spec: Configuration - Defaults magic-number off and enables it via [magic_number] enabled
-test "magic-number defaults off and opts in via config" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    // Default: off.
-    const default_cfg = try parse(arena.allocator(), "");
-    try std.testing.expectEqual(false, default_cfg.magic_number.enabled);
-    // Opt in via section.
-    const opted = try parse(arena.allocator(),
-        \\[magic_number]
-        \\enabled = true
-    );
-    try std.testing.expectEqual(true, opted.magic_number.enabled);
-}
-
-// spec: Configuration - Defaults stdout_flush off and promotes it to a hard block via [stdout_flush] enabled
-test "stdout_flush defaults off and opts into gating via config" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    // Default: off, so the check stays report-only.
-    const default_cfg = try parse(arena.allocator(), "");
-    try std.testing.expectEqual(false, default_cfg.stdout_flush.enabled);
-    // Opt in to promote the check to a gating hard-block.
-    const opted = try parse(arena.allocator(),
-        \\[stdout_flush]
-        \\enabled = true
-    );
-    try std.testing.expectEqual(true, opted.stdout_flush.enabled);
 }
 
 // spec: Configuration - Parses the module_doc_header min_lines threshold

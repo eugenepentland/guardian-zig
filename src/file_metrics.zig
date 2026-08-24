@@ -15,7 +15,7 @@
 //! `ast.fnDeclInfos`, `ast.allFns`, `ast.pubContainers`), so a number printed
 //! here matches the gate byte for byte. Nothing is re-derived. The five
 //! ratchets whose metric exists only inside a threshold scan (nesting-depth,
-//! cognitive-complexity, struct-method-cap, optional-density,
+//! cognitive-complexity,
 //! bool-ops-per-condition) are deliberately absent rather than approximated,
 //! and `unmeasured_checks` names them so a report can say so out loud.
 
@@ -48,8 +48,6 @@ pub const measured_checks = [_][]const u8{
 pub const unmeasured_checks = [_][]const u8{
     "nesting-depth",
     "cognitive-complexity",
-    "struct-method-cap",
-    "optional-density",
     "bool-ops-per-condition",
 };
 
@@ -396,9 +394,10 @@ test "ceilings reads a committed ratchet file and returns empty when absent" {
 
 test "the measured and unmeasured check lists together cover every ratchet" {
     // Every name in both lists must be a real ratchet, and together they must
-    // account for all ten — otherwise a report silently omits a ratchet.
+    // account for every registered metric ratchet — otherwise a report silently
+    // omits one when the registry changes.
     const every = measured_checks ++ unmeasured_checks;
-    try testing.expectEqual(@as(usize, 10), every.len);
+    try testing.expectEqual(@as(usize, 8), every.len);
     for (every) |name| try testing.expect(ratchet.metricMode(name) != null);
 }
 

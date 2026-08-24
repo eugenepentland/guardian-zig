@@ -93,7 +93,9 @@ const cache_dir_flag = "--cache-dir=";
 /// filter that produced its count. Zig never tells a runner what the filter was.
 const filter_flag = "--guardian-filter=";
 
-/// Bytes reserved for argv and the env read done before any test runs.
+/// Bytes reserved for argv only. Environment values use the entry point's
+/// backing allocator so a normal-sized environment can never exhaust argv's
+/// small fixed buffer and silently disable a test cap.
 const args_arena_bytes = 8192;
 /// Bytes reserved for each stdio buffer of the server protocol.
 const io_buffer_bytes = 4096;
@@ -113,6 +115,8 @@ const missing_error_trace =
 const empty_selection_verdict = "nothing the filter named ran";
 /// Verdict reason when the runner itself gave up (`fatal`).
 const runner_aborted_verdict = "the runner aborted before the suite finished";
+
+const ServerExit = enum { return_normally, cap_failure };
 
 // Process-lifetime state. A test runner is an entry point: the log counter, the
 // argv arena, the protocol buffers, and the fuzz flag are all singletons of the
@@ -396,10 +400,16 @@ fn optOutActive(value: ?[]const u8) bool {
     return !std.mem.eql(u8, text, "0");
 }
 
-/// Reads one GUARDIAN_* variable from the environment. Runs before
-/// `fba.reset()`, so the returned text lives in the argv arena.
+/// Reads one GUARDIAN_* variable from the environment through a dedicated
+/// allocation path. Returning null means absent, never "the shared argv arena
+/// happened to be full" — test caps are enforcement switches, so an allocation
+/// failure must not look like an unset variable.
 fn readEnv(name: []const u8) ?[]const u8 {
-    return std.process.Environ.getAlloc(runner_environ, fba.allocator(), name) catch null;
+    return std.process.Environ.getAlloc(runner_environ, runner_backing_allocator, name) catch |err| switch (err) {
+        error.EnvironmentVariableMissing => null,
+        error.OutOfMemory => fatal("out of memory reading Guardian test-runner environment"),
+        error.InvalidWtf8 => fatal("invalid environment encoding in Guardian test runner"),
+    };
 }
 
 /// Writes to stderr, dropping the message if the handle is unusable — a failed
@@ -446,7 +456,13 @@ fn mainServer() !void {
                 // per-test result when the runner exits nonzero ("the test
                 // runner itself broke"), so exiting on `verdict.failed()` here
                 // would trade all failure attribution for a redundant code.
-                return std.process.exit(if (verdict.caps_broken) 1 else 0);
+                // Return normally on success: forcing `_exit(0)` from inside the
+                // protocol loop made Zig's Maker retain a stale `failed command`
+                // diagnostic even after a PASS on piped focused runs.
+                switch (serverExit(verdict)) {
+                    .return_normally => return,
+                    .cap_failure => std.process.exit(1),
+                }
             },
             .query_test_metadata => try serveMetadata(&server),
             .run_test => try serveOneTest(&server, try server.receiveBody_u32()),
@@ -454,6 +470,18 @@ fn mainServer() !void {
             else => fatal("unsupported test protocol message"),
         }
     }
+}
+
+fn serverExit(verdict: timing.Verdict) ServerExit {
+    return if (verdict.caps_broken) .cap_failure else .return_normally;
+}
+
+// spec: Test Runner Verdict - Returns normally from a passing build-server run after printing its result
+
+test "server exit is normal after a green result and nonzero only for a broken cap" {
+    try testing.expectEqual(ServerExit.return_normally, serverExit(.{ .tally = .{ .ok = 3 } }));
+    try testing.expectEqual(ServerExit.return_normally, serverExit(.{ .tally = .{ .fail = 1 } }));
+    try testing.expectEqual(ServerExit.cap_failure, serverExit(.{ .caps_broken = true }));
 }
 
 /// Answers the build system's metadata query with every test in this binary.

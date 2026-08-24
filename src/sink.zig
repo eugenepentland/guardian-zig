@@ -199,9 +199,11 @@ fn writeInner(
     const dir = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_subdir });
     try fs.cwd().makePath(dir);
     const path = try pathFor(arena, project_dir);
-    const f = try fs.cwd().createFile(path, .{});
-    defer f.close();
-    try f.writeAll(buf.items);
+    var write_buffer: [4096]u8 = undefined;
+    var atomic = try fs.cwd().atomicFile(path, .{ .write_buffer = &write_buffer });
+    defer atomic.deinit();
+    try atomic.file_writer.interface.writeAll(buf.items);
+    try atomic.finish();
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -339,4 +341,15 @@ test "write emits a summary-only log for a green run" {
         "{\"type\":\"summary\",\"passed\":56,\"failed\":0,\"skipped\":3,\"filtered\":false}\n",
         raw,
     );
+}
+
+fn fuzzSinkLocation(_: void, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    const loc = splitLocation(input);
+    try std.testing.expect(loc.message.len <= input.len);
+}
+
+test "fuzz: sink location parser tolerates arbitrary diagnostic bytes" {
+    try std.testing.fuzz({}, fuzzSinkLocation, .{ .corpus = &.{ "", "src/x.zig:2: msg", "unverified: X" } });
 }

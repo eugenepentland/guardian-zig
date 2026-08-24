@@ -203,7 +203,7 @@ fn reportOutcome(a: std.mem.Allocator, outcome: snapshot_helper.Outcome) registr
         .unchanged => |n| ok("pub-api unchanged ({d} entries)", .{n}),
         .version_mismatch => {
             fail("pub-api snapshot version mismatch", .{});
-            print("  fix: re-record the snapshot at the new format version:\n", .{});
+            print("  fix: guardian-check accept {s} . after reviewing the complete surface diff\n", .{check_name});
             snapshot_helper.printAcceptPaths(check_name);
             return error.CheckFailed;
         },
@@ -360,7 +360,7 @@ fn reportDrift(a: std.mem.Allocator, d: @import("../snapshot.zig").Diff) registr
     const g = try group(a, d.added, d.removed);
     printDelta(g);
     printGroups(g);
-    print("  fix: if the change is intentional, accept the snapshot:\n", .{});
+    print("  fix: guardian-check accept {s} . after reviewing the complete surface diff\n", .{check_name});
     snapshot_helper.printAcceptPaths(check_name);
     return error.CheckFailed;
 }

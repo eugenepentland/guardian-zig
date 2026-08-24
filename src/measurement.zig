@@ -43,9 +43,6 @@
 //!   * `debug-print-ban` — `std.debug.print` in the loop under study is the
 //!     canonical read-out. Its fix (route through a reporter/log port) again
 //!     asks for plumbing that exists only to be deleted.
-//!   * `stdout-flush` — the sibling of the above: a hand-rolled buffered dump
-//!     of the counters at the end of a run. It is already report-only by
-//!     default, so the exemption only matters for a project that promoted it.
 //!   * `pub-api-surface` — a counter another module reads must be `pub`, so the
 //!     API snapshot drifts for the lifetime of the experiment. Its drift is
 //!     filtered per file, and the snapshot is never REWRITTEN from an exempted
@@ -77,7 +74,6 @@ const instrumentation_checks = [_][]const u8{
     "ban-globals",
     "ban-time",
     "debug-print-ban",
-    "stdout-flush",
     "pub-api-surface",
 };
 
@@ -292,7 +288,6 @@ test "isInstrumentationClass names the bridged checks and nothing else" {
     try testing.expect(isInstrumentationClass("ban-globals"));
     try testing.expect(isInstrumentationClass("ban-time"));
     try testing.expect(isInstrumentationClass("debug-print-ban"));
-    try testing.expect(isInstrumentationClass("stdout-flush"));
     try testing.expect(isInstrumentationClass("pub-api-surface"));
     // Correctness/safety, spec-workflow, and shape checks are never bridged.
     try testing.expect(!isInstrumentationClass("catch-discipline"));

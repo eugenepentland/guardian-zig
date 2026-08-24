@@ -33,6 +33,7 @@ const cache = @import("../cache.zig");
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const dora = @import("../dora.zig");
+const writer_lock = @import("../writer_lock.zig");
 
 const Allocator = std.mem.Allocator;
 const detail = reporter.detail;
@@ -68,6 +69,13 @@ const heartbeat_ns: u64 = std.time.ns_per_s * heartbeat_secs;
 /// Entry point for the mutate command.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const a = ctx.allocator;
+    var lock = writer_lock.acquire(a, ctx.project_dir) catch |err| {
+        reporter.fail("mutate FAILED: cannot acquire {s}/{s} ({s}) — wait for the current writer; a crashed process releases the kernel lock automatically", .{
+            ctx.project_dir, writer_lock.leaf, @errorName(err),
+        });
+        return error.CheckFailed;
+    };
+    defer lock.deinit();
     // Crash safety first: revert any mutant a dead run left applied on disk,
     // then arm the SIGINT/SIGTERM revert for this run.
     journal.recover(a, ctx.project_dir);

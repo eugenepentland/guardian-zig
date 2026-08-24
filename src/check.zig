@@ -164,7 +164,11 @@ pub fn main(process_init: std.process.Init) !void {
             merge_state.reportUnresolved(&ctx);
             std.process.exit(1);
         },
-        else => return e,
+        error.OutOfMemory => return e,
+        else => {
+            run_all.reportEnvironmentalError(&ctx, e, null);
+            std.process.exit(1);
+        },
     };
 }
 
@@ -435,6 +439,8 @@ fn unknownCommandLine(
     after: ?[]const u8,
 ) []const u8 {
     const fallback = "error: unknown command";
+    if (std.mem.eql(u8, command, "history"))
+        return "error: command 'history' was retired — analyze .guardian/cache/dora.jsonl with external tooling";
     const next = suggestable(command, after) orelse
         return std.fmt.allocPrint(allocator, "error: unknown command '{s}'", .{command}) catch fallback;
     return std.fmt.allocPrint(
@@ -529,6 +535,13 @@ fn dispatch(
     // a single-check run (e.g. `guardian-check pub-api-surface`, `mutate`) has
     // to validate them here so a typo'd GUARDIAN_UPDATE_SNAPSHOT still hard-fails.
     try run_all.validateSelectiveConfig(ctx);
+    // A legacy environment refresh on a single check is the same operation as
+    // accepting that check. Route it through accept's locked preview/update/
+    // verify lifecycle instead of letting the raw dispatch write untransacted.
+    if (run_all.isAllCheck(cmd.name) and snapshot_helper.shouldUpdateFor(ctx.allocator, cmd.name)) {
+        ctx.refresh = try ctx.allocator.dupe([]const u8, &.{cmd.name});
+        return accept.run(ctx);
+    }
     // Read-only introspection short-circuits the whole baseline lifecycle: it
     // reports the check's rows (and, for --dry-run, its unfiltered findings)
     // and never creates, prunes, re-keys or stamps anything.
@@ -580,6 +593,7 @@ test "an unrecognized command is named as an error, not shown a manual" {
     try std.testing.expect(std.mem.indexOf(u8, line, "error: unknown command 'run-all'") != null);
     // Nothing to suggest, so nothing is invented.
     try std.testing.expect(std.mem.indexOf(u8, line, "did you mean") == null);
+    try std.testing.expect(std.mem.indexOf(u8, unknownCommandLine(a, "history", null), "dora.jsonl") != null);
 }
 
 // spec: Command Ergonomics - Suggests the direct check spelling after a run or check verb
@@ -631,6 +645,7 @@ test {
     _ = @import("wiring.zig");
     _ = @import("required_inputs.zig");
     _ = @import("metadata_transaction.zig");
+    _ = @import("writer_lock.zig");
     _ = @import("spec/parser.zig");
     _ = @import("spec/matcher.zig");
     _ = @import("spec/hints.zig");
@@ -655,7 +670,6 @@ test {
     _ = @import("cli/bench.zig");
     _ = @import("benchmark.zig");
     _ = @import("cli/debt.zig");
-    _ = @import("cli/history.zig");
     _ = @import("cli/debt_current.zig");
     _ = @import("cli/size.zig");
     _ = @import("cli/selfcheck.zig");
@@ -699,6 +713,7 @@ test {
     _ = @import("cli/types.zig");
     _ = @import("cli/registry.zig");
     _ = @import("cli/run_all.zig");
+    _ = @import("cli/retired.zig");
     _ = @import("cli/run_view.zig");
     _ = @import("baseline.zig");
     _ = @import("ratchet.zig");
@@ -730,14 +745,12 @@ test {
     _ = @import("checks/ban_secrets.zig");
     _ = @import("checks/ban_sleep.zig");
     _ = @import("checks/ban_time.zig");
-    _ = @import("checks/boolean_param_ban.zig");
     _ = @import("checks/bool_ops_per_condition.zig");
     _ = @import("checks/boundaries.zig");
     _ = @import("checks/canonical_idiom.zig");
     _ = @import("checks/catch_discipline.zig");
     _ = @import("checks/change_classification.zig");
     _ = @import("checks/cognitive_complexity.zig");
-    _ = @import("checks/compile_error_explanation.zig");
     _ = @import("checks/completeness.zig");
     _ = @import("checks/concept.zig");
     _ = @import("checks/lexical_scan.zig");
@@ -753,7 +766,6 @@ test {
     _ = @import("checks/doc_comments.zig");
     _ = @import("checks/errdefer_in_init.zig");
     _ = @import("checks/error_discipline.zig");
-    _ = @import("checks/escape_discipline.zig");
     _ = @import("checks/oom_discipline.zig");
     _ = @import("checks/fatal_exit.zig");
     _ = @import("checks/file_size.zig");
@@ -765,29 +777,21 @@ test {
     _ = @import("checks/imports.zig");
     _ = @import("checks/int_from_float_budget.zig");
     _ = @import("checks/init_deinit_symmetry.zig");
-    _ = @import("checks/init_hygiene.zig");
     _ = @import("checks/line_length.zig");
-    _ = @import("checks/magic_number.zig");
     _ = @import("checks/module_doc_header.zig");
     _ = @import("checks/external_gates.zig");
     _ = @import("checks/policy_drift.zig");
     _ = @import("checks/naming.zig");
     _ = @import("checks/nesting_depth.zig");
     _ = @import("checks/no_test_imports_in_prod.zig");
-    _ = @import("checks/optional_density.zig");
     _ = @import("checks/orphan_files.zig");
     _ = @import("checks/panic_budget.zig");
     _ = @import("checks/pub_api_surface.zig");
     _ = @import("checks/repeated_string_literal.zig");
-    _ = @import("checks/repeated_switch_on_enum.zig");
     _ = @import("checks/spec_init.zig");
     _ = @import("checks/spec_quality.zig");
     _ = @import("checks/spec.zig");
-    _ = @import("checks/static_factory_ban.zig");
-    _ = @import("checks/stringly_typed_switches.zig");
-    _ = @import("checks/struct_method_cap.zig");
     _ = @import("checks/stub_body_ban.zig");
-    _ = @import("checks/stdout_flush.zig");
     _ = @import("checks/stack_escape.zig");
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
@@ -797,7 +801,6 @@ test {
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unsafe_ops_budget.zig");
     _ = @import("checks/unwrap_discipline.zig");
-    _ = @import("checks/usingnamespace_ban.zig");
 }
 
 // spec: Configuration - Parses the against and full command-line flags

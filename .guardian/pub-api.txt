@@ -33,6 +33,7 @@ src/ast/import_graph.zig::reachableVia | fn reachableVia( allocator: Allocator, 
 src/ast/index.zig::Entry struct_
 src/ast/index.zig::Index struct_
 src/ast/index.zig::build | fn build(arena: Allocator, project_dir: []const u8, excludes: []const []const u8) walk.WalkError!Index
+src/ast/index.zig::buildWithSizeExcludes | fn buildWithSizeExcludes( arena: Allocator, project_dir: []const u8, excludes: []const []const u8, size_excludes: []const []const u8, ) walk.WalkError!Index
 src/ast/index.zig::forEach | fn forEach(self: *const Index, visitor: walk.Visitor) walk.WalkError!void
 src/ast/index.zig::resolve | fn resolve( shared: ?*const Index, arena: Allocator, project_dir: []const u8, storage: *Index, ) walk.WalkError!*const Index
 src/ast/index.zig::runSrc | fn runSrc( shared: ?*const Index, arena: Allocator, project_dir: []const u8, visitor: walk.Visitor, ) walk.WalkError!void
@@ -113,6 +114,7 @@ src/budget_runner.zig::run | fn run( allocator: Allocator, argv: []const []const
 src/build_helper.zig::CompileProbeOptions struct_
 src/build_helper.zig::Options struct_
 src/build_helper.zig::addAllChecks | fn addAllChecks( b: *std.Build, check_exe: *std.Build.Step.Compile, target_step: *std.Build.Step, opts: Options, ) void
+src/build_helper.zig::addFinalTestVerdict | fn addFinalTestVerdict(b: *std.Build, target_step: *std.Build.Step) void
 src/build_helper.zig::addTestCompileProbe | fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step
 src/build_helper.zig::all_check_names value
 src/build_helper.zig::announceFilters | fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) void
@@ -128,6 +130,7 @@ src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const
 src/cache.zig::readStoredBinaryId | fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::stampMtime | fn stampMtime(project_dir: []const u8) ?i128
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
+src/cache.zig::validStoredBytes | fn validStoredBytes(raw: []const u8) bool
 src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
 src/check.zig::main | fn main(process_init: std.process.Init) !void
@@ -165,8 +168,6 @@ src/checks/banned_symbol_helper.zig::scan | fn scan( ctx_param: *registry.RunCtx
 src/checks/bool_ops_per_condition.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/bool_ops_per_condition.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, max_ops: u32, ) Allocator.Error![]const []const u8
 src/checks/bool_ops_per_condition.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/boolean_param_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/boolean_param_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/boundaries.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/canonical_idiom.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.IdiomRule, ) Allocator.Error![]const reporter.Violation
 src/checks/canonical_idiom.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -179,8 +180,6 @@ src/checks/change_classification.zig::run | fn run(ctx: *registry.RunCtx) regist
 src/checks/change_classification.zig::specBulletsAdded | fn specBulletsAdded(content: []const u8, spans: []const git.LineSpan) bool
 src/checks/change_classification.zig::verdictFor | fn verdictFor(t: Totals) Verdict
 src/checks/cognitive_complexity.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/checks/compile_error_explanation.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/compile_error_explanation.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/completeness.zig::Category struct_
 src/checks/completeness.zig::CategoryReport struct_
 src/checks/completeness.zig::CategoryState union_
@@ -217,8 +216,6 @@ src/checks/duplicate_json_key.zig::run | fn run(ctx: *registry.RunCtx) registry.
 src/checks/errdefer_in_init.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/checks/escape_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/escape_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/external_gates.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/fatal_exit.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/fatal_exit.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -236,8 +233,6 @@ src/checks/import_layering.zig::run | fn run(ctx_param: *registry.RunCtx) regist
 src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/init_deinit_symmetry.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/init_hygiene.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
-src/checks/init_hygiene.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/int_from_float_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/lexical_scan.zig::VisitFn value
 src/checks/lexical_scan.zig::Visitor struct_
@@ -250,8 +245,6 @@ src/checks/lexical_scan.zig::walkFiles | fn walkFiles( allocator: Allocator, dir
 src/checks/line_length.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_len: u32, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/magic_number.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/magic_number.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/merge_state.zig::check_name value
 src/checks/merge_state.zig::reportUnresolved | fn reportUnresolved(ctx: *types.RunCtx) void
 src/checks/merge_state.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
@@ -263,8 +256,6 @@ src/checks/no_test_imports_in_prod.zig::analyzeContent | fn analyzeContent( allo
 src/checks/no_test_imports_in_prod.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/oom_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/oom_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/checks/optional_density.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/optional_density.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/orphan_files.zig::findOrphans | fn findOrphans( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/checks/orphan_files.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -273,8 +264,6 @@ src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) regist
 src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/repeated_switch_on_enum.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/repeated_switch_on_enum.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/shadowed_const.zig::analyzeIndex | fn analyzeIndex( allocator: Allocator, files: []const ast_index.Entry, cfg: config.ShadowedConstCfg, rules: []const config.ShadowRule, ) Allocator.Error![]const reporter.Violation
 src/checks/shadowed_const.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -282,14 +271,6 @@ src/checks/spec_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!
 src/checks/spec_quality.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/stack_escape.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/stack_escape.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/checks/static_factory_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/static_factory_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/stdout_flush.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
-src/checks/stdout_flush.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/stringly_typed_switches.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/stringly_typed_switches.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
-src/checks/struct_method_cap.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
-src/checks/struct_method_cap.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/stub_body_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/stub_body_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_coverage.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -313,7 +294,6 @@ src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem
 src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
-src/checks/usingnamespace_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/cli/accept.zig::command_name value
 src/cli/accept.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/bench.zig::command_name value
@@ -335,8 +315,6 @@ src/cli/debt_current.zig::printReport | fn printReport(arena: Allocator, report:
 src/cli/doctor.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/explain.zig::Query struct_
 src/cli/explain.zig::run | fn run(allocator: std.mem.Allocator, query: Query) bool
-src/cli/history.zig::command_name value
-src/cli/history.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/install_hook.zig::command_name value
 src/cli/install_hook.zig::ensure | fn ensure(ctx: *types.RunCtx) void
 src/cli/install_hook.zig::relativeHookPath | fn relativeHookPath(allocator: Allocator, project_dir: []const u8) ?[]const u8
@@ -365,9 +343,14 @@ src/cli/registry.zig::all value
 src/cli/registry.zig::find | fn find(name: []const u8) ?Command
 src/cli/registry.zig::printHelp | fn printHelp() void
 src/cli/registry.zig::summaryFor | fn summaryFor(name: []const u8) ?[]const u8
+src/cli/retired.zig::Info struct_
+src/cli/retired.zig::all value
+src/cli/retired.zig::find | fn find(name: []const u8) ?Info
+src/cli/retired.zig::style_tier value
 src/cli/run_all.zig::PassSummary struct_
 src/cli/run_all.zig::command_name value
 src/cli/run_all.zig::isAllCheck | fn isAllCheck(name: []const u8) bool
+src/cli/run_all.zig::reportEnvironmentalError | fn reportEnvironmentalError(ctx: *const types.RunCtx, err: anyerror, path_hint: ?[]const u8) void
 src/cli/run_all.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/run_all.zig::runCollecting | fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
 src/cli/run_all.zig::validateCheckNames | fn validateCheckNames(names: []const []const u8, origin: []const u8) types.RunError!void
@@ -424,7 +407,6 @@ src/config.zig::DivergentConstMode enum_
 src/config.zig::DocQualityCfg struct_
 src/config.zig::DoctorCfg struct_
 src/config.zig::DoraCfg struct_
-src/config.zig::EscapeDisciplineCfg struct_
 src/config.zig::ExternalGate struct_
 src/config.zig::FunctionLengthCfg struct_
 src/config.zig::FunctionSizeCfg struct_
@@ -437,7 +419,6 @@ src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LayeringRule struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::LiteralsFrom struct_
-src/config.zig::MagicNumberCfg struct_
 src/config.zig::MeasurementCfg struct_
 src/config.zig::ModuleDocHeaderCfg struct_
 src/config.zig::MutationCfg struct_
@@ -451,7 +432,6 @@ src/config.zig::ShadowRule struct_
 src/config.zig::ShadowedConstCfg struct_
 src/config.zig::ShadowedConstMode enum_
 src/config.zig::SpecQualityCfg struct_
-src/config.zig::StdoutFlushCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
@@ -567,6 +547,7 @@ src/fs.zig::OpenError value
 src/fs.zig::OpenError value
 src/fs.zig::PReadError value
 src/fs.zig::ReadError value
+src/fs.zig::SetLengthError value
 src/fs.zig::Stat value
 src/fs.zig::Stat value
 src/fs.zig::StatError value
@@ -601,6 +582,7 @@ src/fs.zig::readerStreaming | fn readerStreaming(self: File, buffer: []u8) std.I
 src/fs.zig::realpathAlloc | fn realpathAlloc(self: Dir, allocator: std.mem.Allocator, sub_path: []const u8) std.Io.Dir.RealPathFileAllocError![:0]u8
 src/fs.zig::seekFromEnd | fn seekFromEnd(self: File, offset: i64) (StatError || std.Io.File.SeekError || error{Overflow})!void
 src/fs.zig::selfExePathAlloc | fn selfExePathAlloc(allocator: std.mem.Allocator) std.process.ExecutablePathAllocError![:0]u8
+src/fs.zig::setLength | fn setLength(self: File, length: u64) SetLengthError!void
 src/fs.zig::stat | fn stat(self: File) StatError!Stat
 src/fs.zig::statFile | fn statFile(self: Dir, sub_path: []const u8) std.Io.Dir.StatFileError!Stat
 src/fs.zig::stderr | fn stderr() File
@@ -786,12 +768,14 @@ src/ratchet.zig::decodeLines | fn decodeLines(arena: Allocator, lines: []const [
 src/ratchet.zig::growthClass | fn growthClass(check_name: []const u8) GrowthClass
 src/ratchet.zig::lifecycle | fn lifecycle( arena: Allocator, path: []const u8, entries: []const Entry, opts: Options, ) LifecycleError!Outcome
 src/ratchet.zig::maxEntry | fn maxEntry(entries: []const Entry) ?Entry
+src/ratchet.zig::mergeAccepted | fn mergeAccepted(arena: Allocator, prior: []const Entry, refreshed: []const Entry) Allocator.Error![]Entry
 src/ratchet.zig::metricMode | fn metricMode(check_name: []const u8) ?AggMode
 src/ratchet.zig::names value
 src/ratchet.zig::parse | fn parse(arena: Allocator, content: []const u8) Allocator.Error![]Entry
 src/ratchet.zig::unitLabel | fn unitLabel(check_name: []const u8) []const u8
 src/ratchet.zig::version value
 src/ratchet.zig::wouldGrow | fn wouldGrow(arena: Allocator, old: []const Entry, new: []const Entry) Allocator.Error!bool
+src/ratchet.zig::writeEntries | fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snapshot.WriteError!void
 src/relocation.zig::Moved struct_
 src/relocation.zig::Plan struct_
 src/relocation.zig::Reason enum_
@@ -859,8 +843,10 @@ src/snapshot.zig::hasRegenMarker | fn hasRegenMarker(content: []const u8) bool
 src/snapshot.zig::isComment | fn isComment(line: []const u8) bool
 src/snapshot.zig::isConflictMarker | fn isConflictMarker(line: []const u8) bool
 src/snapshot.zig::isEmpty | fn isEmpty(self: Diff) bool
+src/snapshot.zig::lastErrorPath | fn lastErrorPath() ?[]const u8
 src/snapshot.zig::magic_prefix value
 src/snapshot.zig::parse | fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadError!Snapshot
+src/snapshot.zig::parseAnyVersion | fn parseAnyVersion(arena: Allocator, content: []const u8) ReadError!Snapshot
 src/snapshot.zig::read | fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot
 src/snapshot.zig::readOptional | fn readOptional(arena: Allocator, path: []const u8, expected_version: u32) ReadError!?Snapshot
 src/snapshot.zig::regen_marker value
@@ -875,8 +861,10 @@ src/snapshot_helper.zig::canonicalCheckName | fn canonicalCheckName(name: []cons
 src/snapshot_helper.zig::example_named_refresh value
 src/snapshot_helper.zig::lifecycle | fn lifecycle( allocator: Allocator, spec: SnapSpec, new_lines: [][]const u8, force_update: bool, write_allowed: bool, ) LifecycleError!Outcome
 src/snapshot_helper.zig::preservedMetadataPaths | fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8
+src/snapshot_helper.zig::preservedMetadataPathsForCtx | fn preservedMetadataPathsForCtx(ctx: *const types.RunCtx) Allocator.Error![]const []const u8
 src/snapshot_helper.zig::printAcceptPaths | fn printAcceptPaths(check_name: []const u8) void
 src/snapshot_helper.zig::refreshTargetSummary | fn refreshTargetSummary(allocator: Allocator) ?[]const u8
+src/snapshot_helper.zig::refreshTargetSummaryForCtx | fn refreshTargetSummaryForCtx(ctx: *const types.RunCtx) ?[]const u8
 src/snapshot_helper.zig::refreshTargets | fn refreshTargets(allocator: Allocator) ?[]const []const u8
 src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bool
 src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool
@@ -999,6 +987,7 @@ src/walk.zig::VisitFn value
 src/walk.zig::Visitor struct_
 src/walk.zig::WalkError value
 src/walk.zig::WalkOpts struct_
+src/walk.zig::lastErrorPath | fn lastErrorPath() ?[]const u8
 src/walk.zig::matchGlob | fn matchGlob(text: []const u8, pattern: []const u8) bool
 src/walk.zig::normalizePath | fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.Error![]const u8
 src/walk.zig::walkZigFiles | fn walkZigFiles( allocator: Allocator, fs_root: []const u8, opts: WalkOpts, visitor: Visitor, ) WalkError!void
@@ -1006,3 +995,8 @@ src/wiring.zig::cloneEnviron | fn cloneEnviron(allocator: std.mem.Allocator) (st
 src/wiring.zig::getEnvOwned | fn getEnvOwned(allocator: std.mem.Allocator, name: []const u8) std.process.Environ.GetAllocError![]u8
 src/wiring.zig::init | fn init(process_init: std.process.Init) void
 src/wiring.zig::io | fn io() std.Io
+src/writer_lock.zig::AcquireError value
+src/writer_lock.zig::Lock struct_
+src/writer_lock.zig::acquire | fn acquire(allocator: Allocator, project_dir: []const u8) AcquireError!Lock
+src/writer_lock.zig::deinit | fn deinit(self: *Lock) void
+src/writer_lock.zig::leaf value

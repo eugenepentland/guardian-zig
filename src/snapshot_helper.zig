@@ -180,6 +180,16 @@ pub fn refreshTargetSummary(allocator: Allocator) ?[]const u8 {
     return std.mem.join(allocator, ", ", names) catch null;
 }
 
+/// Context-aware form used by the `accept` command's nested `all` pass. The
+/// command carries its names on RunCtx rather than exporting a process-global
+/// environment variable, so rollback preservation must consult the same seam
+/// as `shouldUpdateForCtx` or one refused check undoes its valid siblings.
+pub fn refreshTargetSummaryForCtx(ctx: *const types.RunCtx) ?[]const u8 {
+    const names = if (ctx.refresh.len > 0) ctx.refresh else refreshTargets(ctx.allocator) orelse return null;
+    if (names.len == 0) return null;
+    return std.mem.join(ctx.allocator, ", ", names) catch null;
+}
+
 /// The `.guardian/`-relative metadata files a selective refresh of the checks
 /// named in GUARDIAN_UPDATE_SNAPSHOT is allowed to keep across a red run — the
 /// input to `metadata_transaction`'s selective restore (see C2 in FEEDBACK.md).
@@ -195,6 +205,14 @@ pub fn refreshTargetSummary(allocator: Allocator) ?[]const u8 {
 pub fn preservedMetadataPaths(allocator: Allocator) Allocator.Error![]const []const u8 {
     const names = refreshTargets(allocator) orelse return &.{};
     return metadataRelPathsFor(allocator, names);
+}
+
+/// Context-aware preservation for explicit `guardian-check accept a,b`. This
+/// is intentionally separate from the env wrapper so legacy callers retain
+/// their behavior while command-local refreshes become transactional per name.
+pub fn preservedMetadataPathsForCtx(ctx: *const types.RunCtx) Allocator.Error![]const []const u8 {
+    const names = if (ctx.refresh.len > 0) ctx.refresh else refreshTargets(ctx.allocator) orelse return &.{};
+    return metadataRelPathsFor(ctx.allocator, names);
 }
 
 /// Pure name→path expansion behind `preservedMetadataPaths` (no env read), so
@@ -514,10 +532,12 @@ test "classifyValue treats empty and zero as no refresh" {
 // spec: Snapshot Lifecycle - Accept command refreshes only its explicit context-local check names
 
 test "shouldUpdateForCtx honors explicit refreshes without an environment variable" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
     const config = @import("config.zig");
     const cfg: config.Config = .{};
     const ctx: types.RunCtx = .{
-        .allocator = std.testing.allocator,
+        .allocator = arena.allocator(),
         .project_dir = ".",
         .cfg = &cfg,
         .quiet = true,
@@ -525,6 +545,31 @@ test "shouldUpdateForCtx honors explicit refreshes without an environment variab
     };
     try std.testing.expect(shouldUpdateForCtx(&ctx, "file-size"));
     try std.testing.expect(!ctx.refreshes("spec"));
+    const kept = try preservedMetadataPathsForCtx(&ctx);
+    try std.testing.expectEqual(@as(usize, 2), kept.len);
+    try std.testing.expectEqualStrings("baselines/file-size.txt", kept[0]);
+    try std.testing.expectEqualStrings("file-size", refreshTargetSummaryForCtx(&ctx).?);
+}
+
+// spec: Snapshot Lifecycle - Keeps successful command-local accepts when a sibling named check is refused
+
+test "failed multi-check accepts preserve every command-local metadata path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const config = @import("config.zig");
+    const cfg: config.Config = .{};
+    const ctx: types.RunCtx = .{
+        .allocator = arena.allocator(),
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+        .refresh = &.{ "file-size", "pub-api-surface" },
+    };
+    const kept = try preservedMetadataPathsForCtx(&ctx);
+    try std.testing.expectEqual(@as(usize, 5), kept.len);
+    try std.testing.expectEqualStrings("file-size, pub-api-surface", refreshTargetSummaryForCtx(&ctx).?);
+    try std.testing.expectEqualStrings("baselines/file-size.txt", kept[0]);
+    try std.testing.expectEqualStrings("pub-api.txt", kept[4]);
 }
 
 // spec: Snapshot Lifecycle - Lists the metadata files a named refresh keeps through a failed gate

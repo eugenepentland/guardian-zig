@@ -6,7 +6,7 @@
 //! over cap — diffs as a new violation and reds the build, so consumers raise
 //! global caps instead (see AUDIT-2026-07-08.md, Finding 2).
 //!
-//! This module replaces that failure mode for the ten checks that emit a stable
+//! This module replaces that failure mode for the eight checks that emit a stable
 //! `ratchet_key` + a `metric`: each offender gets a personal, only-shrinks
 //! ceiling. The baseline file (`.guardian/baselines/<check>.txt`) stores sorted
 //! `<value> <key>` lines under a `# guardian-snapshot v2` header. A key that
@@ -52,7 +52,7 @@ const MetricCheck = struct {
     unit: []const u8,
 };
 
-/// The ten threshold checks that emit `ratchet_key` + `metric`. Membership here
+/// The eight threshold checks that emit `ratchet_key` + `metric`. Membership here
 /// (not the presence of records in a given run) is what selects the ratchet
 /// lifecycle, so a check with zero current violations still ratchets — it prunes
 /// its whole baseline rather than being mistaken for a non-metric check.
@@ -63,8 +63,6 @@ const metric_checks = [_]MetricCheck{
     .{ .name = "function-size", .mode = .max, .unit = "params" },
     .{ .name = "type-size", .mode = .max, .class = .volume, .unit = "fields" },
     .{ .name = "file-size", .mode = .max, .class = .volume, .unit = "code lines" },
-    .{ .name = "struct-method-cap", .mode = .max, .unit = "pub methods" },
-    .{ .name = "optional-density", .mode = .max, .unit = "% optional fields" },
     .{ .name = "bool-ops-per-condition", .mode = .max, .unit = "boolean ops" },
     .{ .name = "line-length", .mode = .count, .unit = "over-length lines" },
 };
@@ -213,9 +211,26 @@ fn indexOfKey(entries: []const Entry, key: []const u8) ?usize {
 /// tightens), returning the entries sorted by key.
 fn lowestPerKey(arena: Allocator, entries: []const Entry) Allocator.Error![]Entry {
     var map: std.StringHashMapUnmanaged(u64) = .empty;
+    defer map.deinit(arena);
     for (entries) |e| {
         const gop = try map.getOrPut(arena, e.key);
         gop.value_ptr.* = if (gop.found_existing) @min(gop.value_ptr.*, e.value) else e.value;
+    }
+    return mapToSortedEntries(arena, &map);
+}
+
+/// Combines a refreshed ratchet with its pre-accept state while preserving
+/// unrelated improvements for a later explicit maintenance change. New keys
+/// and raised values from `refreshed` survive (they are what was accepted),
+/// while a key that merely lowered or disappeared retains its prior ceiling.
+/// Taking the maximum over the union states that rule directly.
+pub fn mergeAccepted(arena: Allocator, prior: []const Entry, refreshed: []const Entry) Allocator.Error![]Entry {
+    var map: std.StringHashMapUnmanaged(u64) = .empty;
+    defer map.deinit(arena);
+    for (refreshed) |e| try map.put(arena, e.key, e.value);
+    for (prior) |e| {
+        const gop = try map.getOrPut(arena, e.key);
+        gop.value_ptr.* = if (gop.found_existing) @max(gop.value_ptr.*, e.value) else e.value;
     }
     return mapToSortedEntries(arena, &map);
 }
@@ -286,7 +301,7 @@ pub fn maxEntry(entries: []const Entry) ?Entry {
 /// Writes `entries` as sorted-by-key `<value> <key>` lines. Sorting by key (not
 /// by the value-first line text) keeps a value change a one-line diff instead of
 /// reordering the file — the whole point of the ratchet over v1 text baselines.
-fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snapshot.WriteError!void {
+pub fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snapshot.WriteError!void {
     const sorted = try arena.dupe(Entry, entries);
     std.mem.sort(Entry, sorted, {}, byKey);
     const lines = try arena.alloc([]const u8, sorted.len);
@@ -294,6 +309,30 @@ fn writeEntries(arena: Allocator, path: []const u8, entries: []const Entry) snap
     // Content-identical short-circuit: re-emitting the same ratchet leaves the
     // committed file (and the diff) untouched.
     _ = try snapshot.writePresortedChecked(arena, path, version, lines);
+}
+
+// spec: Per-Item Ratchets - Preserves unrelated lowerings and prunes during a named acceptance
+
+test "mergeAccepted keeps accepted growth without folding in unrelated improvements" {
+    _ = &writeEntries;
+    const prior = [_]Entry{
+        .{ .key = "gone", .value = 9 },
+        .{ .key = "grown", .value = 7 },
+        .{ .key = "lowered", .value = 8 },
+    };
+    const refreshed = [_]Entry{
+        .{ .key = "grown", .value = 10 },
+        .{ .key = "lowered", .value = 6 },
+        .{ .key = "new", .value = 5 },
+    };
+    const merged = try mergeAccepted(std.testing.allocator, &prior, &refreshed);
+    defer std.testing.allocator.free(merged);
+    try std.testing.expectEqual(@as(usize, 4), merged.len);
+    try std.testing.expectEqual(@as(u64, 9), merged[0].value);
+    try std.testing.expectEqualStrings("gone", merged[0].key);
+    try std.testing.expectEqual(@as(u64, 10), merged[1].value);
+    try std.testing.expectEqual(@as(u64, 8), merged[2].value);
+    try std.testing.expectEqual(@as(u64, 5), merged[3].value);
 }
 
 pub const LifecycleError = snapshot.WriteError || snapshot.ReadError;
@@ -320,7 +359,7 @@ pub const Options = struct {
 ///
 /// `opts.write_allowed` gates the non-refresh writes: an ordinary (read-only)
 /// run classifies the outcome but leaves the file untouched, so a source-only
-/// diff never carries an incidental ratchet rewrite; `commit`/`migrate` flip it
+/// diff never carries an incidental ratchet rewrite; `accept`/`migrate` flip it
 /// to persist.
 pub fn lifecycle(
     arena: Allocator,
@@ -447,7 +486,7 @@ fn rec(key: []const u8, metric: u64) reporter.Violation {
 
 // spec: Per-Item Ratchets - Selects the ratchet lifecycle only for threshold checks
 
-test "metricMode routes the ten threshold checks and rejects others" {
+test "metricMode routes the eight threshold checks and rejects others" {
     try testing.expect(metricMode("function-length").? == .max);
     try testing.expect(metricMode("line-length").? == .count);
     try testing.expect(metricMode("type-size").? == .max);
@@ -771,4 +810,17 @@ test "parse and maxEntry surface the worst offender" {
     try testing.expectEqualStrings("src/b.zig|g", worst.key);
     try testing.expectEqual(@as(u64, 130), worst.value);
     try testing.expect(maxEntry(&[_]Entry{}) == null);
+}
+
+fn fuzzRatchetLine(_: void, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    if (decodeLine(input)) |entry| {
+        try testing.expect(entry.key.len > 0);
+        _ = entry.value;
+    }
+}
+
+test "fuzz: ratchet line decoder tolerates arbitrary bytes" {
+    try testing.fuzz({}, fuzzRatchetLine, .{ .corpus = &.{ "", "1 key", "x key", "18446744073709551616 k" } });
 }

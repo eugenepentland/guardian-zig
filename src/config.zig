@@ -326,9 +326,8 @@ fn containsName(names: []const []const u8, needle: []const u8) bool {
 
 fn profileMode(profile: PolicyProfile, check_name: []const u8) PolicyMode {
     const style_advice = [_][]const u8{
-        "line-length",             "boolean-param-ban",       "magic-number",
-        "repeated-string-literal", "struct-method-cap",       "optional-density",
-        "stringly-typed-switches", "repeated-switch-on-enum",
+        "line-length",
+        "repeated-string-literal",
     };
     const maintainability_advice = [_][]const u8{
         "naming",         "doc-comments",           "module-doc-header",
@@ -520,34 +519,10 @@ pub const BoolOpsCfg = struct {
     max_ops: u32 = 3,
 };
 
-/// Per-check config for escape-discipline (raw interpolation into markup).
-/// Opt-in: heuristic, most valuable for projects that render HTML/SVG from
-/// attacker-influenced text (servers, doc generators).
-pub const EscapeDisciplineCfg = struct {
-    enabled: bool = false,
-};
-
 /// Per-check config for oom-discipline (allocation errors silently conflated
 /// with domain absence). Opt-in: strict, catches `catch return null`/
 /// `catch continue` on allocating calls that drop data on OOM.
 pub const OomDisciplineCfg = struct {
-    enabled: bool = false,
-};
-
-/// Per-check config for the magic-number check. Opt-in (default off): in
-/// literal-heavy domains (geometry, electrical constants) the bare-integer
-/// rule is pure noise, so a production user disabled it wholesale. Projects
-/// that want it opt in via `[magic_number] enabled = true`.
-pub const MagicNumberCfg = struct {
-    enabled: bool = false,
-};
-
-/// Per-check config for the stdout-flush check. Default off keeps the check
-/// REPORT-ONLY: it surfaces a buffered stdout/stderr writer with no reachable
-/// flush but never fails the build, because the intra-procedural heuristic has
-/// unproven precision. `[stdout_flush] enabled = true` promotes it to a gating
-/// hard-block once a project trusts the signal.
-pub const StdoutFlushCfg = struct {
     enabled: bool = false,
 };
 
@@ -698,7 +673,7 @@ pub const IntFromFloatCfg = struct {
 /// directory prefix ("src/bench"); wildcards are rejected by the parser, since
 /// an instrumentation allowlist is a boundary rather than a convenience glob.
 /// Inside these paths the instrumentation-class checks (ban-globals, ban-time,
-/// debug-print-ban, stdout-flush, pub-api-surface) report their findings under a
+/// debug-print-ban, pub-api-surface) report their findings under a
 /// non-blocking MEASURE verb on a LOCAL run, and block exactly as they do today
 /// at commit / `--gate` / on any metadata-writing run. Empty (the default) is
 /// exactly today's behavior everywhere.
@@ -730,7 +705,7 @@ pub const Config = struct {
     /// Substring match when a pattern has no `*` (see walk.matchGlob).
     exclude: []const []const u8 = &.{},
     /// Registry names of checks to skip entirely in `all` runs (e.g.
-    /// "magic-number"). Lets a project disable individual checks that have no
+    /// "line-length"). Lets a project disable individual checks that have no
     /// dedicated [section] toggle. Matched against each check's registry name.
     disabled: []const []const u8 = &.{},
     /// Project-relative paths or `*` globs that must match before Guardian runs
@@ -754,10 +729,7 @@ pub const Config = struct {
     hysteresis: HysteresisCfg = .{},
     gate: GateCfg = .{},
     test_filter: TestFilterCfg = .{},
-    escape_discipline: EscapeDisciplineCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
-    magic_number: MagicNumberCfg = .{},
-    stdout_flush: StdoutFlushCfg = .{},
     module_doc_header: ModuleDocHeaderCfg = .{},
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},

@@ -304,8 +304,8 @@ pub fn overCapDetail(
     return std.fmt.allocPrint(
         a,
         "{s}: {s} — {d} {s} over its tripped ceiling of {d}, still past the hard cap {d} — " ++
-            "the ceiling cannot be raised; only a shrink lands (clears at <={d})",
-        .{ policy.check, key, grown.new, unit, grown.old, policy.hard_cap, policy.recover },
+            "growth above {d} blocks; net-zero or shrinking commits land freely; the trip clears fully at <={d}",
+        .{ policy.check, key, grown.new, unit, grown.old, policy.hard_cap, grown.old, policy.recover },
     );
 }
 
@@ -321,9 +321,9 @@ pub fn recoveringDetail(
 ) Allocator.Error![]const u8 {
     return std.fmt.allocPrint(
         a,
-        "{s}: {s} — {d} {s}, grew while recovering from a hard-cap trip (was {d}) — " ++
-            "growth blocks until it reaches <={d}; shrinking commits land freely",
-        .{ policy.check, key, grown.new, unit, grown.old, policy.recover },
+        "{s}: {s} — {d} {s}, grew while recovering from a hard-cap trip above its frozen ceiling of {d} — " ++
+            "growth above {d} blocks; net-zero or shrinking commits land freely; the trip clears fully at <={d}",
+        .{ policy.check, key, grown.new, unit, grown.old, grown.old, policy.recover },
     );
 }
 
@@ -608,12 +608,14 @@ test "the rendered lines name the cap, the recover line, and what accept can sti
     );
     try testing.expectEqualStrings(
         "file-size: src/big.zig — 8950 code lines, grew while recovering from a hard-cap trip " ++
-            "(was 8900) — growth blocks until it reaches <=8000; shrinking commits land freely",
+            "above its frozen ceiling of 8900 — growth above 8900 blocks; net-zero or shrinking commits land freely; " ++
+            "the trip clears fully at <=8000",
         try recoveringDetail(a, policy, "src/big.zig", .{ .key = "src/big.zig", .old = 8900, .new = 8950 }, "code lines"),
     );
     const over = try overCapDetail(a, policy, "src/big.zig", .{ .key = "x", .old = 10_273, .new = 10_400 }, "code lines");
     try testing.expect(std.mem.indexOf(u8, over, "over its tripped ceiling of 10273") != null);
-    try testing.expect(std.mem.indexOf(u8, over, "only a shrink lands (clears at <=8000)") != null);
+    try testing.expect(std.mem.indexOf(u8, over, "net-zero or shrinking commits land freely") != null);
+    try testing.expect(std.mem.indexOf(u8, over, "trip clears fully at <=8000") != null);
 
     // The machine-readable remedy carries the same target as the console.
     const hint = try fixHint(a, policy, "code lines");

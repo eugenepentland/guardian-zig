@@ -342,6 +342,16 @@ fn parseHexDigest(hex: []const u8) ?Digest {
     return out;
 }
 
+/// True when raw green-stamp bytes carry a valid input digest and, when
+/// present, a valid binary-identity digest. Legacy one-line stamps remain valid.
+pub fn validStoredBytes(raw: []const u8) bool {
+    const first = lineAt(raw, 0) orelse return false;
+    if (parseHexDigest(first) == null) return false;
+    const second = lineAt(raw, 1) orelse return true;
+    if (second.len == 0) return true;
+    return parseHexDigest(second) != null;
+}
+
 /// Raw stamp-file bytes, or null when absent/unreadable (a first-run cache miss).
 fn readStampFile(arena: Allocator, project_dir: []const u8) Allocator.Error!?[]const u8 {
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
@@ -387,16 +397,19 @@ fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest, b
     const dir = try std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir});
     try fs.cwd().makePath(dir);
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
-    const f = try fs.cwd().createFile(path, .{});
-    defer f.close();
+    var buffer: [512]u8 = undefined;
+    var atomic = try fs.cwd().atomicFile(path, .{ .write_buffer = &buffer });
+    defer atomic.deinit();
+    const writer = &atomic.file_writer.interface;
     const dhex = std.fmt.bytesToHex(digest, .lower);
-    try f.writeAll(&dhex);
+    try writer.writeAll(&dhex);
     if (binary_id) |b| {
         const bhex = std.fmt.bytesToHex(b, .lower);
-        try f.writeAll("\n");
-        try f.writeAll(&bhex);
+        try writer.writeByte('\n');
+        try writer.writeAll(&bhex);
     }
-    try f.writeAll("\n");
+    try writer.writeByte('\n');
+    try atomic.finish();
 }
 
 /// Records `digest` as the last all-green input state (single-line stamp).
@@ -570,6 +583,14 @@ test "writeGreenStamp round-trips the digest and the binary identity" {
 
     // currentBinaryIdHash is stable for the running binary within a process.
     _ = &currentBinaryIdHash;
+}
+
+test "validStoredBytes distinguishes a complete stamp from truncated state" {
+    const one = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
+    try std.testing.expect(validStoredBytes(one));
+    try std.testing.expect(validStoredBytes(one ++ one));
+    try std.testing.expect(!validStoredBytes("0123\n"));
+    try std.testing.expect(!validStoredBytes(one ++ "not-a-digest\n"));
 }
 
 // spec: Skip Cache - Identifies the guardian binary by content so two copies of one build share an identity

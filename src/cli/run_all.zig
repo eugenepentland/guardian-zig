@@ -22,6 +22,10 @@ const ratchet = @import("../ratchet.zig");
 const run_view = @import("run_view.zig");
 const bench = @import("bench.zig");
 const measurement = @import("../measurement.zig");
+const writer_lock = @import("../writer_lock.zig");
+const retired_checks = @import("retired.zig");
+const walk = @import("../walk.zig");
+const snapshot = @import("../snapshot.zig");
 const check_formatting = @import("../checks/formatting.zig");
 
 const print = std.debug.print;
@@ -32,16 +36,17 @@ const fail = reporter.fail;
 /// every always-visible run-level line — the verdict, a collapsed check, the
 /// measurement reminder — so they share one spelling of the status prefix.
 const prefixed_line = "{s}{s}\n";
+const pub_api_check = "pub-api-surface";
 
 pub const command_name = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
-// mutant; debt is a non-gating report and history reads the run log back;
+// mutant; debt is a non-gating report;
 // nightly composes `all` + `mutate --full`; commit gates then auto-commits.
 // None is a build gate. (nightly and commit are dispatched specially and never
 // appear in the registry, so their entries here are defensive — mirroring the
 // long-standing `all` exclusion in build_helper — and guarantee they can never
 // be run as a check.)
-const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "history", "nightly", "commit" };
+const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
 
 /// Runs every registered gate in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
@@ -119,12 +124,20 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     warnStaleBinary(ctx);
 
     // A transaction is only needed when this run can WRITE `.guardian/`: a
-    // metadata-writable command (accept/commit/migrate) or a pending
+    // metadata-writable command (accept/migrate) or a pending
     // GUARDIAN_UPDATE_SNAPSHOT refresh. An ordinary run is read-only on metadata
     // — the baseline/ratchet/snapshot lifecycles defer every write — so it needs
     // no begin+restore dance at all (the biggest-evidence-base churn source is
     // simply gone for the common path).
     const writes = writesMetadata(ctx);
+    var lock: ?writer_lock.Lock = null;
+    if (writes and !ctx.writer_lock_held) {
+        lock = writer_lock.acquire(ctx.allocator, ctx.project_dir) catch |err| {
+            reportWriterLockFailure(ctx.project_dir, err);
+            return error.CheckFailed;
+        };
+    }
+    defer if (lock) |*held| held.deinit();
     var metadata: ?metadata_transaction.Transaction = null;
     if (writes) {
         metadata = metadata_transaction.Transaction.begin(ctx.allocator, ctx.project_dir) catch |err| {
@@ -134,7 +147,7 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
         // C2: a selectively-named refresh (GUARDIAN_UPDATE_SNAPSHOT=<check>) keeps
         // its freshly-written metadata even when a DIFFERENT check reds the gate —
         // the transaction restores everything EXCEPT the named checks' files.
-        if (metadata) |*m| m.preserveMetadata(snapshot_helper.preservedMetadataPaths(ctx.allocator) catch &.{});
+        if (metadata) |*m| m.preserveMetadata(snapshot_helper.preservedMetadataPathsForCtx(ctx) catch &.{});
     }
     defer if (metadata) |*m| m.deinit();
     var metadata_active = writes;
@@ -240,7 +253,7 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
         reporter.detail("  metadata: restored pre-run .guardian snapshots and baselines\n", .{});
         // C2: name what the restore deliberately kept, so the operator knows the
         // selective refresh persisted rather than silently reverting.
-        if (snapshot_helper.refreshTargetSummary(ctx.allocator)) |kept|
+        if (snapshot_helper.refreshTargetSummaryForCtx(ctx)) |kept|
             reporter.detail("  metadata: kept named refresh(es) despite the red run: {s}\n", .{kept});
     }
 
@@ -262,6 +275,15 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     reporter.detail("{s}", .{stale_artifact_caution});
     binaryDriftHint(ctx, acc.failed_checks.items);
     return error.CheckFailed;
+}
+
+fn reportWriterLockFailure(project_dir: []const u8, err: anyerror) void {
+    const remedy = switch (err) {
+        error.Busy => "another Guardian writer holds the kernel lock; wait for that process to finish (crashes release it automatically)",
+        error.FileLocksUnsupported => "this filesystem does not support the advisory lock Guardian requires for safe writes",
+        else => "the lock could not be created or inspected",
+    };
+    fail("cannot acquire {s}/{s}: {s} ({s})", .{ project_dir, writer_lock.leaf, remedy, @errorName(err) });
 }
 
 /// Resolves the diff scope, builds the shared parsed-source index when this run
@@ -290,7 +312,15 @@ fn prepareSources(
     const plan: ?scope.Plan = decision.plan();
     if (!anyNeedsAst(ctx) and plan == null) return;
     if (parsesTree(ctx.source_index != null, anyNeedsAst(ctx), plan != null)) {
-        index.* = try ast_index.build(ctx.allocator, ctx.project_dir, ctx.cfg.exclude);
+        index.* = ast_index.buildWithSizeExcludes(
+            ctx.allocator,
+            ctx.project_dir,
+            ctx.cfg.exclude,
+            ctx.cfg.file_size_exclude,
+        ) catch |err| {
+            reportEnvironmentalError(ctx, err, walk.lastErrorPath());
+            return error.CheckFailed;
+        };
         ctx.source_index = index;
     }
     if (plan) |p| {
@@ -449,6 +479,13 @@ fn echoOffenders(ctx: *types.RunCtx, acc: *const Sink) void {
 /// retained in last-run.jsonl and returns under `--verbose`.
 const failure_sample_limit: usize = 3;
 
+fn sampleLimitFor(check_name: []const u8, total: usize) usize {
+    // pub-api-surface has one remedy — review the complete snapshot delta, then
+    // accept it. Hiding additions behind a generic truncation makes the only
+    // safe action impossible from the default output.
+    return if (std.mem.eql(u8, check_name, pub_api_check)) total else failure_sample_limit;
+}
+
 /// Heading for one concise failure group.
 fn failureGroupLine(arena: std.mem.Allocator, check: []const u8, findings: usize) std.mem.Allocator.Error![]const u8 {
     return std.fmt.allocPrint(arena, "{s} ({d} finding{s})", .{
@@ -464,11 +501,9 @@ fn omittedLine(arena: std.mem.Allocator, total: usize, shown: usize) std.mem.All
     return try std.fmt.allocPrint(arena, "+{d} more — use --verbose for full detail", .{total - shown});
 }
 
-/// Prints blocking failures as compact per-check groups. At most three
-/// findings from each check are shown; the machine-readable sink retains the
-/// complete set and `--verbose` replays the check's original output. A failed
-/// check without structured records still gets a visible group and recovery
-/// hint, so concise mode can never hide a blocker.
+/// Prints blocking failures as compact per-check groups. At most three findings
+/// from each check are shown except pub-api-surface, whose accept-only workflow
+/// requires the full review delta. The machine-readable sink retains every row.
 fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
     reporter.detail(
         reporter.prefix ++ "failures grouped by check ({d}):\n",
@@ -479,10 +514,11 @@ fn printFailureGroups(ctx: *types.RunCtx, acc: *const Sink) void {
         const heading = failureGroupLine(ctx.allocator, name, total) catch name;
         reporter.detail("  {s}\n", .{heading});
         var shown: usize = 0;
+        const sample_limit = sampleLimitFor(name, total);
         var last_hint: []const u8 = "";
         for (acc.records.items) |v| {
             if (!std.mem.eql(u8, v.check, name)) continue;
-            if (shown == failure_sample_limit) break;
+            if (shown == sample_limit) break;
             const line = reporter.flatLine(ctx.allocator, v) catch continue;
             reporter.detail("    - {s}\n", .{line});
             // Each sampled finding carries its own remedy when it has one —
@@ -606,6 +642,23 @@ test "failure groups name counts and bound their visible sample" {
         "+7 more — use --verbose for full detail",
         (try omittedLine(a, 10, failure_sample_limit)).?,
     );
+    try std.testing.expectEqual(@as(usize, 12), sampleLimitFor("pub-api-surface", 12));
+    try std.testing.expectEqual(failure_sample_limit, sampleLimitFor("spec", 12));
+}
+
+test "environmental error renderer names the path and remedy" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var cap: reporter.Capture = .{ .allocator = arena.allocator() };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    const cfg: config.Config = .{};
+    const ctx: types.RunCtx = .{ .allocator = arena.allocator(), .project_dir = ".", .cfg = &cfg, .quiet = true };
+    reportEnvironmentalError(&ctx, error.FileTooBig, "src/generated.zig");
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "src/generated.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "file_size_exclude") != null);
 }
 
 /// How many findings `check` recorded this run — the number behind the echoed
@@ -630,10 +683,9 @@ fn firstRecordFor(records: []const reporter.Violation, check: []const u8) ?repor
 /// (the ~180-false-positive stale-binary trap). Ordinary content checks aren't
 /// listed, so an unrelated failure never triggers the hint.
 const identity_sensitive_checks = [_][]const u8{
-    "pub-api-surface",        "panic-budget",  "int-from-float-budget", "unsafe-ops-budget",
-    "function-length",        "nesting-depth", "cognitive-complexity",  "function-size",
-    "type-size",              "file-size",     "struct-method-cap",     "optional-density",
-    "bool-ops-per-condition", "line-length",
+    pub_api_check,     "panic-budget",  "int-from-float-budget",  "unsafe-ops-budget",
+    "function-length", "nesting-depth", "cognitive-complexity",   "function-size",
+    "type-size",       "file-size",     "bool-ops-per-condition", "line-length",
 };
 
 /// True when at least one failed check is snapshot/ratchet-based — the shape of
@@ -674,8 +726,8 @@ fn binaryAgeVsStamp(ctx: *types.RunCtx) run_view.BinaryAge {
 }
 
 /// True when this run may WRITE `.guardian/` metadata and therefore needs the
-/// restore-on-red transaction: a metadata-writable command (accept/commit/
-/// migrate) or a pending GUARDIAN_UPDATE_SNAPSHOT refresh (accept-set or env).
+/// restore-on-red transaction: a metadata-writable command (accept/migrate) or
+/// a pending GUARDIAN_UPDATE_SNAPSHOT refresh (accept-set or env).
 /// An ordinary run is read-only on metadata — every lifecycle defers its writes
 /// — so it needs no begin+restore transaction.
 fn writesMetadata(ctx: *types.RunCtx) bool {
@@ -823,9 +875,9 @@ pub fn validateCheckNames(names: []const []const u8, origin: []const u8) types.R
 }
 
 fn validatePolicy(ctx: *const types.RunCtx) types.RunError!void {
-    try validateCheckNames(ctx.cfg.policy.block, "[policy] block");
-    try validateCheckNames(ctx.cfg.policy.ratchet, "[policy] ratchet");
-    try validateCheckNames(ctx.cfg.policy.report, "[policy] report");
+    for (ctx.cfg.policy.block) |name| try requireKnownCheck(name, "[policy] block");
+    for (ctx.cfg.policy.ratchet) |name| try requireKnownCheck(name, "[policy] ratchet");
+    for (ctx.cfg.policy.report) |name| try requireKnownCheck(name, "[policy] report");
 }
 
 /// A check removed by a merge/fold. Its name is still tolerated in `disabled`
@@ -833,30 +885,13 @@ fn validatePolicy(ctx: *const types.RunCtx) types.RunError!void {
 /// baseline/snapshot file — doesn't break the build when a check is folded into
 /// another. `[[allow]]` entries for a retired name are already inert (nothing
 /// looks them up). Guardian emits a one-line migration notice instead.
-const RetiredCheck = struct { name: []const u8, folded_into: []const u8 };
-const retired = [_]RetiredCheck{
-    .{ .name = "spec-drift", .folded_into = "pub-api-surface" },
-    .{ .name = "comptime-quota", .folded_into = "panic-budget" },
-    .{ .name = "doc-quality", .folded_into = "doc-comments" },
-    .{ .name = "vague-name-blacklist", .folded_into = "naming" },
-    .{ .name = "dup-const", .folded_into = "repeated-string-literal" },
-    // Retired as purely stylistic: it punished idiomatic early-return dispatch
-    // and duplicated what cognitive-complexity already scores.
-    .{ .name = "returns-per-function", .folded_into = "cognitive-complexity" },
-};
-
-fn retiredInfo(name: []const u8) ?RetiredCheck {
-    for (retired) |r| if (std.mem.eql(u8, r.name, name)) return r;
-    return null;
-}
-
 /// Fails the run when the `disabled` config names a check that doesn't exist,
 /// except for retired names (folded into another check), which are tolerated
 /// with a migration notice so folds don't break downstream config.
 fn validateDisabled(disabled: []const []const u8) types.RunError!void {
     for (disabled) |name| {
         if (registry.find(name) != null) continue;
-        if (retiredInfo(name)) |r| {
+        if (retired_checks.find(name)) |r| {
             reporter.ok("note: '{s}' is retired (folded into {s})", .{ r.name, r.folded_into });
             continue;
         }
@@ -900,7 +935,7 @@ fn validateDenyGrowth(names: []const []const u8) types.RunError!void {
 /// retired (folded) name; `origin` names the setting for the diagnostic.
 fn requireKnownCheck(name: []const u8, origin: []const u8) types.RunError!void {
     if (registry.find(name) != null) return;
-    if (retiredInfo(name)) |r| {
+    if (retired_checks.find(name)) |r| {
         reporter.ok("note: '{s}' is retired (folded into {s})", .{ r.name, r.folded_into });
         return;
     }
@@ -1003,6 +1038,7 @@ const CheckResult = struct {
     /// and collapse a check whose warnings all miss the diff.
     warnings: []const reporter.Violation = &.{},
     err: ?types.RunError = null,
+    err_path: ?[]const u8 = null,
     output: []const u8 = "",
     records: []const reporter.Violation = &.{},
     /// Findings a live `[measurement]` exemption deferred (see measurement.zig).
@@ -1213,6 +1249,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
         else => {
             res.failed = true;
             res.err = e;
+            res.err_path = walk.lastErrorPath() orelse snapshot.lastErrorPath();
         },
     };
     res.output = cap.buf.items;
@@ -1230,6 +1267,7 @@ fn runCaptured(base: *types.RunCtx, a: std.mem.Allocator, cmd: types.Command) Ch
 fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sink) types.RunError!Tally {
     var tally: Tally = .{};
     var first_err: ?types.RunError = null;
+    var first_err_path: ?[]const u8 = null;
     for (results, registry.all) |r, cmd| {
         if (!r.ran) continue;
         ran.* += 1;
@@ -1241,7 +1279,10 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
                 std.log.warn("guardian: dropped a failed-check telemetry note: {s}", .{@errorName(e)});
         }
         if (r.err) |e| {
-            if (first_err == null) first_err = e;
+            if (first_err == null) {
+                first_err = e;
+                first_err_path = r.err_path;
+            }
         }
         collectSink(ctx, acc, cmd.name, r);
         collectMeasured(ctx, acc, r);
@@ -1251,8 +1292,43 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
     // same in-memory array — no extra buffering, no per-finding allocation.
     emitPass(ctx, results, .blocking);
     emitPass(ctx, results, .advisory);
-    if (first_err) |e| return e;
+    if (first_err) |e| {
+        reportEnvironmentalError(ctx, e, first_err_path);
+        return error.CheckFailed;
+    }
     return tally;
+}
+
+/// Renders non-policy failures at the process boundary. Every path through here
+/// is one located line plus a remedy, never Zig's raw error-return trace.
+pub fn reportEnvironmentalError(ctx: *const types.RunCtx, err: anyerror, path_hint: ?[]const u8) void {
+    const path = path_hint orelse snapshot.lastErrorPath() orelse walk.lastErrorPath() orelse ctx.project_dir;
+    switch (err) {
+        error.FileTooBig, error.StreamTooLong => fail(
+            "cannot analyze {s}: input exceeds Guardian's read ceiling ({s}) — exclude generated files with `exclude` or `file_size_exclude`",
+            .{ path, @errorName(err) },
+        ),
+        error.BadFormat => fail(
+            "corrupt Guardian state {s} (BadFormat) — resolve merge damage or delete it and run the named `guardian-check accept <check> {s}`",
+            .{ path, ctx.project_dir },
+        ),
+        error.VersionMismatch => fail(
+            "stale Guardian state format in {s} — run `guardian-check migrate {s}`",
+            .{ path, ctx.project_dir },
+        ),
+        error.ConflictMarkers => fail(
+            "unresolved merge markers in Guardian state {s} — resolve the file or run the installed .guardian merge driver",
+            .{path},
+        ),
+        error.GitSpawnFailed, error.GitCommandFailed => fail(
+            "git-dependent analysis failed for {s} ({s}) — see the git diagnostic above",
+            .{ path, @errorName(err) },
+        ),
+        else => fail(
+            "environmental analysis failure at {s}: {s} — check file permissions, filesystem state, and generated-file exclusions",
+            .{ path, @errorName(err) },
+        ),
+    }
 }
 
 /// Which half of the replay is being printed. Blocking output goes first so a
@@ -1747,7 +1823,7 @@ test "writesMetadata is true only for a writable or refreshing run" {
         .cfg = &cfg,
         .quiet = true,
     };
-    // accept/commit/migrate flip metadata_writable → a transaction is needed.
+    // accept/migrate flip metadata_writable → a transaction is needed.
     var writable = base;
     writable.metadata_writable = true;
     try std.testing.expect(writesMetadata(&writable));
@@ -1775,17 +1851,20 @@ test "shouldSkip honors the disabled list and built-in skips" {
 }
 
 test "disabled list entries must be real check names" {
-    // A real check resolves; a typo does not.
-    try std.testing.expect(registry.find("magic-number") != null);
+    // A retired check resolves through the compatibility table, not registry.
+    try std.testing.expect(registry.find("magic-number") == null);
+    try std.testing.expect(retired_checks.find("magic-number") != null);
     try std.testing.expect(registry.find("magic-numbers") == null);
 }
 
 test "retired check names are recognized (tolerated in disabled)" {
-    // A retired name resolves via retiredInfo (so validate won't reject it),
+    // A retired name resolves via the shared compatibility ledger,
     // and reports where it was folded; a genuine typo does not.
-    try std.testing.expect(retiredInfo("spec-drift") != null);
-    try std.testing.expectEqualStrings("pub-api-surface", retiredInfo("spec-drift").?.folded_into);
-    try std.testing.expect(retiredInfo("not-a-real-check") == null);
+    try std.testing.expect(retired_checks.find("spec-drift") != null);
+    try std.testing.expectEqualStrings("pub-api-surface", retired_checks.find("spec-drift").?.folded_into);
+    try std.testing.expectEqualStrings(retired_checks.style_tier, retired_checks.find("magic-number").?.folded_into);
+    try std.testing.expect(retired_checks.find("history") != null);
+    try std.testing.expect(retired_checks.find("not-a-real-check") == null);
 }
 
 // spec: Run All - Runs only the checks named by an only filter
@@ -1833,6 +1912,21 @@ test "isAllCheck accepts gates and rejects non-gates and typos" {
 
 test "validateCheckNames accepts registered gates" {
     try validateCheckNames(&.{ "spec", "file-size" }, "test");
+}
+
+test "policy lists tolerate retired check and command names during upgrades" {
+    const cfg: config.Config = .{ .policy = .{
+        .block = &.{"stdout-flush"},
+        .ratchet = &.{"magic-number"},
+        .report = &.{"history"},
+    } };
+    const ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = ".",
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    try validatePolicy(&ctx);
 }
 
 test "isFiltered is true exactly when an only or skip selection is active" {

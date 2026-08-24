@@ -28,6 +28,8 @@ pub const File = struct {
     pub const ReadError = std.Io.File.Reader.Error;
     pub const WriteError = std.Io.File.Writer.Error;
     pub const StatError = std.Io.File.StatError;
+    /// Errors propagated while resizing a file.
+    pub const SetLengthError = std.Io.File.SetLengthError;
     pub const PReadError = std.Io.File.ReadPositionalError;
     pub const GetSeekPosError = std.Io.File.StatError || std.Io.File.SeekError;
     pub const Stat = std.Io.File.Stat;
@@ -60,6 +62,11 @@ pub const File = struct {
     /// Reads the file metadata through the active I/O capability.
     pub fn stat(self: File) StatError!Stat {
         return self.inner.stat(wiring.io());
+    }
+
+    /// Resizes the file through the active I/O capability.
+    pub fn setLength(self: File, length: u64) SetLengthError!void {
+        return self.inner.setLength(wiring.io(), length);
     }
 
     /// Reads positionally into `buffer` without changing the file's seek position.
@@ -211,6 +218,8 @@ pub const Dir = struct {
         read: bool = false,
         truncate: bool = true,
         exclusive: bool = false,
+        lock: std.Io.File.Lock = .none,
+        lock_nonblocking: bool = false,
         mode: ?u32 = null,
     };
 
@@ -220,6 +229,8 @@ pub const Dir = struct {
             .read = options.read,
             .truncate = options.truncate,
             .exclusive = options.exclusive,
+            .lock = options.lock,
+            .lock_nonblocking = options.lock_nonblocking,
             .permissions = if (options.mode) |mode| @fromBackingInt(@intCast(mode)) else .default_file,
         }) };
     }
@@ -327,6 +338,8 @@ test "filesystem boundary forwards file and directory operations" {
     var output = try dir.createFile("output.txt", .{ .read = true });
     defer output.close();
     try output.writeAll("output");
+    try output.setLength(3);
+    try testing.expectEqual(@as(u64, 3), (try output.stat()).size);
     var write_buffer: [32]u8 = undefined;
     _ = output.writer(&write_buffer);
     _ = output.writerStreaming(&write_buffer);

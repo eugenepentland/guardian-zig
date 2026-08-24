@@ -550,9 +550,21 @@ fn isNotARepo(stderr: []const u8) bool {
 /// exit 0; a no-repo fatal is `.no_repo`; any other non-zero exit is `.failed`
 /// (with trimmed stderr); an unspawnable git is `.spawn_error`.
 fn spawnGit(allocator: Allocator, project_dir: []const u8, argv: []const []const u8) Allocator.Error!GitOutcome {
+    var env = wiring.cloneEnviron(allocator) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return .{ .spawn_error = @errorName(e) },
+    };
+    defer env.deinit();
+    // Diagnostics and classification are parsed by Guardian. Pinning the
+    // locale keeps "not a git repository" stable on every workstation;
+    // disabling optional locks avoids read-only diff/status operations
+    // contending with another process updating the index.
+    env.put("LC_ALL", "C") catch return error.OutOfMemory;
+    env.put("GIT_OPTIONAL_LOCKS", "0") catch return error.OutOfMemory;
     const res = std.process.run(allocator, wiring.io(), .{
         .argv = argv,
         .cwd = .{ .path = project_dir },
+        .environ_map = &env,
         .stdout_limit = .limited64(max_git_output_bytes),
         .stderr_limit = .limited64(max_git_output_bytes),
     }) catch |e| switch (e) {
@@ -562,6 +574,15 @@ fn spawnGit(allocator: Allocator, project_dir: []const u8, argv: []const []const
     if (res.term.success()) return .{ .ok = res.stdout };
     if (isNotARepo(res.stderr)) return .no_repo;
     return .{ .failed = std.mem.trim(u8, res.stderr, &std.ascii.whitespace) };
+}
+
+// spec: Git Diff - Pins Git diagnostics to the C locale and disables optional locks
+
+test "spawnGit recognizes no-repo output under the pinned child environment" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const outcome = try spawnGit(arena.allocator(), "zig-cache/path-that-is-not-a-repository", &.{ "git", "status" });
+    try testing.expect(outcome == .no_repo or outcome == .spawn_error);
 }
 
 /// Runs a *diff-scoped* git command that must fail loud. Returns stdout on
@@ -747,6 +768,19 @@ test "parsePorcelainZ flags index deletions and leaves worktree deletions addabl
     try testing.expect(!paths[2].staged_deletion);
     try testing.expect(!paths[3].staged_deletion);
     try testing.expect(!paths[4].staged_deletion);
+}
+
+fn fuzzGitText(backing: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    _ = try parseUnifiedDiff(arena.allocator(), input);
+    _ = try parsePorcelainZ(arena.allocator(), input);
+}
+
+test "fuzz: git diff and porcelain parsers tolerate arbitrary bytes" {
+    try testing.fuzz(testing.allocator, fuzzGitText, .{ .corpus = &.{ "", "diff --git a/x b/x\n@@ -1 +1 @@\n+x", "?? x.zig\x00" } });
 }
 
 // spec: Git Diff - Classifies a not-a-git-repository failure as a skip, not a hard error

@@ -10,6 +10,7 @@ pub const Options = guardian_helper.Options;
 pub const testRunner = guardian_helper.testRunner;
 pub const enableTestDiagnostics = guardian_helper.enableTestDiagnostics;
 pub const announceFilters = guardian_helper.announceFilters;
+pub const addFinalTestVerdict = guardian_helper.addFinalTestVerdict;
 pub const addTestCompileProbe = guardian_helper.addTestCompileProbe;
 pub const CompileProbeOptions = guardian_helper.CompileProbeOptions;
 
@@ -158,6 +159,9 @@ pub fn build(b: *std.Build) void {
     // so the second call below (and any consumer's hand-rolled step) is safe.
     guardian_helper.addAllChecks(b, check_exe, b.getInstallStep(), .{});
     guardian_helper.addAllChecks(b, check_exe, test_step, .{});
+    // Must be the last mutation of `test_step`: its PASS line wraps every
+    // runner, formatter, and Guardian dependency above.
+    guardian_helper.addFinalTestVerdict(b, test_step);
 
     // spec-init: generate starter SPEC.md (separate step, not a gate)
     const spec_init_run = b.addRunArtifact(check_exe);

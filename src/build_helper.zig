@@ -18,7 +18,6 @@ const registry = @import("cli/registry.zig");
 const generator_name = "spec-init"; // generator, not a gate
 const mutate_name = "mutate"; // explicit step, not a gate
 const debt_name = "debt"; // non-gating debt report, invoked directly
-const history_name = "history"; // non-gating read of the run log, invoked directly
 const doctor_name = "doctor";
 const spec_sync_name = "spec-sync";
 const accept_name = "accept";
@@ -46,7 +45,7 @@ const registry_eval_quota: u32 = 20000;
 /// Registered gates that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
 /// here automatically. The generator (`spec-init`), the explicit `mutate`
-/// step, the non-gating `debt` and `history` reports, and the composed
+/// step, the non-gating `debt` report, and the composed
 /// `nightly`/`commit`/`all` commands are never gates and are excluded (the last three defensively —
 /// they are dispatched specially and don't appear in the registry, mirroring
 /// the existing `all` exclusion).
@@ -57,7 +56,6 @@ pub const all_check_names: []const []const u8 = blk: {
         if (std.mem.eql(u8, cmd.name, generator_name)) continue;
         if (std.mem.eql(u8, cmd.name, mutate_name)) continue;
         if (std.mem.eql(u8, cmd.name, debt_name)) continue;
-        if (std.mem.eql(u8, cmd.name, history_name)) continue;
         if (std.mem.eql(u8, cmd.name, nightly_name)) continue;
         if (std.mem.eql(u8, cmd.name, commit_name)) continue;
         if (std.mem.eql(u8, cmd.name, run_all_name)) continue;
@@ -76,11 +74,6 @@ pub const Options = struct {
     /// Optional working directory for each check invocation. Null means
     /// the build's current working directory.
     cwd: ?std.Build.LazyPath = null,
-    /// When true (default), every registered gate runs sequentially in
-    /// one `guardian-check all` invocation — eliminates 20+ process
-    /// spawns per build. When false, each check is its own RunArtifact
-    /// (the legacy mode; lets the build graph parallelize across checks).
-    single_process: bool = true,
     /// When true (default), also register the top-level `mutate` and
     /// `mutate-full` steps so consumers get the mutation tier for free the
     /// day they upgrade — no hand-wiring. Registration is idempotent (see
@@ -104,8 +97,7 @@ pub const Options = struct {
 };
 
 /// Adds guardian-check step(s) for the registered gates as dependencies of
-/// `target_step`. By default emits one combined step (`all`); set
-/// `opts.single_process = false` to emit one step per check. Unless
+/// `target_step`. Emits one combined `all` step. Unless
 /// `opts.mutate_steps = false`, also registers the top-level `mutate` /
 /// `mutate-full` steps once.
 ///
@@ -121,20 +113,9 @@ pub fn addAllChecks(
     if (opts.mutate_steps) registerMutateSteps(wiring);
     if (opts.maintenance_steps) registerMaintenanceSteps(wiring);
 
-    if (opts.single_process) {
-        const run = wiring.invoke(checkArgs(wiring, run_all_name));
-        target_step.dependOn(&run.step);
-        maybeGateInstall(b, target_step, opts, &.{&run.step});
-        return;
-    }
-
-    var gates: [all_check_names.len]*std.Build.Step = undefined;
-    for (all_check_names, 0..) |name, i| {
-        const run = wiring.invoke(checkArgs(wiring, name));
-        target_step.dependOn(&run.step);
-        gates[i] = &run.step;
-    }
-    maybeGateInstall(b, target_step, opts, &gates);
+    const run = wiring.invoke(checkArgs(wiring, run_all_name));
+    target_step.dependOn(&run.step);
+    maybeGateInstall(b, target_step, opts, &.{&run.step});
 }
 
 /// Argv for one gate invocation: the command, the project dir, and `--quiet`
@@ -437,6 +418,34 @@ pub fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) vo
     for (filters) |filter| run.addArg(b.fmt("--guardian-filter={s}", .{filter}));
 }
 
+const final_test_verdict = "guardian/test: PASS — complete build step succeeded";
+
+/// Makes `target_step` end with one unambiguous success line. Call this after
+/// wiring every dependency of a top-level test step: the helper moves those
+/// dependencies behind an inherited-stdio finalizer, then makes the target
+/// depend only on that finalizer. It therefore cannot print PASS until every
+/// shard and every sibling gate has completed successfully.
+///
+/// Zig's Maker currently retains a successful server-mode test runner's stderr
+/// as a warning and labels the captured command `failed command:`. Guardian's
+/// detailed runner report intentionally uses stderr because stdout carries the
+/// test protocol; this final line is the build-level verdict that removes the
+/// resulting ambiguity without sacrificing counts, timings, or failure detail.
+pub fn addFinalTestVerdict(b: *std.Build, target_step: *std.Build.Step) void {
+    const dependencies = target_step.dependencies;
+    target_step.dependencies = .empty;
+
+    const verdict = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "printf '%s\\n' '" ++ final_test_verdict ++ "'",
+    });
+    // Inherited output is not captured and reclassified as a warning by Maker.
+    verdict.stdio = .inherit;
+    for (dependencies.items) |dependency| verdict.step.dependOn(dependency);
+    target_step.dependOn(&verdict.step);
+}
+
 /// Tunables for `addTestCompileProbe`.
 pub const CompileProbeOptions = struct {
     /// The consumer's test module — the same root module its `test` step uses.
@@ -577,6 +586,14 @@ test "test diagnostics force error tracing on" {
     var flag: ?bool = null;
     enableErrorTracing(&flag);
     try std.testing.expectEqual(true, flag.?);
+}
+
+// spec: Build Helper - Prints one final PASS only after every dependency of the test step succeeds
+
+test "the final test verdict is explicit and the public helper wires it" {
+    _ = &addFinalTestVerdict;
+    try std.testing.expect(std.mem.startsWith(u8, final_test_verdict, "guardian/test: PASS"));
+    try std.testing.expect(std.mem.indexOf(u8, final_test_verdict, "complete build step") != null);
 }
 
 // spec: Build Helper - Registers the compile-only whole-suite probe under a stable step name

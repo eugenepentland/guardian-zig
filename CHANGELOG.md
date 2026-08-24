@@ -6,9 +6,6 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 - New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
   ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
   chain and `[[concept]]` owns a literal spelling; neither can express an
@@ -36,7 +33,6 @@ sibling checkout.
   `canonical-idiom`. The two relational checks now cannot disagree about what a
   lexical scan may judge, and the second one gains the exemptions that made the
   first one's frozen ledger real instead of re-deriving them.
-=======
 - New check `shadowed-const`, closing `divergent-const`'s recorded blind spot:
   a value that already HAS a name reappearing somewhere else as a BARE literal.
   divergent-const compares one NAME across files, so a copy that never got a
@@ -74,9 +70,6 @@ sibling checkout.
   `foldNumber` gains a leading-digit guard, since `std.zig.parseNumberLiteral`
   ASSERTS its input starts with a digit and a config-supplied spelling would
   otherwise have panicked the gate.
->>>>>>> claude/shadowed-const
-
-=======
 - New `import-layering` check: project-declared import DIRECTIONS, configured
   with `[[layering]]` entries (`name`, `from`, `to`, `allow`, `reason`). It is
   the declared-architecture half of the import gate; `imports` keeps the
@@ -100,8 +93,6 @@ sibling checkout.
   way of being incomplete reads in the config like an enforced architecture
   while enforcing nothing, so it is a located config error instead. No entries
   is the zero-config default and the check passes without walking a file.
->>>>>>> claude/import-layering
-=======
 - New check `twin-parity` and its `[[twin]]` table: the committed registry of
   capabilities a project exposes on more than one surface, and whether anything
   proves the surfaces still agree. A CLI subcommand, an HTTP route and an MCP
@@ -145,7 +136,6 @@ sibling checkout.
   mirror. The config parser gains single-line inline-table values, and the
   concept check now prints one `fix:` line per remedy present instead of one
   shared line that could name the wrong problem.
->>>>>>> claude/twin-parity
 - The `concept` scan no longer judges comment lines or Zig `test` blocks. The
   first real branch composition on the flagship consumer produced 16 findings
   of which 15 were doc comments and golden-value test assertions — and because

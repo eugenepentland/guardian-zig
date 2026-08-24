@@ -160,6 +160,19 @@ pub fn parseContent(allocator: Allocator, content: []const u8) ParseError![]cons
     return state.sections.toOwnedSlice(allocator);
 }
 
+fn fuzzSpecParser(backing: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    _ = try parseContent(arena.allocator(), input);
+}
+
+// spec: Fuzzing - Fuzzing untrusted state and text parsers never crashes
+test "fuzz: SPEC parser tolerates arbitrary markdown bytes" {
+    try std.testing.fuzz(std.testing.allocator, fuzzSpecParser, .{ .corpus = &.{ "", "## X\n- Y\n", "```\n## fake\n```" } });
+}
+
 const BehaviorIdentity = struct { id: ?[]const u8 = null };
 
 fn behaviorIdentity(statement: []const u8) BehaviorIdentity {

@@ -83,17 +83,6 @@ const entries = [_]Entry{
     \\the delta column shows the change vs the committed `.guardian/` state.
     \\Exempt: n/a — run `guardian-check debt [dir]`; never part of `all`.
     },
-    .{ .name = "history", .text =
-    \\Why: not a gate — the read surface over the append-only DORA run log
-    \\(`.guardian/cache/dora.jsonl`), which guardian has written one record per
-    \\gated run into since the sink landed and which nothing read back. It
-    \\answers how often the gate is green, what a run costs, which checks
-    \\actually block, and how long the current red patch has lasted.
-    \\Fix: nothing to fix — it always exits 0 unless the log exists and cannot be
-    \\read. `--check <name>` narrows it to one check's failure history; `--json`
-    \\writes the whole report to stdout as one object.
-    \\Exempt: n/a — run `guardian-check history [dir]`; never part of `all`.
-    },
     .{ .name = "file-size", .text =
     \\Why: agents let a file grow unbounded, concentrating unrelated concerns
     \\where every future edit risks a merge conflict or a stray regression.
@@ -124,13 +113,6 @@ const entries = [_]Entry{
     \\Fix: invert the dependency or route through the allowed module; remove the
     \\forbidden `@import`.
     \\Exempt: edit or drop the offending `[[boundary]]` rule in guardian.toml.
-    },
-    .{ .name = "usingnamespace-ban", .text =
-    \\Why: `usingnamespace` hides where a symbol comes from, defeating grep and
-    \\letting agents introduce invisible name collisions.
-    \\Fix: import the module under an explicit name and qualify each use.
-    \\Exempt: none in src/; test files are already allowed. Disable via the
-    \\top-level `disabled` list only as a last resort.
     },
     .{ .name = "deprecated-alias", .text =
     \\Why: Zig 0.15 renamed a batch of std containers/idioms and kept the old
@@ -660,7 +642,7 @@ const entries = [_]Entry{
     \\writer (two silkscreens from one board), `max_footprint_bytes` 1 MiB in
     \\four readers and 256 KiB in two (loads in the editor, fails in the
     \\preview), `max_board_bytes` 64 vs 48 MiB — 24 names in all. Guardian helps
-    \\create this debt: `magic-number` pushes a literal into a named const and
+    \\create this debt: naming a literal pushes it into a const and
     \\nothing then looks across files. Note the POLARITY — unlike
     \\repeated-string-literal's cross-file rule, same name + same value is the
     \\harmless case here; same name + different value is the risk.
@@ -735,8 +717,8 @@ const entries = [_]Entry{
     \\every rule with `[[allow]] check = "shadowed-const"`, or delete the rule.
     \\Limits: BARE means unnamed. A literal that IS a named const/var's
     \\initializer is a name, not a shadow — that is divergent-const's subject,
-    \\with a different fix, and flagging it here would fight magic-number, whose
-    \\whole remedy is "push this literal into a named const". A file that
+    \\with a different fix, and flagging it here would fight the common remedy:
+    \\"push this literal into a named const". A file that
     \\declares the value under ANY name is skipped for that value in both modes.
     \\Everything else counts: an expression operand, a call argument, a struct
     \\field default, an array length. Comments and string contents are not
@@ -871,31 +853,6 @@ const entries = [_]Entry{
     \\Exempt: publishable/test keys and placeholders are already ignored; add
     \\paths via `[[allow]] check = "ban-secrets"` for fixtures.
     },
-    .{ .name = "compile-error-explanation", .text =
-    \\Why: a bare `@compileError` with no message leaves the next person staring
-    \\at an unexplained build failure.
-    \\Fix: pass a non-empty string literal explaining the constraint.
-    \\Exempt: none — always explain the error. Disable only in edge cases.
-    },
-    .{ .name = "init-hygiene", .text =
-    \\Why: `if`/`while`/`for`/`switch` inside an `init`/`create`/`make` body means
-    \\the constructor is doing work it should delegate — hard to test.
-    \\Fix: keep init to plain field assignment; move logic to a named method.
-    \\Test fixtures: a NON-PUB init referenced only from `test` blocks in its own
-    \\file is already exempt — a fixture builder filling an array in a loop is
-    \\doing its job, and renaming it (`init` -> `setupBoard`) to get past the
-    \\check is a rename for the checker's benefit. If yours is still flagged it is
-    \\`pub` (any file can construct with it) or something outside a test block
-    \\references it: drop the `pub`, or move the builder into the test block.
-    \\Exempt: disable via the top-level `disabled` list if your init genuinely
-    \\needs branching.
-    },
-    .{ .name = "static-factory-ban", .text =
-    \\Why: `.getDefault()`/`.singleton()`/`.shared()` are hidden global state an
-    \\agent used instead of injecting the dependency.
-    \\Fix: construct the value at the composition root and pass it in.
-    \\Exempt: allowed in `main`/`wiring`; otherwise disable the check.
-    },
     .{ .name = "init-deinit-symmetry", .text =
     \\Why: a struct that owns an allocator field but has no `pub fn deinit` leaks
     \\whatever it allocated — an agent forgot the teardown.
@@ -955,19 +912,6 @@ const entries = [_]Entry{
     \\Wrap when it improves readability; `\\` multiline strings are exempt.
     \\Exempt: adjust either `[line_length]` limit, or disable the check.
     },
-    .{ .name = "boolean-param-ban", .text =
-    \\Why: a bool parameter in a pub fn makes call sites unreadable
-    \\(`f(true, false)`) and easy for an agent to transpose.
-    \\Fix: take a two-case enum, or split into two named functions.
-    \\Exempt: disable via the top-level `disabled` list.
-    },
-    .{ .name = "magic-number", .text =
-    \\Why (opt-in): a bare integer literal is an unexplained constant an agent
-    \\dropped in — meaning lost the moment it's read.
-    \\Fix: name it as a `const` with a descriptive identifier.
-    \\Exempt: off unless `[magic_number] enabled = true`; float idioms already
-    \\allowed.
-    },
     .{ .name = "repeated-string-literal", .text =
     \\Why: the same literal repeated 3+ times (or a duplicated named const across
     \\files) is knowledge an agent copy-pasted instead of centralizing.
@@ -979,31 +923,6 @@ const entries = [_]Entry{
     \\Fix: extract a shared file-scope const and import it everywhere.
     \\Exempt: disable via the top-level `disabled` list (retired `dup-const` name
     \\also tolerated there).
-    },
-    .{ .name = "struct-method-cap", .text =
-    \\Why: a type with too many `pub fn` methods is accreting responsibilities an
-    \\agent should have split.
-    \\Fix: extract a cohesive method group into its own type.
-    \\Exempt: disable via the top-level `disabled` list.
-    },
-    .{ .name = "optional-density", .text =
-    \\Why: a struct where most fields are `?T` models "anything can be missing" —
-    \\an agent dodging a real state machine.
-    \\Fix: split into required-vs-optional structs, or model states as a union.
-    \\Exempt: disable via the top-level `disabled` list.
-    },
-    .{ .name = "stringly-typed-switches", .text =
-    \\Why: switching on string literals is a fragile substitute for an enum — a
-    \\typo an agent makes compiles and silently misroutes.
-    \\Fix: define an enum and switch on it; parse strings to the enum at the edge.
-    \\Exempt: disable via the top-level `disabled` list.
-    },
-    .{ .name = "repeated-switch-on-enum", .text =
-    \\Why: the same enum prong-set switched in 2+ files means dispatch that should
-    \\live on the type is scattered — every new variant is a shotgun edit.
-    \\Fix: move the behavior onto the type (a method) so adding a variant is one
-    \\edit.
-    \\Exempt: disable via the top-level `disabled` list.
     },
     .{ .name = "stack-escape", .text =
     \\Why: returning `&local`, a slice of a stack array, or `&local.field` yields
@@ -1036,22 +955,6 @@ const entries = [_]Entry{
     \\file via `[[allow]] check = "fatal-exit"` (Guardian points it at
     \\`src/reporter.zig`).
     },
-    .{ .name = "stdout-flush", .text =
-    \\Why (report-only by default): in 0.15 a buffered `std.fs.File.stdout()/
-    \\stderr()` writer that is never `flush()`ed silently TRUNCATES its output —
-    \\the buffered bytes vanish when the writer leaves scope. This surfaces a
-    \\function that builds such a writer (`.writer(...)` / `.writerStreaming(...)`)
-    \\with no `flush(` in its body. By default it NEVER fails the build: the
-    \\heuristic is intra-procedural, so a flush done by a called helper reads as a
-    \\false positive and a flush on an untaken branch reads as a false negative —
-    \\precision unproven, so report-only until a project trusts the signal.
-    \\Fix: call `w.interface.flush()` (or `w.flush()`) before the function
-    \\returns, on every path that wrote.
-    \\Enable gating: set `[stdout_flush] enabled = true` to promote it to a
-    \\hard-block — a finding then fails the build. The default (absent/`false`)
-    \\stays report-only.
-    \\Exempt: add paths via `[[allow]] check = "stdout-flush"`.
-    },
     .{ .name = "change-classification", .text =
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
     \\no regression test" pattern that lets the same bug return.
@@ -1061,12 +964,6 @@ const entries = [_]Entry{
     \\`guardian-check accept change-classification .` do not clear it.
     \\Exempt: `[change_classification] enabled = false`, or set the diff base via
     \\`--against` / `GUARDIAN_AGAINST`; skips silently outside a git repo.
-    },
-    .{ .name = "escape-discipline", .text =
-    \\Why (opt-in): raw `{s}` interpolation into HTML/SVG is an XSS sink an agent
-    \\builds when concatenating markup from untrusted text.
-    \\Fix: route the value through an escaping helper before interpolation.
-    \\Exempt: off unless `[escape_discipline] enabled = true`.
     },
     .{ .name = "oom-discipline", .text =
     \\Why (opt-in): a swallowing `catch` on an allocating call conflates
@@ -1235,9 +1132,8 @@ const entries = [_]Entry{
     \\the headroom left. Add `--current` to `debt` for the same comparison
     \\tree-wide. The values come from the checks' own measurement functions, so
     \\they match what the gate would ratchet.
-    \\Exempt: n/a — never part of `all`, never gates, never writes. Five ratchets
-    \\(nesting-depth, cognitive-complexity, struct-method-cap, optional-density,
-    \\bool-ops-per-condition) compute their metric inside the check's own threshold
+    \\Exempt: n/a — never part of `all`, never gates, never writes. Three ratchets
+    \\(nesting-depth, cognitive-complexity, bool-ops-per-condition) compute their metric inside the check's own threshold
     \\scan; they are named in the report rather than approximated.
     },
 };
@@ -1491,8 +1387,6 @@ test "explain entries lead with the disambiguation each check is misread on" {
     // anytype-budget: the fix for a shared formatting helper is passing the
     // formatted result down, not a third `comptime fmt, args: anytype` pair.
     try std.testing.expect(std.mem.indexOf(u8, lookup("anytype-budget").?, "BufPrintError") != null);
-    // init-hygiene: the test-fixture escape, so nobody renames init for the checker.
-    try std.testing.expect(std.mem.indexOf(u8, lookup("init-hygiene").?, "setupBoard") != null);
     // change-classification: name the flow that does NOT clear it.
     try std.testing.expect(std.mem.indexOf(u8, lookup("change-classification").?, "not baseline churn") != null);
 }

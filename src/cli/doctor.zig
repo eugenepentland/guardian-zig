@@ -12,14 +12,14 @@ const accept_session = @import("../accept_session.zig");
 const journal = @import("../mutation/journal.zig");
 const git = @import("../git.zig");
 const config_mod = @import("../config.zig");
+const snapshot = @import("../snapshot.zig");
+const ratchet_mod = @import("../ratchet.zig");
+const dora = @import("../dora.zig");
+const retired_checks = @import("retired.zig");
 
 const max_metadata_bytes = 16 * 1024 * 1024;
 /// Characters of a commit hash a report prints to identify it.
 const short_sha_len = 8;
-const retired = [_][]const u8{
-    "spec-drift", "comptime-quota",       "doc-quality", "vague-name-blacklist",
-    "dup-const",  "returns-per-function",
-};
 const snapshots = [_][]const u8{
     "pub-api.txt",           "panic-budget.txt", "int-from-float-budget.txt",
     "unsafe-ops-budget.txt", "mutation.txt",     benchmark.leaf,
@@ -43,6 +43,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     try inspectIntegration(ctx, &findings);
     inspectMergeDriver(ctx, &findings);
     try inspectCache(ctx, &findings);
+    try inspectOperationalState(ctx, &findings);
     inspectBinaryIdentity(ctx, &findings);
 
     if (findings.integrity > 0) {
@@ -79,7 +80,7 @@ fn inspectBaselines(ctx: *types.RunCtx, findings: *Findings) !void {
             );
         }
         const full = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ path, entry.name });
-        try inspectHeader(ctx.allocator, full, findings);
+        try inspectHeader(ctx.allocator, full, name, findings);
     }
 }
 
@@ -104,18 +105,95 @@ fn inspectSnapshots(ctx: *types.RunCtx, findings: *Findings) !void {
             continue;
         }
         const full = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ path, entry.name });
-        try inspectHeader(ctx.allocator, full, findings);
+        if (std.mem.eql(u8, entry.name, benchmark.leaf)) {
+            _ = benchmark.read(ctx.allocator, full) catch |e| {
+                if (e == error.OutOfMemory) return error.OutOfMemory;
+                integrity(findings, "corrupt benchmark ledger {s}: {s}; resolve the file or delete and re-record it", .{ full, @errorName(e) });
+                continue;
+            };
+        } else {
+            try inspectHeader(ctx.allocator, full, null, findings);
+        }
     }
 }
 
-fn inspectHeader(allocator: std.mem.Allocator, path: []const u8, findings: *Findings) !void {
+fn inspectHeader(allocator: std.mem.Allocator, path: []const u8, check_name: ?[]const u8, findings: *Findings) !void {
     const content = fs.cwd().readFileAlloc(allocator, path, max_metadata_bytes) catch |e| {
         if (e == error.OutOfMemory) return error.OutOfMemory;
         integrity(findings, "cannot read recognized metadata {s}: {s}", .{ path, @errorName(e) });
         return;
     };
-    if (!std.mem.startsWith(u8, content, "# guardian-snapshot v")) {
-        integrity(findings, "malformed Guardian metadata header: {s}", .{path});
+    const parsed = snapshot.parseAnyVersion(allocator, content) catch |e| {
+        if (e == error.OutOfMemory) return error.OutOfMemory;
+        integrity(findings, "corrupt Guardian metadata {s}: {s}; resolve merge damage or delete and re-accept the owning check", .{ path, @errorName(e) });
+        return;
+    };
+    if (check_name) |name| {
+        if (ratchet_mod.metricMode(name) != null) {
+            for (parsed.lines, 0..) |line, i| {
+                if (ratchet_mod.decodeLine(line) == null) integrity(
+                    findings,
+                    "corrupt ratchet row {s}:{d}: '{s}'; restore `<value> <key>` or re-accept {s}",
+                    .{ path, i + 2, line, name },
+                );
+            }
+        }
+    }
+}
+
+/// Validates ignored operational state that the ordinary metadata-directory
+/// sweep deliberately skips: green stamp, last-run sink, and DORA stream.
+fn inspectOperationalState(ctx: *types.RunCtx, findings: *Findings) !void {
+    try inspectGreenStamp(ctx, findings);
+    try inspectJsonLines(ctx, findings, ".guardian/cache/last-run.jsonl", .last_run);
+    try inspectJsonLines(ctx, findings, ctx.cfg.dora.sink_path, .dora);
+}
+
+fn inspectGreenStamp(ctx: *types.RunCtx, findings: *Findings) !void {
+    const path = try std.fmt.allocPrint(ctx.allocator, "{s}/.guardian/cache/inputs.sha256", .{ctx.project_dir});
+    const raw = fs.cwd().readFileAlloc(ctx.allocator, path, 1024) catch |e| switch (e) {
+        error.FileNotFound => return,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            integrity(findings, "cannot read green stamp {s}: {s}; delete it to force a full gate", .{ path, @errorName(e) });
+            return;
+        },
+    };
+    if (!cache.validStoredBytes(raw)) integrity(
+        findings,
+        "corrupt green stamp {s}; delete it to force a full gate",
+        .{path},
+    );
+}
+
+const LogKind = enum { last_run, dora };
+
+fn inspectJsonLines(ctx: *types.RunCtx, findings: *Findings, configured_path: []const u8, kind: LogKind) !void {
+    const path = if (std.fs.path.isAbsolute(configured_path))
+        configured_path
+    else
+        try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ ctx.project_dir, configured_path });
+    const raw = fs.cwd().readFileAlloc(ctx.allocator, path, max_metadata_bytes) catch |e| switch (e) {
+        error.FileNotFound => return,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            integrity(findings, "cannot read operational log {s}: {s}", .{ path, @errorName(e) });
+            return;
+        },
+    };
+    var lines = std.mem.splitScalar(u8, raw, '\n');
+    var line_no: usize = 0;
+    while (lines.next()) |line| {
+        line_no += 1;
+        if (std.mem.trim(u8, line, &std.ascii.whitespace).len == 0) continue;
+        const valid = switch (kind) {
+            .dora => dora.parseRecord(ctx.allocator, line) != null,
+            .last_run => blk: {
+                _ = std.json.parseFromSliceLeaky(std.json.Value, ctx.allocator, line, .{}) catch break :blk false;
+                break :blk true;
+            },
+        };
+        if (!valid) integrity(findings, "corrupt JSON record {s}:{d}; remove or repair that line", .{ path, line_no });
     }
 }
 
@@ -287,7 +365,7 @@ fn staleGatingBinary(stored: ?cache.Digest, current: cache.Digest) bool {
 
 fn knownCheck(name: []const u8) bool {
     if (registry.find(name) != null) return true;
-    return contains(retired[0..], name);
+    return retired_checks.find(name) != null;
 }
 
 fn contains(haystack: []const []const u8, needle: []const u8) bool {

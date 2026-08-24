@@ -8,6 +8,16 @@ const std = @import("std");
 const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 
+/// The file whose read/visitor most recently failed on this thread. Worker
+/// threads consult it before their arena is released so an environmental error
+/// can name the offending path instead of surfacing as a bare error trace.
+threadlocal var failure_path: ?[]const u8 = null;
+
+/// Returns the path attached to this thread's latest failed source walk.
+pub fn lastErrorPath() ?[]const u8 {
+    return failure_path;
+}
+
 /// One file yielded by the walker: its display path and full content.
 /// `tree` is set only when the entry originates from a prebuilt AST index
 /// (see ast/index.zig) and points at the file's already-parsed syntax tree
@@ -29,6 +39,10 @@ pub const WalkOpts = struct {
     display_root: []const u8 = "",
     excludes: []const []const u8 = &.{},
     max_file_bytes: usize = 10 * 1024 * 1024,
+    /// Files matching these globs remain in the walk but are exempt from the
+    /// defensive read ceiling. Used by the shared AST index to preserve the
+    /// documented file_size_exclude membership semantics.
+    max_file_bytes_excludes: []const []const u8 = &.{},
     extension: []const u8 = ".zig",
 };
 
@@ -76,6 +90,7 @@ pub fn walkZigFiles(
     opts: WalkOpts,
     visitor: Visitor,
 ) WalkError!void {
+    failure_path = null;
     var dir = fs.cwd().openDir(fs_root, .{ .iterate = true }) catch |e| switch (e) {
         // A missing root (e.g. an optional test/ dir) is simply nothing to
         // scan. Any other failure (permissions, etc.) is a real error — a hard
@@ -115,15 +130,21 @@ fn maybeVisitFile(state: WalkState, dir: fs.Dir, name: []const u8, rel: []const 
     const opts = state.opts;
     if (!std.mem.endsWith(u8, name, opts.extension)) return;
     if (isExcluded(rel, opts.excludes)) return;
+    failure_path = rel;
+    const max_bytes = if (isExcluded(rel, opts.max_file_bytes_excludes))
+        std.math.maxInt(usize)
+    else
+        opts.max_file_bytes;
     const content = try dir.readFileAllocOptions(
         state.allocator,
         name,
-        opts.max_file_bytes,
+        max_bytes,
         null,
         .of(u8),
         0,
     );
     try state.visitor.visit(state.visitor.ctx, .{ .rel_path = rel, .content = content });
+    failure_path = null;
 }
 
 fn isExcluded(rel: []const u8, excludes: []const []const u8) bool {
@@ -196,6 +217,7 @@ pub fn normalizePath(allocator: Allocator, path: []const u8) std.mem.Allocator.E
 }
 
 test "matchGlob boundary patterns" {
+    _ = &lastErrorPath;
     try std.testing.expect(matchGlob("src/stages/foo.zig", "src/stages/*"));
     try std.testing.expect(matchGlob("src/stages/sub/bar.zig", "src/stages/*"));
     try std.testing.expect(!matchGlob("src/other/foo.zig", "src/stages/*"));

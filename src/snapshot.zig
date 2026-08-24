@@ -7,6 +7,13 @@ const std = @import("std");
 const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 
+threadlocal var failure_path: ?[]const u8 = null;
+
+/// Path of the snapshot whose most recent read failed on this thread.
+pub fn lastErrorPath() ?[]const u8 {
+    return failure_path;
+}
+
 pub const magic_prefix = "# guardian-snapshot v";
 
 /// Comment `merge-file` stamps on a merged counter snapshot whose two sides
@@ -88,13 +95,16 @@ fn parseVersion(header: ?[]const u8) ReadError!u32 {
 /// if the version doesn't match expected_version, ConflictMarkers when the
 /// file is an unresolved merge.
 pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError!Snapshot {
+    failure_path = path;
     const content = fs.cwd().readFileAlloc(arena, path, 16 * 1024 * 1024) catch |e| switch (e) {
         error.FileNotFound => return error.Missing,
         // Pass through real I/O / OOM errors — only a bad header is BadFormat,
         // so "your snapshot is corrupt" isn't reported for a permission error.
         else => |err| return err,
     };
-    return parse(arena, content, expected_version);
+    const parsed = try parse(arena, content, expected_version);
+    failure_path = null;
+    return parsed;
 }
 
 /// Reads `path` at `expected_version`, or null when the file is absent or is in
@@ -107,7 +117,10 @@ pub fn read(arena: Allocator, path: []const u8, expected_version: u32) ReadError
 /// apart, because absent means create and stale means migrate.
 pub fn readOptional(arena: Allocator, path: []const u8, expected_version: u32) ReadError!?Snapshot {
     return read(arena, path, expected_version) catch |e| switch (e) {
-        error.Missing, error.VersionMismatch => null,
+        error.Missing, error.VersionMismatch => {
+            failure_path = null;
+            return null;
+        },
         else => e,
     };
 }
@@ -134,6 +147,15 @@ pub fn parse(arena: Allocator, content: []const u8, expected_version: u32) ReadE
     const owned = try lines.toOwnedSlice(arena);
     std.mem.sort([]const u8, owned, {}, lessThan);
     return .{ .version = version, .lines = owned };
+}
+
+/// Parses a stored snapshot at the version declared by its own header. Used by
+/// `doctor`, which validates integrity across several snapshot families without
+/// pretending they all share one format version.
+pub fn parseAnyVersion(arena: Allocator, content: []const u8) ReadError!Snapshot {
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    const version = try parseVersion(lines.next());
+    return parse(arena, content, version);
 }
 
 /// Errors that an atomic snapshot replacement may propagate.
@@ -346,6 +368,7 @@ test "read returns Missing for missing file" {
 }
 
 test "read returns VersionMismatch on wrong version" {
+    _ = &lastErrorPath;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -357,6 +380,17 @@ test "read returns VersionMismatch on wrong version" {
         std.log.warn("test cleanup {s}: {s}", .{ tmp_path, @errorName(e) });
 
     try std.testing.expectError(error.VersionMismatch, read(a, tmp_path, 2));
+}
+
+test "parseAnyVersion validates the declared header and conflict markers" {
+    const a = std.testing.allocator;
+    const parsed = try parseAnyVersion(a, "# guardian-snapshot v7\nalpha\n");
+    defer a.free(parsed.lines);
+    try std.testing.expectEqual(@as(u32, 7), parsed.version);
+    try std.testing.expectError(
+        error.ConflictMarkers,
+        parseAnyVersion(a, "# guardian-snapshot v7\n<<<<<<< ours\n"),
+    );
 }
 
 test "diff finds added and removed" {
@@ -450,4 +484,24 @@ test "diff identical snapshots returns empty" {
     const new_lines = [_][]const u8{ "apple", "banana" };
     const d = try diff(a, old, &new_lines);
     try std.testing.expect(d.isEmpty());
+}
+
+fn fuzzSnapshotParser(backing: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    _ = parseAnyVersion(arena.allocator(), input) catch |err| switch (err) {
+        error.BadFormat, error.ConflictMarkers, error.OutOfMemory => return,
+        else => return,
+    };
+}
+
+test "fuzz: snapshot parser tolerates arbitrary state bytes" {
+    try std.testing.fuzz(std.testing.allocator, fuzzSnapshotParser, .{ .corpus = &.{ "", "# guardian-snapshot v2\nx\n", "<<<<<<<" } });
+}
+
+test "optional missing reads clear the diagnostic path" {
+    try std.testing.expect((try readOptional(std.testing.allocator, "zig-cache/no-such-snapshot.txt", 1)) == null);
+    try std.testing.expect(lastErrorPath() == null);
 }

@@ -1,5 +1,8 @@
 # Guardian for Zig — Research Brief
 
+> **Historical:** this research snapshot is retained for its principles and
+> non-goals; its implementation inventory and counts are not current.
+
 This document inventories what Guardian-Zig currently does. Use it to brainstorm
 new features that would add value **within the project's stated scope**. Read
 the "Principles" and "Non-Goals" sections before proposing ideas — features that

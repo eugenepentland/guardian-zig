@@ -112,7 +112,7 @@ pub fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8 {
 /// Parses one stored line back into a run record, or null when the line is not
 /// one: blank, malformed JSON, a future record `type`, or an outcome this
 /// version does not know. The inverse of `renderRecord`, and the reason the
-/// `history` reader never re-implements the wire format.
+/// downstream readers never need to re-implement the wire format.
 ///
 /// Every returned slice is owned by `arena` (`alloc_always`), so a caller
 /// streaming a file may reuse its line buffer immediately.
@@ -163,25 +163,27 @@ pub fn recordRun(
 fn recordInner(arena: Allocator, project_dir: []const u8, sink_path: []const u8, rec: RunRecord) !void {
     const line = try renderRecord(arena, rec);
     const resolved = try resolvePath(arena, project_dir, sink_path);
-    try appendLine(resolved, line);
+    const record = try std.fmt.allocPrint(arena, "{s}\n", .{line});
+    try appendRecord(resolved, record);
 }
 
 /// Resolves `sink_path` against `project_dir` (absolute paths pass through).
-/// Public because the writer and the `history` reader must agree on which file
+/// Public so the writer and downstream tooling agree on which file
 /// is the sink; two spellings of this rule would silently read a different one.
 pub fn resolvePath(arena: Allocator, project_dir: []const u8, sink_path: []const u8) Allocator.Error![]const u8 {
     if (sink_path.len > 0 and sink_path[0] == '/') return arena.dupe(u8, sink_path);
     return std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, sink_path });
 }
 
-/// Appends `line` + newline to `path`, creating the file and any parent dirs.
-fn appendLine(path: []const u8, line: []const u8) !void {
+/// Appends one already-newline-terminated record while holding an exclusive
+/// file lock. The record is issued as one write, so concurrent Guardian report
+/// processes cannot splice two JSON objects together.
+fn appendRecord(path: []const u8, record: []const u8) !void {
     if (parentDir(path)) |parent| try fs.cwd().makePath(parent);
-    const f = try fs.cwd().createFile(path, .{ .truncate = false, .read = false });
+    const f = try fs.cwd().createFile(path, .{ .truncate = false, .read = false, .lock = .exclusive });
     defer f.close();
     try f.seekFromEnd(0);
-    try f.writeAll(line);
-    try f.writeAll("\n");
+    try f.writeAll(record);
 }
 
 /// The directory portion of `path`, or null when it has no separator (a bare
@@ -246,6 +248,52 @@ test "recordInner appends each record as its own line" {
     try std.testing.expect(std.mem.indexOf(u8, first, "\"outcome\":\"green\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, second, "\"outcome\":\"red\"") != null);
     try std.testing.expect(lines.next() == null);
+}
+
+const AppendManyCtx = struct {
+    path: []const u8,
+    record: []const u8,
+    failed: *std.atomic.Value(bool),
+};
+
+fn appendMany(ctx: AppendManyCtx) void {
+    for (0..100) |_| appendRecord(ctx.path, ctx.record) catch {
+        ctx.failed.store(true, .release);
+        return;
+    };
+}
+
+test "concurrent DORA writers preserve every complete JSONL record" {
+    const dir = "zig-cache/dora-concurrent-proj";
+    const path = dir ++ "/.guardian/cache/dora.jsonl";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+
+    var failed: std.atomic.Value(bool) = .init(false);
+    const a = try std.Thread.spawn(.{}, appendMany, .{AppendManyCtx{
+        .path = path,
+        .record = "{\"writer\":\"a\"}\n",
+        .failed = &failed,
+    }});
+    const b = try std.Thread.spawn(.{}, appendMany, .{AppendManyCtx{
+        .path = path,
+        .record = "{\"writer\":\"b\"}\n",
+        .failed = &failed,
+    }});
+    a.join();
+    b.join();
+    try std.testing.expect(!failed.load(.acquire));
+
+    const raw = try fs.cwd().readFileAlloc(std.testing.allocator, path, 32 * 1024);
+    defer std.testing.allocator.free(raw);
+    var lines = std.mem.tokenizeScalar(u8, raw, '\n');
+    var count: usize = 0;
+    while (lines.next()) |line| {
+        try std.testing.expect(std.mem.eql(u8, line, "{\"writer\":\"a\"}") or
+            std.mem.eql(u8, line, "{\"writer\":\"b\"}"));
+        count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 200), count);
 }
 
 // spec: Delivery Metrics - Writes nothing when the dora sink is disabled
@@ -350,4 +398,16 @@ test "nowNs is non-decreasing over time" {
     const first = nowNs();
     const second = nowNs();
     try std.testing.expect(second >= first);
+}
+
+fn fuzzDoraRecord(backing: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    _ = parseRecord(arena.allocator(), input);
+}
+
+test "fuzz: DORA record parser tolerates arbitrary JSON bytes" {
+    try std.testing.fuzz(std.testing.allocator, fuzzDoraRecord, .{ .corpus = &.{ "", "{}", "{\"type\":\"run\",\"outcome\":\"green\"}" } });
 }

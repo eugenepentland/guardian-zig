@@ -9,9 +9,11 @@
 //! (modified + untracked); *untracked* secret/build-artifact paths are skipped
 //! with a loud always-shown warning — never a tracked path, and never a `.zig`
 //! source, so a legitimate `credentials.zig` module can't be silently dropped
-//! and leave the commit desynced from the gated tree; `.guardian/` metadata and
-//! SPEC.md are always included so the baseline/snapshot churn a run produced
-//! rides the commit that caused it. A path git already records as deleted is
+//! and leave the commit desynced from the gated tree; pre-existing `.guardian/`
+//! metadata edits and SPEC.md are always included. The gate itself is read-only
+//! on metadata — acceptance and migration are the explicit write boundaries —
+//! so an interrupted commit audit cannot create unrelated baseline churn. A
+//! path git already records as deleted is
 //! kept out of the argv entirely (see `stagingDecision`) — it matches no
 //! pathspec, and one such path used to fail `git add` for the whole change set.
 //!
@@ -51,6 +53,7 @@ pub const child_skip_env = "GUARDIAN_SKIP_CHECKS";
 
 /// Output cap for the captured child test run (a full suite's log).
 const max_test_output_bytes: usize = 16 * 1024 * 1024;
+const commit_metadata_writable = false;
 
 /// Entry point for the commit command. Requires a non-empty `--intent`, runs
 /// the full gate, and on green stages + commits the eligible change set. On a
@@ -65,11 +68,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // commit always BLOCKS, regardless of [gate] on_build: nothing enters
     // history unverified even when a dev build only reports.
     ctx.gate = true;
-    // commit is a metadata-writable run: it persists the baseline/ratchet/
-    // snapshot prune/create/re-key that ordinary runs defer, so the `.guardian/`
-    // change the gate produced rides the commit that caused it (the same diff
-    // the old always-writing auto-path staged).
-    ctx.metadata_writable = true;
+    // A commit audits and records the tree; it does not ACCEPT metadata drift.
+    // Keeping this read-only matters most on interruption: a killed test phase
+    // must not leave unrelated auto-pruned ratchets in the worktree. Explicit
+    // `accept` / `migrate` commands remain the only metadata write boundaries.
+    ctx.metadata_writable = commit_metadata_writable;
 
     // Self-hosting staleness guard: when this project dir IS the guardian
     // checkout, a `zig build test` can go green on a freshly compiled suite
@@ -406,6 +409,105 @@ fn heartbeatThread(hb: *Heartbeat) void {
     }
 }
 
+/// One exclusive operational log used to capture a commit's test output.
+/// A regular file is deliberate: waiting on pipe EOF before calling `wait`
+/// left exited children as zombies on large sharded builds. With a file the
+/// parent can reap the child immediately, then read the bounded transcript.
+const TestCapture = struct {
+    file: fs.File,
+    path: []const u8,
+};
+
+const max_capture_slots: usize = 100;
+
+fn createTestCapture(a: Allocator, project_dir: []const u8) !TestCapture {
+    const cache_dir = try std.fmt.allocPrint(a, "{s}/.guardian/cache", .{project_dir});
+    defer a.free(cache_dir);
+    try fs.cwd().makePath(cache_dir);
+    for (0..max_capture_slots) |slot| {
+        const path = try std.fmt.allocPrint(a, "{s}/commit-tests-{d}.log", .{ cache_dir, slot });
+        const file = fs.cwd().createFile(path, .{
+            .read = true,
+            .exclusive = true,
+            .lock = .exclusive,
+        }) catch |e| switch (e) {
+            error.PathAlreadyExists => {
+                if (!try reclaimAbandonedCapture(path)) {
+                    a.free(path);
+                    continue;
+                }
+                return createCaptureAt(path) catch |retry_err| switch (retry_err) {
+                    error.PathAlreadyExists => {
+                        a.free(path);
+                        continue;
+                    },
+                    else => return retry_err,
+                };
+            },
+            else => {
+                a.free(path);
+                return e;
+            },
+        };
+        return .{ .file = file, .path = path };
+    }
+    return error.SystemResources;
+}
+
+fn createCaptureAt(path: []const u8) fs.File.OpenError!TestCapture {
+    const file = try fs.cwd().createFile(path, .{
+        .read = true,
+        .exclusive = true,
+        .lock = .exclusive,
+    });
+    return .{ .file = file, .path = path };
+}
+
+/// Claims and removes a transcript whose process died before its defers ran.
+/// A live capture holds the same kernel lock and returns false, so concurrent
+/// commits never delete one another's output.
+fn reclaimAbandonedCapture(path: []const u8) !bool {
+    const file = fs.cwd().openFile(path, .{
+        .mode = .read_write,
+        .lock = .exclusive,
+        .lock_nonblocking = true,
+    }) catch |err| switch (err) {
+        error.WouldBlock => return false,
+        error.FileNotFound => return true,
+        else => return err,
+    };
+    defer file.close();
+    fs.cwd().deleteFile(path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+    return true;
+}
+
+fn readTestCapture(a: Allocator, capture: TestCapture) ![]const u8 {
+    const size = (try capture.file.stat()).size;
+    if (size > max_test_output_bytes) return error.StreamTooLong;
+    const output = try a.alloc(u8, @intCast(size));
+    errdefer a.free(output);
+    const read = try capture.file.preadAll(output, 0);
+    return output[0..read];
+}
+
+test "createTestCapture reclaims an unlocked transcript left by an interrupted commit" {
+    const dir = "zig-cache/commit-capture-reclaim";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/.guardian/cache");
+    try fs.cwd().writeFile(.{
+        .sub_path = dir ++ "/.guardian/cache/commit-tests-0.log",
+        .data = "abandoned",
+    });
+    var capture = try createTestCapture(std.testing.allocator, dir);
+    defer std.testing.allocator.free(capture.path);
+    defer capture.file.close();
+    try std.testing.expect(std.mem.endsWith(u8, capture.path, "commit-tests-0.log"));
+}
+
 /// Spawns `argv` in `project_dir` with `child_skip_env` set, capturing output,
 /// and supervises it: the child runs in its OWN process group so a SIGINT/
 /// SIGTERM handler can kill the whole tree (`kill(-pgid)`, reaping the
@@ -421,14 +523,25 @@ fn spawnTests(a: Allocator, project_dir: []const u8, argv: []const []const u8) !
     defer env.deinit();
     try env.put(child_skip_env, "1");
 
+    var capture = try createTestCapture(a, project_dir);
+    defer a.free(capture.path);
+    defer capture.file.close();
+    defer fs.cwd().deleteFile(capture.path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => reporter.detail("commit: could not remove test transcript {s}: {s}\n", .{
+            capture.path,
+            @errorName(err),
+        }),
+    };
+
     const io = wiring.io();
     var child = try std.process.spawn(io, .{
         .argv = argv,
         .cwd = .{ .path = project_dir },
         .environ_map = &env,
         .stdin = .ignore,
-        .stdout = .pipe,
-        .stderr = .pipe,
+        .stdout = .{ .file = capture.file.inner },
+        .stderr = .{ .file = capture.file.inner },
         .pgid = 0, // own process group → -pgid kills the whole tree
     });
     defer child.kill(io); // no-op after wait
@@ -445,39 +558,9 @@ fn spawnTests(a: Allocator, project_dir: []const u8, argv: []const []const u8) !
     defer if (hb_thread) |t| t.join();
     defer hb.done.set(wiring.io());
 
-    const output = try drainChildOutput(a, io, &child);
     const term = try child.wait(io);
+    const output = try readTestCapture(a, capture);
     return .{ .passed = term.success(), .output = output };
-}
-
-/// Drains the child's stdout+stderr pipes to EOF (blocking until the write ends
-/// close — i.e. until the child and its descendants are done), bounded by the
-/// same cap `std.process.run` applied, and returns the combined output with
-/// stderr preferred, mirroring the previous `std.process.run`-based behavior.
-fn drainChildOutput(a: Allocator, io: std.Io, child: *std.process.Child) ![]const u8 {
-    var multi_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
-    var multi: std.Io.File.MultiReader = undefined;
-    multi.init(a, io, multi_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
-    defer multi.deinit();
-    const stdout_reader = multi.reader(0);
-    const stderr_reader = multi.reader(1);
-    while (multi.fill(0, .none)) |_| {
-        if (stdout_reader.buffered().len > max_test_output_bytes) return error.StreamTooLong;
-        if (stderr_reader.buffered().len > max_test_output_bytes) return error.StreamTooLong;
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => return err,
-    }
-    try multi.checkAnyError();
-    const stdout_slice = try multi.toOwnedSlice(0);
-    errdefer a.free(stdout_slice);
-    const stderr_slice = try multi.toOwnedSlice(1);
-    if (stderr_slice.len > 0) {
-        a.free(stdout_slice);
-        return stderr_slice;
-    }
-    a.free(stderr_slice);
-    return stdout_slice;
 }
 
 /// Sums the runner's machine-readable `guardian/test: RESULT {...}` lines in
@@ -522,7 +605,7 @@ fn jsonInt(line: []const u8, comptime key: []const u8) u64 {
 fn reportTestTotal(output: []const u8) void {
     const total = sumTestResults(output);
     if (total.shards == 0) return;
-    reporter.ok("commit: tests — {d} passed, {d} failed, {d} skipped across {d} shard(s)", .{
+    reporter.ok("guardian/test: SUITE: {d} passed, {d} failed, {d} skipped across {d} shard(s)", .{
         total.passed, total.failed, total.skipped, total.shards,
     });
 }
@@ -732,8 +815,8 @@ fn isGeneratedHook(path: []const u8, hook_path: ?[]const u8) bool {
     return std.mem.eql(u8, path, hook);
 }
 
-/// True for paths always carried by the commit: `.guardian/` metadata (so
-/// baseline/snapshot churn rides the commit that caused it) and the spec file.
+/// True for paths always carried by the commit: pre-existing `.guardian/`
+/// metadata edits (from explicit acceptance/migration) and the spec file.
 fn alwaysInclude(path: []const u8, spec_file: []const u8) bool {
     if (underDir(path, ".guardian")) return true;
     if (std.mem.eql(u8, path, spec_file)) return true;
@@ -952,6 +1035,22 @@ test "spawnTests puts the test child in its own process group" {
     defer std.testing.allocator.free(outcome.output);
     try std.testing.expect(outcome.passed);
     try std.testing.expect(std.mem.indexOf(u8, outcome.output, "GROUPED") != null);
+}
+
+// spec: Commit - Reaps the test child before reading its bounded captured transcript
+
+test "spawnTests returns the complete transcript after the child exits" {
+    const argv = [_][]const u8{ "sh", "-c", "printf start; sleep 0.01; printf -- '-done'" };
+    const outcome = try spawnTests(std.testing.allocator, ".", &argv);
+    defer std.testing.allocator.free(outcome.output);
+    try std.testing.expect(outcome.passed);
+    try std.testing.expectEqualStrings("start-done", outcome.output);
+}
+
+// spec: Commit - Leaves guardian metadata unchanged while auditing a commit
+
+test "commit explicitly disables metadata writes" {
+    try std.testing.expect(!commit_metadata_writable);
 }
 
 // spec: Commit - Requires a non-empty intent message

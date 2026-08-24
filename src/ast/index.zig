@@ -56,10 +56,26 @@ fn collect(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
 /// the scan, so a file matching one never reaches any check that reads the
 /// shared index (see Config.exclude, walk.matchGlob).
 pub fn build(arena: Allocator, project_dir: []const u8, excludes: []const []const u8) walk.WalkError!Index {
+    return buildWithSizeExcludes(arena, project_dir, excludes, &.{});
+}
+
+/// Builds the complete index while lifting only the read ceiling for paths
+/// excluded from file-size. Those files remain visible to API, reachability,
+/// dead-code, and every other AST-backed check.
+pub fn buildWithSizeExcludes(
+    arena: Allocator,
+    project_dir: []const u8,
+    excludes: []const []const u8,
+    size_excludes: []const []const u8,
+) walk.WalkError!Index {
     var files: std.ArrayList(Entry) = .empty;
     var ctx: BuildCtx = .{ .arena = arena, .files = &files };
     const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
-    const opts: walk.WalkOpts = .{ .display_root = "src", .excludes = excludes };
+    const opts: walk.WalkOpts = .{
+        .display_root = "src",
+        .excludes = excludes,
+        .max_file_bytes_excludes = size_excludes,
+    };
     try walk.walkZigFiles(arena, src_path, opts, .{ .ctx = &ctx, .visit = collect });
     return .{ .files = try files.toOwnedSlice(arena) };
 }
@@ -141,6 +157,15 @@ test "build honors exclude globs, dropping matching files" {
     for (filtered.files) |f| {
         try std.testing.expect(std.mem.indexOf(u8, f.rel_path, "core/") == null);
     }
+}
+
+test "file-size exclusions lift the read ceiling without dropping index membership" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const all = try build(a, "test-project", &.{});
+    const shielded = try buildWithSizeExcludes(a, "test-project", &.{}, &.{"core/"});
+    try std.testing.expectEqual(all.files.len, shielded.files.len);
 }
 
 test "forEach hands each file's parsed tree to the visitor" {

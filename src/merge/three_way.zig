@@ -322,3 +322,20 @@ test "mergeCounters stays clean when only one side moved each counter" {
     try testing.expectEqualStrings("casts 4", merged.lines[0]);
     try testing.expectEqualStrings("panics 2", merged.lines[1]);
 }
+
+fn fuzzThreeWay(backing: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    var rows: std.ArrayList([]const u8) = .empty;
+    var lines = std.mem.splitScalar(u8, input, '\n');
+    while (lines.next()) |line| try rows.append(arena.allocator(), line);
+    _ = try mergeRows(arena.allocator(), rows.items, rows.items, rows.items);
+    _ = try mergeRatchets(arena.allocator(), rows.items, rows.items, rows.items);
+    _ = try mergeCounters(arena.allocator(), rows.items, rows.items, rows.items);
+}
+
+test "fuzz: three-way metadata mergers tolerate arbitrary rows" {
+    try testing.fuzz(testing.allocator, fuzzThreeWay, .{ .corpus = &.{ "", "1 key\n2 other", "name 3\nmalformed" } });
+}

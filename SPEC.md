@@ -24,8 +24,6 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the baseline deny_growth check list
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
-- Defaults magic-number off and enables it via [magic_number] enabled
-- Defaults stdout_flush off and promotes it to a hard block via [stdout_flush] enabled
 - Parses the module_doc_header min_lines threshold
 - Parses the mutation section score and budget settings
 - Parses the mutation section timeout floor and multiplier
@@ -98,10 +96,6 @@ blocking correctness checks and advisory maintainability guidance.
 - Matches file paths against glob and prefix boundary patterns
 - Checks against boundary rules defined in guardian.toml
 - Reports forbidden import violations
-
-## Usingnamespace Ban
-
-- Hard-fails any usingnamespace keyword outside test files
 
 ## Deprecated Alias
 
@@ -276,6 +270,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Heartbeats a long test run so a slow suite reads as progress, not a hang
 - Kills the whole test process group when the commit is interrupted
 - Sums the runner's machine-readable result lines across shards into one total
+- Reaps the test child before reading its bounded captured transcript
+- Leaves guardian metadata unchanged while auditing a commit
 
 ## Commit Hygiene
 
@@ -341,29 +337,6 @@ blocking correctness checks and advisory maintainability guidance.
 - Renders JSON rows carrying a kind, a direction, and a structured worst offender
 - Renders JSON headroom rows carrying a kind, a direction, and a unit
 
-## History
-
-The read surface over the append-only DORA run log (`.guardian/cache/dora.jsonl`).
-Guardian has written one record per gated run since the sink landed; `history`
-is what reads them back, so the outcome rate, the run cost, and the checks that
-actually block are answers rather than guesses. It gates nothing and writes
-nothing, and it streams — the log grows without bound, so every figure it keeps
-lives in a fixed-size buffer.
-
-- Streams the run log and reports green, red, and the pass rate
-- Reports the current and the longest red streak with what failed
-- Reports duration median and upper percentile over the recent window
-- Bounds the duration window so an unbounded log costs bounded memory
-- Compares the newest runs' duration against the runs before them
-- Ranks the checks that fail most often
-- Counts failures beyond the tracked names as overflow
-- Lists the most recent red runs with their commit, branch, and checks
-- Skips lines that are not run records and reports how many
-- Reports an absent run log as no runs recorded rather than an error
-- Narrows the report to one named check's failure history
-- Renders the whole report as one JSON object
-- Reports a run log it cannot read instead of an empty history
-
 ## Maintenance
 
 - Doctor distinguishes advisory warnings from integrity failures
@@ -377,6 +350,7 @@ lives in a fixed-size buffer.
 - Debt previews stale baseline pruning before explicit confirmation
 - Parses maintenance command flags independently of the project directory
 - Accept refreshes only named checks and verifies them after updating metadata
+- Accept preserves unrelated lowerings and prunes within a named ratchet check
 - Accept records a session note that expires when the head commit changes
 - Parses named accept checks before the optional project directory
 - Run context recognizes only explicitly named accept refreshes
@@ -415,6 +389,7 @@ lives in a fixed-size buffer.
 - Treats an unset, empty, or zero value as no refresh
 - Accept command refreshes only its explicit context-local check names
 - Lists the metadata files a named refresh keeps through a failed gate
+- Keeps successful command-local accepts when a sibling named check is refused
 - Prints every working accept path for a snapshot check's drift
 - Offers a concrete named-refresh example when a broad token is rejected
 
@@ -549,10 +524,6 @@ lives in a fixed-size buffer.
 
 ## Constructor Hygiene
 
-- Rejects @compileError without a non-empty string explanation
-- Rejects init bodies with loops, conditionals, or switch statements
-- Exempts a non-pub init used only from test blocks
-- Rejects static factory / singleton patterns in business logic
 - Requires structs that own an allocator field to declare a pub fn deinit
 - Requires init bodies with multiple try calls to use errdefer
 
@@ -562,27 +533,15 @@ lives in a fixed-size buffer.
 - Skips multiline-string literal lines from the length cap
 - Exempts spec tag comment lines from the length cap
 - Rejects vague identifier names on public declarations
-- Rejects bool parameters in public functions
-- Rejects bare integer literals outside a small allowlist
 - Rejects identical string literals appearing 3 or more times in a single file
 - Names the line of each repeated-literal occurrence
 - Identifies a repeated literal by the literal itself
-- Caps pub fn methods per pub struct/enum/union
-- Caps the percentage of optional fields in a public struct
-- Skips a struct with fewer than four fields
-- Rejects switch expressions whose case keys are string literals
-
-## Tier 3 Architectural Fitness
-
-- Flags the same enum dot-prong set switched in 2+ files
-- Ignores repeated enum switches that occur only inside test blocks
-- Names every file sharing a repeated enum prong set
-- Renders each colliding switch location as file and line
 
 ## Transactional Metadata
 
 - Restores all non-cache Guardian metadata after a failed gate
 - Preserves a named refresh's metadata across a failed gate
+- Excludes concurrent metadata writers and recovers a dead pid lock
 
 ## Baseline Mode
 
@@ -649,6 +608,7 @@ lives in a fixed-size buffer.
 - Retains legacy ratchet entries while the same subjects remain advisory warnings
 - Names the offending file line and metric in the regression status line
 - Sends each regressed key to the sink with its record and the ceiling it broke
+- Preserves unrelated lowerings and prunes during a named acceptance
 
 ## Ratchet Relocation
 
@@ -687,6 +647,7 @@ lives in a fixed-size buffer.
 - Says a crossing cannot be accepted in a tripped check's near-cap alert
 - Marks a tripped key and its recover line in the live debt report
 - Merges two branches' progress on a tripped entry to the lower value
+- Names the frozen ceiling in the concise headline for a tripped regression
 
 ## Measurement Mode
 
@@ -735,6 +696,7 @@ lives in a fixed-size buffer.
 
 ## Git Diff
 
+- Pins Git diagnostics to the C locale and disables optional locks
 - Parses unified diff hunk headers into added line spans
 - Groups unified diff output into per-file added spans
 - Returns no spans for deletion-only hunks and deleted files
@@ -798,11 +760,13 @@ lives in a fixed-size buffer.
 - States the reason instead of the counts when a run ends before its suite finished
 - Reads the printed verdict and the run's exit status off one predicate
 - Prints a machine-readable result line after the verdict, carrying the passed failed and skipped counts
+- Returns normally from a passing build-server run after printing its result
 
 ## Build Helper
 
 - Points a consumer test binary at the runner file that ships with Guardian
 - Enables error-return tracing on optimized consumer test modules
+- Prints one final PASS only after every dependency of the test step succeeds
 - Registers the compile-only whole-suite probe under a stable step name
 - Orders caller prerequisites before every gate invocation
 
@@ -937,10 +901,6 @@ without an explained `--force`.
 - Rejects a completeness-waiver bullet that omits its reason
 - Skips sections listed in the exempt_sections config
 - Excludes completeness-waiver bullets from spec behavior mapping
-
-## Escape Discipline
-
-- Flags raw {s} interpolation into HTML/SVG markup
 
 ## Oom Discipline
 
@@ -1111,16 +1071,9 @@ without an explained `--force`.
 - Allows std.process.exit(0)
 - Exempts a file that defines pub fn main
 
-## Stdout Flush
-
-- Flags a buffered stdout writer with no flush
-- Allows a buffered stdout writer that flushes before returning
-- Ignores a stdout write that never buffers
-- Hard-blocks a missing flush when the enabled toggle is on
-- Stays report-only for a missing flush when the toggle is off
-
 ## Fuzzing
 
+- Fuzzing untrusted state and text parsers never crashes
 - Fuzzing the guardian.toml parser never panics and every reject populates its diagnostic
 - Fuzzing the wildcard matcher never crashes and a star-free pattern matches iff equal
 - Fuzzing the inline-test scope tracker never crashes and holds its depth invariant

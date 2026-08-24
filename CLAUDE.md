@@ -6,12 +6,11 @@ Toolchain: Zig `0.17.0-dev.1683+5ceec001b` exactly, matching
 
 ## Usage Feedback Log
 
-`FEEDBACK.md` (repo root) is the append-only log where agents record friction,
-bugs, wins, and wishes after working in any Guardian-gated project — the format
-and append rules are documented at the top of that file. When working on
-Guardian itself, read it first: open `friction:`/`wish:` entries are the triage
-backlog Eugene draws changes from. Never delete or rewrite existing entries;
-pruning happens only when Eugene triages.
+`FEEDBACK.md` (repo root) is the append-only log for concrete Guardian bugs and
+friction. A smooth session logs nothing; feature wishes are out of scope during
+hardening. The format and append rules are documented at the top of that file.
+Never delete or rewrite existing entries; pruning happens only when Eugene
+triages.
 
 ## Guiding Principles
 
@@ -179,8 +178,6 @@ guardian-check size src/foo.zig .    # one file's CURRENT measurements vs caps +
 guardian-check debt .                # baseline/snapshot debt totals + deltas (non-gating); --json goes to stdout
 guardian-check debt . --live         # + each ratcheted key vs its ceiling AND what is nearest a blocking limit
 guardian-check debt . --current      # the same switch under its original name (re-parses the tree)
-guardian-check history .             # read the DORA run log back: pass rate, red streaks, run cost, worst checks
-guardian-check history . --check spec --json   # one check's failure history; --json writes to stdout
 guardian-check bench set <name> <value> --unit s --dir min --note "..." .  # record a measurement
 guardian-check bench list .          # print the benchmark ledger (.guardian/benchmarks.txt)
 guardian-check explain <check>       # why it blocks, how to fix, how to exempt (no name = list all)
@@ -322,16 +319,13 @@ readable only in `src/checks/completeness.zig`.
 
 ## What Guardian Checks
 
-76 checks gate the build (most hard-block; completeness/test-coverage/
-escape-discipline/oom-discipline/magic-number/fuzz-presence are opt-in, default
-off; one of them, stdout-flush, is report-only by default — it runs in `all`
-but never fails the build unless `[stdout_flush] enabled = true` promotes it to a
-gating hard-block, which Guardian leaves off). Formatting is one of them:
+67 checks gate the build (most hard-block; completeness/test-coverage/
+oom-discipline/fuzz-presence are opt-in and default off). Formatting is one of them:
 the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
-`zig fmt --check` build step. Four more registry entries are
+`zig fmt --check` build step. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command, the `debt` report, and the `history` run-log reader (80 registry
+command and the `debt` report (70 registry
 entries total; `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -380,8 +374,8 @@ exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
 never comes up empty and can never be confused with "the pattern was wrong":
 
 ```
-run-all: 76 check(s) passed                                  # green
-run-all: 76 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 67 check(s) passed                                  # green
+run-all: 67 checks — 0 blocking, N report-only               # green, demoted findings
 run-all: 2/76 failed (type-size, …) — 3 report-only          # blocking
 run-all: cached — 0 blocking (inputs unchanged since last green run)
 ```
@@ -446,9 +440,9 @@ with `cache_enabled = false`. Turn off individual checks with a top-level
 
 Baseline mode (`[baseline] enabled = true`) auto-prunes: when violations
 resolve, the baseline file is rewritten smaller in place (no refresh env var).
-The ten threshold checks (function-length, nesting-depth, cognitive-complexity,
-function-size, type-size, file-size, struct-method-cap, optional-density,
-bool-ops-per-condition, line-length) use **per-item ratchets** (baseline v2):
+The eight threshold checks (function-length, nesting-depth, cognitive-complexity,
+function-size, type-size, file-size, bool-ops-per-condition, line-length) use
+**per-item ratchets** (baseline v2):
 each offender is stored as `<value> <key>` and gets a personal only-shrinks
 ceiling, so an improvement that's still over cap no longer reds the build; v1
 text baselines self-migrate to v2 on first build. Every *other* check uses

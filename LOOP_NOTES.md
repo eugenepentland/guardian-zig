@@ -1,5 +1,9 @@
 # Guardian Loop Notes
 
+> **Historical:** this planning snapshot is retained for context and does not
+> describe Guardian's current registry or architecture. See README.md and
+> SPEC.md for the maintained contract.
+
 ## Architecture
 Guardian is pure build.zig steps. Runs on every `zig build` (invisible, hard-blocking, silent on success).
 Consumers wire it in with one line: `guardian.addAllChecks(b, check_exe, b.getInstallStep(), .{})`.

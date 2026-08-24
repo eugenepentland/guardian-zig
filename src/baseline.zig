@@ -239,7 +239,7 @@ fn writeKeys(arena: Allocator, path: []const u8, current: []const Keyed) snapsho
 /// path). `write_allowed` gates every OTHER persistence — first-record creation,
 /// auto-prune, and v1→v3 re-keying: an ordinary (read-only) run leaves it false
 /// and computes the outcome in memory without touching disk, so a plain build's
-/// `git status` stays clean; `commit`/`migrate` flip it so the same writes the
+/// `git status` stays clean; `accept`/`migrate` flip it so the same writes the
 /// old auto-path produced ride the deliberate command.
 pub fn lifecycle(
     arena: Allocator,
@@ -480,7 +480,7 @@ fn processOutcome(
     warnings: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
-    // write_allowed rides on the context — accept/commit/migrate flip it; an
+    // write_allowed rides on the context — accept/migrate flip it; an
     // ordinary run leaves it false and every lifecycle write below is deferred.
     // A check that only read the changed files never writes, whatever the
     // command asked for: reconciling recorded debt from a partial view would
@@ -533,7 +533,9 @@ fn processOutcome(
     try denyGrowthGuard(a, ctx, check_name, path, violations, force_refresh);
 
     const outcome = lifecycle(a, path, violations, force_refresh and may_write, may_write) catch |e| {
-        reporter.fail("{s}: baseline I/O failed: {s}", .{ check_name, @errorName(e) });
+        reporter.fail("{s}: cannot read or update baseline {s}: {s} — resolve conflict markers or repair/remove the corrupt file, then rerun", .{
+            check_name, path, @errorName(e),
+        });
         return error.CheckFailed;
     };
 
@@ -749,7 +751,7 @@ const RatchetInput = struct {
     warnings: []const reporter.Violation,
     force_refresh: bool,
     /// Gates the auto-lower / first-record / migrate writes: false on an
-    /// ordinary run (report-only), true on accept/commit/migrate.
+    /// ordinary run (report-only), true on accept/migrate.
     write_allowed: bool,
 };
 
@@ -776,7 +778,12 @@ fn processRatchet(
     // first (they re-key entries whether or not anything reported), so a
     // preserved advisory entry is matched against the path its warning names,
     // then the content-matched extract tier against the reconciled set.
-    const recorded = try readRecorded(a, path);
+    const recorded = readRecorded(a, path) catch |e| {
+        reporter.fail("{s}: cannot read ratchet {s}: {s} — repair/remove the corrupt file before accepting", .{
+            check_name, path, @errorName(e),
+        });
+        return error.CheckFailed;
+    };
     const renamed = try relocation.renamedFiles(a, recorded orelse &.{}, try renamesFor(a, ctx, recorded));
     var trip: Trip = .{ .policy = hysteresis.policyFor(ctx.cfg, check_name) };
     const entries = if (trip.policy) |policy| blk: {
@@ -809,7 +816,9 @@ fn processRatchet(
         .write_allowed = input.write_allowed,
         .transfers = reloc.transfers,
     }) catch |e| {
-        reporter.fail("{s}: ratchet I/O failed: {s}", .{ check_name, @errorName(e) });
+        reporter.fail("{s}: cannot read or update ratchet {s}: {s} — resolve conflict markers or repair/remove the corrupt file, then rerun", .{
+            check_name, path, @errorName(e),
+        });
         return error.CheckFailed;
     };
     // Session accepts: an already-accepted check regrowing in the SAME
@@ -960,15 +969,25 @@ fn emitHysteresisRefusal(check_name: []const u8) void {
 /// not recorded debt at all, and that the lifecycle re-reads to tell apart.
 /// Read once per check and shared by the relocation plan, the advisory-preserve
 /// merge, and the deny_growth guard.
-fn readRecorded(a: Allocator, path: []const u8) Allocator.Error!?[]const ratchet.Entry {
-    // An unreadable file is "nothing recorded" — the lifecycle reads it again
-    // and is the one place that decides create-vs-migrate. A failure to
-    // ALLOCATE, though, is not an absent ratchet: it propagates.
+fn readRecorded(a: Allocator, path: []const u8) snapshot.ReadError!?[]const ratchet.Entry {
+    // Missing and the legacy v1 format mean no v2 ratchet is available. A
+    // malformed/conflicted/current-version file is never treated as absent:
+    // doing so would let a deny_growth accept overwrite corrupt evidence.
     const snap = snapshot.read(a, path, ratchet.version) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return null,
+        error.Missing, error.VersionMismatch => return null,
+        else => return e,
     };
     return try ratchet.decodeLines(a, snap.lines);
+}
+
+test "a corrupt ratchet is never treated as absent during a deny-growth refresh" {
+    const path = "zig-cache/corrupt-ratchet.txt";
+    defer fs.cwd().deleteFile(path) catch {};
+    try fs.cwd().makePath("zig-cache");
+    try fs.cwd().writeFile(.{ .sub_path = path, .data = "not a snapshot\n" });
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(error.BadFormat, readRecorded(arena.allocator(), path));
 }
 
 /// Git's whole-file renames for this run. `all` resolves them once up front and
@@ -1356,7 +1375,7 @@ fn reportTripped(
     const n = reg.grown.len + reg.new_offenders.len;
     reporter.fail(
         "{s}: {d} key(s) held by a hard-cap trip — {s}",
-        .{ check_name, n, firstOffender(rep.allocator, reg, rep.records) },
+        .{ check_name, n, firstTrippedOffender(rep, policy, reg) },
     );
     const unit = ratchet.unitLabel(check_name);
     for (reg.grown) |g| reporter.detail("  {s}\n", .{trippedDetail(rep, policy, g, unit)});
@@ -1373,6 +1392,20 @@ fn reportTripped(
     if (rep.fix_hint) |h| reporter.detail("  {s}\n", .{h});
     reporter.detail("  {s}\n", .{hysteresis.policyNote(rep.allocator, policy) catch check_name});
     return error.CheckFailed;
+}
+
+/// The first tripped subject rendered with the ceiling that actually binds it.
+/// This text lives in the failure headline, not only reporter.detail, so the
+/// concise default still says both immediate ways forward: restore the frozen
+/// ceiling, or continue shrinking to the recovery line that clears the trip.
+fn firstTrippedOffender(rep: RatchetReport, policy: hysteresis.Policy, reg: ratchet.Regression) []const u8 {
+    const unit = ratchet.unitLabel(policy.check);
+    if (reg.grown.len > 0) return trippedDetail(rep, policy, reg.grown[0], unit);
+    if (reg.new_offenders.len > 0) {
+        const o = reg.new_offenders[0];
+        return hysteresis.crossingDetail(rep.allocator, policy, o.key, o.value, unit) catch o.key;
+    }
+    return firstOffender(rep.allocator, reg, rep.records);
 }
 
 /// One grown key's line, worded by which side of the hard cap it grew on: over
@@ -2136,6 +2169,7 @@ fn expectSessionNoteWithheld(a: Allocator, dir: []const u8, cap: *reporter.Captu
 }
 
 // spec: Hysteresis - Holds a legacy entry through the recovery zone from accept to recovered
+// spec: Hysteresis - Names the frozen ceiling in the concise headline for a tripped regression
 
 test "a v2 entry re-measured under the new metric lowers, holds, blocks growth, then recovers" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -2188,8 +2222,11 @@ test "a v2 entry re-measured under the new metric lowers, holds, blocks growth, 
     cap.buf.clearRetainingCapacity();
     const at_8950 = [_]reporter.Violation{sizeRecord("src/big.zig", 8950, 10_000)};
     try std.testing.expectError(error.CheckFailed, stepRatchet(&ctx, &.{}, &at_8950, false));
+    const headline = cap.buf.items[0 .. std.mem.indexOfScalar(u8, cap.buf.items, '\n') orelse cap.buf.items.len];
+    try std.testing.expect(std.mem.indexOf(u8, headline, "frozen ceiling of 8900") != null);
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "grew while recovering from a hard-cap trip") != null);
-    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "growth blocks until it reaches <=8000") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "growth above 8900 blocks") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "trip clears fully at <=8000") != null);
     try std.testing.expectError(error.CheckFailed, stepRatchet(&writer, &.{}, &at_8950, true));
 
     // The campaign lands: 7990 is under the recover line, so the trip clears,

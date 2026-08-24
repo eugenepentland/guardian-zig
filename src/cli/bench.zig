@@ -30,6 +30,7 @@ const reporter = @import("../reporter.zig");
 const benchmark = @import("../benchmark.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const git = @import("../git.zig");
+const writer_lock = @import("../writer_lock.zig");
 
 pub const command_name = "bench";
 
@@ -47,12 +48,23 @@ const Invalid = enum {
 /// the usage summary for anything else (including a bare `bench`).
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     const sub = ctx.bench.sub;
-    if (std.mem.eql(u8, sub, benchmark.sub_set)) return setMetric(ctx);
+    if (std.mem.eql(u8, sub, benchmark.sub_set)) return runWrite(ctx, setMetric);
     if (std.mem.eql(u8, sub, benchmark.sub_list)) return listMetrics(ctx);
-    if (std.mem.eql(u8, sub, benchmark.sub_rm)) return removeMetric(ctx);
+    if (std.mem.eql(u8, sub, benchmark.sub_rm)) return runWrite(ctx, removeMetric);
     reporter.fail("bench: expected a subcommand, got '{s}'", .{sub});
     printUsage();
     return error.CheckFailed;
+}
+
+fn runWrite(ctx: *types.RunCtx, operation: *const fn (*types.RunCtx) types.RunError!void) types.RunError!void {
+    var lock = writer_lock.acquire(ctx.allocator, ctx.project_dir) catch |err| {
+        reporter.fail("bench: cannot acquire {s}/{s} ({s}) — wait for the current Guardian writer", .{
+            ctx.project_dir, writer_lock.leaf, @errorName(err),
+        });
+        return error.CheckFailed;
+    };
+    defer lock.deinit();
+    try operation(ctx);
 }
 
 /// Summarizes the recorded ledger on a concise `all` run and prints every

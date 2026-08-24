@@ -330,3 +330,16 @@ test "fromLine parses locations off and agrees with the record fallback" {
         try fromLine(a, "spec", "unverified: Auth - Validates tokens"),
     );
 }
+
+fn fuzzSkeleton(backing: Allocator, smith: *std.testing.Smith) anyerror!void {
+    var bytes: [64 * 1024]u8 = undefined;
+    const input = bytes[0..smith.slice(&bytes)];
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    const out = try skeleton(arena.allocator(), input);
+    try testing.expect(out.len <= input.len);
+}
+
+test "fuzz: violation skeleton tolerates arbitrary diagnostic bytes" {
+    try testing.fuzz(testing.allocator, fuzzSkeleton, .{ .corpus = &.{ "", "cap 200", "utf8 sha256 42" } });
+}

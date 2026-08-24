@@ -15,9 +15,12 @@ const types = @import("types.zig");
 const run_all = @import("run_all.zig");
 const reporter = @import("../reporter.zig");
 const ratchet = @import("../ratchet.zig");
+const snapshot_file = @import("../snapshot.zig");
+const baseline = @import("../baseline.zig");
 const accept_session = @import("../accept_session.zig");
 const ast_index = @import("../ast/index.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
+const writer_lock = @import("../writer_lock.zig");
 
 pub const command_name = "accept";
 
@@ -35,6 +38,15 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     try rejectDashNames(ctx.refresh);
     try run_all.validateCheckNames(ctx.refresh, "accept");
 
+    var lock = writer_lock.acquire(ctx.allocator, ctx.project_dir) catch |err| {
+        reporter.fail("accept: cannot acquire {s}/{s} ({s}) — wait for the current writer; a crashed process releases the kernel lock automatically", .{
+            ctx.project_dir, writer_lock.leaf, @errorName(err),
+        });
+        return error.CheckFailed;
+    };
+    defer lock.deinit();
+    ctx.writer_lock_held = true;
+
     // Acceptance depends on run_all returning the blocking verdict (CheckFailed
     // on drift) so preview/update/verify partition correctly — force blocking
     // regardless of [gate] on_build. The copies below inherit this.
@@ -42,7 +54,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // One parse for all three passes over one unchanged tree.
     try shareSourceIndex(ctx);
     const quiet = ctx.quiet;
-    const before_metadata = if (quiet) metadataState(ctx) else null;
+    var before_metadata = metadataState(ctx);
+    defer if (before_metadata) |*state| state.deinit();
 
     var before: run_all.PassSummary = .{};
     var preview = ctx.*;
@@ -59,7 +72,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // The update pass is the one metadata-writable step: it persists the named
     // checks' refreshes AND any deferred prune/create/re-key on those checks.
     update.metadata_writable = true;
-    try runPass(&update, quiet, null, .must_pass);
+    runPass(&update, quiet, null, .must_pass) catch |e| {
+        try preservePriorRatchetCeilings(ctx, if (before_metadata) |*state| state else null);
+        return e;
+    };
+    try preservePriorRatchetCeilings(ctx, if (before_metadata) |*state| state else null);
 
     var after: run_all.PassSummary = .{};
     var verify = ctx.*;
@@ -71,7 +88,34 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         reporter.ok("accept: verified {d} named check(s); review and commit the .guardian/ diff", .{ctx.refresh.len});
         return;
     }
-    reportQuiet(ctx, before, after, before_metadata);
+    reportQuiet(ctx, before, after, if (before_metadata) |*state| state else null);
+}
+
+/// Restores only monotone ratchet improvements that happened incidentally
+/// inside an accepted check. For each named threshold check, union the old and
+/// refreshed rows and keep the larger value per key: intended raises/new keys
+/// remain accepted, while unrelated lowerings/prunes wait for their own
+/// maintenance diff. Snapshot-style checks retain their normal full refresh.
+fn preservePriorRatchetCeilings(
+    ctx: *types.RunCtx,
+    before: ?*const metadata_transaction.Transaction,
+) (snapshot_file.ReadError || snapshot_file.WriteError)!void {
+    const state = before orelse return;
+    const a = ctx.allocator;
+    for (ctx.refresh) |name| {
+        if (ratchet.metricMode(name) == null) continue;
+        const rel = try std.fmt.allocPrint(a, "baselines/{s}.txt", .{name});
+        const prior_content = findPath(state.originals, rel) orelse continue;
+        const prior_snap = snapshot_file.parse(a, prior_content, ratchet.version) catch |e| switch (e) {
+            error.VersionMismatch, error.BadFormat => continue,
+            else => return e,
+        };
+        const path = try baseline.pathFor(a, ctx.project_dir, name);
+        const refreshed_snap = try snapshot_file.read(a, path, ratchet.version);
+        const prior = try ratchet.decodeLines(a, prior_snap.lines);
+        const refreshed = try ratchet.decodeLines(a, refreshed_snap.lines);
+        try ratchet.writeEntries(a, path, try ratchet.mergeAccepted(a, prior, refreshed));
+    }
 }
 
 /// Whether a pass is expected to report drift. The preview is (that IS the
@@ -142,19 +186,18 @@ fn reportQuiet(
     ctx: *types.RunCtx,
     before: run_all.PassSummary,
     after: run_all.PassSummary,
-    metadata: ?metadata_transaction.Transaction,
+    metadata: ?*metadata_transaction.Transaction,
 ) void {
     const names = std.mem.join(ctx.allocator, ",", ctx.refresh) catch ctx.refresh[0];
     reporter.detail(reporter.prefix ++ "accept: {s} — {d} finding(s) before, {d} after\n", .{
         names, before.findings, after.findings,
     });
-    var state = metadata orelse {
+    const state = metadata orelse {
         reporter.detail(reporter.prefix ++ "accept: could not read .guardian/ — " ++
             "check `git status .guardian` for what moved\n", .{});
         return;
     };
-    defer state.deinit();
-    reportMetadataChanges(ctx, &state);
+    reportMetadataChanges(ctx, state);
 }
 
 /// Names every `.guardian/` file the update pass wrote, changed, or removed, by
@@ -225,6 +268,27 @@ fn recordSession(ctx: *types.RunCtx) void {
 
 test "accept command name remains stable for build-helper integration" {
     try std.testing.expectEqualStrings("accept", command_name);
+}
+
+// spec: Maintenance - Accept preserves unrelated lowerings and prunes within a named ratchet check
+
+test "named ratchet acceptance keeps prior ceilings outside the accepted growth" {
+    _ = &preservePriorRatchetCeilings;
+    const prior = [_]ratchet.Entry{
+        .{ .key = "pruned", .value = 12 },
+        .{ .key = "lowered", .value = 10 },
+        .{ .key = "grown", .value = 4 },
+    };
+    const refreshed = [_]ratchet.Entry{
+        .{ .key = "lowered", .value = 7 },
+        .{ .key = "grown", .value = 6 },
+    };
+    const merged = try ratchet.mergeAccepted(std.testing.allocator, &prior, &refreshed);
+    defer std.testing.allocator.free(merged);
+    try std.testing.expectEqual(@as(usize, 3), merged.len);
+    try std.testing.expectEqual(@as(u64, 6), merged[0].value);
+    try std.testing.expectEqual(@as(u64, 10), merged[1].value);
+    try std.testing.expectEqual(@as(u64, 12), merged[2].value);
 }
 
 // spec: Command Ergonomics - Prints the accept usage when an unknown check name begins with a dash
