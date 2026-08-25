@@ -10440,3 +10440,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — alias bypass-stub copper to parent rails
 - **friction:** Seven focused DRC/connectivity runs reported every selected test passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The recurring false failure signal required checking outer process status after every run; the release gate separately and correctly caught the new test module missing from the shard manifest, and the amended commit passed all 67 checks, 3,873 tests, and the ReleaseSafe build.
+
+## 2026-08-25 · codex · eda — preserve Gerber fillet direction in CAM preview
+- **good:** The new Gerber write/read-back fillet regression, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt.
