@@ -10308,3 +10308,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — make subcircuit selection a click fallback
 - **friction:** Focused `serve.drc_rules` selection tests and `test-compile` passed, but the first `prepare-release.sh` run found two older embedded-JavaScript assertions in `serve.static_assets` and `serve.assembly_debug` coupled to the exact pre-change pick-priority map and `reviewPad` variable spelling. Updating those preserved-behavior source markers cost one extra 33-second full-suite/ReleaseSafe attempt; focused viewer filters did not expose cross-module consumers of the same embedded asset.
+
+## 2026-08-25 · codex · eda — define PCB object selection priority
+- **good:** The focused priority and overlap regressions, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed on the first release attempt, producing the exact-commit candidate in 37 seconds.
