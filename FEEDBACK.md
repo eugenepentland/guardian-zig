@@ -10491,3 +10491,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — remove the Route Review navigation tab
 - **friction:** Both focused navbar runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The false failure signal required checking the outer exit status; the spec-link check correctly caught a renamed tracked label, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed.
+
+## 2026-08-25 · codex · designs — replace Barracuda ID EEPROM with STS40 sensor
+- **bug:** Guardian-wired `netlisp build`/`check` completed the Barracuda and Barracuda-base designs (RF ERC reported `0 violation(s)`), but each successful command emitted hundreds of thousands of `error(SafeAllocator): leaked` lines. The flood truncated the useful validation evidence, made redirected log files unexpectedly empty, and forced separate filtered reruns to verify the result; successful design gates need allocator diagnostics suppressed or fixed.
