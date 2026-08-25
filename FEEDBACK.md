@@ -10326,3 +10326,9 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — connect repeated same-number footprint pads
 - **good:** The diff-scoped `cognitive-complexity` check caught two extra branches added to the already-large connectivity graph builder; extracting logical-terminal location counting restored the cap, after which all 67 whole-tree checks, the focused plated-subpad/opposite-face regressions, full Debug suite, and concurrent ReleaseSafe build passed, and the exact candidate deployed with healthy service probes.
+
+## 2026-08-25 · codex · eda — keep dragged trace fillets tangent
+- **good:** The SPEC-linked focused browser contract, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt, producing the exact-commit deployment candidate in 29 seconds.
+
+## 2026-08-25 · codex · eda — preserve pad dams beside RF mask relief
+- **good:** The diff-scoped `spec` check caught the unlinked full-opening pad-dam regression on the first focused run; after adding the exact SPEC bullet, all 67 whole-tree checks, focused mask/Gerber tests, the full Debug suite, and concurrent ReleaseSafe build passed, and the identical-tree candidate deployed with healthy service probes.
