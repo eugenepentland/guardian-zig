@@ -10338,3 +10338,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — taper every controlled-impedance pad launch
 - **friction:** All eight focused taper/port-frame runs printed `guardian/test: PASS` with every selected test passing, then emitted Zig's contradictory `failed command:` banner even though each enclosing `zig build` exited 0. The repeated false failure signal required checking the outer process result after every focused run before trusting the tests; the subsequent whole-tree 67-check gate, full Debug suite, and ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · eda — add repository agent feedback log
+- **good:** The documentation-only commit passed all 67 whole-tree checks without requiring a build, test run, baseline update, or source-code workaround.
