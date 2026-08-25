@@ -10311,3 +10311,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — define PCB object selection priority
 - **good:** The focused priority and overlap regressions, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build all passed on the first release attempt, producing the exact-commit candidate in 37 seconds.
+
+## 2026-08-25 · codex · eda — color custom copper pours by net
+- **good:** The focused browser-renderer contract, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt; the exact candidate deployed with healthy service probes.
