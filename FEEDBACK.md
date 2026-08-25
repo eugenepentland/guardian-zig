@@ -10383,3 +10383,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — locate blocked impedance tapers in DRC
 - **friction:** Three focused browser-contract runs each reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. This recurring runner ambiguity again required capturing and checking the outer process status; the first full release gate then correctly caught one separate stale string-coupled assertion, and the amended exact commit passed all 67 checks, 3,847 tests, and the ReleaseSafe build.
+
+## 2026-08-25 · codex · eda — show bottom exposed RF copper in 3D
+- **friction:** Both focused PCB-3D browser-contract runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required checking the outer process result before trusting the focused regressions; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
