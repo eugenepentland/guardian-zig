@@ -10341,3 +10341,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — add repository agent feedback log
 - **good:** The documentation-only commit passed all 67 whole-tree checks without requiring a build, test run, baseline update, or source-code workaround.
+
+## 2026-08-25 · codex · eda — retrofit saved RF launch tapers
+- **good:** The diff-scoped spec check caught a mismatched browser-regression tag before commit; after linking it to `placement/rf-port-frame-routing`, all 67 whole-tree checks, the focused controlled-impedance tests, full Debug suite, and concurrent ReleaseSafe build passed, and the exact candidate deployed with healthy service probes.
