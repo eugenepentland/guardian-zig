@@ -10434,3 +10434,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — always show the RF via-fence action
 - **friction:** The focused browser-contract run reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. This recurring false failure signal again required checking the outer process result; both exact-commit release gates (the second after rebasing onto an advancing `main`) passed all 67 checks, the full Debug suite, and the ReleaseSafe build.
+
+## 2026-08-25 · codex · eda — export Fusion-compatible STEP bodies
+- **friction:** Both focused STEP-export contract runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The recurring false failure signal required checking the outer process result before trusting the focused regressions; the whole-tree 67-check gate, full Debug suite, and concurrent ReleaseSafe build subsequently passed normally.
