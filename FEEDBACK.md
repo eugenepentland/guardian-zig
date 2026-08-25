@@ -10374,3 +10374,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — normalize RF taper probe samples
 - **friction:** Two focused `track width allows only the proven port-frame pad taper` runs selected and passed all 26 tests, but each enclosing `zig build test` exited 1 because its mandatory tree-wide format step found an unrelated concurrently edited `src/serve/static_assets.zig`; Guardian also mixed four unrelated branch-wide blockers into the focused output. In a shared feature worktree this made a passing target regression impossible to verify with a green process status and cost two runs plus manual result parsing; a focused mode that still compiles the real test graph but scopes ancillary formatting/gates to the requested files would make subtask verification independently actionable.
+
+## 2026-08-25 · codex · designs — wire Barracuda mixer for Configuration A
+- **good:** The design build and error-level ERC accepted the RF/LO bridge swap without requiring any Guardian workaround or baseline change.
