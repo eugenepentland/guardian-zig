@@ -10389,3 +10389,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · designs — add MC3007 package STEP model
 - **good:** The Barracuda design build and error-level ERC accepted the newly linked MC3007 model with zero violations and no Guardian workaround or baseline change.
+
+## 2026-08-25 · codex · eda — prove multilayer PDN return paths
+- **friction:** Five focused PDN/BOM regressions each reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal required checking outer process status after every focused run; the full release gate later behaved correctly by catching one genuinely stale expectation, and the amended commit passed all 67 checks, 3,857 tests, and the ReleaseSafe build.
