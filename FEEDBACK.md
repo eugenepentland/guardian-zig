@@ -10395,3 +10395,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · designs — repair MC3007 STEP loader compatibility
 - **bug:** The design build and error-level ERC accepted a `FACETED_BREP` MC3007 STEP file that the bundled OpenCascade browser loader parsed successfully but returned zero meshes for. The first failure therefore surfaced only in the user's 3D viewer; diagnosing it required invoking the embedded `occt-import-js` loader directly and replacing the file with an `ADVANCED_BREP_SHAPE_REPRESENTATION`. A design-gate model smoke test using that loader would catch this before commit.
+
+## 2026-08-25 · codex · eda — cancel a DRC-blocked manual route
+- **friction:** Both focused browser-contract runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. This recurring runner ambiguity again required checking the outer process status; the subsequent whole-tree 67-check gate, full Debug suite, and ReleaseSafe build passed normally.
