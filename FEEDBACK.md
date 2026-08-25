@@ -10416,3 +10416,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — drive footprint origins from board edges
 - **good:** The file-size ratchet caught growth in near-cap `pcb_layout_page.zig` early and led to a cohesive extraction of outline, heatsink, text, and driving-dimension JSON writers into the existing sidecar codec; the page ended 11 code lines below its prior ceiling, and the reviewed public-API/type-size refresh plus final 67-check gate passed cleanly.
+
+## 2026-08-25 · codex · eda — edit PCB dimensions by double-click
+- **good:** The focused browser-contract test, whole-suite compile, 67-check commit gate, full Debug suite, and concurrent ReleaseSafe build all passed without a snapshot update or workaround.
