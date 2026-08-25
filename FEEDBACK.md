@@ -10467,3 +10467,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — export exact server-side STEP assemblies
 - **friction:** Focused tests for the new `serve.pcb_step_export` module and `zig build test-compile` both passed while the module was absent from `src/test_shards.zig`; only the first full release run caught `shard manifest runs every named test exactly once`, after 26 seconds and a completed ReleaseSafe build. A cheap shard-manifest coverage run as part of `test-compile`, or when `test_root.zig` gains an import, would catch this before the release gate.
+
+## 2026-08-25 · codex · eda — redraw thermal colors on scale input
+- **good:** The strengthened direct-redraw browser contract, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in one release attempt without snapshot changes.
