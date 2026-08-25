@@ -10365,3 +10365,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — promote nearest visible assembly copper
 - **friction:** The focused 26-test assembly-painter contract reported `guardian/test: PASS`, then printed Zig's contradictory `failed command:` banner while the enclosing build exited 0. The recurring false failure signal again required checking the outer exit status; all 67 whole-tree checks, the full Debug suite, and ReleaseSafe build subsequently passed.
+
+## 2026-08-25 · codex · eda — model PDN pours and bound RF vias
+- **friction:** Four focused RF/PDN runs reported every selected test passing, then printed Zig's contradictory `failed command:` banner even though each enclosing `zig build` exited 0. The recurring runner ambiguity required checking outer exit status after every focused run; the 67-check whole-tree gates, full Debug suites, and concurrent ReleaseSafe builds all passed normally.
