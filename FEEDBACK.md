@@ -10371,3 +10371,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — export the PCB assembly as STEP
 - **friction:** The focused PCB-3D contract reported all 28 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. This recurring runner ambiguity again required a second run that surfaced the outer exit code before trusting the otherwise-green focused result; all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build then passed normally.
+
+## 2026-08-25 · codex · eda — normalize RF taper probe samples
+- **friction:** Two focused `track width allows only the proven port-frame pad taper` runs selected and passed all 26 tests, but each enclosing `zig build test` exited 1 because its mandatory tree-wide format step found an unrelated concurrently edited `src/serve/static_assets.zig`; Guardian also mixed four unrelated branch-wide blockers into the focused output. In a shared feature worktree this made a passing target regression impossible to verify with a green process status and cost two runs plus manual result parsing; a focused mode that still compiles the real test graph but scopes ancillary formatting/gates to the requested files would make subtask verification independently actionable.
