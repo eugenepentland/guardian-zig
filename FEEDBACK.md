@@ -10401,3 +10401,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — surface PCB layout parse diagnostics
 - **friction:** The focused PCB load-diagnostic regression reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal required checking the outer process result; the exact-commit release gate subsequently passed all 67 checks, the full Debug suite, and the ReleaseSafe build.
+
+## 2026-08-25 · codex · eda — audit Barracuda RF DRC warning artifacts
+- **friction:** Four focused DRC regression runs each reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required capturing and checking every outer process result; the final whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed cleanly.
