@@ -10347,3 +10347,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — adapt RF fence phase around obstacles
 - **friction:** Both focused via-fence runs printed `guardian/test: PASS` with every selected test passing, then emitted Zig's contradictory `failed command:` banner even though the enclosing `zig build` exited 0. This recurring runner ambiguity again required checking the outer process status before trusting the focused result; the whole-tree 67-check gate, full Debug suite, and ReleaseSafe build then passed normally.
+
+## 2026-08-25 · codex · eda — expose pad alignment in subcircuit embeds
+- **good:** The spec-linked focused embed regression, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed on the first exact-commit release attempt; after rebasing onto an advancing `main`, the required second exact-commit release gate also passed cleanly.
