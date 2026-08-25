@@ -10296,3 +10296,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-24 · codex · eda — reuse DRC connectivity and plane fills
 - **friction:** The focused connectivity, prepared-fill parity, endpoint-wiring, and pour-refill tests all passed, but the first `prepare-release.sh` run found an older `serve.drc_rules` source-contract assertion coupled to the exact `const violations = drc_rules.checkFilteredZones` spelling in `pcb_layout_page.zig`. Replacing that call with the optimized report-and-tally adapter preserved the endpoint response byte-for-byte but cost one extra 30-second full-suite/ReleaseSafe attempt; focused DRC filters did not reveal the adjacent cross-feature pour-refill contract.
+
+## 2026-08-25 · codex · eda — preserve board traces during subcircuit restamp
+- **friction:** Both focused browser-contract runs printed `guardian/test: PASS` with all selected tests passing, immediately followed by Zig's contradictory `failed command:` banner even though the enclosing `zig build` later exited 0. The misleading intermediate failure signal required an extra poll and exit-status check on each run before trusting the result; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
