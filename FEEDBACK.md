@@ -10323,3 +10323,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — allow B layer toggling during trace drawing
 - **good:** The focused browser-contract run immediately caught the mismatched exact SPEC tag, and after aligning it all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt; the exact candidate deployed with healthy service probes.
+
+## 2026-08-25 · codex · eda — connect repeated same-number footprint pads
+- **good:** The diff-scoped `cognitive-complexity` check caught two extra branches added to the already-large connectivity graph builder; extracting logical-terminal location counting restored the cap, after which all 67 whole-tree checks, the focused plated-subpad/opposite-face regressions, full Debug suite, and concurrent ReleaseSafe build passed, and the exact candidate deployed with healthy service probes.
