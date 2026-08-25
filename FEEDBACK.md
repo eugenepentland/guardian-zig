@@ -10446,3 +10446,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — add layered RF via fencing
 - **good:** The spec-link check caught an intentionally renamed RF-corridor contract, the selective public-API acceptance showed only the three reviewed geometry helpers, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed.
+
+## 2026-08-25 · codex · eda — preserve Assembly fillets before CAM load
+- **good:** The focused browser-contract regression, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
