@@ -10488,3 +10488,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · designs — remove one Barracuda base-board LFCN-1575+ filter
 - **bug:** Successful Guardian-wired `netlisp build barracuda-base` plus ERC emitted about 6 MB / 1.76 million tokens of `error(SafeAllocator): leaked` diagnostics while exiting 0. The output truncated the actual validation result and forced a second `netlisp check --severity error` run through a line filter to confirm the board remained error-free.
+
+## 2026-08-25 · codex · eda — remove the Route Review navigation tab
+- **friction:** Both focused navbar runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The false failure signal required checking the outer exit status; the spec-link check correctly caught a renamed tracked label, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed.
