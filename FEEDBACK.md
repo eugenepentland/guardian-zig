@@ -10449,3 +10449,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — preserve Assembly fillets before CAM load
 - **good:** The focused browser-contract regression, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
+
+## 2026-08-25 · codex · eda — remove Assembly outline chord overlay
+- **good:** The browser-contract regression, exact Barracuda Gerber/CAM read-back audit, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
