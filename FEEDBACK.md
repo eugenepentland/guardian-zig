@@ -10470,3 +10470,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — redraw thermal colors on scale input
 - **good:** The strengthened direct-redraw browser contract, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in one release attempt without snapshot changes.
+
+## 2026-08-25 · codex · eda — synchronize routed copper with net classes
+- **good:** The focused browser-contract regression, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
