@@ -10398,3 +10398,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — cancel a DRC-blocked manual route
 - **friction:** Both focused browser-contract runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. This recurring runner ambiguity again required checking the outer process status; the subsequent whole-tree 67-check gate, full Debug suite, and ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · eda — surface PCB layout parse diagnostics
+- **friction:** The focused PCB load-diagnostic regression reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal required checking the outer process result; the exact-commit release gate subsequently passed all 67 checks, the full Debug suite, and the ReleaseSafe build.
