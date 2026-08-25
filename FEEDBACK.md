@@ -10410,3 +10410,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — capture routed copper in subcircuit saves
 - **friction:** Both focused subcircuit regressions reported `guardian/test: PASS` with every selected test passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal required polling the outer process separately before trusting the result; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · eda — carry shape fillets during edge slides
+- **friction:** The focused shape-sketch regression reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required checking the outer process result; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
