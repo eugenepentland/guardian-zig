@@ -10377,3 +10377,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · designs — wire Barracuda mixer for Configuration A
 - **good:** The design build and error-level ERC accepted the RF/LO bridge swap without requiring any Guardian workaround or baseline change.
+
+## 2026-08-25 · codex · eda — align pads between subcircuit members
+- **friction:** Both focused pad-alignment runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner even though each enclosing `zig build` exited 0. This recurring runner ambiguity again required checking the outer exit status before trusting the focused results; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
