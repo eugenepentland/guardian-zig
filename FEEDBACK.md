@@ -10353,3 +10353,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — toggle assembly inner copper layers individually
 - **good:** Both SPEC-linked focused assembly contracts, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on the first exact-commit release attempt, producing a reusable deployment candidate in 33 seconds.
+
+## 2026-08-25 · codex · eda — map route layers to the physical RF stackup
+- **good:** The diff-scoped spec check caught both initially unlinked multilayer route-mapping regressions before commit; after adding the exact trace-EM and pour SPEC bullets, all 67 whole-tree checks, both focused regressions, full Debug suite, and concurrent ReleaseSafe build passed.
