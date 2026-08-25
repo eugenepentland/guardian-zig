@@ -10344,3 +10344,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — retrofit saved RF launch tapers
 - **good:** The diff-scoped spec check caught a mismatched browser-regression tag before commit; after linking it to `placement/rf-port-frame-routing`, all 67 whole-tree checks, the focused controlled-impedance tests, full Debug suite, and concurrent ReleaseSafe build passed, and the exact candidate deployed with healthy service probes.
+
+## 2026-08-25 · codex · eda — adapt RF fence phase around obstacles
+- **friction:** Both focused via-fence runs printed `guardian/test: PASS` with every selected test passing, then emitted Zig's contradictory `failed command:` banner even though the enclosing `zig build` exited 0. This recurring runner ambiguity again required checking the outer process status before trusting the focused result; the whole-tree 67-check gate, full Debug suite, and ReleaseSafe build then passed normally.
