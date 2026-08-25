@@ -10299,3 +10299,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — preserve board traces during subcircuit restamp
 - **friction:** Both focused browser-contract runs printed `guardian/test: PASS` with all selected tests passing, immediately followed by Zig's contradictory `failed command:` banner even though the enclosing `zig build` later exited 0. The misleading intermediate failure signal required an extra poll and exit-status check on each run before trusting the result; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · eda — thin selected net-open overlays
+- **friction:** The focused 26-test net-open run and broader 57-test viewer run each printed `guardian/test: PASS` and a complete passing result, then immediately emitted Zig's contradictory `failed command:` banner despite the enclosing build exiting 0. This reproduced the same runner ambiguity on consecutive tasks and again required waiting for and checking the outer process status before proceeding; the full release gate passed all 67 checks, Debug tests, and the ReleaseSafe build.
