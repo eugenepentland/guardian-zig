@@ -10497,3 +10497,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — add standalone manual via placement
 - **friction:** Both focused PCB-editor runs reported `guardian/test: PASS` with every selected test passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The recurring false failure signal required polling and checking the outer exit status after each run; the final 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · eda — export analytic PCB solid with Fusion decals
+- **good:** The focused STEP, static-asset, page-contract, and browser utility regressions, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
