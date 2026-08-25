@@ -10461,3 +10461,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — pin thermal colors to an absolute scale
 - **good:** Two focused spec-linked regressions, the 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
+
+## 2026-08-25 · codex · eda — make the thermal scale manually adjustable
+- **good:** The manual-scale and empty-ladder browser-contract regressions, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
