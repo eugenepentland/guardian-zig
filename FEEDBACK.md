@@ -10455,3 +10455,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — preserve thermal targets across ref-des changes
 - **good:** The spec-link check caught the new identity contract before commit, selective acceptance exposed only the reviewed thermal API/type additions, and the exact-commit 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed in one release attempt.
+
+## 2026-08-25 · codex · eda — expose selected RF via-fence rows
+- **good:** The first focused gate caught the unlinked mask-row contracts, stale generated language reference, and two new type-size offenders; grouping the row counts removed the structural exceptions, after which all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed without baseline changes.
