@@ -10386,3 +10386,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — show bottom exposed RF copper in 3D
 - **friction:** Both focused PCB-3D browser-contract runs reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required checking the outer process result before trusting the focused regressions; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · designs — add MC3007 package STEP model
+- **good:** The Barracuda design build and error-level ERC accepted the newly linked MC3007 model with zero violations and no Guardian workaround or baseline change.
