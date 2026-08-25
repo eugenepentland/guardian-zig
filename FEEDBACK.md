@@ -10419,3 +10419,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — edit PCB dimensions by double-click
 - **good:** The focused browser-contract test, whole-suite compile, 67-check commit gate, full Debug suite, and concurrent ReleaseSafe build all passed without a snapshot update or workaround.
+
+## 2026-08-25 · codex · eda — carry near-tangent shape fillets
+- **friction:** The focused near-tangent fillet regression reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required checking the outer result; after rebasing onto an advancing `main`, all 67 whole-tree checks, the full Debug suite, and ReleaseSafe build passed.
