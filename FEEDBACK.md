@@ -10332,3 +10332,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — preserve pad dams beside RF mask relief
 - **good:** The diff-scoped `spec` check caught the unlinked full-opening pad-dam regression on the first focused run; after adding the exact SPEC bullet, all 67 whole-tree checks, focused mask/Gerber tests, the full Debug suite, and concurrent ReleaseSafe build passed, and the identical-tree candidate deployed with healthy service probes.
+
+## 2026-08-25 · codex · eda — keep RF relief continuous around local pad-mask islands
+- **friction:** Each focused mask-relief regression printed `guardian/test: PASS` and a complete passing result, immediately followed by Zig's contradictory `failed command:` line even though the enclosing `zig build` exited 0. This is the third same-day EDA task reproducing that runner ambiguity; it again required checking the outer exit status before the otherwise-green 67-check, full Debug, and ReleaseSafe verification could be trusted.
