@@ -10317,3 +10317,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — check connectivity through custom-pad copper
 - **good:** The diff-scoped gate caught a temporary debug-print probe and an overgrown public query struct during diagnosis; after keeping the geometry nested, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt, and the exact candidate deployed with healthy service probes.
+
+## 2026-08-25 · codex · eda — preserve functional perimeter-tagged pad vias
+- **good:** The diff-scoped `import-layering` check rejected a direct serve-to-`pad_shape` dependency and `pub-api-surface` isolated the relocated one-symbol geometry seam for explicit review; after that correction, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt, and the exact candidate deployed with healthy service probes.
