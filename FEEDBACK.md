@@ -10314,3 +10314,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — color custom copper pours by net
 - **good:** The focused browser-renderer contract, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt; the exact candidate deployed with healthy service probes.
+
+## 2026-08-25 · codex · eda — check connectivity through custom-pad copper
+- **good:** The diff-scoped gate caught a temporary debug-print probe and an overgrown public query struct during diagnosis; after keeping the geometry nested, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on the first release attempt, and the exact candidate deployed with healthy service probes.
