@@ -10350,3 +10350,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — expose pad alignment in subcircuit embeds
 - **good:** The spec-linked focused embed regression, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed on the first exact-commit release attempt; after rebasing onto an advancing `main`, the required second exact-commit release gate also passed cleanly.
+
+## 2026-08-25 · codex · eda — toggle assembly inner copper layers individually
+- **good:** Both SPEC-linked focused assembly contracts, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed on the first exact-commit release attempt, producing a reusable deployment candidate in 33 seconds.
