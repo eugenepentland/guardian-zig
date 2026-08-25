@@ -10422,3 +10422,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — carry near-tangent shape fillets
 - **friction:** The focused near-tangent fillet regression reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required checking the outer result; after rebasing onto an advancing `main`, all 67 whole-tree checks, the full Debug suite, and ReleaseSafe build passed.
+
+## 2026-08-25 · codex · eda — make library ZIP uploads quota-safe
+- **friction:** Both focused ZIP-import regressions reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The recurring false failure signal required checking the outer process result before trusting the focused tests; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
