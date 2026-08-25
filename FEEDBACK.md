@@ -10458,3 +10458,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — expose selected RF via-fence rows
 - **good:** The first focused gate caught the unlinked mask-row contracts, stale generated language reference, and two new type-size offenders; grouping the row counts removed the structural exceptions, after which all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed without baseline changes.
+
+## 2026-08-25 · codex · eda — pin thermal colors to an absolute scale
+- **good:** Two focused spec-linked regressions, the 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
