@@ -10404,3 +10404,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — audit Barracuda RF DRC warning artifacts
 - **friction:** Four focused DRC regression runs each reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while the enclosing `zig build` exited 0. The recurring false failure signal again required capturing and checking every outer process result; the final whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed cleanly.
+
+## 2026-08-25 · codex · eda — preserve native outline arcs in CAM preview
+- **friction:** Both focused native-arc regressions reported `guardian/test: PASS` with all 26 selected tests passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. The recurring false failure signal required checking the outer process result before trusting the focused runs; the subsequent 67-check whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
