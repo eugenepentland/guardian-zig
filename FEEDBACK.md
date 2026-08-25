@@ -10359,3 +10359,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — merge repository agent feedback log
 - **good:** After rebasing the documentation-only branch onto current `main`, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one release-gate run; the fast-forward merge reused the exact verified candidate.
+
+## 2026-08-25 · codex · eda — make assembly inner-layer discovery race-proof
+- **friction:** Both focused assembly-browser contract runs printed `guardian/test: PASS` with all 26 selected tests passing, then emitted Zig's contradictory `failed command:` banner despite each enclosing build exiting 0. This recurring runner ambiguity again required checking the outer process status; the subsequent whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
