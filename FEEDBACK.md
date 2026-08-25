@@ -10362,3 +10362,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — make assembly inner-layer discovery race-proof
 - **friction:** Both focused assembly-browser contract runs printed `guardian/test: PASS` with all 26 selected tests passing, then emitted Zig's contradictory `failed command:` banner despite each enclosing build exiting 0. This recurring runner ambiguity again required checking the outer process status; the subsequent whole-tree gate, full Debug suite, and ReleaseSafe build passed normally.
+
+## 2026-08-25 · codex · eda — promote nearest visible assembly copper
+- **friction:** The focused 26-test assembly-painter contract reported `guardian/test: PASS`, then printed Zig's contradictory `failed command:` banner while the enclosing build exited 0. The recurring false failure signal again required checking the outer exit status; all 67 whole-tree checks, the full Debug suite, and ReleaseSafe build subsequently passed.
