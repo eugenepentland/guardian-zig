@@ -10482,3 +10482,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — probe thermal field and reveal picked labels
 - **good:** Both focused thermal interaction regressions, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
+## 2026-08-25 · codex · eda — export green PCB solid and artwork wraps
+- **friction:** Both focused STEP/browser-contract runs reported `guardian/test: PASS` with every selected test passing, then printed Zig's contradictory `failed command:` banner while each enclosing `zig build` exited 0. This recurring false failure signal required checking the outer process result after each run; the final 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed normally.
