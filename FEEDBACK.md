@@ -10607,3 +10607,9 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — add fabrication ID to STEP filename
 - **good:** The `spec` check caught the extended STEP-export requirement's stale exact tag on the first focused run; after aligning it, all 67 whole-tree checks, both focused embedded-asset regressions, the Debug build/type-check, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-26 · codex · eda — center STEP assembly on the PCB
+- **good:** `function-size` caught a seventh writer parameter and `spec` caught a duplicate broad contract tag during focused iteration; bundling the write context and splitting the contract into geometry, origin, and filename requirements cleared all 67 checks, after which the centered board/component/generated-solid regression, full Debug suite, and concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — derive perimeter-fence gaps from component courtyards
+- **good:** `file-size` rejected a small edit to the near-hard-cap PCB page, steering the shared via filtering into the perimeter generator so every caller inherited it without growing the oversized file; selective `pub-api-surface` acceptance then exposed exactly the two reviewed mask-segment declarations, and all 67 checks, 3,944 Debug tests, and the concurrent ReleaseSafe build passed.
