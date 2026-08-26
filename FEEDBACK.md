@@ -10579,3 +10579,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — make Enter commit the autorouted remainder
 - **good:** The updated exact browser contract explicitly rejects both silent `drawEnd()` fallback branches and requires paired-net waypoint submission; all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt.
+
+## 2026-08-26 · codex · eda — bound manual trace autocomplete latency
+- **good:** `file-size` and `import-layering` rejected the first implementation in the near-cap PCB page and a new serve-to-router dependency, steering the focused endpoint into the existing interactive-routing boundary; selective `pub-api-surface` acceptance then exposed exactly the reviewed handler, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed.
