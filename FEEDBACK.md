@@ -10635,3 +10635,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — protect perimeter mask from face copper
 - **good:** `function-size`, `bool-ops-per-condition`, `concept`, and `spec` caught an over-wide geometry helper, a compound pad-side condition, duplicated design-rule vocabulary, and initially unlinked mask behavior during focused iteration; selective `pub-api-surface` acceptance then exposed exactly the reviewed face-aware mask API, and all 67 checks, 3,949 Debug tests, and the concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — keep RF pad tapers under soldermask
+- **good:** `spec` required the new mask behavior to be exercised at the shared geometry, Gerber, and browser-blob boundaries, while `bool-ops-per-condition` prompted a clearer profile-terminal predicate; after those focused corrections, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
