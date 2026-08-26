@@ -10604,3 +10604,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-26 · codex · guardian-zig — group ROI findings by stable subject
 - **good:** The freshly built binary matched the source digest, all 67 whole-tree checks passed, and `commit` staged exactly the six intended helper/documentation paths; the live ROI report confirmed that 896 commit-specific observations collapse to 28 stable subjects.
 - **friction:** `guardian-check commit` treated the changed `scripts/guardian-roi` and `scripts/test-guardian-roi.py` as non-test inputs and skipped tests, so the 16-test Python helper suite had to be run manually. A configurable test-input path or recognition of project test scripts would keep non-Zig Guardian tooling inside the commit guarantee.
+
+## 2026-08-26 · codex · eda — add fabrication ID to STEP filename
+- **good:** The `spec` check caught the extended STEP-export requirement's stale exact tag on the first focused run; after aligning it, all 67 whole-tree checks, both focused embedded-asset regressions, the Debug build/type-check, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
