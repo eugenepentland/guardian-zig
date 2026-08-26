@@ -759,7 +759,7 @@ never churns git or invalidates the build cache:**
 | `last-run.jsonl` | every `all` / `nightly` run | one `violation` record per finding + a final `summary` (detailed below) |
 | `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run for external analysis |
 | `check-roi.jsonl` | every `all` invocation, including partial and cached runs | append-only per-check cost/outcome observations for local ROI analysis |
-| `check-roi-labels.jsonl` | `scripts/guardian-roi label` | append-only human classifications; the latest valid label wins |
+| `check-roi-labels.jsonl` | `scripts/guardian-roi label-subject` / `label` | append-only human classifications; the latest matching subject or observation label wins |
 | `last-mutate.jsonl` | every `mutate` run | one `survivor` record per surviving mutant + a `summary` (see [Survivor report](#survivor-report)) |
 | `mutants.jsonl` | every `mutate` run | per-mutant result cache for resume / re-run (see [Result cache](#result-cache-resume--re-run)) |
 
@@ -914,15 +914,26 @@ but treating them as delivery events would corrupt DORA metrics.
 - `[dora] enabled = false` disables both metrics streams. They remain separate
   files and retain their distinct delivery-versus-development semantics.
 
-Facts alone cannot say whether a finding was valuable. Classify observations
+Facts alone cannot say whether a finding was valuable. Classify stable subjects
 near the end of a task (or in a daily batch) with the bundled Python 3 helper:
 
 ```bash
 scripts/guardian-roi pending .
+scripts/guardian-roi label-subject . <subject-id> defect --minutes 4 --cycles 1
+# Only for a genuinely exceptional occurrence:
 scripts/guardian-roi label . <observation-id> defect --minutes 4 --cycles 1
 scripts/guardian-roi summary . --markdown
 scripts/guardian-roi summary . --json
 ```
+
+`pending` defaults to the latest Guardian digest's direct `all`/build cohort and
+groups commit-specific observation IDs by Guardian digest + check + finding key.
+This keeps one recurring finding from looking like dozens of independent
+signals. `label-subject` applies to existing and future observations in that
+subject; `pending --observations` plus `label` provides a per-occurrence escape
+hatch, and `pending --all` includes retained older and workflow-only cohorts.
+The latest matching subject or observation label wins, so later exceptions and
+later subject reclassifications are both deterministic.
 
 The four categories are `defect` (a real bug/regression), `useful-review`
 (meaningful design or cleanup signal), `intentional-change` (expected drift from
@@ -931,16 +942,17 @@ the policy did not apply to otherwise-valid code, or the only resulting edit
 was appeasement with no meaningful benefit). Friction or runtime alone is not a
 false positive. `--minutes`, `--cycles`, `--reason`, and `--note` are optional;
 an omitted cost stays unknown rather than becoming zero. Relabeling appends a
-new line to `.guardian/cache/check-roi-labels.jsonl`, with the latest valid label
-winning. Each new label snapshots its check, digest, commit, finding key, and
+new line to `.guardian/cache/check-roi-labels.jsonl`. Each new label snapshots
+its check, digest, commit, finding key, and
 location so it remains attributable after the bounded raw log rotates.
 
 The summary headline uses ordinary `all`/build runs from the latest Guardian
 digest, so old implementations and compound `accept` phases do not distort the
 current numbers. JSON retains the older digest, scope, origin, and phase cohorts;
 `accept` update/verify executions stay visible there but are excluded from retry
-and firing denominators. The report includes firing and classification rates,
-actionable observations per 100 runs, median/p95 latency, and known versus
+and firing denominators. Usefulness coverage, classification rates, actionable
+subjects per 100 runs, and human cost are counted once per stable subject rather
+than once per commit-specific observation. The report also includes median/p95 latency and known versus
 missing human cost. It never changes policy automatically. After a representative
 4–8 week window, use that evidence to keep precise high-impact checks blocking,
 ratchet legacy debt, report judgment-heavy checks, or retire checks with no

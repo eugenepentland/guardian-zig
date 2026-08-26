@@ -273,8 +273,55 @@ class GuardianRoiTest(unittest.TestCase):
             self.fail(f"command failed: {result.stderr}")
         return result
 
+    def append_alpha_occurrence(
+        self,
+        observation_id: str,
+        *,
+        timestamp_ms: int,
+        commit: str,
+        guardian_digest: str = "guardian-a",
+    ) -> None:
+        with (self.cache / "check-roi.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "type": "check_run",
+                        "schema": 1,
+                        "timestamp_ms": timestamp_ms,
+                        "commit": commit,
+                        "guardian_digest": guardian_digest,
+                        "origin": "all",
+                        "phase": "gate",
+                        "scope_mode": "full",
+                        "outcome": "red",
+                        "duration_ms": 12,
+                        "check_phase_ms": 10,
+                        "cached": False,
+                        "checks": [
+                            {
+                                "check": "alpha",
+                                "policy": "block",
+                                "outcome": "failed",
+                                "duration_ms": 10,
+                                "findings": 1,
+                                "warnings": 0,
+                                "observations": [
+                                    {
+                                        "observation_id": observation_id,
+                                        "finding_key": "src/a.zig|first",
+                                        "file": "src/a.zig",
+                                        "line": 6,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
     def test_pending_lists_unique_unlabeled_observations(self) -> None:
-        result = self.run_cli("pending", str(self.project))
+        result = self.run_cli("pending", str(self.project), "--observations")
         self.assertEqual(1, result.stdout.count("obs-a"))
         self.assertEqual(1, result.stdout.count("obs-b"))
         self.assertEqual(1, result.stdout.count("obs-warning"))
@@ -283,6 +330,108 @@ class GuardianRoiTest(unittest.TestCase):
         self.assertIn("direct:accept,all", result.stdout)
         self.assertNotIn("event-only-observation", result.stdout)
         self.assertNotIn("future", result.stdout)
+
+    def test_pending_groups_recurring_observations_and_subject_label_persists(self) -> None:
+        self.append_alpha_occurrence(
+            "obs-a-next", timestamp_ms=800, commit="def456"
+        )
+        pending = self.run_cli("pending", str(self.project))
+        self.assertEqual(3, pending.stdout.count("subj_"))
+        alpha_line = next(
+            line for line in pending.stdout.splitlines() if "src/a.zig" in line
+        )
+        fields = [field.strip() for field in alpha_line.split("|")]
+        subject_id = fields[1]
+        self.assertEqual("2", fields[4])
+
+        self.run_cli(
+            "label-subject",
+            str(self.project),
+            subject_id,
+            "defect",
+            "--minutes",
+            "5",
+        )
+        self.append_alpha_occurrence(
+            "obs-a-future", timestamp_ms=900, commit="ghi789"
+        )
+        after = self.run_cli("pending", str(self.project))
+        self.assertNotIn(subject_id, after.stdout)
+        observation_view = self.run_cli(
+            "pending", str(self.project), "--observations"
+        )
+        self.assertNotIn("obs-a-future", observation_view.stdout)
+
+        summary = json.loads(
+            self.run_cli("summary", str(self.project), "--json").stdout
+        )
+        alpha = next(row for row in summary["checks"] if row["check"] == "alpha")
+        self.assertEqual(4, alpha["unique_observations"])
+        self.assertEqual(2, alpha["unique_subjects"])
+        self.assertEqual(1, alpha["labeled_subjects"])
+        self.assertEqual(3, alpha["labeled_observations"])
+        self.assertEqual(1, alpha["categories"]["defect"])
+        self.assertEqual(5, alpha["triage_minutes_total"])
+
+        (self.cache / "check-roi.jsonl").unlink()
+        rotated = json.loads(
+            self.run_cli("summary", str(self.project), "--json").stdout
+        )
+        self.assertEqual(1, rotated["historical_labels"]["labeled_observations"])
+        self.assertEqual(1, rotated["historical_labels"]["categories"]["defect"])
+        self.run_cli(
+            "label-subject", str(self.project), subject_id, "useful-review"
+        )
+
+    def test_latest_subject_or_observation_label_wins_for_the_subject(self) -> None:
+        pending = self.run_cli("pending", str(self.project))
+        alpha_line = next(
+            line for line in pending.stdout.splitlines() if "src/a.zig" in line
+        )
+        subject_id = [field.strip() for field in alpha_line.split("|")][1]
+        self.run_cli(
+            "label-subject", str(self.project), subject_id, "defect"
+        )
+        self.run_cli("label", str(self.project), "obs-a", "useful-review")
+        summary = json.loads(
+            self.run_cli("summary", str(self.project), "--json").stdout
+        )
+        alpha = next(row for row in summary["checks"] if row["check"] == "alpha")
+        self.assertEqual(0, alpha["categories"]["defect"])
+        self.assertEqual(1, alpha["categories"]["useful-review"])
+
+        self.run_cli(
+            "label-subject", str(self.project), subject_id, "false-positive"
+        )
+        summary = json.loads(
+            self.run_cli("summary", str(self.project), "--json").stdout
+        )
+        alpha = next(row for row in summary["checks"] if row["check"] == "alpha")
+        self.assertEqual(0, alpha["categories"]["useful-review"])
+        self.assertEqual(1, alpha["categories"]["false-positive"])
+
+    def test_same_finding_key_in_a_new_guardian_digest_is_a_new_subject(self) -> None:
+        before = self.run_cli("pending", str(self.project))
+        old_line = next(
+            line for line in before.stdout.splitlines() if "src/a.zig" in line
+        )
+        old_subject = [field.strip() for field in old_line.split("|")][1]
+        self.append_alpha_occurrence(
+            "obs-a-new-digest",
+            timestamp_ms=950,
+            commit="new123",
+            guardian_digest="guardian-new",
+        )
+        current = self.run_cli("pending", str(self.project))
+        new_line = next(
+            line for line in current.stdout.splitlines() if "src/a.zig" in line
+        )
+        new_subject = [field.strip() for field in new_line.split("|")][1]
+        self.assertNotEqual(old_subject, new_subject)
+        self.assertNotIn(old_subject, current.stdout)
+        retained = self.run_cli("pending", str(self.project), "--all")
+        self.assertIn(old_subject, retained.stdout)
+        self.assertIn(new_subject, retained.stdout)
 
     def test_label_appends_and_latest_valid_label_wins(self) -> None:
         self.run_cli(
@@ -323,7 +472,7 @@ class GuardianRoiTest(unittest.TestCase):
                 + "\n"
             )
 
-        pending = self.run_cli("pending", str(self.project))
+        pending = self.run_cli("pending", str(self.project), "--observations")
         self.assertNotIn("obs-a", pending.stdout)
         self.assertIn("obs-b", pending.stdout)
 
@@ -707,7 +856,7 @@ class GuardianRoiTest(unittest.TestCase):
                 }
             ],
         )
-        pending = self.run_cli("pending", str(self.project))
+        pending = self.run_cli("pending", str(self.project), "--all", "--observations")
         self.assertIn("obs-c", pending.stdout)
         summary = json.loads(
             self.run_cli("summary", str(self.project), "--json").stdout

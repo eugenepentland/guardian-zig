@@ -9,7 +9,7 @@ Toolchain: Zig `0.17.0-dev.1683+5ceec001b` exactly, matching
 Guardian records check observations automatically in the project's
 git-ignored `.guardian/cache/check-roi.jsonl`. Human outcome labels go to the
 separate `.guardian/cache/check-roi-labels.jsonl`; they are append-only, and
-the latest valid label for an observation wins. Neither file is uploaded.
+the latest matching subject or observation label wins. Neither file is uploaded.
 
 Once the outcome of a task is known, review and label only observations you can
 classify from evidence. Run the helper from this checkout (or use its absolute
@@ -17,11 +17,20 @@ path when `<project>` is a different checkout):
 
 ```bash
 scripts/guardian-roi pending <project>
+scripts/guardian-roi label-subject <project> <subject-id> <category> \
+  [--minutes N] [--cycles N] [--reason TEXT] [--note TEXT]
 scripts/guardian-roi label <project> <observation-id> <category> \
   [--minutes N] [--cycles N] [--reason TEXT] [--note TEXT]
 scripts/guardian-roi summary <project> --markdown
 scripts/guardian-roi summary <project> --json
 ```
+
+`pending` defaults to one row per stable subject in the latest Guardian
+digest's direct `all`/build cohort. Label that subject normally: the label
+applies to recurring commit-specific observations, including future ones from
+the same check implementation. Use `pending --observations` and `label` only
+for a true per-occurrence exception; the latest matching label wins. Use
+`pending --all` only for retained older digests and workflow-only findings.
 
 Categories are `defect` (a correctness, security, reliability, or behavior bug
 that could have shipped), `useful-review` (a worthwhile design, test,
@@ -31,10 +40,12 @@ documentation, safety, or maintainability improvement without a defect),
 valid code, or produced only appeasement work with no meaningful benefit).
 Friction or runtime alone is not a false positive.
 
-Leave uncertain observations pending. A snapshot accept or a finding
+Leave uncertain subjects pending. A snapshot accept or a finding
 disappearing does not prove an outcome. Record only incremental minutes and
 extra gate/validation cycles caused by the finding; omit unknown cost instead
-of recording zero. The summary is observational evidence, not causal proof or
+of recording zero. Usefulness, coverage, classifications, and human cost are
+counted once per stable subject (Guardian digest + check + finding key), not
+once per commit. The summary is observational evidence, not causal proof or
 an instruction to change policy. Cache hits are invocations, not executions;
 never sum per-check elapsed times because parallel checks overlap. The helper
 ignores malformed or unknown records and never edits `guardian.toml`, accepts

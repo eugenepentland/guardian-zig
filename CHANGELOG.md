@@ -6,6 +6,12 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Group ROI triage by stable subject (Guardian digest + check + finding key),
+  so recurring commit-specific observation IDs no longer inflate the pending
+  backlog or usefulness totals. `guardian-roi pending` now defaults to the
+  current direct cohort, `label-subject` classifies present and future
+  occurrences, and `--observations` / per-observation `label` remain available
+  for exceptions. Summaries count categories and human cost once per subject.
 - Add local per-check ROI telemetry without changing DORA semantics. Every
   `all` invocation now appends a schema-v1 `check-roi.jsonl` record, including
   cache/partial scope, total and check-phase wall time, overlapping per-check

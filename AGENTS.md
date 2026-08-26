@@ -5,7 +5,7 @@
 Guardian records check observations automatically in the project's
 git-ignored `.guardian/cache/check-roi.jsonl`. Human outcome labels go to the
 separate `.guardian/cache/check-roi-labels.jsonl`; they are append-only, and
-the latest valid label for an observation wins. Neither file is uploaded.
+the latest matching subject or observation label wins. Neither file is uploaded.
 
 Once the outcome of a task is known, review and label only observations you can
 classify from evidence. Run the helper from this checkout (or use its absolute
@@ -13,11 +13,21 @@ path when `<project>` is a different checkout):
 
 ```bash
 scripts/guardian-roi pending <project>
+scripts/guardian-roi label-subject <project> <subject-id> <category> \
+  [--minutes N] [--cycles N] [--reason TEXT] [--note TEXT]
 scripts/guardian-roi label <project> <observation-id> <category> \
   [--minutes N] [--cycles N] [--reason TEXT] [--note TEXT]
 scripts/guardian-roi summary <project> --markdown
 scripts/guardian-roi summary <project> --json
 ```
+
+`pending` defaults to one row per stable subject in the latest Guardian
+digest's direct `all`/build cohort. Label that subject normally: the label
+applies to its recurring commit-specific observations, including future ones
+from the same check implementation. Use `pending --observations` and `label`
+only when one occurrence truly needs a different outcome; the latest matching
+subject or observation label wins. Use `pending --all` only to inspect retained
+older digests and workflow-only findings.
 
 Use these categories:
 
@@ -31,12 +41,14 @@ Use these categories:
   to otherwise-valid code, or the only resulting edit was appeasement with no
   meaningful benefit. Friction or runtime alone is not a false positive.
 
-Leave uncertain observations pending instead of guessing. A snapshot accept or
+Leave uncertain subjects pending instead of guessing. A snapshot accept or
 a finding disappearing does not by itself mean `false-positive` or `defect`.
 Record only incremental minutes and extra gate/validation cycles attributable
 to that finding; omit an unknown cost rather than writing zero. Keep `reason`
 short and use `note` only for useful local context.
 
+Summary usefulness, coverage, categories, and human cost are counted once per
+stable subject (Guardian digest + check + finding key), not once per commit.
 The summary is observational evidence, not a causal proof or an instruction to
 change policy. A cache hit is an invocation, not a check execution, and
 per-check elapsed times must not be summed because checks can overlap in

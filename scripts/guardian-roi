@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -48,6 +49,7 @@ LABEL_CONTEXT_KEYS = (
     "direct_seen",
     "origins",
 )
+LABEL_SCOPES = ("observation", "subject")
 
 
 def _nonempty_string(value: Any) -> str | None:
@@ -181,6 +183,47 @@ class Observation:
                 self.last_timestamp_ms = max(
                     self.last_timestamp_ms, other.first_timestamp_ms
                 )
+
+
+@dataclass
+class Subject:
+    subject_id: str
+    check: str
+    guardian_digest: str
+    finding_key: str
+    observations: list[Observation] = field(default_factory=list)
+
+    @property
+    def representative(self) -> Observation:
+        return max(
+            self.observations,
+            key=lambda item: (item.last_timestamp_ms or -1, item.observation_id),
+        )
+
+
+@dataclass
+class Labels:
+    observations: dict[str, Mapping[str, Any]] = field(default_factory=dict)
+    subjects: dict[str, Mapping[str, Any]] = field(default_factory=dict)
+
+    def effective_observation(
+        self, observation: Observation
+    ) -> Mapping[str, Any] | None:
+        candidates = [self.observations.get(observation.observation_id)]
+        subject_id = _subject_id(observation)
+        if subject_id is not None:
+            candidates.append(self.subjects.get(subject_id))
+        present = [candidate for candidate in candidates if candidate is not None]
+        return max(present, key=_label_sequence) if present else None
+
+    def effective_subject(self, subject: Subject) -> Mapping[str, Any] | None:
+        candidates = [self.subjects.get(subject.subject_id)]
+        candidates.extend(
+            self.observations.get(observation.observation_id)
+            for observation in subject.observations
+        )
+        present = [candidate for candidate in candidates if candidate is not None]
+        return max(present, key=_label_sequence) if present else None
 
 
 @dataclass
@@ -482,29 +525,107 @@ def _has_label_context(label: Mapping[str, Any]) -> bool:
     )
 
 
-def load_labels(path: Path) -> dict[str, Mapping[str, Any]]:
-    latest: dict[str, Mapping[str, Any]] = {}
-    contexts: dict[str, Mapping[str, Any]] = {}
-    for label in _read_jsonl(path, shared_lock=True):
+def _label_sequence(label: Mapping[str, Any]) -> int:
+    return _integer(label.get("_sequence")) or 0
+
+
+def _subject_id_parts(check: str, guardian_digest: str, finding_key: str) -> str:
+    framed = json.dumps(
+        [check, guardian_digest, finding_key],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"subj_{hashlib.sha256(framed).hexdigest()[:24]}"
+
+
+def _subject_id(observation: Observation) -> str | None:
+    if observation.finding_key is None:
+        return None
+    return _subject_id_parts(
+        observation.check,
+        observation.guardian_digest or "unknown",
+        observation.finding_key,
+    )
+
+
+def _observation_from_label(
+    identity: str, label: Mapping[str, Any]
+) -> Observation | None:
+    if not _has_label_context(label):
+        return None
+    return Observation(
+        observation_id=identity,
+        check=str(label["check"]),
+        commit=_nonempty_string(label.get("commit")),
+        file=_nonempty_string(label.get("file")),
+        line=_integer(label.get("line")),
+        finding_key=_nonempty_string(label.get("finding_key")),
+        guardian_digest=_nonempty_string(label.get("guardian_digest")),
+        direct_seen=label["direct_seen"] is True,
+        origins=set(label["origins"]),
+    )
+
+
+def _group_subjects(observations: Iterable[Observation]) -> dict[str, Subject]:
+    subjects: dict[str, Subject] = {}
+    for observation in observations:
+        subject_id = _subject_id(observation)
+        if subject_id is None:
+            # Old or malformed producers without finding_key stay independently
+            # triageable; they are never guessed into a shared subject.
+            subject_id = f"obs_{observation.observation_id}"
+            finding_key = observation.observation_id
+        else:
+            finding_key = str(observation.finding_key)
+        subject = subjects.get(subject_id)
+        if subject is None:
+            subject = Subject(
+                subject_id=subject_id,
+                check=observation.check,
+                guardian_digest=observation.guardian_digest or "unknown",
+                finding_key=finding_key,
+            )
+            subjects[subject_id] = subject
+        subject.observations.append(observation)
+    return subjects
+
+
+def load_labels(path: Path) -> Labels:
+    latest: dict[tuple[str, str], Mapping[str, Any]] = {}
+    contexts: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for sequence, raw_label in enumerate(_read_jsonl(path, shared_lock=True), 1):
+        label = dict(raw_label)
         if not _is_record(label, LABEL_TYPE):
             continue
-        observation_id = _observation_id(label)
-        if observation_id is None or label.get("category") not in CATEGORIES:
+        if label.get("category") not in CATEGORIES:
             continue
-        latest[observation_id] = label
+        scope = label.get("scope", "observation")
+        if scope not in LABEL_SCOPES:
+            continue
+        identity = (
+            _nonempty_string(label.get("subject_id"))
+            if scope == "subject"
+            else _observation_id(label)
+        )
+        if identity is None:
+            continue
+        label["_sequence"] = sequence
+        key = (str(scope), identity)
+        latest[key] = label
         if _has_label_context(label):
-            contexts[observation_id] = label
+            contexts[key] = label
 
-    labels: dict[str, Mapping[str, Any]] = {}
-    for observation_id, label in latest.items():
-        context = contexts.get(observation_id)
+    labels = Labels()
+    for (scope, identity), label in latest.items():
+        context = contexts.get((scope, identity))
         if context is None:
-            labels[observation_id] = label
-            continue
-        merged = dict(label)
-        for key in LABEL_CONTEXT_KEYS:
-            merged[key] = context[key]
-        labels[observation_id] = merged
+            merged = label
+        else:
+            merged = dict(label)
+            for key in LABEL_CONTEXT_KEYS:
+                merged[key] = context[key]
+        target = labels.subjects if scope == "subject" else labels.observations
+        target[identity] = merged
     return labels
 
 
@@ -537,32 +658,73 @@ def command_pending(args: argparse.Namespace) -> int:
     cache = _project_cache(args.project)
     telemetry = load_telemetry(cache / RUN_FILENAME)
     labels = load_labels(cache / LABEL_FILENAME)
+    observations = list(telemetry.observations.values())
+    if not args.all:
+        observations = [
+            observation
+            for observation in observations
+            if observation.direct_seen
+            and (observation.guardian_digest or "unknown")
+            == telemetry.latest_guardian_digest
+        ]
+
+    if args.observations:
+        pending_observations = [
+            observation
+            for observation in observations
+            if labels.effective_observation(observation) is None
+        ]
+        pending_observations.sort(
+            key=lambda item: (
+                item.check,
+                item.file or "",
+                item.line or 0,
+                item.observation_id,
+            )
+        )
+        if not pending_observations:
+            print("No pending Guardian ROI observations.")
+            return 0
+        print("| Observation ID | Check | Location | Commit | Cohort | Seen in |")
+        print("|---|---|---|---|---|---|")
+        for observation in pending_observations:
+            print(
+                f"| {_markdown(observation.observation_id)} "
+                f"| {_markdown(observation.check)} "
+                f"| {_markdown(_location(observation))} "
+                f"| {_markdown(observation.commit or '-')} "
+                f"| {_markdown(_cohort(observation))} "
+                f"| {_markdown(_origin_view(observation))} |"
+            )
+        return 0
+
     pending = [
-        observation
-        for observation_id, observation in telemetry.observations.items()
-        if observation_id not in labels
+        subject
+        for subject in _group_subjects(observations).values()
+        if labels.effective_subject(subject) is None
     ]
     pending.sort(
         key=lambda item: (
             item.check,
-            item.file or "",
-            item.line or 0,
-            item.observation_id,
+            item.representative.file or "",
+            item.representative.line or 0,
+            item.subject_id,
         )
     )
 
     if not pending:
-        print("No pending Guardian ROI observations.")
+        print("No pending Guardian ROI subjects.")
         return 0
 
-    print("| Observation ID | Check | Location | Commit | Cohort | Seen in |")
-    print("|---|---|---|---|---|---|")
-    for observation in pending:
+    print("| Subject ID | Check | Location | Occurrences | Cohort | Seen in |")
+    print("|---|---|---|---:|---|---|")
+    for subject in pending:
+        observation = subject.representative
         print(
-            f"| {_markdown(observation.observation_id)} "
+            f"| {_markdown(subject.subject_id)} "
             f"| {_markdown(observation.check)} "
             f"| {_markdown(_location(observation))} "
-            f"| {_markdown(observation.commit or '-')} "
+            f"| {len(subject.observations)} "
             f"| {_markdown(_cohort(observation))} "
             f"| {_markdown(_origin_view(observation))} |"
         )
@@ -594,7 +756,7 @@ def command_label(args: argparse.Namespace) -> int:
         labels = load_labels(cache / LABEL_FILENAME)
         observation = telemetry.observations.get(args.observation_id)
         if observation is None:
-            prior = labels.get(args.observation_id)
+            prior = labels.observations.get(args.observation_id)
             if prior is None:
                 raise CliError(
                     f"unknown observation ID {args.observation_id!r}; "
@@ -605,21 +767,13 @@ def command_label(args: argparse.Namespace) -> int:
                     f"observation ID {args.observation_id!r} aged out before its "
                     "legacy label captured attribution; it cannot be relabeled safely"
                 )
-            observation = Observation(
-                observation_id=args.observation_id,
-                check=str(prior["check"]),
-                commit=_nonempty_string(prior.get("commit")),
-                file=_nonempty_string(prior.get("file")),
-                line=_integer(prior.get("line")),
-                finding_key=_nonempty_string(prior.get("finding_key")),
-                guardian_digest=_nonempty_string(prior.get("guardian_digest")),
-                direct_seen=prior["direct_seen"] is True,
-                origins=set(prior["origins"]),
-            )
+            observation = _observation_from_label(args.observation_id, prior)
+            assert observation is not None
         record: dict[str, Any] = {
             "type": LABEL_TYPE,
             "schema": SCHEMA,
             "timestamp_ms": int(time.time() * 1000),
+            "scope": "observation",
             "observation_id": args.observation_id,
             "category": args.category,
             "check": observation.check,
@@ -642,6 +796,75 @@ def command_label(args: argparse.Namespace) -> int:
 
         _append_label(cache / LABEL_FILENAME, record)
     print(f"Labeled {args.observation_id} as {args.category}.")
+    return 0
+
+
+def command_label_subject(args: argparse.Namespace) -> int:
+    cache = _project_cache(args.project)
+    raw_path = cache / RUN_FILENAME
+    with _telemetry_read_lock(raw_path, create=True):
+        telemetry = load_telemetry(raw_path, already_locked=True)
+        labels = load_labels(cache / LABEL_FILENAME)
+        subjects = _group_subjects(telemetry.observations.values())
+        subject = subjects.get(args.subject_id)
+        if subject is None:
+            prior = labels.subjects.get(args.subject_id)
+            if prior is None:
+                # A prior per-observation label may be the only surviving context.
+                for observation_id, candidate in labels.observations.items():
+                    observation = _observation_from_label(observation_id, candidate)
+                    if (
+                        observation is not None
+                        and _subject_id(observation) == args.subject_id
+                    ):
+                        subject = _group_subjects([observation])[args.subject_id]
+                        break
+            elif _has_label_context(prior):
+                observation = _observation_from_label(args.subject_id, prior)
+                assert observation is not None
+                subject = _group_subjects([observation])[args.subject_id]
+            if subject is None:
+                raise CliError(
+                    f"unknown subject ID {args.subject_id!r}; "
+                    f"run 'guardian-roi pending {args.project}' to list subjects"
+                )
+
+        representative = subject.representative
+        origins = sorted(
+            set().union(*(observation.origins for observation in subject.observations))
+        )
+        record: dict[str, Any] = {
+            "type": LABEL_TYPE,
+            "schema": SCHEMA,
+            "timestamp_ms": int(time.time() * 1000),
+            "scope": "subject",
+            "subject_id": subject.subject_id,
+            "category": args.category,
+            "check": subject.check,
+            "commit": representative.commit,
+            "guardian_digest": (
+                None
+                if subject.guardian_digest == "unknown"
+                else subject.guardian_digest
+            ),
+            "finding_key": subject.finding_key,
+            "file": representative.file,
+            "line": representative.line,
+            "direct_seen": any(
+                observation.direct_seen for observation in subject.observations
+            ),
+            "origins": origins,
+        }
+        if args.minutes is not None:
+            record["triage_minutes"] = args.minutes
+        if args.cycles is not None:
+            record["extra_cycles"] = args.cycles
+        if args.reason is not None:
+            record["reason"] = args.reason
+        if args.note is not None:
+            record["note"] = args.note
+        _append_label(cache / LABEL_FILENAME, record)
+    print(f"Labeled subject {args.subject_id} as {args.category}.")
     return 0
 
 
@@ -685,7 +908,7 @@ def _cost_summary(
 
 
 def build_summary(
-    telemetry: Telemetry, labels: Mapping[str, Mapping[str, Any]]
+    telemetry: Telemetry, labels: Labels
 ) -> Mapping[str, Any]:
     rows: list[Mapping[str, Any]] = []
     check_observations: dict[str, set[str]] = defaultdict(set)
@@ -695,28 +918,42 @@ def build_summary(
     for observation_id, observation in telemetry.observations.items():
         check_observations[observation.check].add(observation_id)
         if observation.finding_key is not None:
-            observation_subjects[observation_id] = observation.finding_key
+            observation_subjects[observation_id] = (
+                _subject_id(observation) or observation_id
+            )
         observation_digests[observation_id] = observation.guardian_digest or "unknown"
+    raw_subjects = _group_subjects(telemetry.observations.values())
 
-    # Script-authored labels retain check/key/digest context. That makes their
-    # evidence durable even after the bounded raw generation containing the
-    # original observation rotates away.
-    for observation_id, label in labels.items():
+    # Script-authored labels retain check/key/digest context. Collapse aged-out
+    # observation and subject labels to one latest record per stable subject so
+    # durable evidence does not become commit-counted again after raw rotation.
+    historical_label_by_identity: dict[str, Mapping[str, Any]] = {}
+    historical_candidates: dict[str, tuple[Observation, Mapping[str, Any]]] = {}
+    for observation_id, label in labels.observations.items():
         if observation_id in telemetry.observations:
             continue
-        if not _has_label_context(label):
+        observation = _observation_from_label(observation_id, label)
+        if observation is None:
             continue
-        check_name = _nonempty_string(label.get("check"))
-        if check_name is None:
+        subject_id = _subject_id(observation) or observation_id
+        prior = historical_candidates.get(subject_id)
+        if prior is None or _label_sequence(label) > _label_sequence(prior[1]):
+            historical_candidates[subject_id] = (observation, label)
+    for subject_id, label in labels.subjects.items():
+        if subject_id in raw_subjects:
             continue
-        check_observations[check_name].add(observation_id)
-        historical_observations[check_name].add(observation_id)
-        finding_key = _nonempty_string(label.get("finding_key"))
-        if finding_key is not None:
-            observation_subjects[observation_id] = finding_key
-        observation_digests[observation_id] = (
-            _nonempty_string(label.get("guardian_digest")) or "unknown"
-        )
+        observation = _observation_from_label(subject_id, label)
+        if observation is None:
+            continue
+        prior = historical_candidates.get(subject_id)
+        if prior is None or _label_sequence(label) > _label_sequence(prior[1]):
+            historical_candidates[subject_id] = (observation, label)
+    for subject_id, (observation, label) in historical_candidates.items():
+        check_observations[observation.check].add(subject_id)
+        historical_observations[observation.check].add(subject_id)
+        observation_subjects[subject_id] = subject_id
+        observation_digests[subject_id] = observation.guardian_digest or "unknown"
+        historical_label_by_identity[subject_id] = label
 
     raw_observation_ids = set(telemetry.observations)
     historical_observation_ids = (
@@ -724,10 +961,20 @@ def build_summary(
         if historical_observations
         else set()
     )
+    effective_observation_labels = {
+        observation_id: effective
+        for observation_id, observation in telemetry.observations.items()
+        if (effective := labels.effective_observation(observation)) is not None
+    }
+    effective_subject_labels = {
+        subject_id: effective
+        for subject_id, subject in raw_subjects.items()
+        if (effective := labels.effective_subject(subject)) is not None
+    }
     all_known_labels = [
-        labels[observation_id]
+        effective_observation_labels[observation_id]
         for observation_id in raw_observation_ids
-        if observation_id in labels
+        if observation_id in effective_observation_labels
     ]
     headline_observation_ids = {
         observation_id for observation_id, observation in telemetry.observations.items()
@@ -735,11 +982,21 @@ def build_summary(
         and (observation.guardian_digest or "unknown")
         == telemetry.latest_guardian_digest
     }
-    headline_known_labels = [
-        labels[observation_id]
+    headline_subject_ids = {
+        observation_subjects[observation_id]
         for observation_id in headline_observation_ids
-        if observation_id in labels
+    }
+    headline_subject_labels = [
+        effective_subject_labels[subject_id]
+        for subject_id in headline_subject_ids
+        if subject_id in effective_subject_labels
     ]
+    headline_known_labels = [
+        effective_observation_labels[observation_id]
+        for observation_id in headline_observation_ids
+        if observation_id in effective_observation_labels
+    ]
+    all_subject_labels = list(effective_subject_labels.values())
     all_check_names = set(telemetry.checks) | set(check_observations)
     for check_name in sorted(all_check_names):
         all_stats = telemetry.checks.get(check_name, CheckStats())
@@ -748,20 +1005,38 @@ def build_summary(
         check_observation_ids = headline_observation_ids & all_check_observation_ids
         raw_check_observation_ids = raw_observation_ids & all_check_observation_ids
         historical_check_observation_ids = historical_observations[check_name]
-        check_labels = [
-            labels[observation_id]
+        check_observation_labels = [
+            effective_observation_labels[observation_id]
             for observation_id in check_observation_ids
-            if observation_id in labels
+            if observation_id in effective_observation_labels
         ]
-        all_check_labels = [
-            labels[observation_id]
+        check_subject_ids = {
+            observation_subjects[observation_id]
+            for observation_id in check_observation_ids
+        }
+        check_labels = [
+            effective_subject_labels[subject_id]
+            for subject_id in check_subject_ids
+            if subject_id in effective_subject_labels
+        ]
+        all_check_observation_labels = [
+            effective_observation_labels[observation_id]
             for observation_id in raw_check_observation_ids
-            if observation_id in labels
+            if observation_id in effective_observation_labels
+        ]
+        all_check_subject_ids = {
+            observation_subjects[observation_id]
+            for observation_id in raw_check_observation_ids
+        }
+        all_check_labels = [
+            effective_subject_labels[subject_id]
+            for subject_id in all_check_subject_ids
+            if subject_id in effective_subject_labels
         ]
         historical_check_labels = [
-            labels[observation_id]
+            historical_label_by_identity[observation_id]
             for observation_id in historical_check_observation_ids
-            if observation_id in labels
+            if observation_id in historical_label_by_identity
         ]
         historical_categories = Counter(
             str(label["category"]) for label in historical_check_labels
@@ -824,18 +1099,21 @@ def build_summary(
                 for observation_id in historical_check_observation_ids
                 if observation_digests.get(observation_id, "unknown") == digest
             }
+            cohort_subject_ids = {
+                observation_subjects[observation_id] for observation_id in cohort_ids
+            }
             cohort_labels = [
-                labels[observation_id]
-                for observation_id in cohort_ids
-                if observation_id in labels
+                effective_subject_labels[subject_id]
+                for subject_id in cohort_subject_ids
+                if subject_id in effective_subject_labels
             ]
             cohort_categories = Counter(
                 str(label["category"]) for label in cohort_labels
             )
             historical_cohort_labels = [
-                labels[observation_id]
+                historical_label_by_identity[observation_id]
                 for observation_id in historical_cohort_ids
-                if observation_id in labels
+                if observation_id in historical_label_by_identity
             ]
             historical_cohort_categories = Counter(
                 str(label["category"]) for label in historical_cohort_labels
@@ -851,7 +1129,12 @@ def build_summary(
                     all_stats.durations_by_digest[digest]
                 ),
                 "unique_observations": len(cohort_ids),
-                "labeled_observations": len(cohort_labels),
+                "labeled_observations": sum(
+                    observation_id in effective_observation_labels
+                    for observation_id in cohort_ids
+                ),
+                "unique_subjects": len(cohort_subject_ids),
+                "labeled_subjects": len(cohort_labels),
                 "categories": {
                     category: cohort_categories[category] for category in CATEGORIES
                 },
@@ -888,13 +1171,21 @@ def build_summary(
                         if observation_id in observation_subjects
                     }
                 ),
+                "labeled_subjects": len(check_labels),
+                "pending_subjects": len(check_subject_ids) - len(check_labels),
                 "retained_labeled_observations": 0,
-                "labeled_observations": len(check_labels),
+                "labeled_observations": len(check_observation_labels),
                 "label_coverage_pct": _percent(
-                    len(check_labels), len(check_observation_ids)
+                    len(check_labels), len(check_subject_ids)
                 ),
-                "categories": {category: categories[category] for category in CATEGORIES},
+                "observation_label_coverage_pct": _percent(
+                    len(check_observation_labels), len(check_observation_ids)
+                ),
+                "categories": {
+                    category: categories[category] for category in CATEGORIES
+                },
                 "category_rates_pct": category_rates,
+                "actionable_subjects": actionable,
                 "actionable_observations": actionable,
                 "known_actionable_per_100_runs": (
                     round(100.0 * actionable / stats.analysis_runs, 2)
@@ -904,7 +1195,7 @@ def build_summary(
                 "actionable_per_100_runs": (
                     round(100.0 * actionable / stats.analysis_runs, 2)
                     if stats.analysis_runs
-                    and len(check_labels) == len(check_observation_ids)
+                    and len(check_labels) == len(check_subject_ids)
                     else None
                 ),
                 "duration_ms": _duration_summary(stats.durations_ms),
@@ -919,6 +1210,7 @@ def build_summary(
                 "cohorts": cohort_breakdown,
                 "historical_labels": {
                     "labeled_observations": len(historical_check_labels),
+                    "labeled_subjects": len(historical_check_labels),
                     "categories": {
                         category: historical_categories[category]
                         for category in CATEGORIES
@@ -939,7 +1231,7 @@ def build_summary(
                         all_stats.firing_runs, all_stats.analysis_runs
                     ),
                     "unique_observations": len(raw_check_observation_ids),
-                    "labeled_observations": len(all_check_labels),
+                    "labeled_observations": len(all_check_observation_labels),
                     "unique_subjects": len(
                         {
                             observation_subjects[observation_id]
@@ -947,6 +1239,7 @@ def build_summary(
                             if observation_id in observation_subjects
                         }
                     ),
+                    "labeled_subjects": len(all_check_labels),
                     "duration_ms": _duration_summary(all_stats.durations_ms),
                     "observation_occurrences": all_stats.observation_occurrences,
                     "recurrences": max(
@@ -966,34 +1259,37 @@ def build_summary(
         )
 
     triage_total, known_triage_total, missing_triage = _cost_summary(
-        headline_known_labels, "triage_minutes"
+        headline_subject_labels, "triage_minutes"
     )
     cycles_total, known_cycles_total, missing_cycles = _cost_summary(
-        headline_known_labels, "extra_cycles", integer=True
+        headline_subject_labels, "extra_cycles", integer=True
     )
     all_triage_total, all_known_triage_total, all_missing_triage = _cost_summary(
-        all_known_labels, "triage_minutes"
+        all_subject_labels, "triage_minutes"
     )
     all_cycles_total, all_known_cycles_total, all_missing_cycles = _cost_summary(
-        all_known_labels, "extra_cycles", integer=True
+        all_subject_labels, "extra_cycles", integer=True
     )
     historical_known_labels = [
-        labels[observation_id]
+        historical_label_by_identity[observation_id]
         for observation_id in historical_observation_ids
-        if observation_id in labels
+        if observation_id in historical_label_by_identity
     ]
     historical_categories = Counter(
         str(label["category"]) for label in historical_known_labels
     )
     historical_by_digest: dict[str, Mapping[str, Any]] = {}
     for digest in sorted(
-        {observation_digests[observation_id] for observation_id in historical_observation_ids}
+        {
+            observation_digests[observation_id]
+            for observation_id in historical_observation_ids
+        }
     ):
         digest_labels = [
-            labels[observation_id]
+            historical_label_by_identity[observation_id]
             for observation_id in historical_observation_ids
             if observation_digests[observation_id] == digest
-            and observation_id in labels
+            and observation_id in historical_label_by_identity
         ]
         digest_categories = Counter(str(label["category"]) for label in digest_labels)
         historical_by_digest[digest] = {
@@ -1043,18 +1339,38 @@ def build_summary(
         ),
         "unique_observations": len(headline_observation_ids),
         "labeled_observations": len(headline_known_labels),
+        "unique_subjects": len(headline_subject_ids),
+        "labeled_subjects": len(headline_subject_labels),
+        "pending_subjects": len(headline_subject_ids) - len(headline_subject_labels),
         "retained_labeled_observations": 0,
         "pending_observations": len(headline_observation_ids)
         - len(headline_known_labels),
         "label_coverage_pct": _percent(
-            len(headline_known_labels),
-            len(headline_observation_ids),
+            len(headline_subject_labels),
+            len(headline_subject_ids),
+        ),
+        "observation_label_coverage_pct": _percent(
+            len(headline_known_labels), len(headline_observation_ids)
         ),
         "unattributed_labels": len(
-            set(labels) - raw_observation_ids - historical_observation_ids
+            [
+                observation_id
+                for observation_id, label in labels.observations.items()
+                if observation_id not in raw_observation_ids
+                and _observation_from_label(observation_id, label) is None
+            ]
+        )
+        + len(
+            [
+                subject_id
+                for subject_id, label in labels.subjects.items()
+                if subject_id not in raw_subjects
+                and _observation_from_label(subject_id, label) is None
+            ]
         ),
         "historical_labels": {
             "labeled_observations": len(historical_known_labels),
+            "labeled_subjects": len(historical_known_labels),
             "categories": {
                 category: historical_categories[category]
                 for category in CATEGORIES
@@ -1080,6 +1396,9 @@ def build_summary(
             ),
             "unique_observations": len(raw_observation_ids),
             "labeled_observations": len(all_known_labels),
+            "unique_subjects": len(raw_subjects),
+            "labeled_subjects": len(all_subject_labels),
+            "pending_subjects": len(raw_subjects) - len(all_subject_labels),
             "pending_observations": len(raw_observation_ids)
             - len(all_known_labels),
             "retained_labeled_observations": 0,
@@ -1149,9 +1468,10 @@ def render_markdown(summary: Mapping[str, Any]) -> str:
         f"- Check executions: {summary['check_executions']}",
         f"- Analysis runs: {summary['analysis_runs']}",
         (
-            f"- Observations: {summary['unique_observations']} unique, "
-            f"{summary['labeled_observations']} labeled, "
-            f"{summary['pending_observations']} pending"
+            f"- Subjects: {summary['unique_subjects']} unique, "
+            f"{summary['labeled_subjects']} labeled, "
+            f"{summary['pending_subjects']} pending "
+            f"({summary['unique_observations']} commit-specific observations)"
         ),
         (
             "- Historical labels (outside the raw run window): "
@@ -1181,7 +1501,9 @@ def render_markdown(summary: Mapping[str, Any]) -> str:
     if checks:
         lines.extend(
             [
-                "| Check | Runs | Firing | Observations | Labels | Defect | Review | Intentional | False positive | Median / p95 ms | Actionable / 100 runs |",
+                "| Check | Runs | Firing | Subjects | Labels | Defect | Review | "
+                "Intentional | False positive | Median / p95 ms | "
+                "Actionable / 100 runs |",
                 "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
             ]
         )
@@ -1191,8 +1513,8 @@ def render_markdown(summary: Mapping[str, Any]) -> str:
                 f"| {_markdown(row['check'])} "
                 f"| {row['analysis_runs']} "
                 f"| {_display(row['firing_rate_pct'], '%')} "
-                f"| {row['unique_observations']} "
-                f"| {row['labeled_observations']} "
+                f"| {row['unique_subjects']} "
+                f"| {row['labeled_subjects']} "
                 f"| {_count_rate(row, 'defect')} "
                 f"| {_count_rate(row, 'useful-review')} "
                 f"| {_count_rate(row, 'intentional-change')} "
@@ -1203,8 +1525,9 @@ def render_markdown(summary: Mapping[str, Any]) -> str:
         lines.extend(
             [
                 "",
-                "Actionable means any labeled observation except `false-positive`. "
-                "Actionable/100 remains unknown until that cohort's observations are all labeled. "
+                "Actionable means any labeled subject except `false-positive`. "
+                "Actionable/100 remains unknown until that cohort's subjects "
+                "are all labeled. "
                 "Runs exclude `accept` update/verify follow-ups; executions and phase "
                 "breakdowns remain in JSON. "
                 "Runtime rows are independent samples; do not add them because checks may run concurrently. "
@@ -1284,19 +1607,52 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = result.add_subparsers(dest="command", required=True)
 
-    pending = commands.add_parser("pending", help="list observations without a label")
+    pending = commands.add_parser("pending", help="list subjects without a label")
     pending.add_argument("project", help="project root containing .guardian/cache")
+    pending.add_argument(
+        "--observations",
+        action="store_true",
+        help="show commit-specific observations instead of grouped subjects",
+    )
+    pending.add_argument(
+        "--all",
+        action="store_true",
+        help="include retained historical digests and workflow-only findings",
+    )
     pending.set_defaults(handler=command_pending)
 
     label = commands.add_parser("label", help="append a human classification")
     label.add_argument("project", help="project root containing .guardian/cache")
     label.add_argument("observation_id")
     label.add_argument("category", choices=CATEGORIES)
-    label.add_argument("--minutes", type=nonnegative_number, help="triage time in minutes")
-    label.add_argument("--cycles", type=nonnegative_integer, help="extra development cycles")
+    label.add_argument(
+        "--minutes", type=nonnegative_number, help="triage time in minutes"
+    )
+    label.add_argument(
+        "--cycles", type=nonnegative_integer, help="extra development cycles"
+    )
     label.add_argument("--reason", help="short classification reason")
     label.add_argument("--note", help="optional local note")
     label.set_defaults(handler=command_label)
+
+    label_subject = commands.add_parser(
+        "label-subject",
+        help="classify a stable finding subject across recurring observations",
+    )
+    label_subject.add_argument(
+        "project", help="project root containing .guardian/cache"
+    )
+    label_subject.add_argument("subject_id")
+    label_subject.add_argument("category", choices=CATEGORIES)
+    label_subject.add_argument(
+        "--minutes", type=nonnegative_number, help="triage time in minutes"
+    )
+    label_subject.add_argument(
+        "--cycles", type=nonnegative_integer, help="extra development cycles"
+    )
+    label_subject.add_argument("--reason", help="short classification reason")
+    label_subject.add_argument("--note", help="optional local note")
+    label_subject.set_defaults(handler=command_label_subject)
 
     summary = commands.add_parser(
         "summary",
