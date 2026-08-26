@@ -21,6 +21,10 @@ const accept_session = @import("../accept_session.zig");
 const ast_index = @import("../ast/index.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
 const writer_lock = @import("../writer_lock.zig");
+const check_roi = @import("../check_roi.zig");
+const dora = @import("../dora.zig");
+const git = @import("../git.zig");
+const build_options = @import("build_options");
 
 pub const command_name = "accept";
 
@@ -29,6 +33,7 @@ const Original = metadata_transaction.Original;
 
 /// Reviews, accepts, and verifies the checks named in `ctx.refresh`.
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
+    var operation_sw = dora.startStopwatch();
     if (ctx.refresh.len == 0) {
         reporter.fail("accept: name at least one check (comma-separated)", .{});
         reporter.detail("  usage: zig build guardian-accept -Dguardian-checks=file-size,line-length\n", .{});
@@ -51,6 +56,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // on drift) so preview/update/verify partition correctly — force blocking
     // regardless of [gate] on_build. The copies below inherit this.
     ctx.gate = true;
+    ctx.roi_origin = command_name;
     // One parse for all three passes over one unchanged tree.
     try shareSourceIndex(ctx);
     const quiet = ctx.quiet;
@@ -61,6 +67,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var preview = ctx.*;
     preview.only = ctx.refresh;
     preview.refresh = &.{};
+    preview.roi_phase = "preview";
     runPass(&preview, quiet, &before, .drift_expected) catch |e| switch (e) {
         error.CheckFailed => if (!quiet)
             reporter.ok("accept: preview complete; applying only the named refreshes", .{}),
@@ -69,6 +76,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 
     var update = ctx.*;
     update.only = ctx.refresh;
+    update.roi_phase = "update";
     // The update pass is the one metadata-writable step: it persists the named
     // checks' refreshes AND any deferred prune/create/re-key on those checks.
     update.metadata_writable = true;
@@ -82,13 +90,34 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var verify = ctx.*;
     verify.only = ctx.refresh;
     verify.refresh = &.{};
+    verify.roi_phase = "verify";
     try runPass(&verify, quiet, &after, .must_pass);
     recordSession(ctx);
+    recordAcceptEvent(ctx, operation_sw.elapsedMs());
     if (!quiet) {
         reporter.ok("accept: verified {d} named check(s); review and commit the .guardian/ diff", .{ctx.refresh.len});
         return;
     }
     reportQuiet(ctx, before, after, if (before_metadata) |*state| state else null);
+}
+
+/// Records the explicit successful acceptance action without classifying any
+/// finding. Selecting metadata to refresh is evidence of an intentional action,
+/// not evidence that the underlying diagnostic was useful or false.
+fn recordAcceptEvent(ctx: *types.RunCtx, duration_ms: u64) void {
+    if (!ctx.cfg.dora.enabled) return;
+    const operation: ?[]const u8 = std.mem.join(ctx.allocator, ",", ctx.refresh) catch null;
+    check_roi.recordEvent(ctx.allocator, ctx.project_dir, .{
+        .action = command_name,
+        .identity = .{
+            .timestamp_ms = dora.unixMs(),
+            .commit = git.headHash(ctx.allocator, ctx.project_dir),
+            .guardian_digest = build_options.source_digest,
+            .operation_id = operation,
+        },
+        .context = .{ .origin = command_name, .phase = "complete", .outcome = "green" },
+        .timing = .{ .duration_ms = duration_ms },
+    });
 }
 
 /// Restores only monotone ratchet improvements that happened incidentally

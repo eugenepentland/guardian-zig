@@ -33,6 +33,7 @@ const run_all = @import("run_all.zig");
 const install_hook = @import("install_hook.zig");
 const git = @import("../git.zig");
 const dora = @import("../dora.zig");
+const check_roi = @import("../check_roi.zig");
 const config = @import("../config.zig");
 const external_inputs = @import("../external_inputs.zig");
 const test_count = @import("../test_count.zig");
@@ -64,10 +65,13 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         reporter.fail("commit: --intent \"<message>\" is required (missing or empty)", .{});
         return error.CheckFailed;
     };
+    var operation_sw = dora.startStopwatch();
 
     // commit always BLOCKS, regardless of [gate] on_build: nothing enters
     // history unverified even when a dev build only reports.
     ctx.gate = true;
+    ctx.roi_origin = command_name;
+    ctx.roi_phase = "gate";
     // A commit audits and records the tree; it does not ACCEPT metadata drift.
     // Keeping this read-only matters most on interruption: a killed test phase
     // must not leave unrelated auto-pruned ratchets in the worktree. Explicit
@@ -79,7 +83,10 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // while the installed `guardian-check` binary acting here predates it
     // (test builds never refresh zig-out). Acting on stale logic sweeps the
     // wrong files into the commit. Refuse before gating anything.
-    try refuseStaleSelfBuild(ctx);
+    refuseStaleSelfBuild(ctx) catch |err| {
+        recordCommitEvent(ctx, "red", "preflight", operation_sw.elapsedMs(), null, null);
+        return err;
+    };
 
     // Say up front when nothing in the change set is an input any check reads:
     // every finding below then describes pre-existing state, not this change —
@@ -95,12 +102,16 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     var gate_sw = dora.startStopwatch();
     // Gate the exact working tree we're about to commit. On red the check output
     // was already printed by run_all; git state is left untouched.
-    run_all.run(ctx) catch |e| switch (e) {
-        error.CheckFailed => {
-            reporter.fail("commit: gate failed — nothing committed", .{});
-            return error.CheckFailed;
-        },
-        else => return e,
+    run_all.run(ctx) catch |e| {
+        const failed_gate_ms = gate_sw.elapsedMs();
+        recordCommitEvent(ctx, "red", "gate", operation_sw.elapsedMs(), failed_gate_ms, null);
+        switch (e) {
+            error.CheckFailed => {
+                reporter.fail("commit: gate failed — nothing committed", .{});
+                return error.CheckFailed;
+            },
+            else => return e,
+        }
     };
     const gate_ms = gate_sw.elapsedMs();
 
@@ -114,7 +125,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     if (testsSkippable(changed)) {
         reporter.ok("commit: tests skipped — no changed path is a test input (.zig/.zon/guardian.toml)", .{});
     } else {
-        try runTests(ctx);
+        runTests(ctx) catch |err| {
+            const failed_tests_ms = tests_sw.elapsedMs();
+            recordCommitEvent(ctx, "red", "tests", operation_sw.elapsedMs(), gate_ms, failed_tests_ms);
+            return err;
+        };
     }
     const tests_ms = tests_sw.elapsedMs();
     reporter.ok("commit: timing — {s}", .{try formatTimingSplit(ctx.allocator, gate_ms, tests_ms)});
@@ -126,7 +141,39 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     if (ctx.cfg.gate.install_hook) install_hook.ensure(ctx);
 
     reporter.ok("commit: phase 4/4 — commit", .{});
-    return stageAndCommit(ctx, intent);
+    stageAndCommit(ctx, intent) catch |err| {
+        recordCommitEvent(ctx, "red", "commit", operation_sw.elapsedMs(), gate_ms, tests_ms);
+        return err;
+    };
+    recordCommitEvent(ctx, "green", "complete", operation_sw.elapsedMs(), gate_ms, tests_ms);
+}
+
+/// Persists the gate/test split for one commit attempt. This is an operational
+/// fact only: a red attempt is not automatically a false positive, and a green
+/// one is not automatically a defect catch.
+fn recordCommitEvent(
+    ctx: *types.RunCtx,
+    outcome: []const u8,
+    phase: []const u8,
+    duration_ms: u64,
+    gate_duration_ms: ?u64,
+    test_duration_ms: ?u64,
+) void {
+    if (!ctx.cfg.dora.enabled) return;
+    check_roi.recordEvent(ctx.allocator, ctx.project_dir, .{
+        .action = command_name,
+        .identity = .{
+            .timestamp_ms = dora.unixMs(),
+            .commit = git.headHash(ctx.allocator, ctx.project_dir),
+            .guardian_digest = build_options.source_digest,
+        },
+        .context = .{ .origin = command_name, .phase = phase, .outcome = outcome },
+        .timing = .{
+            .duration_ms = duration_ms,
+            .gate_duration_ms = gate_duration_ms,
+            .test_duration_ms = test_duration_ms,
+        },
+    });
 }
 
 /// Prints the up-front notice when no path in the change set is something a

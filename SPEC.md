@@ -675,6 +675,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Machine-Readable Sink
 
 - Serializes each violation as a JSON line escaping message and path text
+- Adds a rendering-stable finding key to every violation record
 - Appends a run summary record with pass fail skip counts
 - Writes the last-run log under the git-ignored guardian cache dir
 - Writes a summary-only log when the run passes with no violations
@@ -686,6 +687,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Renders a run record as one JSON line with outcome and failed checks
 - Includes the git branch and commit or null when absent
 - Reports the commit heartbeat's monotonic now in nanoseconds
+- Reports the current wall timestamp for ordered local telemetry
 - Appends a run record to the sink without overwriting
 - Parses a stored run line back into a run record
 - Rejects a line that is not a known run record
@@ -693,6 +695,13 @@ blocking correctness checks and advisory maintainability guidance.
 - Writes nothing when the dora sink is disabled
 - Converts elapsed nanoseconds to whole milliseconds
 - Reads zero elapsed for an unavailable stopwatch and a non-decreasing value otherwise
+
+## Check ROI Telemetry
+
+- Records every invocation in a versioned local JSONL stream
+- Uses content-stable finding identities across line and numeric drift
+- Distinguishes accept and commit phases without inferring usefulness
+- Appends atomically under concurrent writers and bounds the raw log
 
 ## Git Diff
 

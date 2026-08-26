@@ -6,6 +6,20 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- Add local per-check ROI telemetry without changing DORA semantics. Every
+  `all` invocation now appends a schema-v1 `check-roi.jsonl` record, including
+  cache/partial scope, total and check-phase wall time, overlapping per-check
+  timings, effective policy/outcome, and stable finding observations; `accept`
+  and `commit` add explicit workflow-phase events. The raw stream is locked,
+  bounded to 32 MiB plus one retained generation, git-ignored, local-only, and
+  best-effort. `last-run.jsonl` gains an additive baseline-v3 `finding_key`.
+  The stdlib-only `scripts/guardian-roi` helper lists pending observations,
+  appends evidence-backed human labels to a separate durable ledger, and emits
+  latest-digest/direct-run Markdown headlines plus JSON digest/scope/origin/
+  phase cohorts without editing policy. Label attribution survives raw-log
+  rotation. Agent documentation now defines the four classifications,
+  unknown-cost semantics, privacy limits, and the required usage-feedback
+  workflow.
 - New `canonical-idiom` check with `[[idiom]]` config rules: pattern-level
   ownership for a code idiom that is not a named symbol. `[[ban]]` owns a call
   chain and `[[concept]]` owns a literal spelling; neither can express an

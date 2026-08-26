@@ -46,6 +46,8 @@ pub fn mutateContext(ctx: *const types.RunCtx) types.RunCtx {
 pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // The scheduled/CI tier always blocks, regardless of [gate] on_build.
     ctx.gate = true;
+    ctx.roi_origin = command_name;
+    ctx.roi_phase = "checks";
     reporter.ok("nightly: running the full check suite ...", .{});
     var all_failed = false;
     run_all.run(ctx) catch |e| switch (e) {

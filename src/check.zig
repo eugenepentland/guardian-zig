@@ -134,6 +134,7 @@ pub fn main(process_init: std.process.Init) !void {
         .only = try splitCsv(allocator, parsed.only),
         .skip = try splitCsv(allocator, parsed.skip),
         .intent = parsed.intent,
+        .roi_origin = command,
         .summary = parsed.summary,
         .verbose = parsed.verbose,
         .json = parsed.json,
@@ -696,6 +697,7 @@ test {
     _ = @import("reporter.zig");
     _ = @import("sink.zig");
     _ = @import("dora.zig");
+    _ = @import("check_roi.zig");
     _ = @import("ast/decls.zig");
     _ = @import("ast/parser.zig");
     _ = @import("ast/containers.zig");

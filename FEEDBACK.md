@@ -1,17 +1,18 @@
 # Guardian Usage Feedback Log
 
-Append-only log of concrete Guardian problems. Eugene reviews this list
-periodically and turns entries into Guardian changes; the entries themselves
-are the triage backlog.
+Append-only log of concrete Guardian usage signals. Eugene reviews this list
+periodically and turns recurring friction, bugs, wins, and wishes into Guardian
+changes; the entries themselves are the triage backlog.
 
 ## How to add an entry (agents: follow this exactly)
 
 1. Write the entry **at the bottom of the Log section** — never edit, reorder,
    or delete existing entries (pruning happens at triage, by Eugene only).
-2. Log only a real problem. A smooth session writes and commits nothing. Make
-   each problem self-contained: another agent (or Eugene, weeks later) has none of
-   your session context. Name the check, the project, what happened, and what
-   it cost you (retries, wasted builds, confusion).
+2. After every task that exercised a Guardian gate, add an entry. A smooth run
+   gets one concise `good:` bullet. Make every signal self-contained: another
+   agent (or Eugene, weeks later) has none of your session context. Name the
+   check, the project, what happened, and any cost (retries, wasted builds,
+   confusion).
 3. Commit the append in this repo immediately, so the tree stays clean:
 
    ```bash
@@ -25,11 +26,12 @@ are the triage backlog.
 ## YYYY-MM-DD · <agent> · <project> — <task one-liner>
 - **friction:** <what slowed you down — check name, what happened, cost>
 - **bug:** <behavior that looks wrong, with repro if cheap>
+- **good:** <what worked smoothly or caught a concrete mistake>
+- **wish:** <specific improvement suggested by this run>
 ```
 
-Use only `bug:` and `friction:`. Multiple bullets of the same kind are fine. A
-fix proposal attached to a real problem belongs inside that bullet; standalone
-feature wishes are out of scope while Guardian is hardening.
+Use only the categories that apply; multiple bullets of the same kind are fine.
+A smooth run needs only one `good:` bullet.
 
 ---
 
