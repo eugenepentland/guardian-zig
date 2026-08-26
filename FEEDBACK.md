@@ -10529,3 +10529,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — propagate renamed pad nets into saved copper
 - **good:** The `file-size` warning steered persisted-route restoration out of the near-cap PCB page into a cohesive adapter, selective `pub-api-surface` acceptance exposed exactly the reviewed adapter/propagation API, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed in one release attempt.
+
+## 2026-08-26 · codex · eda — keep round holes round in copper pours
+- **good:** The `spec` check caught both new behavior tags and the stale circle-bounding-box contract on the first focused run; after updating the formal requirements, the focused geometry and pour regressions, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one release attempt.
