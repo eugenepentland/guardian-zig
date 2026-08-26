@@ -27,6 +27,8 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     // Block + persist: the whole point is to write, and to write nothing on red.
     ctx.gate = true;
     ctx.metadata_writable = true;
+    ctx.roi_origin = command_name;
+    ctx.roi_phase = "gate";
     reporter.ok("migrate: re-keying committed .guardian metadata to the current format ...", .{});
     run_all.run(ctx) catch |e| switch (e) {
         error.CheckFailed => {

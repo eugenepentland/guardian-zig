@@ -4,13 +4,82 @@ Toolchain: Zig `0.17.0-dev.1683+5ceec001b` exactly, matching
 `build.zig.zon`. Zig 0.17 optimize spellings are lowercase (`debug`, `safe`,
 `fast`, and `small`), including `-Doptimize=safe` on the command line.
 
+## Local ROI records
+
+Guardian records check observations automatically in the project's
+git-ignored `.guardian/cache/check-roi.jsonl`. Human outcome labels go to the
+separate `.guardian/cache/check-roi-labels.jsonl`; they are append-only, and
+the latest valid label for an observation wins. Neither file is uploaded.
+
+Once the outcome of a task is known, review and label only observations you can
+classify from evidence. Run the helper from this checkout (or use its absolute
+path when `<project>` is a different checkout):
+
+```bash
+scripts/guardian-roi pending <project>
+scripts/guardian-roi label <project> <observation-id> <category> \
+  [--minutes N] [--cycles N] [--reason TEXT] [--note TEXT]
+scripts/guardian-roi summary <project> --markdown
+scripts/guardian-roi summary <project> --json
+```
+
+Categories are `defect` (a correctness, security, reliability, or behavior bug
+that could have shipped), `useful-review` (a worthwhile design, test,
+documentation, safety, or maintainability improvement without a defect),
+`intentional-change` (an accurate report of a deliberate reviewed change), and
+`false-positive` (the condition was factually wrong, inapplicable to otherwise-
+valid code, or produced only appeasement work with no meaningful benefit).
+Friction or runtime alone is not a false positive.
+
+Leave uncertain observations pending. A snapshot accept or a finding
+disappearing does not prove an outcome. Record only incremental minutes and
+extra gate/validation cycles caused by the finding; omit unknown cost instead
+of recording zero. The summary is observational evidence, not causal proof or
+an instruction to change policy. Cache hits are invocations, not executions;
+never sum per-check elapsed times because parallel checks overlap. The helper
+ignores malformed or unknown records and never edits `guardian.toml`, accepts
+snapshots, or infers outcomes.
+
+Logging is best-effort. A `check ROI write failed: WouldBlock` warning means a
+record was deliberately dropped under sustained lock contention so telemetry
+could not stall the gate. Recorded run duration also excludes the deferred
+telemetry append itself.
+
+Headline metrics use ordinary `all`/build runs from the latest Guardian digest.
+Older implementations and compound-workflow passes remain available in the
+JSON digest/scope/origin/phase cohorts; `accept` update and verify passes do not
+count as retries. New labels snapshot their observation context so they remain
+attributable after the bounded raw stream rotates.
+
+ROI and DORA use separate local files but share the v1 opt-out:
+
+```toml
+[dora]
+enabled = false
+```
+
+Local logging is on by default and has no upload. Raw records can contain local
+paths, commits, and finding keys, so keep `--reason` and `--note` free of
+secrets or sensitive data. Human summaries omit finding messages and notes.
+
 ## Usage Feedback Log
 
-`FEEDBACK.md` (repo root) is the append-only log for concrete Guardian bugs and
-friction. A smooth session logs nothing; feature wishes are out of scope during
-hardening. The format and append rules are documented at the top of that file.
-Never delete or rewrite existing entries; pruning happens only when Eugene
-triages.
+ROI labels do not replace `FEEDBACK.md`. After every task that exercised a
+Guardian gate, append an entry at the bottom of its Log section and commit it in
+this repository. Use `bug`, `friction`, `good`, and/or `wish` bullets; a smooth
+run still gets a one-line `good` entry. Skip only when Guardian was not touched.
+Make entries concrete and self-contained. Never edit, reorder, or delete an
+older entry; Eugene prunes entries during triage.
+
+```markdown
+## YYYY-MM-DD · <agent> · <project> — <task>
+- **good:** <check or gate behavior and why it helped>
+```
+
+```bash
+git -C ~/ai/canopy/guardian-zig add FEEDBACK.md
+git -C ~/ai/canopy/guardian-zig commit -m "feedback: <project> — <one-liner>"
+```
 
 ## Guiding Principles
 
@@ -500,8 +569,10 @@ carries no `ratchet_key` of its own.
 
 Every `all`/`nightly` run also drops machine-readable JSONL under the
 git-ignored, digest-excluded `.guardian/cache/`: `last-run.jsonl` (structured
-violations + summary) and `dora.jsonl` (per-run delivery metrics); `mutate`
-adds `last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
+violations + summary), `dora.jsonl` (full-run delivery metrics), and
+`check-roi.jsonl` (every invocation's per-check facts); `guardian-roi label`
+appends human outcomes to `check-roi-labels.jsonl`, while `mutate` adds
+`last-mutate.jsonl` (survivors) and `mutants.jsonl` (result cache).
 
 A `last-run.jsonl` row is meant to be actionable on its own: `file`/`line` are
 filled even for a check that only prints prose (its `<file>:<line>: ` prefix is
@@ -531,6 +602,7 @@ src/
   reporter.zig         # ok / fail printing + Violation type
   sink.zig             # last-run.jsonl machine-readable violation log
   dora.zig             # DORA delivery-metrics JSONL sink (non-gating)
+  check_roi.zig        # local per-check cost/usefulness facts + stable observation IDs
   snapshot.zig         # Read/write/diff for snapshot-based checks
   snapshot_helper.zig  # Lifecycle helper used by all snapshot checks
   baseline.zig         # Baseline mode for legacy violations (v3 identity baselines)

@@ -1,0 +1,1331 @@
+#!/usr/bin/env python3
+"""Inspect and classify Guardian's local per-check ROI telemetry.
+
+Requires Python 3.10 or newer on a POSIX system. Uses only the Python standard
+library and never accesses the network. Telemetry remains below
+<project>/.guardian/cache/.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import math
+import os
+import statistics
+import sys
+import time
+from collections import Counter, defaultdict
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable, Iterator, Mapping, Sequence
+
+
+SCHEMA = 1
+RUN_TYPE = "check_run"
+LABEL_TYPE = "label"
+RUN_FILENAME = "check-roi.jsonl"
+LABEL_FILENAME = "check-roi-labels.jsonl"
+EVENT_TYPES = ("accept", "commit")
+DIRECT_ORIGINS = ("all", "build")
+RUN_OUTCOMES = ("green", "red", "error")
+SCOPE_MODES = ("full", "filtered", "diff")
+CATEGORIES = (
+    "defect",
+    "useful-review",
+    "intentional-change",
+    "false-positive",
+)
+LABEL_CONTEXT_KEYS = (
+    "check",
+    "commit",
+    "guardian_digest",
+    "finding_key",
+    "file",
+    "line",
+    "direct_seen",
+    "origins",
+)
+
+
+def _nonempty_string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _number(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return value
+
+
+def _integer(value: Any) -> int | None:
+    number = _number(value)
+    if number is None or int(number) != number:
+        return None
+    return int(number)
+
+
+def _read_jsonl(
+    path: Path, *, shared_lock: bool = False
+) -> Iterator[Mapping[str, Any]]:
+    try:
+        stream = path.open("r", encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise CliError(f"cannot read {path}: {error}") from error
+
+    with stream:
+        if shared_lock:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_SH)
+        try:
+            for line in stream:
+                try:
+                    value = json.loads(line)
+                except (json.JSONDecodeError, UnicodeError):
+                    continue
+                if isinstance(value, dict):
+                    yield value
+        finally:
+            if shared_lock:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _telemetry_read_lock(path: Path, *, create: bool = False) -> Iterator[None]:
+    lock_stream = None
+    try:
+        lock_path = Path(f"{path}.lock")
+        lock_stream = lock_path.open("a+" if create else "r")
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise CliError(f"cannot read Guardian ROI lock for {path}: {error}") from error
+    try:
+        if lock_stream is not None:
+            fcntl.flock(lock_stream.fileno(), fcntl.LOCK_SH)
+        yield
+    finally:
+        if lock_stream is not None:
+            fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+            lock_stream.close()
+
+
+def _read_telemetry_jsonl(
+    path: Path, *, already_locked: bool = False
+) -> Iterator[Mapping[str, Any]]:
+    # Guardian retains one previous generation when the bounded raw stream
+    # rotates. Hold its stable sidecar lock across both opens so a rollover
+    # cannot make this snapshot omit the formerly-active generation.
+    if already_locked:
+        yield from _read_jsonl(Path(f"{path}.1"))
+        yield from _read_jsonl(path)
+        return
+    with _telemetry_read_lock(path):
+        yield from _read_jsonl(Path(f"{path}.1"))
+        yield from _read_jsonl(path)
+
+
+def _is_record(record: Mapping[str, Any], expected_type: str) -> bool:
+    # Records with a future schema are intentionally ignored rather than
+    # guessed at. Unknown fields in the current schema remain compatible.
+    return record.get("type") == expected_type and record.get("schema") == SCHEMA
+
+
+def _is_valid_run(record: Mapping[str, Any]) -> bool:
+    return (
+        _is_record(record, RUN_TYPE)
+        and record.get("outcome") in RUN_OUTCOMES
+        and record.get("scope_mode") in SCOPE_MODES
+        and isinstance(record.get("cached"), bool)
+    )
+
+
+@dataclass
+class Observation:
+    observation_id: str
+    check: str
+    commit: str | None = None
+    file: str | None = None
+    line: int | None = None
+    finding_key: str | None = None
+    guardian_digest: str | None = None
+    direct_seen: bool = False
+    origins: set[str] = field(default_factory=set)
+    first_timestamp_ms: int | None = None
+    last_timestamp_ms: int | None = None
+
+    def update(self, other: "Observation") -> None:
+        self.check = other.check or self.check
+        self.commit = other.commit or self.commit
+        self.file = other.file or self.file
+        self.line = other.line if other.line is not None else self.line
+        self.finding_key = other.finding_key or self.finding_key
+        self.guardian_digest = other.guardian_digest or self.guardian_digest
+        self.direct_seen = self.direct_seen or other.direct_seen
+        self.origins.update(other.origins)
+        if other.first_timestamp_ms is not None:
+            if self.first_timestamp_ms is None:
+                self.first_timestamp_ms = other.first_timestamp_ms
+            else:
+                self.first_timestamp_ms = min(
+                    self.first_timestamp_ms, other.first_timestamp_ms
+                )
+            if self.last_timestamp_ms is None:
+                self.last_timestamp_ms = other.first_timestamp_ms
+            else:
+                self.last_timestamp_ms = max(
+                    self.last_timestamp_ms, other.first_timestamp_ms
+                )
+
+
+@dataclass
+class CheckStats:
+    executions: int = 0
+    analysis_runs: int = 0
+    firing_runs: int = 0
+    findings: int = 0
+    warnings: int = 0
+    deferred: int = 0
+    durations_ms: list[float] = field(default_factory=list)
+    observation_ids: set[str] = field(default_factory=set)
+    observation_occurrences: int = 0
+    finding_keys: set[str] = field(default_factory=set)
+    policies: Counter[str] = field(default_factory=Counter)
+    outcomes: Counter[str] = field(default_factory=Counter)
+    origins: Counter[str] = field(default_factory=Counter)
+    phases: Counter[str] = field(default_factory=Counter)
+    scope_modes: Counter[str] = field(default_factory=Counter)
+    durations_by_scope: dict[str, list[float]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    executions_by_scope: Counter[str] = field(default_factory=Counter)
+    analysis_runs_by_scope: Counter[str] = field(default_factory=Counter)
+    firing_runs_by_scope: Counter[str] = field(default_factory=Counter)
+    guardian_digests: Counter[str] = field(default_factory=Counter)
+    durations_by_digest: dict[str, list[float]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    analysis_runs_by_digest: Counter[str] = field(default_factory=Counter)
+    firing_runs_by_digest: Counter[str] = field(default_factory=Counter)
+    durations_by_origin: dict[str, list[float]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    executions_by_origin: Counter[str] = field(default_factory=Counter)
+    analysis_runs_by_origin: Counter[str] = field(default_factory=Counter)
+    firing_runs_by_origin: Counter[str] = field(default_factory=Counter)
+    slowest_runs: int = 0
+
+
+@dataclass
+class EventStats:
+    count: int = 0
+    outcomes: Counter[str] = field(default_factory=Counter)
+    phases: Counter[str] = field(default_factory=Counter)
+    durations_ms: list[float] = field(default_factory=list)
+    gate_durations_ms: list[float] = field(default_factory=list)
+    test_durations_ms: list[float] = field(default_factory=list)
+
+
+@dataclass
+class Telemetry:
+    invocation_count: int = 0
+    cached_invocation_count: int = 0
+    durations_ms: list[float] = field(default_factory=list)
+    check_phase_durations_ms: list[float] = field(default_factory=list)
+    outcomes: Counter[str] = field(default_factory=Counter)
+    origins: Counter[str] = field(default_factory=Counter)
+    phases: Counter[str] = field(default_factory=Counter)
+    scope_modes: Counter[str] = field(default_factory=Counter)
+    guardian_digests: Counter[str] = field(default_factory=Counter)
+    latest_guardian_digest: str = "unknown"
+    headline_origins: tuple[str, ...] = DIRECT_ORIGINS
+    headline_invocation_count: int = 0
+    headline_cached_invocation_count: int = 0
+    headline_durations_ms: list[float] = field(default_factory=list)
+    headline_check_phase_durations_ms: list[float] = field(default_factory=list)
+    headline_outcomes: Counter[str] = field(default_factory=Counter)
+    headline_scope_modes: Counter[str] = field(default_factory=Counter)
+    events: dict[str, EventStats] = field(default_factory=lambda: defaultdict(EventStats))
+    observations: dict[str, Observation] = field(default_factory=dict)
+    checks: dict[str, CheckStats] = field(default_factory=lambda: defaultdict(CheckStats))
+    headline_checks: dict[str, CheckStats] = field(
+        default_factory=lambda: defaultdict(CheckStats)
+    )
+
+
+def _observation_id(record: Mapping[str, Any]) -> str | None:
+    for key in ("observation_id", "id", "finding_id"):
+        value = _nonempty_string(record.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _count_field(record: Mapping[str, Any], key: str) -> int:
+    value = record.get(key)
+    if isinstance(value, list):
+        return len(value)
+    return _integer(value) or 0
+
+
+def _record_event(result: Telemetry, record: Mapping[str, Any], event_type: str) -> None:
+    stats = result.events[event_type]
+    stats.count += 1
+    stats.outcomes[_nonempty_string(record.get("outcome")) or "unknown"] += 1
+    stats.phases[_nonempty_string(record.get("phase")) or "unknown"] += 1
+    for key, target in (
+        ("duration_ms", stats.durations_ms),
+        ("gate_duration_ms", stats.gate_durations_ms),
+        ("test_duration_ms", stats.test_durations_ms),
+    ):
+        value = _number(record.get(key))
+        if value is not None:
+            target.append(float(value))
+
+
+def load_telemetry(path: Path, *, already_locked: bool = False) -> Telemetry:
+    result = Telemetry()
+    records = list(_read_telemetry_jsonl(path, already_locked=already_locked))
+    latest_any_digest = "unknown"
+    for record in records:
+        if not _is_valid_run(record):
+            continue
+        digest = _nonempty_string(record.get("guardian_digest")) or "unknown"
+        latest_any_digest = digest
+    result.latest_guardian_digest = latest_any_digest
+
+    for run in records:
+        event_type = _nonempty_string(run.get("type"))
+        if run.get("schema") == SCHEMA and event_type in EVENT_TYPES:
+            _record_event(result, run, event_type)
+            continue
+        if not _is_valid_run(run):
+            continue
+        result.invocation_count += 1
+        duration = _number(run.get("duration_ms"))
+        if duration is not None:
+            result.durations_ms.append(float(duration))
+        check_phase_duration = _number(run.get("check_phase_ms"))
+        if check_phase_duration is not None:
+            result.check_phase_durations_ms.append(float(check_phase_duration))
+        result.outcomes[str(run["outcome"])] += 1
+        result.origins[_nonempty_string(run.get("origin")) or "unknown"] += 1
+        result.phases[_nonempty_string(run.get("phase")) or "unknown"] += 1
+        result.scope_modes[str(run["scope_mode"])] += 1
+        guardian_digest = _nonempty_string(run.get("guardian_digest")) or "unknown"
+        result.guardian_digests[guardian_digest] += 1
+        is_headline = (
+            guardian_digest == result.latest_guardian_digest
+            and (_nonempty_string(run.get("origin")) or "unknown")
+            in result.headline_origins
+        )
+        if is_headline:
+            result.headline_invocation_count += 1
+            if duration is not None:
+                result.headline_durations_ms.append(float(duration))
+            if check_phase_duration is not None:
+                result.headline_check_phase_durations_ms.append(
+                    float(check_phase_duration)
+                )
+            result.headline_outcomes[
+                str(run["outcome"])
+            ] += 1
+            result.headline_scope_modes[
+                str(run["scope_mode"])
+            ] += 1
+        if run.get("cached") is True:
+            result.cached_invocation_count += 1
+            if is_headline:
+                result.headline_cached_invocation_count += 1
+            continue
+
+        run_timestamp = _integer(run.get("timestamp_ms"))
+        commit = _nonempty_string(run.get("commit"))
+        origin = _nonempty_string(run.get("origin")) or "unknown"
+        phase = _nonempty_string(run.get("phase")) or "unknown"
+        scope_mode = str(run["scope_mode"])
+        internal_accept_followup = origin == "accept" and phase in ("update", "verify")
+        raw_checks = run.get("checks")
+        if not isinstance(raw_checks, list):
+            continue
+
+        valid_checks: list[tuple[str, Mapping[str, Any], float | None]] = []
+        for raw_check in raw_checks:
+            if not isinstance(raw_check, dict):
+                continue
+            check_name = _nonempty_string(raw_check.get("check"))
+            if check_name is None:
+                check_name = _nonempty_string(raw_check.get("name"))
+            if check_name is None:
+                continue
+            duration = _number(raw_check.get("duration_ms"))
+            if duration is None:
+                duration = _number(raw_check.get("elapsed_ms"))
+            valid_checks.append((check_name, raw_check, duration))
+
+        timed = [(name, duration) for name, _, duration in valid_checks if duration is not None]
+        slowest = max((duration for _, duration in timed), default=None)
+
+        for check_name, raw_check, duration in valid_checks:
+            policy = _nonempty_string(raw_check.get("policy")) or "unknown"
+            outcome = _nonempty_string(raw_check.get("outcome")) or "unknown"
+            finding_count = _count_field(raw_check, "findings")
+            warning_count = _count_field(raw_check, "warnings")
+            deferred_count = _count_field(raw_check, "deferred")
+            fired = (
+                finding_count > 0 or warning_count > 0 or deferred_count > 0
+            )
+            stats_targets = [result.checks[check_name]]
+            if is_headline:
+                stats_targets.append(result.headline_checks[check_name])
+            for stats in stats_targets:
+                stats.executions += 1
+                stats.executions_by_scope[scope_mode] += 1
+                stats.executions_by_origin[origin] += 1
+                stats.guardian_digests[guardian_digest] += 1
+                if not internal_accept_followup:
+                    stats.analysis_runs += 1
+                    stats.analysis_runs_by_scope[scope_mode] += 1
+                    stats.analysis_runs_by_origin[origin] += 1
+                    stats.analysis_runs_by_digest[guardian_digest] += 1
+                stats.origins[origin] += 1
+                stats.phases[phase] += 1
+                stats.scope_modes[scope_mode] += 1
+                if duration is not None:
+                    stats.durations_ms.append(float(duration))
+                    stats.durations_by_scope[scope_mode].append(float(duration))
+                    stats.durations_by_origin[origin].append(float(duration))
+                    stats.durations_by_digest[guardian_digest].append(float(duration))
+                    if duration == slowest:
+                        stats.slowest_runs += 1
+                stats.policies[policy] += 1
+                stats.outcomes[outcome] += 1
+                if not internal_accept_followup:
+                    stats.findings += finding_count
+                    stats.warnings += warning_count
+                    stats.deferred += deferred_count
+                if not internal_accept_followup and fired:
+                    stats.firing_runs += 1
+                    stats.firing_runs_by_scope[scope_mode] += 1
+                    stats.firing_runs_by_origin[origin] += 1
+                    stats.firing_runs_by_digest[guardian_digest] += 1
+
+            raw_observations = raw_check.get("observations")
+            if not isinstance(raw_observations, list):
+                continue
+            for raw_observation in raw_observations:
+                if not isinstance(raw_observation, dict):
+                    continue
+                observation_id = _observation_id(raw_observation)
+                if observation_id is None:
+                    continue
+                line = _integer(raw_observation.get("line"))
+                finding_key = _nonempty_string(raw_observation.get("finding_key"))
+                observation = Observation(
+                    observation_id=observation_id,
+                    check=check_name,
+                    commit=commit,
+                    file=_nonempty_string(raw_observation.get("file")),
+                    line=line,
+                    finding_key=finding_key,
+                    guardian_digest=(
+                        None if guardian_digest == "unknown" else guardian_digest
+                    ),
+                    direct_seen=origin in DIRECT_ORIGINS,
+                    origins={origin},
+                    first_timestamp_ms=run_timestamp,
+                    last_timestamp_ms=run_timestamp,
+                )
+                existing = result.observations.get(observation_id)
+                for stats in stats_targets:
+                    if finding_key is not None:
+                        stats.finding_keys.add(finding_key)
+                    if (
+                        not internal_accept_followup
+                        or observation_id not in stats.observation_ids
+                    ):
+                        stats.observation_occurrences += 1
+                    stats.observation_ids.add(observation_id)
+                if existing is None:
+                    result.observations[observation_id] = observation
+                else:
+                    existing.update(observation)
+
+    return result
+
+
+def _has_label_context(label: Mapping[str, Any]) -> bool:
+    if not all(key in label for key in LABEL_CONTEXT_KEYS):
+        return False
+    if _nonempty_string(label.get("check")) is None:
+        return False
+    if _nonempty_string(label.get("finding_key")) is None:
+        return False
+    for key in ("commit", "guardian_digest", "file"):
+        value = label.get(key)
+        if value is not None and _nonempty_string(value) is None:
+            return False
+    if label.get("line") is not None and _integer(label.get("line")) is None:
+        return False
+    if not isinstance(label.get("direct_seen"), bool):
+        return False
+    origins = label.get("origins")
+    return (
+        isinstance(origins, list)
+        and bool(origins)
+        and all(_nonempty_string(origin) is not None for origin in origins)
+    )
+
+
+def load_labels(path: Path) -> dict[str, Mapping[str, Any]]:
+    latest: dict[str, Mapping[str, Any]] = {}
+    contexts: dict[str, Mapping[str, Any]] = {}
+    for label in _read_jsonl(path, shared_lock=True):
+        if not _is_record(label, LABEL_TYPE):
+            continue
+        observation_id = _observation_id(label)
+        if observation_id is None or label.get("category") not in CATEGORIES:
+            continue
+        latest[observation_id] = label
+        if _has_label_context(label):
+            contexts[observation_id] = label
+
+    labels: dict[str, Mapping[str, Any]] = {}
+    for observation_id, label in latest.items():
+        context = contexts.get(observation_id)
+        if context is None:
+            labels[observation_id] = label
+            continue
+        merged = dict(label)
+        for key in LABEL_CONTEXT_KEYS:
+            merged[key] = context[key]
+        labels[observation_id] = merged
+    return labels
+
+
+def _project_cache(project_arg: str) -> Path:
+    project = Path(project_arg).expanduser()
+    if not project.is_dir():
+        raise CliError(f"project directory does not exist: {project}")
+    return project.resolve() / ".guardian" / "cache"
+
+
+def _location(observation: Observation) -> str:
+    if observation.file is None:
+        return "-"
+    if observation.line is None:
+        return observation.file
+    return f"{observation.file}:{observation.line}"
+
+
+def _cohort(observation: Observation) -> str:
+    digest = observation.guardian_digest or "unknown"
+    return f"{digest[:12]}…" if len(digest) > 12 else digest
+
+
+def _origin_view(observation: Observation) -> str:
+    kind = "direct" if observation.direct_seen else "workflow"
+    return f"{kind}:{','.join(sorted(observation.origins))}"
+
+
+def command_pending(args: argparse.Namespace) -> int:
+    cache = _project_cache(args.project)
+    telemetry = load_telemetry(cache / RUN_FILENAME)
+    labels = load_labels(cache / LABEL_FILENAME)
+    pending = [
+        observation
+        for observation_id, observation in telemetry.observations.items()
+        if observation_id not in labels
+    ]
+    pending.sort(
+        key=lambda item: (
+            item.check,
+            item.file or "",
+            item.line or 0,
+            item.observation_id,
+        )
+    )
+
+    if not pending:
+        print("No pending Guardian ROI observations.")
+        return 0
+
+    print("| Observation ID | Check | Location | Commit | Cohort | Seen in |")
+    print("|---|---|---|---|---|---|")
+    for observation in pending:
+        print(
+            f"| {_markdown(observation.observation_id)} "
+            f"| {_markdown(observation.check)} "
+            f"| {_markdown(_location(observation))} "
+            f"| {_markdown(observation.commit or '-')} "
+            f"| {_markdown(_cohort(observation))} "
+            f"| {_markdown(_origin_view(observation))} |"
+        )
+    return 0
+
+
+def _append_label(path: Path, record: Mapping[str, Any]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            stream.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+    except OSError as error:
+        raise CliError(f"cannot append {path}: {error}") from error
+
+
+def command_label(args: argparse.Namespace) -> int:
+    cache = _project_cache(args.project)
+    raw_path = cache / RUN_FILENAME
+    # Keep the raw stream stable from ID validation through durable label
+    # append. The label snapshots immutable attribution, so later rotations do
+    # not orphan it.
+    with _telemetry_read_lock(raw_path, create=True):
+        telemetry = load_telemetry(raw_path, already_locked=True)
+        labels = load_labels(cache / LABEL_FILENAME)
+        observation = telemetry.observations.get(args.observation_id)
+        if observation is None:
+            prior = labels.get(args.observation_id)
+            if prior is None:
+                raise CliError(
+                    f"unknown observation ID {args.observation_id!r}; "
+                    f"run 'guardian-roi pending {args.project}' to list observations"
+                )
+            if not _has_label_context(prior):
+                raise CliError(
+                    f"observation ID {args.observation_id!r} aged out before its "
+                    "legacy label captured attribution; it cannot be relabeled safely"
+                )
+            observation = Observation(
+                observation_id=args.observation_id,
+                check=str(prior["check"]),
+                commit=_nonempty_string(prior.get("commit")),
+                file=_nonempty_string(prior.get("file")),
+                line=_integer(prior.get("line")),
+                finding_key=_nonempty_string(prior.get("finding_key")),
+                guardian_digest=_nonempty_string(prior.get("guardian_digest")),
+                direct_seen=prior["direct_seen"] is True,
+                origins=set(prior["origins"]),
+            )
+        record: dict[str, Any] = {
+            "type": LABEL_TYPE,
+            "schema": SCHEMA,
+            "timestamp_ms": int(time.time() * 1000),
+            "observation_id": args.observation_id,
+            "category": args.category,
+            "check": observation.check,
+            "commit": observation.commit,
+            "guardian_digest": observation.guardian_digest,
+            "finding_key": observation.finding_key,
+            "file": observation.file,
+            "line": observation.line,
+            "direct_seen": observation.direct_seen,
+            "origins": sorted(observation.origins),
+        }
+        if args.minutes is not None:
+            record["triage_minutes"] = args.minutes
+        if args.cycles is not None:
+            record["extra_cycles"] = args.cycles
+        if args.reason is not None:
+            record["reason"] = args.reason
+        if args.note is not None:
+            record["note"] = args.note
+
+        _append_label(cache / LABEL_FILENAME, record)
+    print(f"Labeled {args.observation_id} as {args.category}.")
+    return 0
+
+
+def _percent(numerator: int, denominator: int) -> float | None:
+    if denominator == 0:
+        return None
+    return round(100.0 * numerator / denominator, 2)
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = max(0, math.ceil(percentile * len(ordered)) - 1)
+    return round(ordered[rank], 3)
+
+
+def _duration_summary(values: Sequence[float]) -> Mapping[str, Any]:
+    return {
+        "samples": len(values),
+        "median": round(statistics.median(values), 3) if values else None,
+        "p95": _percentile(values, 0.95),
+    }
+
+
+def _cost_summary(
+    labels: Iterable[Mapping[str, Any]], key: str, *, integer: bool = False
+) -> tuple[int | float | None, int | float | None, int]:
+    label_list = list(labels)
+    values: list[int | float] = []
+    for label in label_list:
+        value = _integer(label.get(key)) if integer else _number(label.get(key))
+        if value is not None:
+            values.append(value)
+    known_total: int | float | None = sum(values) if values else None
+    if known_total is not None and not integer:
+        known_total = round(float(known_total), 3)
+    missing = len(label_list) - len(values)
+    complete_total = known_total if missing == 0 else None
+    return complete_total, known_total, missing
+
+
+def build_summary(
+    telemetry: Telemetry, labels: Mapping[str, Mapping[str, Any]]
+) -> Mapping[str, Any]:
+    rows: list[Mapping[str, Any]] = []
+    check_observations: dict[str, set[str]] = defaultdict(set)
+    historical_observations: dict[str, set[str]] = defaultdict(set)
+    observation_subjects: dict[str, str] = {}
+    observation_digests: dict[str, str] = {}
+    for observation_id, observation in telemetry.observations.items():
+        check_observations[observation.check].add(observation_id)
+        if observation.finding_key is not None:
+            observation_subjects[observation_id] = observation.finding_key
+        observation_digests[observation_id] = observation.guardian_digest or "unknown"
+
+    # Script-authored labels retain check/key/digest context. That makes their
+    # evidence durable even after the bounded raw generation containing the
+    # original observation rotates away.
+    for observation_id, label in labels.items():
+        if observation_id in telemetry.observations:
+            continue
+        if not _has_label_context(label):
+            continue
+        check_name = _nonempty_string(label.get("check"))
+        if check_name is None:
+            continue
+        check_observations[check_name].add(observation_id)
+        historical_observations[check_name].add(observation_id)
+        finding_key = _nonempty_string(label.get("finding_key"))
+        if finding_key is not None:
+            observation_subjects[observation_id] = finding_key
+        observation_digests[observation_id] = (
+            _nonempty_string(label.get("guardian_digest")) or "unknown"
+        )
+
+    raw_observation_ids = set(telemetry.observations)
+    historical_observation_ids = (
+        set().union(*historical_observations.values())
+        if historical_observations
+        else set()
+    )
+    all_known_labels = [
+        labels[observation_id]
+        for observation_id in raw_observation_ids
+        if observation_id in labels
+    ]
+    headline_observation_ids = {
+        observation_id for observation_id, observation in telemetry.observations.items()
+        if observation.direct_seen
+        and (observation.guardian_digest or "unknown")
+        == telemetry.latest_guardian_digest
+    }
+    headline_known_labels = [
+        labels[observation_id]
+        for observation_id in headline_observation_ids
+        if observation_id in labels
+    ]
+    all_check_names = set(telemetry.checks) | set(check_observations)
+    for check_name in sorted(all_check_names):
+        all_stats = telemetry.checks.get(check_name, CheckStats())
+        stats = telemetry.headline_checks.get(check_name, CheckStats())
+        all_check_observation_ids = check_observations[check_name]
+        check_observation_ids = headline_observation_ids & all_check_observation_ids
+        raw_check_observation_ids = raw_observation_ids & all_check_observation_ids
+        historical_check_observation_ids = historical_observations[check_name]
+        check_labels = [
+            labels[observation_id]
+            for observation_id in check_observation_ids
+            if observation_id in labels
+        ]
+        all_check_labels = [
+            labels[observation_id]
+            for observation_id in raw_check_observation_ids
+            if observation_id in labels
+        ]
+        historical_check_labels = [
+            labels[observation_id]
+            for observation_id in historical_check_observation_ids
+            if observation_id in labels
+        ]
+        historical_categories = Counter(
+            str(label["category"]) for label in historical_check_labels
+        )
+        categories = Counter(str(label["category"]) for label in check_labels)
+        category_rates = {
+            category: _percent(categories[category], len(check_labels))
+            for category in CATEGORIES
+        }
+        actionable = sum(
+            categories[category]
+            for category in CATEGORIES
+            if category != "false-positive"
+        )
+        triage_total, known_triage_total, missing_triage = _cost_summary(
+            check_labels, "triage_minutes"
+        )
+        cycles_total, known_cycles_total, missing_cycles = _cost_summary(
+            check_labels, "extra_cycles", integer=True
+        )
+        scope_breakdown: dict[str, Mapping[str, Any]] = {}
+        for scope_mode in sorted(all_stats.executions_by_scope):
+            analysis_runs = all_stats.analysis_runs_by_scope[scope_mode]
+            firing_runs = all_stats.firing_runs_by_scope[scope_mode]
+            scope_breakdown[scope_mode] = {
+                "executions": all_stats.executions_by_scope[scope_mode],
+                "analysis_runs": analysis_runs,
+                "firing_runs": firing_runs,
+                "firing_rate_pct": _percent(firing_runs, analysis_runs),
+                "duration_ms": _duration_summary(
+                    all_stats.durations_by_scope[scope_mode]
+                ),
+            }
+        origin_breakdown: dict[str, Mapping[str, Any]] = {}
+        for origin in sorted(all_stats.executions_by_origin):
+            analysis_runs = all_stats.analysis_runs_by_origin[origin]
+            firing_runs = all_stats.firing_runs_by_origin[origin]
+            origin_breakdown[origin] = {
+                "executions": all_stats.executions_by_origin[origin],
+                "analysis_runs": analysis_runs,
+                "firing_runs": firing_runs,
+                "firing_rate_pct": _percent(firing_runs, analysis_runs),
+                "duration_ms": _duration_summary(
+                    all_stats.durations_by_origin[origin]
+                ),
+            }
+        cohort_breakdown: dict[str, Mapping[str, Any]] = {}
+        cohort_names = set(all_stats.guardian_digests)
+        cohort_names.update(
+            observation_digests[oid] for oid in all_check_observation_ids
+        )
+        for digest in sorted(cohort_names):
+            cohort_ids = {
+                observation_id
+                for observation_id in raw_check_observation_ids
+                if observation_digests.get(observation_id, "unknown") == digest
+            }
+            historical_cohort_ids = {
+                observation_id
+                for observation_id in historical_check_observation_ids
+                if observation_digests.get(observation_id, "unknown") == digest
+            }
+            cohort_labels = [
+                labels[observation_id]
+                for observation_id in cohort_ids
+                if observation_id in labels
+            ]
+            cohort_categories = Counter(
+                str(label["category"]) for label in cohort_labels
+            )
+            historical_cohort_labels = [
+                labels[observation_id]
+                for observation_id in historical_cohort_ids
+                if observation_id in labels
+            ]
+            historical_cohort_categories = Counter(
+                str(label["category"]) for label in historical_cohort_labels
+            )
+            analysis_runs = all_stats.analysis_runs_by_digest[digest]
+            firing_runs = all_stats.firing_runs_by_digest[digest]
+            cohort_breakdown[digest] = {
+                "executions": all_stats.guardian_digests[digest],
+                "analysis_runs": analysis_runs,
+                "firing_runs": firing_runs,
+                "firing_rate_pct": _percent(firing_runs, analysis_runs),
+                "duration_ms": _duration_summary(
+                    all_stats.durations_by_digest[digest]
+                ),
+                "unique_observations": len(cohort_ids),
+                "labeled_observations": len(cohort_labels),
+                "categories": {
+                    category: cohort_categories[category] for category in CATEGORIES
+                },
+                "historical_labels": {
+                    "labeled_observations": len(historical_cohort_labels),
+                    "categories": {
+                        category: historical_cohort_categories[category]
+                        for category in CATEGORIES
+                    },
+                },
+            }
+        rows.append(
+            {
+                "check": check_name,
+                "executions": stats.executions,
+                "analysis_runs": stats.analysis_runs,
+                "internal_followup_executions": (
+                    all_stats.executions - all_stats.analysis_runs
+                ),
+                "firing_runs": stats.firing_runs,
+                "firing_rate_pct": _percent(stats.firing_runs, stats.analysis_runs),
+                "findings": stats.findings,
+                "warnings": stats.warnings,
+                "deferred": stats.deferred,
+                "unique_observations": len(check_observation_ids),
+                "observation_occurrences": stats.observation_occurrences,
+                "recurrences": max(
+                    0, stats.observation_occurrences - len(stats.observation_ids)
+                ),
+                "unique_subjects": len(
+                    {
+                        observation_subjects[observation_id]
+                        for observation_id in check_observation_ids
+                        if observation_id in observation_subjects
+                    }
+                ),
+                "retained_labeled_observations": 0,
+                "labeled_observations": len(check_labels),
+                "label_coverage_pct": _percent(
+                    len(check_labels), len(check_observation_ids)
+                ),
+                "categories": {category: categories[category] for category in CATEGORIES},
+                "category_rates_pct": category_rates,
+                "actionable_observations": actionable,
+                "known_actionable_per_100_runs": (
+                    round(100.0 * actionable / stats.analysis_runs, 2)
+                    if stats.analysis_runs
+                    else None
+                ),
+                "actionable_per_100_runs": (
+                    round(100.0 * actionable / stats.analysis_runs, 2)
+                    if stats.analysis_runs
+                    and len(check_labels) == len(check_observation_ids)
+                    else None
+                ),
+                "duration_ms": _duration_summary(stats.durations_ms),
+                "slowest_run_count": stats.slowest_runs,
+                "policies": dict(sorted(stats.policies.items())),
+                "outcomes": dict(sorted(stats.outcomes.items())),
+                "origins": dict(sorted(all_stats.origins.items())),
+                "phases": dict(sorted(all_stats.phases.items())),
+                "scope_modes": dict(sorted(all_stats.scope_modes.items())),
+                "scope_breakdown": scope_breakdown,
+                "origin_breakdown": origin_breakdown,
+                "cohorts": cohort_breakdown,
+                "historical_labels": {
+                    "labeled_observations": len(historical_check_labels),
+                    "categories": {
+                        category: historical_categories[category]
+                        for category in CATEGORIES
+                    },
+                    "unique_subjects": len(
+                        {
+                            observation_subjects[observation_id]
+                            for observation_id in historical_check_observation_ids
+                            if observation_id in observation_subjects
+                        }
+                    ),
+                },
+                "all_retained": {
+                    "executions": all_stats.executions,
+                    "analysis_runs": all_stats.analysis_runs,
+                    "firing_runs": all_stats.firing_runs,
+                    "firing_rate_pct": _percent(
+                        all_stats.firing_runs, all_stats.analysis_runs
+                    ),
+                    "unique_observations": len(raw_check_observation_ids),
+                    "labeled_observations": len(all_check_labels),
+                    "unique_subjects": len(
+                        {
+                            observation_subjects[observation_id]
+                            for observation_id in raw_check_observation_ids
+                            if observation_id in observation_subjects
+                        }
+                    ),
+                    "duration_ms": _duration_summary(all_stats.durations_ms),
+                    "observation_occurrences": all_stats.observation_occurrences,
+                    "recurrences": max(
+                        0,
+                        all_stats.observation_occurrences
+                        - len(all_stats.observation_ids),
+                    ),
+                    "phases": dict(sorted(all_stats.phases.items())),
+                },
+                "triage_minutes_total": triage_total,
+                "known_triage_minutes_total": known_triage_total,
+                "missing_triage_minutes": missing_triage,
+                "extra_cycles_total": cycles_total,
+                "known_extra_cycles_total": known_cycles_total,
+                "missing_extra_cycles": missing_cycles,
+            }
+        )
+
+    triage_total, known_triage_total, missing_triage = _cost_summary(
+        headline_known_labels, "triage_minutes"
+    )
+    cycles_total, known_cycles_total, missing_cycles = _cost_summary(
+        headline_known_labels, "extra_cycles", integer=True
+    )
+    all_triage_total, all_known_triage_total, all_missing_triage = _cost_summary(
+        all_known_labels, "triage_minutes"
+    )
+    all_cycles_total, all_known_cycles_total, all_missing_cycles = _cost_summary(
+        all_known_labels, "extra_cycles", integer=True
+    )
+    historical_known_labels = [
+        labels[observation_id]
+        for observation_id in historical_observation_ids
+        if observation_id in labels
+    ]
+    historical_categories = Counter(
+        str(label["category"]) for label in historical_known_labels
+    )
+    historical_by_digest: dict[str, Mapping[str, Any]] = {}
+    for digest in sorted(
+        {observation_digests[observation_id] for observation_id in historical_observation_ids}
+    ):
+        digest_labels = [
+            labels[observation_id]
+            for observation_id in historical_observation_ids
+            if observation_digests[observation_id] == digest
+            and observation_id in labels
+        ]
+        digest_categories = Counter(str(label["category"]) for label in digest_labels)
+        historical_by_digest[digest] = {
+            "labeled_observations": len(digest_labels),
+            "categories": {
+                category: digest_categories[category] for category in CATEGORIES
+            },
+        }
+    event_rows: dict[str, Mapping[str, Any]] = {}
+    all_event_outcomes: Counter[str] = Counter()
+    all_event_phases: Counter[str] = Counter()
+    for event_type, stats in sorted(telemetry.events.items()):
+        all_event_outcomes.update(stats.outcomes)
+        all_event_phases.update(stats.phases)
+        event_rows[event_type] = {
+            "count": stats.count,
+            "outcomes": dict(sorted(stats.outcomes.items())),
+            "phases": dict(sorted(stats.phases.items())),
+            "duration_ms": _duration_summary(stats.durations_ms),
+            "gate_duration_ms": _duration_summary(stats.gate_durations_ms),
+            "test_duration_ms": _duration_summary(stats.test_durations_ms),
+        }
+    return {
+        "schema": SCHEMA,
+        "headline_guardian_digest": telemetry.latest_guardian_digest,
+        "headline_origins": list(telemetry.headline_origins),
+        "invocations": telemetry.headline_invocation_count,
+        "cached_invocations": telemetry.headline_cached_invocation_count,
+        "duration_ms": _duration_summary(telemetry.headline_durations_ms),
+        "check_phase_ms": _duration_summary(
+            telemetry.headline_check_phase_durations_ms
+        ),
+        "outcomes": dict(sorted(telemetry.headline_outcomes.items())),
+        "scope_modes": dict(sorted(telemetry.headline_scope_modes.items())),
+        "guardian_digests": dict(sorted(telemetry.guardian_digests.items())),
+        "events": {
+            "count": sum(stats.count for stats in telemetry.events.values()),
+            "outcomes": dict(sorted(all_event_outcomes.items())),
+            "phases": dict(sorted(all_event_phases.items())),
+            "by_type": event_rows,
+        },
+        "check_executions": sum(
+            stats.executions for stats in telemetry.headline_checks.values()
+        ),
+        "analysis_runs": sum(
+            stats.analysis_runs for stats in telemetry.headline_checks.values()
+        ),
+        "unique_observations": len(headline_observation_ids),
+        "labeled_observations": len(headline_known_labels),
+        "retained_labeled_observations": 0,
+        "pending_observations": len(headline_observation_ids)
+        - len(headline_known_labels),
+        "label_coverage_pct": _percent(
+            len(headline_known_labels),
+            len(headline_observation_ids),
+        ),
+        "unattributed_labels": len(
+            set(labels) - raw_observation_ids - historical_observation_ids
+        ),
+        "historical_labels": {
+            "labeled_observations": len(historical_known_labels),
+            "categories": {
+                category: historical_categories[category]
+                for category in CATEGORIES
+            },
+            "by_guardian_digest": historical_by_digest,
+        },
+        "all_retained": {
+            "invocations": telemetry.invocation_count,
+            "cached_invocations": telemetry.cached_invocation_count,
+            "duration_ms": _duration_summary(telemetry.durations_ms),
+            "check_phase_ms": _duration_summary(
+                telemetry.check_phase_durations_ms
+            ),
+            "outcomes": dict(sorted(telemetry.outcomes.items())),
+            "origins": dict(sorted(telemetry.origins.items())),
+            "phases": dict(sorted(telemetry.phases.items())),
+            "scope_modes": dict(sorted(telemetry.scope_modes.items())),
+            "check_executions": sum(
+                stats.executions for stats in telemetry.checks.values()
+            ),
+            "analysis_runs": sum(
+                stats.analysis_runs for stats in telemetry.checks.values()
+            ),
+            "unique_observations": len(raw_observation_ids),
+            "labeled_observations": len(all_known_labels),
+            "pending_observations": len(raw_observation_ids)
+            - len(all_known_labels),
+            "retained_labeled_observations": 0,
+            "triage_minutes_total": all_triage_total,
+            "known_triage_minutes_total": all_known_triage_total,
+            "missing_triage_minutes": all_missing_triage,
+            "extra_cycles_total": all_cycles_total,
+            "known_extra_cycles_total": all_known_cycles_total,
+            "missing_extra_cycles": all_missing_cycles,
+        },
+        "actionable_categories": [
+            "defect",
+            "useful-review",
+            "intentional-change",
+        ],
+        "triage_minutes_total": triage_total,
+        "known_triage_minutes_total": known_triage_total,
+        "missing_triage_minutes": missing_triage,
+        "extra_cycles_total": cycles_total,
+        "known_extra_cycles_total": known_cycles_total,
+        "missing_extra_cycles": missing_cycles,
+        "checks": rows,
+    }
+
+
+def _markdown(value: Any) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _display(value: Any, suffix: str = "") -> str:
+    if value is None:
+        return "unknown"
+    return f"{value}{suffix}"
+
+
+def _count_rate(row: Mapping[str, Any], category: str) -> str:
+    count = row["categories"][category]
+    rate = row["category_rates_pct"][category]
+    return f"{count} ({_display(rate, '%')})"
+
+
+def _counter_display(values: Mapping[str, int]) -> str:
+    if not values:
+        return "-"
+    return ", ".join(f"{key}={value}" for key, value in values.items())
+
+
+def render_markdown(summary: Mapping[str, Any]) -> str:
+    lines = [
+        "# Guardian check ROI",
+        "",
+        (
+            f"- Headline cohort: Guardian `{summary['headline_guardian_digest']}`; "
+            f"direct origins {', '.join(summary['headline_origins'])}"
+        ),
+        f"- Invocations: {summary['invocations']} ({summary['cached_invocations']} cached)",
+        (
+            "- Invocation duration median / p95: "
+            f"{_display(summary['duration_ms']['median'])} / "
+            f"{_display(summary['duration_ms']['p95'])} ms"
+        ),
+        (
+            "- Check-phase duration median / p95: "
+            f"{_display(summary['check_phase_ms']['median'])} / "
+            f"{_display(summary['check_phase_ms']['p95'])} ms"
+        ),
+        f"- Check executions: {summary['check_executions']}",
+        f"- Analysis runs: {summary['analysis_runs']}",
+        (
+            f"- Observations: {summary['unique_observations']} unique, "
+            f"{summary['labeled_observations']} labeled, "
+            f"{summary['pending_observations']} pending"
+        ),
+        (
+            "- Historical labels (outside the raw run window): "
+            f"{summary['historical_labels']['labeled_observations']} "
+            "(category counts only; no per-run rate)"
+        ),
+        f"- Label coverage: {_display(summary['label_coverage_pct'], '%')}",
+        (
+            "- Triage minutes: "
+            f"{_display(summary['triage_minutes_total'])} complete total "
+            f"({_display(summary['known_triage_minutes_total'])} known; "
+            f"{summary['missing_triage_minutes']} missing)"
+        ),
+        (
+            "- Extra cycles: "
+            f"{_display(summary['extra_cycles_total'])} complete total "
+            f"({_display(summary['known_extra_cycles_total'])} known; "
+            f"{summary['missing_extra_cycles']} missing)"
+        ),
+        "",
+    ]
+    checks = [
+        row
+        for row in summary["checks"]
+        if row["executions"] or row["unique_observations"]
+    ]
+    if checks:
+        lines.extend(
+            [
+                "| Check | Runs | Firing | Observations | Labels | Defect | Review | Intentional | False positive | Median / p95 ms | Actionable / 100 runs |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in checks:
+            duration = row["duration_ms"]
+            lines.append(
+                f"| {_markdown(row['check'])} "
+                f"| {row['analysis_runs']} "
+                f"| {_display(row['firing_rate_pct'], '%')} "
+                f"| {row['unique_observations']} "
+                f"| {row['labeled_observations']} "
+                f"| {_count_rate(row, 'defect')} "
+                f"| {_count_rate(row, 'useful-review')} "
+                f"| {_count_rate(row, 'intentional-change')} "
+                f"| {_count_rate(row, 'false-positive')} "
+                f"| {_display(duration['median'])} / {_display(duration['p95'])} "
+                f"| {_display(row['actionable_per_100_runs'])} |"
+            )
+        lines.extend(
+            [
+                "",
+                "Actionable means any labeled observation except `false-positive`. "
+                "Actionable/100 remains unknown until that cohort's observations are all labeled. "
+                "Runs exclude `accept` update/verify follow-ups; executions and phase "
+                "breakdowns remain in JSON. "
+                "Runtime rows are independent samples; do not add them because checks may run concurrently. "
+                "A missing cost remains unknown rather than being counted as zero.",
+            ]
+        )
+    else:
+        lines.append("No check-run telemetry has been recorded.")
+
+    events = summary["events"]
+    if events["count"]:
+        lines.extend(
+            [
+                "",
+                "## Workflow events",
+                "",
+                "| Type | Count | Outcomes | Phases | Duration median / p95 ms | Gate median / p95 ms | Tests median / p95 ms |",
+                "|---|---:|---|---|---:|---:|---:|",
+            ]
+        )
+        for event_type, row in events["by_type"].items():
+            duration = row["duration_ms"]
+            gate_duration = row["gate_duration_ms"]
+            test_duration = row["test_duration_ms"]
+            lines.append(
+                f"| {_markdown(event_type)} "
+                f"| {row['count']} "
+                f"| {_markdown(_counter_display(row['outcomes']))} "
+                f"| {_markdown(_counter_display(row['phases']))} "
+                f"| {_display(duration['median'])} / {_display(duration['p95'])} "
+                f"| {_display(gate_duration['median'])} / {_display(gate_duration['p95'])} "
+                f"| {_display(test_duration['median'])} / {_display(test_duration['p95'])} |"
+            )
+    return "\n".join(lines)
+
+
+def command_summary(args: argparse.Namespace) -> int:
+    cache = _project_cache(args.project)
+    telemetry = load_telemetry(cache / RUN_FILENAME)
+    labels = load_labels(cache / LABEL_FILENAME)
+    summary = build_summary(telemetry, labels)
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(render_markdown(summary))
+    return 0
+
+
+def nonnegative_number(value: str) -> int | float:
+    try:
+        number = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a non-negative number") from error
+    if not math.isfinite(number) or number < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative number")
+    return int(number) if number.is_integer() else number
+
+
+def nonnegative_integer(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a non-negative integer") from error
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return number
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="guardian-roi",
+        description="Inspect and classify Guardian's local per-check ROI telemetry.",
+        epilog=(
+            "Summary headlines use the latest Guardian digest's direct all/build "
+            "runs. JSON also retains scope, origin, phase, and digest cohorts."
+        ),
+    )
+    commands = result.add_subparsers(dest="command", required=True)
+
+    pending = commands.add_parser("pending", help="list observations without a label")
+    pending.add_argument("project", help="project root containing .guardian/cache")
+    pending.set_defaults(handler=command_pending)
+
+    label = commands.add_parser("label", help="append a human classification")
+    label.add_argument("project", help="project root containing .guardian/cache")
+    label.add_argument("observation_id")
+    label.add_argument("category", choices=CATEGORIES)
+    label.add_argument("--minutes", type=nonnegative_number, help="triage time in minutes")
+    label.add_argument("--cycles", type=nonnegative_integer, help="extra development cycles")
+    label.add_argument("--reason", help="short classification reason")
+    label.add_argument("--note", help="optional local note")
+    label.set_defaults(handler=command_label)
+
+    summary = commands.add_parser(
+        "summary",
+        help="summarize check-level ROI",
+        description=(
+            "Summarize the latest direct-run cohort while retaining all observed "
+            "digest, scope, origin, and workflow breakdowns."
+        ),
+    )
+    summary.add_argument("project", help="project root containing .guardian/cache")
+    output = summary.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    output.add_argument("--markdown", action="store_true", help="emit Markdown (default)")
+    summary.set_defaults(handler=command_summary)
+    return result
+
+
+class CliError(Exception):
+    pass
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        return int(args.handler(args))
+    except CliError as error:
+        print(f"guardian-roi: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

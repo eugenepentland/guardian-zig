@@ -22,6 +22,7 @@ const std = @import("std");
 const fs = @import("fs.zig");
 const Allocator = std.mem.Allocator;
 const reporter = @import("reporter.zig");
+const violation_key = @import("violation_key.zig");
 
 /// Cache subdirectory (relative to the project dir) that holds the sink log.
 const cache_subdir = ".guardian/cache";
@@ -40,6 +41,7 @@ const ViolationLine = struct {
     identity: ?[]const u8 = null,
     ratchet_key: ?[]const u8 = null,
     metric: ?u64 = null,
+    finding_key: ?[]const u8 = null,
 };
 
 /// Wire form of the run summary record. Private DTO (see `ViolationLine`).
@@ -73,6 +75,7 @@ pub fn violationJson(arena: Allocator, v: reporter.Violation) Allocator.Error![]
         .identity = v.identity,
         .ratchet_key = v.ratchet_key,
         .metric = v.metric,
+        .finding_key = try violation_key.fromRecord(arena, v.check, v),
     };
     return std.json.Stringify.valueAlloc(arena, rec, .{});
 }
@@ -268,6 +271,7 @@ test "scrapedRecord carries the check's fix hint and re-renders its source line"
 }
 
 // spec: Machine-Readable Sink - Serializes each violation as a JSON line escaping message and path text
+// spec: Machine-Readable Sink - Adds a rendering-stable finding key to every violation record
 
 test "violationJson emits the full record for a migrated check and escapes text" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -287,7 +291,7 @@ test "violationJson emits the full record for a migrated check and escapes text"
     try std.testing.expectEqualStrings(
         "{\"type\":\"violation\",\"check\":\"function-length\",\"file\":\"src/x.zig\",\"line\":5," ++
             "\"message\":\"fn \\\"foo\\\" is 246 lines (cap 200)\",\"fix_hint\":null,\"identity\":null," ++
-            "\"ratchet_key\":\"src/x.zig|foo\",\"metric\":246}",
+            "\"ratchet_key\":\"src/x.zig|foo\",\"metric\":246,\"finding_key\":\"function-length|src/x.zig|foo\"}",
         try violationJson(a, v),
     );
 
@@ -296,7 +300,7 @@ test "violationJson emits the full record for a migrated check and escapes text"
     try std.testing.expectEqualStrings(
         "{\"type\":\"violation\",\"check\":\"spec\",\"file\":null,\"line\":null," ++
             "\"message\":\"unverified: Auth - Validates tokens\",\"fix_hint\":null,\"identity\":null," ++
-            "\"ratchet_key\":null,\"metric\":null}",
+            "\"ratchet_key\":null,\"metric\":null,\"finding_key\":\"spec|unverified: Auth - Validates tokens\"}",
         try violationJson(a, u),
     );
 }

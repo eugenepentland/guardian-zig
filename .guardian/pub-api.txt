@@ -134,6 +134,25 @@ src/cache.zig::validStoredBytes | fn validStoredBytes(raw: []const u8) bool
 src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
 src/check.zig::main | fn main(process_init: std.process.Init) !void
+src/check_roi.zig::CheckCounts struct_
+src/check_roi.zig::CheckOutcome enum_
+src/check_roi.zig::CheckRecord struct_
+src/check_roi.zig::EventContext struct_
+src/check_roi.zig::EventIdentity struct_
+src/check_roi.zig::EventRecord struct_
+src/check_roi.zig::EventTiming struct_
+src/check_roi.zig::Observation struct_
+src/check_roi.zig::ObservationSeed struct_
+src/check_roi.zig::Policy enum_
+src/check_roi.zig::RunContext struct_
+src/check_roi.zig::RunIdentity struct_
+src/check_roi.zig::RunOutcome enum_
+src/check_roi.zig::RunRecord struct_
+src/check_roi.zig::RunTiming struct_
+src/check_roi.zig::ScopeMode enum_
+src/check_roi.zig::observationFromRecord | fn observationFromRecord( arena: Allocator, seed: ObservationSeed, violation: reporter.Violation, ) Allocator.Error!Observation
+src/check_roi.zig::recordEvent | fn recordEvent(arena: Allocator, project_dir: []const u8, rec: EventRecord) void
+src/check_roi.zig::recordRun | fn recordRun(arena: Allocator, project_dir: []const u8, rec: RunRecord) void
 src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/assert_doc_consistency.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
@@ -485,6 +504,7 @@ src/dora.zig::recordRun | fn recordRun( arena: Allocator, project_dir: []const u
 src/dora.zig::renderRecord | fn renderRecord(arena: Allocator, rec: RunRecord) Allocator.Error![]u8
 src/dora.zig::resolvePath | fn resolvePath(arena: Allocator, project_dir: []const u8, sink_path: []const u8) Allocator.Error![]const u8
 src/dora.zig::startStopwatch | fn startStopwatch() Stopwatch
+src/dora.zig::unixMs | fn unixMs() u64
 src/external_inputs.zig::ExpandError value
 src/external_inputs.zig::argvForInput | fn argvForInput( arena: Allocator, command: []const []const u8, input: []const u8, ) Allocator.Error![]const []const u8
 src/external_inputs.zig::expand | fn expand( arena: Allocator, project_dir: []const u8, patterns: []const []const u8, ) ExpandError![]const []const u8

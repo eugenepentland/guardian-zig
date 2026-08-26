@@ -571,9 +571,10 @@ pub const CompletenessCfg = struct {
     exempt_sections: []const []const u8 = &.{},
 };
 
-/// Config for the DORA delivery-metrics sink (non-gating; see dora.zig). Each
-/// `all`/`nightly` run appends one JSON line unless disabled. The sink lives
-/// under `.guardian/cache/` so rewriting it never invalidates the skip-cache.
+/// Config for local metrics (non-gating; see dora.zig and check_roi.zig). Each
+/// full `all`/`nightly` run appends DORA while every invocation appends ROI;
+/// `enabled = false` is the shared v1 opt-out. The streams remain separate
+/// under `.guardian/cache/`, so writing them never invalidates the skip-cache.
 pub const DoraCfg = struct {
     enabled: bool = true,
     sink_path: []const u8 = ".guardian/cache/dora.jsonl",

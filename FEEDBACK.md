@@ -1,17 +1,18 @@
 # Guardian Usage Feedback Log
 
-Append-only log of concrete Guardian problems. Eugene reviews this list
-periodically and turns entries into Guardian changes; the entries themselves
-are the triage backlog.
+Append-only log of concrete Guardian usage signals. Eugene reviews this list
+periodically and turns recurring friction, bugs, wins, and wishes into Guardian
+changes; the entries themselves are the triage backlog.
 
 ## How to add an entry (agents: follow this exactly)
 
 1. Write the entry **at the bottom of the Log section** — never edit, reorder,
    or delete existing entries (pruning happens at triage, by Eugene only).
-2. Log only a real problem. A smooth session writes and commits nothing. Make
-   each problem self-contained: another agent (or Eugene, weeks later) has none of
-   your session context. Name the check, the project, what happened, and what
-   it cost you (retries, wasted builds, confusion).
+2. After every task that exercised a Guardian gate, add an entry. A smooth run
+   gets one concise `good:` bullet. Make every signal self-contained: another
+   agent (or Eugene, weeks later) has none of your session context. Name the
+   check, the project, what happened, and any cost (retries, wasted builds,
+   confusion).
 3. Commit the append in this repo immediately, so the tree stays clean:
 
    ```bash
@@ -25,11 +26,12 @@ are the triage backlog.
 ## YYYY-MM-DD · <agent> · <project> — <task one-liner>
 - **friction:** <what slowed you down — check name, what happened, cost>
 - **bug:** <behavior that looks wrong, with repro if cheap>
+- **good:** <what worked smoothly or caught a concrete mistake>
+- **wish:** <specific improvement suggested by this run>
 ```
 
-Use only `bug:` and `friction:`. Multiple bullets of the same kind are fine. A
-fix proposal attached to a real problem belongs inside that bullet; standalone
-feature wishes are out of scope while Guardian is hardening.
+Use only the categories that apply; multiple bullets of the same kind are fine.
+A smooth run needs only one `good:` bullet.
 
 ---
 
@@ -10500,3 +10502,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — export analytic PCB solid with Fusion decals
 - **good:** The focused STEP, static-asset, page-contract, and browser utility regressions, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
+
+## 2026-08-26 · codex · guardian-zig — add per-check ROI telemetry and agent workflow
+- **good:** Guardian's self-hosted gate caught over-wide telemetry DTOs plus missing docs, inferred public errors, a test-only allocator, retained debug logging, an accidental `unreachable`, and duplicated fallback strings through `pub-api-surface`, `doc-comments`, `error-discipline`, `allocator-hygiene`, `debug-print-ban`, `type-size`, `test-coverage`, `panic-budget`, and `repeated-string-literal`; after those fixes, all 67 blocking checks and 1,159 tests passed.
+- **friction:** `guardian-check commit` correctly refused an installed binary whose embedded source digest was `5dd35509bdd6` while the tree recomputed to `c7cd9cef7ea6`, but the prescribed plain `zig build` reused that stale artifact and returned cached; repairing it required an explicit `zig build -Doptimize=safe`, adding about one minute before the commit workflow could proceed.

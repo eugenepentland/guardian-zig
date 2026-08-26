@@ -14,6 +14,7 @@ const cache = @import("../cache.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const sink = @import("../sink.zig");
 const dora = @import("../dora.zig");
+const check_roi = @import("../check_roi.zig");
 const config = @import("../config.zig");
 const metadata_transaction = @import("../metadata_transaction.zig");
 const scope = @import("../scope.zig");
@@ -27,6 +28,7 @@ const retired_checks = @import("retired.zig");
 const walk = @import("../walk.zig");
 const snapshot = @import("../snapshot.zig");
 const check_formatting = @import("../checks/formatting.zig");
+const build_options = @import("build_options");
 
 const print = std.debug.print;
 const fail = reporter.fail;
@@ -37,6 +39,8 @@ const fail = reporter.fail;
 /// measurement reminder — so they share one spelling of the status prefix.
 const prefixed_line = "{s}{s}\n";
 const pub_api_check = "pub-api-surface";
+const sink_drop_warning = "guardian: dropped a sink record: {s}";
+const measurement_drop_warning = "guardian: dropped a measurement note: {s}";
 
 pub const command_name = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
@@ -76,10 +80,61 @@ pub const PassSummary = struct {
     failed: u32 = 0,
 };
 
+/// Mutable facts accumulated across every exit path of one `all` invocation.
+/// The defer at the top of `runCollecting` writes it even when validation,
+/// source preparation, or a check ends in an environmental error.
+const RoiState = struct {
+    enabled: bool,
+    commit: ?[]const u8 = null,
+    scope_mode: check_roi.ScopeMode = .full,
+    scope_files: u32 = 0,
+    cached: bool = false,
+    outcome: check_roi.RunOutcome = .@"error",
+    check_phase_ms: u64 = 0,
+    checks: []const check_roi.CheckRecord = &.{},
+};
+
+fn recordRoiInvocation(ctx: *types.RunCtx, stopwatch: *dora.Stopwatch, state: RoiState) void {
+    if (!state.enabled) return;
+    check_roi.recordRun(ctx.allocator, ctx.project_dir, .{
+        .identity = .{
+            .timestamp_ms = dora.unixMs(),
+            .commit = state.commit,
+            .guardian_digest = build_options.source_digest,
+        },
+        .context = .{
+            .origin = ctx.roi_origin,
+            .phase = ctx.roi_phase,
+            .scope_mode = state.scope_mode,
+            .scope_files = state.scope_files,
+            .cached = state.cached,
+        },
+        .outcome = state.outcome,
+        .timing = .{
+            .duration_ms = stopwatch.elapsedMs(),
+            .check_phase_ms = state.check_phase_ms,
+        },
+        .checks = state.checks,
+    });
+}
+
 /// `run`, additionally reporting the pass's outcome through `out`. Every exit
 /// path that ran checks fills it; a cache-skipped pass leaves it untouched
 /// (a filtered pass — the only kind that asks — never skips).
 pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void {
+    // ROI starts before validation/cache/source preparation so its total is the
+    // gate cost through verdict generation, not merely the parallel check
+    // phase. The deferred JSON append itself happens after that sample. It is
+    // local, best-effort, and shares `[dora] enabled` as the metrics opt-out
+    // while retaining its own stream and semantics.
+    var roi_stopwatch = dora.startStopwatch();
+    var roi_state: RoiState = .{ .enabled = ctx.cfg.dora.enabled };
+    if (roi_state.enabled) roi_state.commit = git.headHash(ctx.allocator, ctx.project_dir);
+    const filtered = isFiltered(ctx);
+    if (filtered) roi_state.scope_mode = .filtered;
+    ctx.roi_commit = roi_state.commit;
+    defer recordRoiInvocation(ctx, &roi_stopwatch, roi_state);
+
     // Validate the disabled list up front: a typo like "magic-numbers" would
     // otherwise silently disable nothing while the user believes it's off.
     try validateDisabled(ctx.cfg.disabled);
@@ -106,13 +161,14 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     // A filtered run (--only/--skip) is a subset, not the full suite, so it
     // must neither trust nor write the green skip-cache — recording green from
     // a partial run would mask a failure in the checks it didn't run.
-    const filtered = isFiltered(ctx);
     if (!filtered and shouldSkipRun(ctx)) {
         // The skip path prints its verdict on the always-visible channel like
         // every other path. It used to go through `ok`, which the build wiring's
         // `--quiet` suppresses — so a cached run emitted no guardian output at
         // all and was indistinguishable from a mistyped grep.
         printVerdict(ctx, .{ .cached = true });
+        roi_state.cached = true;
+        roi_state.outcome = .green;
         return;
     }
 
@@ -168,6 +224,8 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     defer ctx.renames = null;
     try prepareSources(ctx, &index_storage, &scoped_storage, writes);
     try prepareRenames(ctx);
+    if (!filtered and ctx.scoped != null) roi_state.scope_mode = .diff;
+    roi_state.scope_files = sourceFileCount(ctx);
     // Cold-cache marker: a whole-tree run with no prior green stamp is the
     // "first gate" whose verdict an agent should not treat as cache-confirmed
     // (baseline mode records-then-enforces, and a cold tool cache is where a
@@ -180,10 +238,18 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     // Time the run for the DORA sink. Started here (after the cache-skip guard)
     // so a cache-skipped run — which returns above — records nothing.
     var stopwatch = dora.startStopwatch();
+    var check_stopwatch = dora.startStopwatch();
     var ran: u32 = 0;
     var acc: Sink = .{};
-    const tally = try runChecks(ctx, &ran, &acc);
+    const tally = runChecks(ctx, &ran, &acc) catch |err| {
+        roi_state.check_phase_ms = check_stopwatch.elapsedMs();
+        roi_state.checks = acc.roi_checks.items;
+        return err;
+    };
+    roi_state.check_phase_ms = check_stopwatch.elapsedMs();
+    roi_state.checks = acc.roi_checks.items;
     const failed = tally.failed;
+    roi_state.outcome = if (failed == 0) .green else .red;
     if (out) |o| o.* = .{ .findings = acc.records.items.len, .failed = failed };
 
     // A diff-scoped run is partial in exactly the sense a --only/--skip run is:
@@ -803,6 +869,9 @@ const stale_artifact_caution =
 const Sink = struct {
     records: std.ArrayList(reporter.Violation) = .empty,
     failed_checks: std.ArrayList([]const u8) = .empty,
+    /// Per-check timing/outcome/observation facts for the ROI stream. Entries
+    /// are in registry order, matching the deterministic terminal replay.
+    roi_checks: std.ArrayList(check_roi.CheckRecord) = .empty,
     /// Findings deferred by a live `[measurement]` exemption, gathered across
     /// checks so the run prints ONE standing reminder naming every exempted
     /// path and its live counts.
@@ -1208,6 +1277,15 @@ fn isPartial(filtered: bool, diff_scoped: bool) bool {
     return filtered or diff_scoped;
 }
 
+/// Number of source files represented by this run's parsed view. A diff run
+/// reports its narrowed count; a whole-tree/filtered run reports the full
+/// shared index. Zero is the honest fallback when no check needed an index.
+fn sourceFileCount(ctx: *const types.RunCtx) u32 {
+    if (ctx.scoped) |scoped| return std.math.cast(u32, scoped.file_count) orelse std.math.maxInt(u32);
+    const index = ctx.source_index orelse return 0;
+    return std.math.cast(u32, index.files.len) orelse std.math.maxInt(u32);
+}
+
 /// Runs one check into a fresh capture over the worker's allocator, returning
 /// its result. A copied RunCtx carries the per-worker allocator so no check
 /// allocates through the shared arena.
@@ -1284,7 +1362,9 @@ fn emitAndTally(ctx: *types.RunCtx, results: []CheckResult, ran: *u32, acc: *Sin
                 first_err_path = r.err_path;
             }
         }
+        const finding_start = acc.records.items.len;
         collectSink(ctx, acc, cmd.name, r);
+        collectRoiCheck(ctx, acc, cmd.name, r, acc.records.items[finding_start..]);
         collectMeasured(ctx, acc, r);
     }
     // Blocking detail first, advisory second. Output was already captured per
@@ -1471,8 +1551,14 @@ fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckR
         // Best-effort telemetry: a dropped sink record is logged, not swallowed
         // silently, and never fails the gate (the check's own verdict already
         // stands). log is fine here — cli/ is exempt from debug-print-ban.
-        for (r.records) |v| acc.records.append(ctx.allocator, dupViolation(ctx.allocator, withHint(v, hint))) catch |e|
-            std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
+        for (r.records) |v| {
+            const owned = dupViolation(ctx.allocator, withHint(v, hint)) catch |e| {
+                std.log.warn(sink_drop_warning, .{@errorName(e)});
+                continue;
+            };
+            acc.records.append(ctx.allocator, owned) catch |e|
+                std.log.warn(sink_drop_warning, .{@errorName(e)});
+        }
         return;
     }
     // Unmigrated check: scrape indented violation lines (baseline.extract shares
@@ -1483,9 +1569,82 @@ fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckR
     const lines = baseline.extract(ctx.allocator, r.output) catch return;
     for (lines) |line| {
         const v = sink.scrapedRecord(check_name, line, hint);
-        acc.records.append(ctx.allocator, dupViolation(ctx.allocator, v)) catch |e|
-            std.log.warn("guardian: dropped a sink record: {s}", .{@errorName(e)});
+        const owned = dupViolation(ctx.allocator, v) catch |e| {
+            std.log.warn(sink_drop_warning, .{@errorName(e)});
+            continue;
+        };
+        acc.records.append(ctx.allocator, owned) catch |e|
+            std.log.warn(sink_drop_warning, .{@errorName(e)});
     }
+}
+
+/// Captures the facts needed to judge one executed check's usefulness and
+/// development cost. `findings` is the normalized slice just appended to the
+/// last-run sink, so prose and structured checks receive identical identities.
+/// Advisory warnings are included as observations too, but remain a separate
+/// count. Every allocation failure only shortens telemetry; it cannot gate.
+fn collectRoiCheck(
+    ctx: *types.RunCtx,
+    acc: *Sink,
+    check_name: []const u8,
+    r: CheckResult,
+    findings: []const reporter.Violation,
+) void {
+    if (!ctx.cfg.dora.enabled) return;
+    const a = ctx.allocator;
+    const seed: check_roi.ObservationSeed = .{
+        .commit = ctx.roi_commit,
+        .guardian_digest = build_options.source_digest,
+        .check = check_name,
+    };
+    var observations: std.ArrayList(check_roi.Observation) = .empty;
+    for (findings) |finding| {
+        const observation = check_roi.observationFromRecord(a, seed, finding) catch |err| {
+            std.log.warn("guardian: dropped a check ROI observation: {s}", .{@errorName(err)});
+            continue;
+        };
+        observations.append(a, observation) catch |err|
+            std.log.warn("guardian: dropped a check ROI observation: {s}", .{@errorName(err)});
+    }
+    for (r.warnings) |borrowed| {
+        const observation = check_roi.observationFromRecord(a, seed, borrowed) catch |err| {
+            std.log.warn("guardian: dropped a check ROI warning observation: {s}", .{@errorName(err)});
+            continue;
+        };
+        observations.append(a, observation) catch |err|
+            std.log.warn("guardian: dropped a check ROI warning observation: {s}", .{@errorName(err)});
+    }
+    acc.roi_checks.append(a, .{
+        .check = check_name,
+        .policy = roiPolicy(ctx.cfg.policy.modeFor(check_name)),
+        .outcome = roiCheckOutcome(r),
+        .duration_ms = r.elapsed_ms,
+        .counts = .{
+            .findings = countU32(findings.len),
+            .warnings = countU32(r.warnings.len),
+            .deferred = countU32(r.measured.len),
+        },
+        .observations = observations.items,
+    }) catch |err| std.log.warn("guardian: dropped a check ROI result: {s}", .{@errorName(err)});
+}
+
+fn roiPolicy(mode: config.PolicyMode) check_roi.Policy {
+    return switch (mode) {
+        .block => .block,
+        .ratchet => .ratchet,
+        .report => .report,
+    };
+}
+
+fn roiCheckOutcome(r: CheckResult) check_roi.CheckOutcome {
+    if (r.err != null) return .@"error";
+    if (r.failed) return .failed;
+    if (r.reported) return .reported;
+    return .passed;
+}
+
+fn countU32(n: usize) u32 {
+    return std.math.cast(u32, n) orelse std.math.maxInt(u32);
 }
 
 /// Gathers a check's measurement-deferred findings into the run accumulator,
@@ -1493,11 +1652,24 @@ fn collectSink(ctx: *types.RunCtx, acc: *Sink, check_name: []const u8, r: CheckR
 /// a dropped record only shortens the standing reminder, never fails the run.
 fn collectMeasured(ctx: *types.RunCtx, acc: *Sink, r: CheckResult) void {
     const a = ctx.allocator;
-    for (r.measured) |m| acc.measured.append(a, .{
-        .check = a.dupe(u8, m.check) catch m.check,
-        .path = a.dupe(u8, m.path) catch m.path,
-        .message = a.dupe(u8, m.message) catch m.message,
-    }) catch |e| std.log.warn("guardian: dropped a measurement note: {s}", .{@errorName(e)});
+    for (r.measured) |m| {
+        const owned: reporter.Measured = .{
+            .check = a.dupe(u8, m.check) catch |e| {
+                std.log.warn(measurement_drop_warning, .{@errorName(e)});
+                continue;
+            },
+            .path = a.dupe(u8, m.path) catch |e| {
+                std.log.warn(measurement_drop_warning, .{@errorName(e)});
+                continue;
+            },
+            .message = a.dupe(u8, m.message) catch |e| {
+                std.log.warn(measurement_drop_warning, .{@errorName(e)});
+                continue;
+            },
+        };
+        acc.measured.append(a, owned) catch |e|
+            std.log.warn(measurement_drop_warning, .{@errorName(e)});
+    }
 }
 
 /// A record with `hint` filled in when it has none of its own, so a row's hint
@@ -1511,22 +1683,22 @@ fn withHint(v: reporter.Violation, hint: ?[]const u8) reporter.Violation {
 
 /// Copies a Violation's borrowed string fields into `a` so a record produced in
 /// a per-worker arena survives that arena's deinit and can be serialized later.
-fn dupViolation(a: std.mem.Allocator, v: reporter.Violation) reporter.Violation {
+fn dupViolation(a: std.mem.Allocator, v: reporter.Violation) std.mem.Allocator.Error!reporter.Violation {
     return .{
-        .check = a.dupe(u8, v.check) catch v.check,
-        .file = dupOpt(a, v.file),
+        .check = try a.dupe(u8, v.check),
+        .file = try dupOpt(a, v.file),
         .line = v.line,
-        .message = a.dupe(u8, v.message) catch v.message,
-        .fix_hint = dupOpt(a, v.fix_hint),
-        .identity = dupOpt(a, v.identity),
-        .ratchet_key = dupOpt(a, v.ratchet_key),
+        .message = try a.dupe(u8, v.message),
+        .fix_hint = try dupOpt(a, v.fix_hint),
+        .identity = try dupOpt(a, v.identity),
+        .ratchet_key = try dupOpt(a, v.ratchet_key),
         .metric = v.metric,
         .alert = v.alert,
     };
 }
 
-fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) ?[]const u8 {
-    return if (s) |x| (a.dupe(u8, x) catch x) else null;
+fn dupOpt(a: std.mem.Allocator, s: ?[]const u8) std.mem.Allocator.Error!?[]const u8 {
+    return if (s) |x| try a.dupe(u8, x) else null;
 }
 
 /// A captured check's output is replayed when it has content and either we're

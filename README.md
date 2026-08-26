@@ -750,15 +750,16 @@ The snapshot files are plain text, sorted, designed to diff cleanly in code revi
 
 ## Machine-readable output
 
-Guardian is AI-first, so it emits four JSONL logs — **all under `.guardian/cache/`,
+Guardian is AI-first, so it emits local JSONL logs — **all under `.guardian/cache/`,
 which is git-ignored and excluded from the skip-cache input digest, so writing them
-never churns git or invalidates the build cache, and none carries a timestamp
-(`std.time` is banned):**
+never churns git or invalidates the build cache:**
 
 | File | Written by | Contents |
 |---|---|---|
 | `last-run.jsonl` | every `all` / `nightly` run | one `violation` record per finding + a final `summary` (detailed below) |
 | `dora.jsonl` | every `all` / `nightly` run | append-only DORA delivery-metrics record per run for external analysis |
+| `check-roi.jsonl` | every `all` invocation, including partial and cached runs | append-only per-check cost/outcome observations for local ROI analysis |
+| `check-roi-labels.jsonl` | `scripts/guardian-roi label` | append-only human classifications; the latest valid label wins |
 | `last-mutate.jsonl` | every `mutate` run | one `survivor` record per surviving mutant + a `summary` (see [Survivor report](#survivor-report)) |
 | `mutants.jsonl` | every `mutate` run | per-mutant result cache for resume / re-run (see [Result cache](#result-cache-resume--re-run)) |
 
@@ -771,9 +772,9 @@ so an agent's fix loop, an editor integration, or the `debt` report can consume
 structured findings instead of re-parsing terminal prose.
 
 ```jsonl
-{"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (hard limit 200)","fix_hint":"extract the function's phases into focused helpers","ratchet_key":"src/foo.zig|parse","metric":246}
-{"type":"violation","check":"catch-discipline","file":"src/foo.zig","line":16,"message":"catch block is empty (silently swallows the error)","fix_hint":"handle the error explicitly with a switch or named return","ratchet_key":null,"metric":null}
-{"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Auth - Validates tokens","fix_hint":null,"ratchet_key":null,"metric":null}
+{"type":"violation","check":"function-length","file":"src/foo.zig","line":246,"message":"fn parse is 246 lines (hard limit 200)","fix_hint":"extract the function's phases into focused helpers","ratchet_key":"src/foo.zig|parse","metric":246,"finding_key":"function-length|src/foo.zig|parse"}
+{"type":"violation","check":"catch-discipline","file":"src/foo.zig","line":16,"message":"catch block is empty (silently swallows the error)","fix_hint":"handle the error explicitly with a switch or named return","ratchet_key":null,"metric":null,"finding_key":"catch-discipline|src/foo.zig|catch block is empty (silently swallows the error)"}
+{"type":"violation","check":"spec","file":null,"line":null,"message":"unverified: Auth - Validates tokens","fix_hint":null,"ratchet_key":null,"metric":null,"finding_key":"spec|unverified: Auth - Validates tokens"}
 {"type":"summary","passed":58,"failed":2,"skipped":3,"filtered":false}
 ```
 
@@ -786,6 +787,10 @@ structured findings instead of re-parsing terminal prose.
   **`ratchet_key`** (stable per-subject identity —
   `file|fn`, `file|Type`, or `file`) and a **`metric`** (the measured value).
   Other checks contribute at least `check` + `message` (the rest `null`).
+- **`finding_key` is the rendering-stable identity used by ROI tooling.** It
+  prefers a check-provided `identity`, then `ratchet_key`, then a file-qualified
+  message skeleton that ignores line numbers and standalone numeric values.
+  Adding the field is backward-compatible: existing JSONL readers may ignore it.
 - **`file` / `line` are filled for a prose-reporting check too.** A check that
   prints `src/x.zig:16: <message>` rather than emitting a structured record has
   that prefix lifted into the row's own fields, so every row is addressable
@@ -842,13 +847,106 @@ gates the build.
 
 ```toml
 [dora]
-enabled = true                          # default; false disables the sink
+enabled = true                          # default; false disables DORA and local ROI logging
 sink_path = ".guardian/cache/dora.jsonl"  # default; relative paths resolve under the project dir
 ```
 
 Run duration is guardian's one legitimate wall-clock read — the sink module
 carries a `ban-time` `[[allow]]` for `std.time.Timer` that does **not** propagate
 to consumers.
+
+## Check usefulness and cost telemetry
+
+Every `all` invocation also appends a schema-versioned `check_run` to
+**`.guardian/cache/check-roi.jsonl`**. This stream is intentionally separate
+from DORA: development-only partial runs and cache hits are useful cost evidence,
+but treating them as delivery events would corrupt DORA metrics.
+
+```json
+{
+  "type": "check_run",
+  "schema": 1,
+  "timestamp_ms": 1787596800000,
+  "commit": "d41f2c9…",
+  "guardian_digest": "9c7600…",
+  "origin": "all",
+  "phase": null,
+  "scope_mode": "diff",
+  "scope_files": 3,
+  "cached": false,
+  "outcome": "red",
+  "duration_ms": 184,
+  "check_phase_ms": 151,
+  "checks": [{
+    "check": "spec",
+    "policy": "block",
+    "outcome": "failed",
+    "duration_ms": 7,
+    "findings": 1,
+    "warnings": 0,
+    "deferred": 0,
+    "observations": [{
+      "observation_id": "o1_7c98…",
+      "finding_key": "spec|unverified: Auth - Validates tokens",
+      "file": null,
+      "line": null
+    }]
+  }]
+}
+```
+
+- The top-level duration includes cache lookup, input digesting, source-index
+  preparation, and check execution. `check_phase_ms` isolates the check pass.
+  The deferred telemetry serialization happens after the duration sample and is
+  therefore not included.
+- Per-check durations overlap in parallel mode. Compare their median/p95 and
+  slowest-run frequency; never add them to claim a total cost.
+- Cache hits are invocation records with `cached: true` and an empty `checks`
+  array. Filtered and diff-scoped runs are recorded but do not enter DORA.
+- Nested workflows carry `origin` and `phase`: for example, `accept` records
+  `preview`, `update`, and `verify`, so they are not mistaken for three manual
+  retries.
+- Raw telemetry rotates at a bounded size. It contains finding identities and
+  project-relative paths, but no source contents and no network upload. The
+  label ledger is not automatically rotated. Writes are best-effort: sustained
+  sidecar-lock contention drops a record with a warning instead of delaying the
+  quality gate indefinitely.
+- `[dora] enabled = false` disables both metrics streams. They remain separate
+  files and retain their distinct delivery-versus-development semantics.
+
+Facts alone cannot say whether a finding was valuable. Classify observations
+near the end of a task (or in a daily batch) with the bundled Python 3 helper:
+
+```bash
+scripts/guardian-roi pending .
+scripts/guardian-roi label . <observation-id> defect --minutes 4 --cycles 1
+scripts/guardian-roi summary . --markdown
+scripts/guardian-roi summary . --json
+```
+
+The four categories are `defect` (a real bug/regression), `useful-review`
+(meaningful design or cleanup signal), `intentional-change` (expected drift from
+a deliberate change), and `false-positive` (the condition was factually wrong,
+the policy did not apply to otherwise-valid code, or the only resulting edit
+was appeasement with no meaningful benefit). Friction or runtime alone is not a
+false positive. `--minutes`, `--cycles`, `--reason`, and `--note` are optional;
+an omitted cost stays unknown rather than becoming zero. Relabeling appends a
+new line to `.guardian/cache/check-roi-labels.jsonl`, with the latest valid label
+winning. Each new label snapshots its check, digest, commit, finding key, and
+location so it remains attributable after the bounded raw log rotates.
+
+The summary headline uses ordinary `all`/build runs from the latest Guardian
+digest, so old implementations and compound `accept` phases do not distort the
+current numbers. JSON retains the older digest, scope, origin, and phase cohorts;
+`accept` update/verify executions stay visible there but are excluded from retry
+and firing denominators. The report includes firing and classification rates,
+actionable observations per 100 runs, median/p95 latency, and known versus
+missing human cost. It never changes policy automatically. After a representative
+4–8 week window, use that evidence to keep precise high-impact checks blocking,
+ratchet legacy debt, report judgment-heavy checks, or retire checks with no
+unique catches and sustained noise. Proving the speedup from disabling a check
+still requires a controlled A/B run; observational parallel timings are not that
+proof.
 
  ## Benchmark ledger (`bench`)
 

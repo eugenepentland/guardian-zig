@@ -83,6 +83,15 @@ pub fn nowNs() u64 {
     return @intCast(std.Io.Clock.awake.now(wiring.io()).toNanoseconds());
 }
 
+/// Current wall-clock Unix time in milliseconds. ROI records use this for
+/// correlation only; append order defines latest-record precedence because a
+/// wall clock may move backward. Durations stay on the monotonic `Stopwatch`
+/// above. A missing or out-of-range clock degrades to 0.
+pub fn unixMs() u64 {
+    const nanoseconds = std.math.cast(u64, std.Io.Clock.real.now(wiring.io()).toNanoseconds()) orelse return 0;
+    return nanoseconds / std.time.ns_per_ms;
+}
+
 /// Whole milliseconds in `ns` (floored). Pure, so the conversion is unit-tested
 /// without touching a clock.
 fn nsToMs(ns: u64) u64 {
@@ -398,6 +407,14 @@ test "nowNs is non-decreasing over time" {
     const first = nowNs();
     const second = nowNs();
     try std.testing.expect(second >= first);
+}
+
+// spec: Delivery Metrics - Reports the current wall timestamp for ordered local telemetry
+
+test "unixMs reports epoch milliseconds or its documented zero fallback" {
+    const value = unixMs();
+    const year_2000_ms: u64 = 946_684_800_000;
+    try std.testing.expect(value == 0 or value >= year_2000_ms);
 }
 
 fn fuzzDoraRecord(backing: Allocator, smith: *std.testing.Smith) anyerror!void {

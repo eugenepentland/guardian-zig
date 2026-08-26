@@ -67,6 +67,16 @@ pub const RunCtx = struct {
     /// `--intent "<message>"`: the commit subject for the `commit` command.
     /// Null for every other command; `commit` errors when it is null or blank.
     intent: ?[]const u8 = null,
+    /// User-facing command that caused an `all` pass. Composed commands replace
+    /// the direct `all` default (`commit`, `accept`, `nightly`, `migrate`) so
+    /// ROI analysis does not mistake their internal passes for manual retries.
+    roi_origin: []const u8 = "all",
+    /// Optional phase inside a composed command (`preview`, `update`, `verify`,
+    /// `gate`). Null for an ordinary direct `all` invocation.
+    roi_phase: ?[]const u8 = null,
+    /// Consumer HEAD resolved once per `all` invocation for observation IDs.
+    /// Internal telemetry seam: checks never inspect it.
+    roi_commit: ?[]const u8 = null,
     /// Concise mode (the default, and the explicit `--summary` spelling): `all`
     /// hides passes, collapses advisory checks to counts, and groups a bounded
     /// sample of each blocking check. `--verbose` restores every captured line.
