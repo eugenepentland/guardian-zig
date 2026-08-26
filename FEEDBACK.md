@@ -10520,3 +10520,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-26 · codex · designs — size Barracuda base-board power traces
 - **good:** Guardian-wired `netlisp build barracuda-base` and the error-severity ERC completed with `0 violation(s)` after the board gained per-load current annotations and IPC-2221-sized power net classes.
 - **bug:** Each successful build/check still emitted roughly 6 MB of `error(SafeAllocator): leaked` diagnostics and behaved inconsistently when redirected to a regular temporary file (silent exit 1), forcing a full-stream `rg` filter plus `PIPESTATUS` capture to recover trustworthy validation evidence.
+
+## 2026-08-26 · codex · eda — select copper areas only at their edges
+- **good:** The `spec` check immediately caught the stale canonical requirement that still promised interior selection; after updating the linked `SPEC.md` bullet, the focused contract, all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
