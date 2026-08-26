@@ -10544,3 +10544,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — scope manual-route DRC to nearby RF copper
 - **good:** The focused embedded-asset contract, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes; the release candidate was reusable for the identical merge tree.
+
+## 2026-08-26 · codex · eda — preserve routed copper across component flips
+- **good:** The `spec` check immediately caught the changed F-key contract's stale formal requirement, and the exact-commit release suite caught an RF via-fence regression assertion that still depended on the removed net-clearing helper; after updating both contracts, all 67 checks, 3,924 tests, and the concurrent ReleaseSafe build passed.
+- **friction:** Both focused static-asset runs reported `guardian/test: PASS` and exited 0 but still printed Zig's contradictory `failed command:` banner, requiring the outer exit status to distinguish success from failure.
