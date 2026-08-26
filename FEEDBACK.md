@@ -10557,3 +10557,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — follow manual routes with the nearest ratline
 - **good:** The focused embedded-asset contract, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
+## 2026-08-26 · codex · eda — hand-route current-aware power through saved zones
+- **good:** The `spec` and `bool-ops-per-condition` checks caught a missing prepared-fill contract and an over-combined plane eligibility condition during focused iteration; selective `pub-api-surface` acceptance then exposed exactly the three reviewed prepared-copper declarations, and the final 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed.
+- **friction:** A focused test passed but the self-hosted Debug link then panicked with DWARF `NoSpaceLeft` because the shared filesystem had reached 100%; relocating two task-owned generated `.zig-cache` directories to tmpfs recovered the run without changing source. A preflight disk-space warning before compilation would turn this into an immediate actionable diagnostic.
