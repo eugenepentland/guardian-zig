@@ -10622,3 +10622,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — gate primary page-load latency
 - **good:** `type-size`, `function-size`, `bool-ops-per-condition`, and `spec` caught an over-wide timing record, an eight-parameter schematic render helper, an over-combined eligibility condition, and stale contract linkage during focused iteration; the final four-page, 12-board performance gate, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — center the webpage 3D-viewer origin
+- **good:** The focused centered-origin browser contract, Debug build/type-check, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes; two rebases onto concurrently merged EDA work remained conflict-free.
