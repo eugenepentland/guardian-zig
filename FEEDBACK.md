@@ -10570,3 +10570,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — screen unresolved power branches at whole-rail current
 - **good:** The `spec` check caught the stale incomplete-solve contract and `test-no-conditional` moved repeated width assertions into one helper during the first focused run; the real Barracuda saved layout then reported zero V_3V3D width errors, and all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-26 · codex · eda — hide deferred power-width WASM markers
+- **good:** The focused embedded-asset contract, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes; the production deploy reused the identical verified tree.
