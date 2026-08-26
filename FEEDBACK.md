@@ -10561,3 +10561,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-26 · codex · eda — hand-route current-aware power through saved zones
 - **good:** The `spec` and `bool-ops-per-condition` checks caught a missing prepared-fill contract and an over-combined plane eligibility condition during focused iteration; selective `pub-api-surface` acceptance then exposed exactly the three reviewed prepared-copper declarations, and the final 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed.
 - **friction:** A focused test passed but the self-hosted Debug link then panicked with DWARF `NoSpaceLeft` because the shared filesystem had reached 100%; relocating two task-owned generated `.zig-cache` directories to tmpfs recovered the run without changing source. A preflight disk-space warning before compilation would turn this into an immediate actionable diagnostic.
+
+## 2026-08-26 · codex · eda — target the live ratline at nearest copper
+- **good:** The `spec` and formatting checks caught an inexact browser-contract tag and an unformatted marker list on the first focused run; after correction, the focused regression, all 67 whole-tree checks, JavaScript syntax check, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
