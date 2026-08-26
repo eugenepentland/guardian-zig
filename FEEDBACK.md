@@ -10538,3 +10538,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — route current-sized power branches into fine-pitch pads
 - **good:** `change-classification` kept the new local-current DRC and hand-router taper behavior tied to exact specification tests, `test-no-conditional` caught a second top-level assertion loop during iteration, and selective `pub-api-surface` acceptance exposed exactly the one reviewed current-width helper; the final 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in one release attempt.
+
+## 2026-08-26 · codex · eda — edit whole-layer copper in Design Settings
+- **good:** The `spec` check caught both new stackup-plane source contracts before commit, selective `pub-api-surface` acceptance exposed exactly the reviewed settings handler, and the final 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt.
