@@ -10564,3 +10564,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — target the live ratline at nearest copper
 - **good:** The `spec` and formatting checks caught an inexact browser-contract tag and an unformatted marker list on the first focused run; after correction, the focused regression, all 67 whole-tree checks, JavaScript syntax check, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-26 · codex · eda — fade and dash the live ratline
+- **good:** The focused embedded-asset contract, JavaScript syntax check, all 67 whole-tree checks, full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
