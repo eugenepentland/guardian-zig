@@ -10523,3 +10523,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — select copper areas only at their edges
 - **good:** The `spec` check immediately caught the stale canonical requirement that still promised interior selection; after updating the linked `SPEC.md` bullet, the focused contract, all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-26 · codex · eda — shrink PCB outline vertex dots
+- **good:** The `spec` check rejected a reserved `// spec:` tag on a minor visual-regression test that had no formal contract; converting it to an ordinary comment kept specification links honest, after which all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed.
