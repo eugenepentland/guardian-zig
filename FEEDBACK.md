@@ -10597,3 +10597,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — seed nearest vias for ground-distance warnings
 - **good:** The `spec` check caught the stale GND-vias browser contract on the first focused run; after linking the expanded nearest-site behavior, all 67 whole-tree checks, the focused model and embedded-asset regressions, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-26 · codex · eda — refill copper pours after outline edits
+- **good:** The focused outline/refill ordering and grouped-zone regressions, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes; the verified candidate deployed cleanly after merge.
