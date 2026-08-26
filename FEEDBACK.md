@@ -10513,3 +10513,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-26 · codex · eda — prioritize and cache PCB copper fills
 - **good:** The exact-commit release suite caught an unchanged `serve.drc_rules` embedded-asset contract that still required every pour refill to schedule a duplicate full DRC reconcile; updating it to require the new deferred-startup exception preserved the intentional performance boundary, after which all 67 checks, 3,889 tests, and the concurrent ReleaseSafe build passed.
 - **friction:** `guardian-check test-filter` selected the directly changed static-asset contracts but not the unchanged `serve.drc_rules` test that embeds the same modified JavaScript, so the stale assertion surfaced only after a 29-second release attempt. Including `@embedFile` consumers in dependency-aware focused-test selection would catch this cross-module contract earlier.
+
+## 2026-08-26 · codex · eda — sort open-net DRC by shortest gap
+- **good:** The spec-link check caught the new browser ordering contract before commit; after adding the exact `SPEC.md` requirement, the focused regression, all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
