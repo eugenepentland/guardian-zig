@@ -10638,3 +10638,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — keep RF pad tapers under soldermask
 - **good:** `spec` required the new mask behavior to be exercised at the shared geometry, Gerber, and browser-blob boundaries, while `bool-ops-per-condition` prompted a clearer profile-terminal predicate; after those focused corrections, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-26 · codex · eda — narrow perimeter fencing gaps to pads
+- **good:** `spec` caught both stale perimeter-fence requirement tags and an accidental duplicate tag during focused iteration; after splitting the via and mask contracts, all 67 whole-tree checks, the focused regressions, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes, and the verified candidate deployed cleanly.
