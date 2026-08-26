@@ -10554,3 +10554,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — add current-aware power branch widths
 - **good:** `type-size`, `cognitive-complexity`, and the `file-size` deny-growth ratchet caught an initially over-wide rule model, an extra resolver branch, and growth in the already-large router; folding the value into the existing trace-width profile, extracting its merge, and keeping the router edit one-for-one cleared all 67 checks without snapshot acceptance. The `spec` check also caught the renamed plane-aware current-proof contract before the exact-commit release, after which the full Debug suite and concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — follow manual routes with the nearest ratline
+- **good:** The focused embedded-asset contract, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
