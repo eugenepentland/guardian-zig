@@ -10588,3 +10588,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — move mixed PCB and outline selections by distance
 - **good:** The `spec` check immediately caught the stale parts-only Move-command requirement; after updating the exact mixed-copper/outline contract, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
+## 2026-08-26 · codex · eda — locate net-open DRC endpoints
+- **good:** The focused embedded-asset contract caught the stale requirement that hid net-open board markers; after updating the specification, all 67 whole-tree checks, the focused net-open suite, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
