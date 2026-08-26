@@ -10527,6 +10527,9 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-26 · codex · eda — shrink PCB outline vertex dots
 - **good:** The `spec` check rejected a reserved `// spec:` tag on a minor visual-regression test that had no formal contract; converting it to an ordinary comment kept specification links honest, after which all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed.
 
+## 2026-08-26 · codex · eda — show PCB vertex dots only while editing
+- **good:** The focused embedded-asset regression, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
 ## 2026-08-26 · codex · eda — propagate renamed pad nets into saved copper
 - **good:** The `file-size` warning steered persisted-route restoration out of the near-cap PCB page into a cohesive adapter, selective `pub-api-surface` acceptance exposed exactly the reviewed adapter/propagation API, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed in one release attempt.
 
