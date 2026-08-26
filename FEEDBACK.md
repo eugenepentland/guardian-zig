@@ -10629,3 +10629,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-26 · codex · eda — wrap copper pours and via fences around tapered traces
 - **good:** The `spec` check linked all three taper-outline regressions, selective `pub-api-surface` acceptance exposed exactly the three reviewed shared-geometry declarations, and the exact-commit release suite caught the new test module's missing shard/import registrations before deployment; after adding them, all 67 checks, 3,949 Debug tests, and the concurrent ReleaseSafe build passed.
 - **friction:** Successful focused test runs still printed Zig's contradictory `failed command:` line immediately after `guardian/test: PASS` and exit 0, so every focused result required checking the outer process status rather than trusting the visible summary.
+
+## 2026-08-26 · codex · eda — tighten primary page-load budgets
+- **good:** The documentation-only budget change passed the commit and exact-commit whole-tree gates with all 67 checks and no snapshot changes, followed by the full Debug suite and concurrent ReleaseSafe build.
