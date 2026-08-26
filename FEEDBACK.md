@@ -10576,3 +10576,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — preview and accept autorouted trace completion
 - **good:** `import-layering`, `type-size`, and `int-from-float-budget` caught an initially misplaced request adapter, an over-wide route-preparation DTO, and an unsafe JSON layer conversion during focused iteration; the fixes produced a shared-layer adapter, bundled steering state, and guarded narrowing. The exact-commit release suite then caught both a stale embedded-keyboard assertion and the new test module's missing shard claim before deployment; after correction, all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — make Enter commit the autorouted remainder
+- **good:** The updated exact browser contract explicitly rejects both silent `drawEnd()` fallback branches and requires paired-net waypoint submission; all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt.
