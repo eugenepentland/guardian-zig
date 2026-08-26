@@ -10619,3 +10619,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — prune merged worktree Zig caches
 - **good:** The commit gate and final whole-tree gate both completed all 67 checks without snapshot changes, and the full Debug suite plus concurrent ReleaseSafe build passed in one exact-commit release attempt for the hook-only cleanup change.
+
+## 2026-08-26 · codex · eda — gate primary page-load latency
+- **good:** `type-size`, `function-size`, `bool-ops-per-condition`, and `spec` caught an over-wide timing record, an eight-parameter schematic render helper, an over-combined eligibility condition, and stale contract linkage during focused iteration; the final four-page, 12-board performance gate, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed.
