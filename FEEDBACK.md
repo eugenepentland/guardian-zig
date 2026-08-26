@@ -10613,3 +10613,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — derive perimeter-fence gaps from component courtyards
 - **good:** `file-size` rejected a small edit to the near-hard-cap PCB page, steering the shared via filtering into the perimeter generator so every caller inherited it without growing the oversized file; selective `pub-api-surface` acceptance then exposed exactly the two reviewed mask-segment declarations, and all 67 checks, 3,944 Debug tests, and the concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — explain selected DRC violations
+- **good:** The `spec` check caught the initially unlinked Properties-inspector contract on the focused run; after adding its exact Web Server requirement, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
