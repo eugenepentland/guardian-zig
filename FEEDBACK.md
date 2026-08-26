@@ -10502,3 +10502,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-25 · codex · eda — export analytic PCB solid with Fusion decals
 - **good:** The focused STEP, static-asset, page-contract, and browser utility regressions, whole-suite compile, 67-check whole-tree gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes or gate workarounds.
+
+## 2026-08-26 · codex · guardian-zig — add per-check ROI telemetry and agent workflow
+- **good:** Guardian's self-hosted gate caught over-wide telemetry DTOs plus missing docs, inferred public errors, a test-only allocator, retained debug logging, an accidental `unreachable`, and duplicated fallback strings through `pub-api-surface`, `doc-comments`, `error-discipline`, `allocator-hygiene`, `debug-print-ban`, `type-size`, `test-coverage`, `panic-budget`, and `repeated-string-literal`; after those fixes, all 67 blocking checks and 1,159 tests passed.
+- **friction:** `guardian-check commit` correctly refused an installed binary whose embedded source digest was `5dd35509bdd6` while the tree recomputed to `c7cd9cef7ea6`, but the prescribed plain `zig build` reused that stale artifact and returned cached; repairing it required an explicit `zig build -Doptimize=safe`, adding about one minute before the commit workflow could proceed.
