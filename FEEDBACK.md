@@ -10582,3 +10582,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — bound manual trace autocomplete latency
 - **good:** `file-size` and `import-layering` rejected the first implementation in the near-cap PCB page and a new serve-to-router dependency, steering the focused endpoint into the existing interactive-routing boundary; selective `pub-api-surface` acceptance then exposed exactly the reviewed handler, and the final 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed.
+
+## 2026-08-26 · codex · eda — exempt poured ground vias from the single-layer warning
+- **good:** The `spec` check caught an initially mismatched section tag on the focused topology regression; after linking the exact copper-topology requirement, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed without snapshot changes.
