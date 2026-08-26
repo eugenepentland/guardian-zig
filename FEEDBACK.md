@@ -10632,3 +10632,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — tighten primary page-load budgets
 - **good:** The documentation-only budget change passed the commit and exact-commit whole-tree gates with all 67 checks and no snapshot changes, followed by the full Debug suite and concurrent ReleaseSafe build.
+
+## 2026-08-26 · codex · eda — protect perimeter mask from face copper
+- **good:** `function-size`, `bool-ops-per-condition`, `concept`, and `spec` caught an over-wide geometry helper, a compound pad-side condition, duplicated design-rule vocabulary, and initially unlinked mask behavior during focused iteration; selective `pub-api-surface` acceptance then exposed exactly the reviewed face-aware mask API, and all 67 checks, 3,949 Debug tests, and the concurrent ReleaseSafe build passed.
