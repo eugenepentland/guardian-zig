@@ -10641,3 +10641,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — narrow perimeter fencing gaps to pads
 - **good:** `spec` caught both stale perimeter-fence requirement tags and an accidental duplicate tag during focused iteration; after splitting the via and mask contracts, all 67 whole-tree checks, the focused regressions, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes, and the verified candidate deployed cleanly.
+
+## 2026-08-26 · codex · eda — restrict perimeter mask to ground copper
+- **good:** `spec`, `concept`, and `pub-api-surface` precisely identified the contract, cross-renderer design-rule owner, and additive API updates needed for ground-only perimeter mask openings; after those reviewed changes, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt.
