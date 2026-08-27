@@ -10719,3 +10719,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — copy PCB component identifiers from Properties
 - **good:** The first focused gate caught both an unlinked Web Server behavior contract through `spec` and an accidentally public one-file MPN serializer helper through `pub-api-surface`; linking the SPEC bullet and making the helper private cleared all 67 checks, after which the exact-commit full Debug suite and concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-27 · codex · eda — support HTTP(S) component datasheets
+- **good:** `doc-comments`, `bool-ops-per-condition`, `ban-hardcoded-paths`, and selective `pub-api-surface` acceptance tightened the shared datasheet-reference validator; the exact-commit suite then caught both missing test-root imports and the unclaimed new test filters before deployment, and the corrected gate passed all 67 checks, 4,036 Debug tests, and the concurrent ReleaseSafe build.
+- **friction:** A focused `zig build test -Dtest-filter=...` can pass new tests before `test_root`/`test_shards` registration is complete, so the omission surfaced only in the 38-second exact-commit release run and forced a second full candidate build. Running the shard-manifest invariant automatically whenever a diff adds a Zig `test` or a new test-bearing module would move this cheap bookkeeping failure into the focused loop.
