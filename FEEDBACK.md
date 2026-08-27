@@ -10680,3 +10680,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · zig_genetic_cascades — migrate RF service to Linux server
 - **good:** The clean-copy ReleaseFast deployment build exercised both the library and server Guardian gates; all 67 checks passed for each tree without snapshot changes, allowing the copied binary and RF database to be health-checked before the Cloudflare cutover.
+
+## 2026-08-27 · codex · zig_genetic_cascades — Barracuda inline models and MCP-parity CLI
+- **good:** `spec`, `bool-ops-per-condition`, `change-classification`, and selective `pub-api-surface` acceptance caught missing CLI/model contracts, over-combined validation predicates, and the untested embedded Barracuda asset; after those corrections both project gates passed all 67 checks and 278 Debug tests before the ReleaseFast deployment.
+- **friction:** `test-reachability` did not recognize the dedicated `src/cli/mcp_main.zig` test root declared with `b.addTest` in `build.zig`, even after the file was imported from the existing CLI test root and listed in `[orphan_files].roots`. Clearing the finding required relocating the executable under `src/mcp/` and moving its two contract tags onto already-reachable shared-handler tests, costing three gate/build retries. Test-root discovery should understand explicit `b.addTest` roots or document that only the canonical static import graph counts.
