@@ -10726,3 +10726,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — make Assembly CAM review opt in
 - **good:** The `spec` check caught both a duplicated behavior tag and three wording edits that had orphaned their exact SPEC bullets during the focused loop; after linking the final semantic-default/CAM-toggle contracts, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
+## 2026-08-27 · codex · eda — refresh JLC impedance parameters
+- **good:** The focused parameter and Barracuda synthesis regressions, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
