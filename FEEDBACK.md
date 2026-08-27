@@ -10697,3 +10697,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-27 · codex · zig_genetic_cascades — absolute source power and mixer LO margin
 - **good:** `spec`, `repeated-string-literal`, `test-no-conditional`, and `deprecated-alias` caught an unlinked cross-band contract and three concrete maintainability regressions during iteration; the final whole-tree commit gate passed all 67 checks.
 - **friction:** The worktree's `.zig-cache` symlink reused artifacts whose dependency manifest named an older sibling worktree, so Guardian's commit-phase `zig build test` reported success in 0.5 s while a fresh `--cache-dir` compile found five real test compile errors. An isolated-cache rerun was required before the 594-test suite was genuinely green; the gate should detect cache manifests rooted in another worktree or offer an exact-worktree cache mode for commit verification.
+
+## 2026-08-27 · codex · eda — retained WebGPU Assembly CAM renderer
+- **good:** `change-classification` required the new script registration and page behavior to gain an explicit spec contract, while `test-no-conditional` caught a two-loop asset-marker test and guided it into one table-driven assertion pass; the corrected diff then passed all 67 checks with no snapshot changes.
