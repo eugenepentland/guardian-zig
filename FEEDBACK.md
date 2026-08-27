@@ -10716,3 +10716,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · zig_genetic_cascades — drive QPL3050 input at +5 dBm
 - **good:** The measured-part example update passed all 67 whole-tree checks at commit and both deployment build gates without snapshot changes; the CLI budget also surfaced the intended negative P1dB headroom warning before the refreshed public model was accepted.
+
+## 2026-08-27 · codex · eda — copy PCB component identifiers from Properties
+- **good:** The first focused gate caught both an unlinked Web Server behavior contract through `spec` and an accidentally public one-file MPN serializer helper through `pub-api-surface`; linking the SPEC bullet and making the helper private cleared all 67 checks, after which the exact-commit full Debug suite and concurrent ReleaseSafe build passed without snapshot changes.
