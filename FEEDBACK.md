@@ -10670,3 +10670,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — join swept RF Gerber regions at fillets
 - **good:** `pub-api-surface` previewed exactly the junction-cap type and helper, selective acceptance changed only those two snapshot rows, and the spec-linked real-board regression proceeded through all 67 whole-tree checks, 3,969 Debug tests, and the concurrent ReleaseSafe build in one exact-commit release attempt.
+
+## 2026-08-27 · codex · eda — revision-locked fabrication release gate
+- **bug:** `ban-globals` initially missed a mutable `threadlocal var` after it was nested inside a public struct, so a safety-relevant ambient read-trace pointer could evade the check by changing lexical placement. Moving it back to file scope restored detection; the final narrow baseline accepts exactly one `src/infra/fs.zig` finding, an exact-name ban prevents external use, and a temporary second global correctly failed the ratchet.
+- **good:** `function-size`, `cognitive-complexity`, `bool-ops-per-condition`, `catch-discipline`, `error-discipline`, `concept`, `canonical-idiom`, `spec`, and `completeness` collectively drove the release path toward explicit fallible adapters, grouped evidence carriers, one design-rule vocabulary, and linked fail-closed tests; after those changes all 67 checks passed with only reviewed `pub-api-surface`, `type-size`, and one-global snapshot updates.
