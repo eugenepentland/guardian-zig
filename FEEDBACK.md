@@ -10687,3 +10687,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — upgrade RF impedance trace models
 - **good:** `spec`, `doc-comments`, `bool-ops-per-condition`, selective `pub-api-surface` acceptance, and shard coverage caught the stale outer-pair refusal contract, undocumented mode results, over-combined domain guards, the exact five-symbol API addition, and both unclaimed helper-module test sets before release; all 67 checks, 3,986 Debug tests, and the concurrent ReleaseSafe build then passed in one exact-commit release attempt.
+
+## 2026-08-27 · codex · zig_genetic_cascades — model Barracuda 6 GHz IF options
+- **good:** The docs/example/deploy-script update passed all 67 whole-tree checks at commit and both diff-scoped build/test gates without snapshot changes; the ReleaseFast deployment then rebuilt and health-checked the service successfully.
