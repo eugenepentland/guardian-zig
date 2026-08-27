@@ -10658,3 +10658,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-27 · codex · eda — remove generated-Gerber CAM slivers at fillet joins
 - **good:** The spec-linked sagitta regression, all 67 whole-tree checks, 3,960 Debug tests, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
 - **friction:** `shadowed-const` classified a local `1e-6` minimum angular step in Gerber arc tessellation as a copy of the DRC clearance epsilon and blocked the first focused run; replacing the unrelated numeric floor with `std.math.floatEps(f64)` cost one retry. Matching only the literal value across unrelated units/domains makes this check over-broad.
+
+## 2026-08-27 · codex · eda — align CPWG thickness correction with reference equations
+- **good:** The exact-commit release suite's shard-import coverage test caught a CPWG regression test placed in an unregistered helper module before deployment; moving the vectors into the existing impedance test module restored complete shard coverage, after which all 67 checks, 3,968 Debug tests, and the concurrent ReleaseSafe build passed.
