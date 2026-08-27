@@ -10757,3 +10757,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — audit native arcs against final pours
 - **good:** `int-from-float-budget`, `shadowed-const`, and `bool-ops-per-condition` caught an unchecked tessellation-count cast, a locally respelled tolerance, and an over-combined circle-validity guard in the first focused run; replacing them with the shared checked numeric conversion and named predicates cleared every finding from the arc audit in one retry.
+
+## 2026-08-27 · codex · eda — fix controlled-impedance taper connectivity
+- **good:** The exact-commit release gate caught a route-cleanup fixture that encoded the old asymmetric pad-contact rule after the focused RF connectivity tests passed; correcting the fixture to retain its actual fill-blind cleanup contract led to a green 67-check, 4,046-test, concurrent ReleaseSafe candidate on the second run.
