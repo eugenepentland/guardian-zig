@@ -10648,3 +10648,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-27 · codex · eda — adapt qualified 0402 pads on RF nets
 - **good:** `type-size` and cognitive-complexity findings steered the RF floor into the existing pad override bundle and split its validation from pad parsing; selective `pub-api-surface` acceptance then recorded exactly the one reviewed adaptation function.
 - **good:** The exact-commit release suite caught that the new RF adaptation tests were missing from `test_shards.zig` before deployment; after adding a spec-linked shard claim, all 67 checks, 3,959 Debug tests, and the concurrent ReleaseSafe build passed on the second release attempt.
+
+## 2026-08-27 · codex · eda — rebuild RF tapers before via fencing
+- **good:** The spec-linked embedded-asset contract verified the one-click rebuild → save → fence ordering, all 67 checks stayed green, and the exact-commit full Debug suite plus concurrent ReleaseSafe build passed in one release attempt.
