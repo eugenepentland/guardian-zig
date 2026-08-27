@@ -10693,3 +10693,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · zig_genetic_cascades — retune Barracuda for 10 GHz LO
 - **good:** The measured-part model-only update passed all 67 whole-tree checks at commit, both diff-scoped build/test gates, two CLI feasibility checks, and the ReleaseFast deployment health check without snapshot changes.
+
+## 2026-08-27 · codex · zig_genetic_cascades — absolute source power and mixer LO margin
+- **good:** `spec`, `repeated-string-literal`, `test-no-conditional`, and `deprecated-alias` caught an unlinked cross-band contract and three concrete maintainability regressions during iteration; the final whole-tree commit gate passed all 67 checks.
+- **friction:** The worktree's `.zig-cache` symlink reused artifacts whose dependency manifest named an older sibling worktree, so Guardian's commit-phase `zig build test` reported success in 0.5 s while a fresh `--cache-dir` compile found five real test compile errors. An isolated-cache rerun was required before the 594-test suite was genuinely green; the gate should detect cache manifests rooted in another worktree or offer an exact-worktree cache mode for commit verification.
