@@ -10654,3 +10654,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — refresh RF width and gap before fencing
 - **good:** The spec-linked embedded-asset contract verified centreline-preserving width refresh, taper rebuild, ground-gap refill, save, and fence ordering; all 67 checks, 3,959 Debug tests, and the concurrent ReleaseSafe build passed in one release attempt.
+
+## 2026-08-27 · codex · eda — remove generated-Gerber CAM slivers at fillet joins
+- **good:** The spec-linked sagitta regression, all 67 whole-tree checks, 3,960 Debug tests, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+- **friction:** `shadowed-const` classified a local `1e-6` minimum angular step in Gerber arc tessellation as a copy of the DRC clearance epsilon and blocked the first focused run; replacing the unrelated numeric floor with `std.math.floatEps(f64)` cost one retry. Matching only the literal value across unrelated units/domains makes this check over-broad.
