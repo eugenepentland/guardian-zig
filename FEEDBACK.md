@@ -10760,3 +10760,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — fix controlled-impedance taper connectivity
 - **good:** The exact-commit release gate caught a route-cleanup fixture that encoded the old asymmetric pad-contact rule after the focused RF connectivity tests passed; correcting the fixture to retain its actual fill-blind cleanup contract led to a green 67-check, 4,046-test, concurrent ReleaseSafe candidate on the second run.
+
+## 2026-08-27 · codex · eda — propagate native arcs through pour adapters
+- **good:** The whole-tree compile gate accepted the native-arc/RF-ownership propagation across fabrication, DRC, rendering, connectivity, thermal, and impedance adapters without a Guardian finding or snapshot change.
