@@ -10707,3 +10707,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — board part numbers and offline assembly release
 - **good:** The `file-size` hard-trip ratchet prevented further growth in `pcb_layout_page.zig` and prompted a cohesive standalone-artifact module; `error-discipline`, `function-size`, and `doc-comments` then tightened its public seam, selective `pub-api-surface`/`type-size` acceptance showed only the intended additions, and the exact-commit gate passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build.
+
+## 2026-08-27 · codex · eda — require WebGPU for Assembly CAM
+- **good:** The focused, commit, and exact-candidate gates all passed 67 checks with 0 blocking findings and no snapshot changes; the zero-match test-filter guard also rejected a stale renamed filter before it could be mistaken for verification.
