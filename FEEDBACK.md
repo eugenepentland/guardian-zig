@@ -10667,3 +10667,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — gate assembly panning in headless Chromium
 - **good:** `spec`, `ban-env`, `debug-print-ban`, and `function-size` caught an unlinked browser contract plus an ad-hoc server env read/print and over-wide serve signature during iteration; moving the benchmark control to a CLI option bundle cleared all 67 checks, and the exact-commit full Debug suite plus concurrent ReleaseSafe build passed in one release attempt.
+
+## 2026-08-27 · codex · eda — join swept RF Gerber regions at fillets
+- **good:** `pub-api-surface` previewed exactly the junction-cap type and helper, selective acceptance changed only those two snapshot rows, and the spec-linked real-board regression proceeded through all 67 whole-tree checks, 3,969 Debug tests, and the concurrent ReleaseSafe build in one exact-commit release attempt.
