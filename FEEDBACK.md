@@ -10751,3 +10751,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — final copper-pour integrity DRC
 - **good:** `bool-ops-per-condition` isolated an over-combined routed-track validity guard and `spec` caught two unlinked pour-safety regressions during the focused loop; splitting the guard and adding exact DRC contracts cleared both in one retry, while `pub-api-surface` accurately retained only the reviewed shared additions.
+
+## 2026-08-27 · codex · eda — restore zoom-exact Assembly CAM review
+- **good:** The zoom-matched CAM contract, JavaScript renderer changes, browser-performance assertion, and workflow feedback passed all 67 whole-tree checks with 0 blocking findings; the exact-commit gate then passed the full Debug suite and concurrent ReleaseSafe build in one attempt without snapshot changes.
