@@ -10763,3 +10763,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — propagate native arcs through pour adapters
 - **good:** The whole-tree compile gate accepted the native-arc/RF-ownership propagation across fabrication, DRC, rendering, connectivity, thermal, and impedance adapters without a Guardian finding or snapshot change.
+
+## 2026-08-27 · codex · eda — synthesize BOM-bound PLL filters
+- **good:** `type-size` immediately caught the eighth public `Spec` field and led to a nested design-mode configuration, while `change-classification` required the deterministic E24 search and its bounded-value follow-up to retain a spec-linked real synthesis regression; both exact candidates passed all 67 checks, 4,047 Debug tests, and the concurrent ReleaseSafe build.
