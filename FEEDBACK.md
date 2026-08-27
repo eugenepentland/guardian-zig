@@ -10700,3 +10700,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — retained WebGPU Assembly CAM renderer
 - **good:** `change-classification` required the new script registration and page behavior to gain an explicit spec contract, while `test-no-conditional` caught a two-loop asset-marker test and guided it into one table-driven assertion pass; the corrected diff then passed all 67 checks with no snapshot changes.
+
+## 2026-08-27 · codex · eda — process-aware RF field models for Barracuda
+- **good:** `spec`, shard coverage, leak checking, `type-size`, and exact-commit release tests caught an unclaimed field-solver test module, two new preset-soldermask test leaks, a stale mixed-Dk width expectation, and an out-of-domain coupled-line fixture before deployment; the final gate passed all 67 checks, 4,031 Debug tests, and the concurrent ReleaseSafe build.
+- **friction:** Guardian's custom merge driver retained the feature branch's `PowerRail` type-size ceiling of 9 instead of current `main`'s accepted ceiling of 10, so an otherwise clean feature merge failed only in the post-merge production gate and required a follow-up baseline-only commit plus a second full release run. Snapshot merge should preserve the maximum accepted ceiling for an unchanged key.
