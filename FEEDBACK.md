@@ -10664,3 +10664,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — align footprints by pads within one sub-circuit
 - **good:** The `spec` check immediately caught an over-eager wording edit that orphaned the existing exact-pad browser contract; retaining that contract and adding the target-aware ownership contract cleared all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build without snapshot changes.
+
+## 2026-08-27 · codex · eda — gate assembly panning in headless Chromium
+- **good:** `spec`, `ban-env`, `debug-print-ban`, and `function-size` caught an unlinked browser contract plus an ad-hoc server env read/print and over-wide serve signature during iteration; moving the benchmark control to a CLI option bundle cleared all 67 checks, and the exact-commit full Debug suite plus concurrent ReleaseSafe build passed in one release attempt.
