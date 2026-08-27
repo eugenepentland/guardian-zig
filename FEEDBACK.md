@@ -10732,3 +10732,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — triangulate self-crossing Assembly CAM regions
 - **good:** The `spec` check caught the new Gerber non-zero-winding behavior before its matching SPEC bullet was added; after linking it, all 67 whole-tree checks, the JavaScript Barracuda geometry regression, the full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-27 · codex · eda — keep Assembly CAM review truly opt in
+- **good:** The strengthened explicit-request asset contract, all 67 whole-tree checks, 30 focused Assembly tests, the full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes; the browser gate separately proved zero CAM requests before the toggle and one lazy request afterward.
