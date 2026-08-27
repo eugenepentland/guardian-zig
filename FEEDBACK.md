@@ -10644,3 +10644,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-26 · codex · eda — restrict perimeter mask to ground copper
 - **good:** `spec`, `concept`, and `pub-api-surface` precisely identified the contract, cross-renderer design-rule owner, and additive API updates needed for ground-only perimeter mask openings; after those reviewed changes, all 67 whole-tree checks, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt.
+
+## 2026-08-27 · codex · eda — adapt qualified 0402 pads on RF nets
+- **good:** `type-size` and cognitive-complexity findings steered the RF floor into the existing pad override bundle and split its validation from pad parsing; selective `pub-api-surface` acceptance then recorded exactly the one reviewed adaptation function.
+- **good:** The exact-commit release suite caught that the new RF adaptation tests were missing from `test_shards.zig` before deployment; after adding a spec-linked shard claim, all 67 checks, 3,959 Debug tests, and the concurrent ReleaseSafe build passed on the second release attempt.
