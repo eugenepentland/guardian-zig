@@ -10744,3 +10744,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — stop diagonal RF pad-taper flares
 - **good:** The spec-linked native/browser geometry change passed all 67 whole-tree checks without snapshot changes; the exact-commit full Debug suite and concurrent ReleaseSafe build completed in one release attempt.
+
+## 2026-08-27 · codex · eda — BOM-bound PLL loop-filter validation
+- **good:** `type-size`, `anytype-budget`, `cognitive-complexity`, `bool-ops-per-condition`, `completeness`, `spec`, shard coverage, and selective `pub-api-surface` acceptance caught an oversized PLL specification, generic helper sprawl, over-combined validation logic, missing lifecycle/API contracts, and an unregistered test module during iteration; the corrected implementation passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build.
+- **wish:** Focused mathematical tests and `test-compile` did not exercise evaluator ownership for dynamically formatted assertion messages; the first real Barracuda build exposed the leak and required a second exact-commit release run. A cheap form-level allocator-leak test for newly registered declaration forms would catch this integration boundary before candidate preparation.
