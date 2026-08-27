@@ -10738,3 +10738,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — make Assembly CAM state unmistakable
 - **good:** The new spec-linked visible-state/direct-handshake contract passed all 67 checks, 30 focused Assembly tests, the full Debug suite, and concurrent ReleaseSafe build without snapshot changes; separate pointer-level browser runs proved both exact-CAM success and a durable WebGPU failure state.
+
+## 2026-08-27 · codex · eda — fan hand-routed differential pairs into separate passives
+- **good:** The focused spec-linked browser-routing regression, whole-tree commit gate, and exact-commit release gate all passed 67 checks without snapshot changes; the full Debug suite and concurrent ReleaseSafe build completed in one release attempt.
