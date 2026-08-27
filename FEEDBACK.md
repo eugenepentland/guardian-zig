@@ -10713,3 +10713,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · zig_genetic_cascades — swap Barracuda LO driver to QPL3050
 - **good:** The whole-tree commit gate passed all 67 checks for the QPL3050 model update and each deployment-script hardening commit without snapshot changes; the live embedded model was then verified separately from the process health check.
+
+## 2026-08-27 · codex · zig_genetic_cascades — drive QPL3050 input at +5 dBm
+- **good:** The measured-part example update passed all 67 whole-tree checks at commit and both deployment build gates without snapshot changes; the CLI budget also surfaced the intended negative P1dB headroom warning before the refreshed public model was accepted.
