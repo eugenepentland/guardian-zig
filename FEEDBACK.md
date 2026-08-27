@@ -10773,3 +10773,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — audit RF tapers against pours exactly
 - **good:** The spec-linked narrow-taper regression and full pour-audit filter passed immediately after replacing conservative endpoint-width capsules with the same exact swept regions Gerber emits; a real Barracuda Base readiness run then reduced `pour_overlap` from 23 false positives to zero.
+
+## 2026-08-27 · codex · eda — align pour DRC with Gerber clear unions
+- **good:** The spec-linked sibling-hole polarity regression passed on its first run and proved touching, overlapping, and nested LPC regions safe while preserving strict malformed-ring and clear-to-dark-outer rejection; all 37 focused pour-audit tests and the whole-tree compile passed.
