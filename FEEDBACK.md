@@ -10754,3 +10754,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — restore zoom-exact Assembly CAM review
 - **good:** The zoom-matched CAM contract, JavaScript renderer changes, browser-performance assertion, and workflow feedback passed all 67 whole-tree checks with 0 blocking findings; the exact-commit gate then passed the full Debug suite and concurrent ReleaseSafe build in one attempt without snapshot changes.
+
+## 2026-08-27 · codex · eda — audit native arcs against final pours
+- **good:** `int-from-float-budget`, `shadowed-const`, and `bool-ops-per-condition` caught an unchecked tessellation-count cast, a locally respelled tolerance, and an over-combined circle-validity guard in the first focused run; replacing them with the shared checked numeric conversion and named predicates cleared every finding from the arc audit in one retry.
