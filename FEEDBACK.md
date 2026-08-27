@@ -10729,3 +10729,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — refresh JLC impedance parameters
 - **good:** The focused parameter and Barracuda synthesis regressions, all 67 whole-tree checks, the full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
+## 2026-08-27 · codex · eda — triangulate self-crossing Assembly CAM regions
+- **good:** The `spec` check caught the new Gerber non-zero-winding behavior before its matching SPEC bullet was added; after linking it, all 67 whole-tree checks, the JavaScript Barracuda geometry regression, the full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
