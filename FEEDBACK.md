@@ -10741,3 +10741,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — fan hand-routed differential pairs into separate passives
 - **good:** The focused spec-linked browser-routing regression, whole-tree commit gate, and exact-commit release gate all passed 67 checks without snapshot changes; the full Debug suite and concurrent ReleaseSafe build completed in one release attempt.
+
+## 2026-08-27 · codex · eda — stop diagonal RF pad-taper flares
+- **good:** The spec-linked native/browser geometry change passed all 67 whole-tree checks without snapshot changes; the exact-commit full Debug suite and concurrent ReleaseSafe build completed in one release attempt.
