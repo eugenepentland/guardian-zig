@@ -10677,3 +10677,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — all-pages headless browser performance gate
 - **good:** The external Node syntax and route-manifest checks plus the spec-adjacency gate covered 17 routes, 11 surfaces, and 71 interactions; `spec` caught one misplaced tag during iteration, and all 67 checks finished with 0 blocking findings throughout focused, commit, and performance-gate runs.
+
+## 2026-08-27 · codex · zig_genetic_cascades — migrate RF service to Linux server
+- **good:** The clean-copy ReleaseFast deployment build exercised both the library and server Guardian gates; all 67 checks passed for each tree without snapshot changes, allowing the copied binary and RF database to be health-checked before the Cloudflare cutover.
