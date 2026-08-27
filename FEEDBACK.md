@@ -10766,3 +10766,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — synthesize BOM-bound PLL filters
 - **good:** `type-size` immediately caught the eighth public `Spec` field and led to a nested design-mode configuration, while `change-classification` required the deterministic E24 search and its bounded-value follow-up to retain a spec-linked real synthesis regression; both exact candidates passed all 67 checks, 4,047 Debug tests, and the concurrent ReleaseSafe build.
+
+## 2026-08-27 · codex · eda — route one-shot CLI allocations through the process arena
+- **good:** `change-classification`, `spec`, and the shard-manifest coverage test required an explicit allocator-lifetime contract, a leak-detecting regression, and full-suite registration; the corrected exact commit passed all 67 checks, 4,048 Debug tests, and the concurrent ReleaseSafe build.
+- **friction:** The focused allocator test passed before its `main.test.` filter was registered in `src/test_shards.zig`, so shard coverage failed only during the first 43-second `prepare-release.sh` attempt and required a second exact-commit release run. Automatically including the shard-manifest invariant when a diff adds a named Zig test would catch this bookkeeping omission in the focused loop.
