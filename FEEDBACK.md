@@ -10735,3 +10735,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — keep Assembly CAM review truly opt in
 - **good:** The strengthened explicit-request asset contract, all 67 whole-tree checks, 30 focused Assembly tests, the full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes; the browser gate separately proved zero CAM requests before the toggle and one lazy request afterward.
+
+## 2026-08-27 · codex · eda — make Assembly CAM state unmistakable
+- **good:** The new spec-linked visible-state/direct-handshake contract passed all 67 checks, 30 focused Assembly tests, the full Debug suite, and concurrent ReleaseSafe build without snapshot changes; separate pointer-level browser runs proved both exact-CAM success and a durable WebGPU failure state.
