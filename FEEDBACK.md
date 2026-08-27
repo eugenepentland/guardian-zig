@@ -10661,3 +10661,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — align CPWG thickness correction with reference equations
 - **good:** The exact-commit release suite's shard-import coverage test caught a CPWG regression test placed in an unregistered helper module before deployment; moving the vectors into the existing impedance test module restored complete shard coverage, after which all 67 checks, 3,968 Debug tests, and the concurrent ReleaseSafe build passed.
+
+## 2026-08-27 · codex · eda — align footprints by pads within one sub-circuit
+- **good:** The `spec` check immediately caught an over-eager wording edit that orphaned the existing exact-pad browser contract; retaining that contract and adding the target-aware ownership contract cleared all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build without snapshot changes.
