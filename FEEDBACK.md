@@ -10776,3 +10776,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — align pour DRC with Gerber clear unions
 - **good:** The spec-linked sibling-hole polarity regression passed on its first run and proved touching, overlapping, and nested LPC regions safe while preserving strict malformed-ring and clear-to-dark-outer rejection; all 37 focused pour-audit tests and the whole-tree compile passed.
+
+## 2026-08-27 · codex · eda — narrow clear-union DRC to renderer parity
+- **good:** A follow-up renderer-parity review narrowed the preceding LPC policy: the focused geometry regression now admits only zero-area sibling tangency and rejects proper crossing, same-side collinear overlap, and nesting; all 37 pour-audit tests and the whole-tree compile passed.
