@@ -10710,3 +10710,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — require WebGPU for Assembly CAM
 - **good:** The focused, commit, and exact-candidate gates all passed 67 checks with 0 blocking findings and no snapshot changes; the zero-match test-filter guard also rejected a stale renamed filter before it could be mistaken for verification.
+
+## 2026-08-27 · codex · zig_genetic_cascades — swap Barracuda LO driver to QPL3050
+- **good:** The whole-tree commit gate passed all 67 checks for the QPL3050 model update and each deployment-script hardening commit without snapshot changes; the live embedded model was then verified separately from the process health check.
