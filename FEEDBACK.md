@@ -10835,3 +10835,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · eda — widen power routes after centerline search
 - **good:** The first exact-commit release run caught both completeness seams the focused adaptive-routing tests missed: the new `power_width` warning lacked settings-drawer help and the canonical severity coverage test still expected every warning from its whole-board fixture set. After those fixes, all 67 checks, the full Debug suite, concurrent ReleaseSafe build, and deterministic Barracuda editor gate passed on the rebased candidate.
 - **friction:** Successful filtered test runs still print a `failed command:` line immediately after `guardian/test: PASS` and exit zero, making green focused runs look contradictory and requiring an extra exit-status/log check each time.
+
+## 2026-08-28 · codex · eda — retain the C127 wide-land taper
+- **good:** The exact C127 corner-profile regression distinguished a visible 0.30-to-0.1899 mm wide-land taper from both the former 0.0283 mm needle and the overcorrected no-taper case; the linked `spec` contract, whole-tree gate, full Debug suite, ReleaseSafe build, and deterministic Barracuda editor gate passed without snapshot changes.
