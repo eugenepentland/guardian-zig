@@ -10819,3 +10819,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · netlisp — serialize RF ground-gap refills
 - **good:** The exact-state refill contract passed its focused test, all 67 whole-tree checks, the full Debug suite, concurrent ReleaseSafe build, and the deterministic Barracuda editor browser gate in one exact-commit release run; a separate real-browser overlap reproduced the former failure and proved the patch reached the fence request.
+
+## 2026-08-28 · codex · eda — distinguish generated RF-fence vias
+- **good:** The embedded-JavaScript contract kept the Canvas and WebGPU dashed-annulus paths tied to the same non-perimeter provenance rule, and every focused, commit, and exact-candidate Guardian run passed all 67 checks without snapshot changes.
