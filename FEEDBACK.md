@@ -10825,3 +10825,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — flip sub-circuit copper with board side
 - **good:** The `spec` check immediately caught that the strengthened browser regression tag no longer matched its SPEC requirement; after updating the exact contract, the focused test, whole-tree commit gate, and final exact-candidate run passed all 67 checks without snapshot changes, while the feedback-only follow-up commit correctly reused the cached green inputs.
+
+## 2026-08-28 · codex · eda — keep automatic RF tapers DRC-safe
+- **good:** The `spec` check caught both an unlinked new DRC-safe taper contract and a one-word mismatch in the edited Escape contract on the first focused run; splitting the behavior into its own exact tagged regression cleared the retry, and the whole-tree commit gate plus exact-candidate release passed all 67 checks without snapshot changes.
