@@ -10793,3 +10793,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · guardian-zig — classify the current ROI cohort
 - **good:** Stable-subject triage collapsed 70 current advisory `line-length` findings to 23 file subjects and the full 28-subject cohort reached 100% evidence-backed label coverage without repeating labels for 2,492 commit-specific observations.
 - **friction:** `guardian-roi pending` and the raw observation records expose identity and location but not the measured value or diagnostic message, so classifying the 28 subjects required an additional verbose full run of `file-size`, `function-length`, and `line-length`; including the latest metric and concise diagnostic in pending output would remove that extra gate cycle.
+
+## 2026-08-28 · codex · netlisp — standardize project naming
+- **good:** The `spec` check caught two stale source tags after their linked SPEC bullets were renamed; correcting them let the exact-commit gate pass all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build.
