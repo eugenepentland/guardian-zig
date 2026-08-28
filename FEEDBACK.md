@@ -10881,3 +10881,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · designs — reorder Barracuda RF IF chain
 - **good:** Guardian-backed builds and ERC checks passed the RF and matched base boards with zero violations after ordering the IF path as mixer, fixed attenuator, LFCW, LFCN, TSY amplifier, HMC1119 DSA, and connector; six boundary-net queries proved the sequence and a complete 208-part origin/refdes comparison against the pre-edit layout snapshot confirmed no identity churn.
+
+## 2026-08-28 · codex · designs — restore pre-base-LNA Barracuda pair
+- **good:** Restoring the exact pre-base-amplifier schematic sources and the matching 217-part base layout snapshot produced zero ERC violations on both boards, a fully routed 164/164 base layout, and zero base DRC errors; the RF layout retained only six errors (three stale post-change copper conditions plus their open-net reports and one existing same-net via-spacing issue).
