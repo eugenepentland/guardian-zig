@@ -10779,3 +10779,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-27 · codex · eda — narrow clear-union DRC to renderer parity
 - **good:** A follow-up renderer-parity review narrowed the preceding LPC policy: the focused geometry regression now admits only zero-area sibling tangency and rejects proper crossing, same-side collinear overlap, and nesting; all 37 pour-audit tests and the whole-tree compile passed.
+
+## 2026-08-28 · codex · eda — copper-pour fabrication safety
+- **good:** `bool-ops-per-condition`, `spec`, shard coverage, the whole-tree commit gate, and the exact-commit release gate tightened the new fail-closed pour topology and final-geometry DRC coverage; the final candidate passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build without snapshot changes.
+- **wish:** The exact-commit gate does not exercise sequential real-socket requests, so a pre-existing httpz stale epoll-event use-after-free surfaced only when the post-gate audit fetched a 3.07 MB CAM response and then fab readiness on a fresh connection. A small ReleaseSafe HTTP lifecycle smoke test would catch this class before candidate handoff.
