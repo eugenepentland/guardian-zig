@@ -10812,3 +10812,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — route through generated RF fence vias
 - **good:** The first exact-commit release run caught two stale embedded-JavaScript contract assertions that focused feature tests did not select; preserving those stable seams and rerunning produced a green 67-check gate, full Debug suite, and concurrent ReleaseSafe candidate without snapshot changes.
+
+## 2026-08-28 · codex · netlisp — gate Barracuda editor zoom performance
+- **good:** The `spec` check immediately rejected the new deterministic browser-gate requirement until it had an exact tagged contract test; the final whole-tree run passed all 67 checks with no snapshot changes, and the exact candidate passed 4,086 Debug tests, ReleaseSafe build, and the newly certified browser-performance gate.
+- **friction:** Focused renderer and new-gate tests passed, but the first exact-candidate run found an older embedded-JavaScript benchmark test still pinned to the pre-change frame-program literals. Adding the existing benchmark test to the focused filter set would have saved one 52-second release attempt.
