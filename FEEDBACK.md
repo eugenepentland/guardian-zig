@@ -10861,3 +10861,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — connect custom pours by copper overlap
 - **good:** `spec` immediately required exact contracts for pad-edge and via-edge custom-pour connectivity, while `pub-api-surface` previewed only the two intended fill-overlap queries; after the reviewed updates, all 67 checks, focused pour regressions, the full Debug suite, ReleaseSafe build, and deterministic Barracuda editor gate passed in one exact-commit release attempt.
+
+## 2026-08-28 · codex · eda — taper RF traces into through-via annuli
+- **good:** `function-size`, `bool-ops-per-condition`, `pub-api-surface`, and `spec` gave precise first-run findings for an over-parameterized endpoint helper, a dense via predicate, the intentional shaping-API change, and a split spec tag; refactoring plus the surgical public-API refresh cleared all 67 checks before the 4,096-test commit gate passed.
+- **friction:** The exact-candidate Barracuda editor gate failed twice by only 0.6 ms p95 and 0.5 ms median on unchanged paint code, while standalone reruns of the same stripped binary passed at 31.3 ms and 42.0 ms p95. The ignored live layout changed on every invocation (116→118 RF paths, 1,351→1,353 tracks, 927→930 vias), costing four full release attempts; `prepare-release.sh` should freeze the routed performance workload before measuring it or retry only the browser gate against the exact already-built candidate.
