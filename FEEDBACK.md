@@ -10800,3 +10800,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · eda — preserve controlled-impedance gaps across routing passes
 - **friction:** `file-size` recovery mode rejected a small method in the 8,553-line `placement/router.zig` even though the file remained below its 10,000-line hard cap, forcing the routing-pass fix into a less direct neighboring module; the diagnostic was clear, but this cost one redesign and gate cycle.
 - **good:** The exact-commit suite caught a pour-topology fixture whose scale encoded the former 0.01 mm simplification tolerance; scaling the fixture to exercise the new 0.002 mm production tolerance restored the fallback proof, and the rerun passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build.
+
+## 2026-08-28 · codex · eda — preserve RF pour refill across autosave
+- **good:** The `spec` check caught the missing Web Server contract for the new autosave/refill race regression in the first focused run; linking the exact requirement cleared the retry, and the whole-tree 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
