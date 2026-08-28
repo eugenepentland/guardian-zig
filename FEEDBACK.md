@@ -10847,3 +10847,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · eda — retain editor performance on the growing Barracuda board
 - **good:** The mandatory Barracuda browser gate made the live-board regression actionable: profiling led to a pixel-identical bounded keepout compositor, and the exact candidate passed all 67 Guardian checks, 4,094 Debug tests, ReleaseSafe build, and the unchanged editor budgets at 119 RF paths and 908 vias.
 - **good:** A post-deploy rerun against the regenerated 929-via board remained green at 18.8 ms Canvas zoom-in median and 33.3 ms worst p95, confirming that the gate now covers the denser fence state the user actually operates.
+
+## 2026-08-28 · codex · eda — check RF taper-to-pad clearance exactly
+- **good:** `spec`, `doc-comments`, and `pub-api-surface` caught two unlinked exact-taper contracts and an unnecessary public track-view helper during the focused loop; keeping the prefix count private removed the API addition, and the final whole-tree run passed all 67 checks without snapshot changes.
+- **friction:** The first 38-second exact-candidate run reached 4,094/4,095 passing tests before an embedded-JavaScript contract in `serve/drc_rules.zig` rejected the deliberately expanded `drcRfScope(box,paths)` signature; adding that existing whole-viewer contract test to focused browser-gate filters would have caught the stale marker before release preparation.
