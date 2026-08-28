@@ -10871,3 +10871,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · designs — move Barracuda IF LNA to base board
 - **good:** Guardian-backed `netlisp build` and `netlisp check` passed both `barracuda-base` and `barracuda` after the matched B3 connector and IF-chain change; ERC exposed an LP5907 EN direct strap that needed an explicit `strap-ok`, and the annotation cleared both designs to zero errors.
+
+## 2026-08-28 · codex · designs — omit Barracuda switch RF2 DC block by module variant
+- **good:** The parameterized PE42553 default and Barracuda direct-RF2 variants both built cleanly, the base and RF designs passed ERC with zero errors, and the review export visibly confirmed that the TSY output capacitor now connects directly to switch pin 11.
+- **friction:** `netlisp build` only warned and silently ignored an `(if …)` used as a `design-block` child, producing a successful but incomplete default netlist with a dead-end RF2 pin; catching this required inspecting the resolved netlist and cost one module rewrite. An unknown design-block sub-form that can remove circuitry should be a build error rather than a warning.
