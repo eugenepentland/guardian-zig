@@ -10809,3 +10809,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · netlisp — integrate naming assets and RF refill fix
 - **good:** After rebasing the RF autosave fix onto the completed naming cleanup, the combined exact-commit gate passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build; the post-merge deploy reused that candidate and passed every health probe.
+
+## 2026-08-28 · codex · eda — route through generated RF fence vias
+- **good:** The first exact-commit release run caught two stale embedded-JavaScript contract assertions that focused feature tests did not select; preserving those stable seams and rerunning produced a green 67-check gate, full Debug suite, and concurrent ReleaseSafe candidate without snapshot changes.
