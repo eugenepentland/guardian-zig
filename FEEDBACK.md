@@ -10894,3 +10894,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · zig_genetic_cascades — save Barracuda HMC733 as the driven input
 - **good:** The commit hook and fresh-prefix production deployment both passed all 67 checks while the saved Barracuda result was upgraded from an undriven gain-only response to explicit +5 dBm HMC733 input and output-power arrays.
+
+## 2026-08-28 · codex · designs — retry Barracuda dual-LNA update without passive churn
+- **good:** Guardian-backed builds and ERC checks passed both Barracuda boards with zero violations; the base design's 231 `instances` origin/refdes pairs exactly matched the last pre-DC-block-change snapshot after retaining the bypassed switch capacitor as a same-net DNP identity slot.
+- **bug:** On the same base source, `netlisp build` printed the LNA/switch/detector as `lna/U35`, `calsw/U30`, and `pwr_det/U32`, while `netlisp instances`, `net`, and PCB-layout evaluation reported `lna/U32`, `calsw/U33`, and `pwr_det/U35`. The build also emitted derived-ID collision warnings. This command-to-command refdes disagreement makes BOM/build output disagree with layout and net-query identities and should be gated as an error.
