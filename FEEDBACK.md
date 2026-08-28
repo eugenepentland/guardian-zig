@@ -10888,3 +10888,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · zig_genetic_cascades — frequency-dependent VCO output-power analysis
 - **good:** `spec`, `change-classification`, `dead-pub`, and `repeated-string-literal` precisely caught the missing source-curve contract, missing server regression, unreferenced exported point type, and a repeated diagnostic path; after those fixes and a surgical `pub-api-surface` acceptance, the full 67-check gate and all 170 tests passed.
 - **friction:** The build-wired Guardian binary first warned it was newer than the last green run, while the PATH `guardian-check commit` immediately warned it was older; both gates passed, but the conflicting provenance warnings made it unclear which runner should be trusted and required an extra full test/gate cycle.
+
+## 2026-08-28 · codex · zig_genetic_cascades — deploy VCO input rendering
+- **good:** Both fresh-prefix release deployments ran all 67 Guardian checks successfully before atomically swapping and restarting the live `rf-cascades` service; the old process remained available throughout each roughly two-minute build.
