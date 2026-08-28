@@ -10828,3 +10828,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — keep automatic RF tapers DRC-safe
 - **good:** The `spec` check caught both an unlinked new DRC-safe taper contract and a one-word mismatch in the edited Escape contract on the first focused run; splitting the behavior into its own exact tagged regression cleared the retry, and the whole-tree commit gate plus exact-candidate release passed all 67 checks without snapshot changes.
+
+## 2026-08-28 · codex · eda — prevent C127 corner-taper neck-down
+- **good:** The exact Barracuda C127 browser regression, its linked `spec` contract, the whole-tree commit gate, and the exact-candidate release all passed in one attempt; the final run cleared all 67 checks, the full Debug suite, concurrent ReleaseSafe build, and deterministic editor gate without snapshot changes.
