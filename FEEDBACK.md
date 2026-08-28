@@ -10855,3 +10855,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · eda — preserve RF tapers through trace fillets
 - **good:** The `spec` check caught an extra unlinked browser-contract tag during the focused loop, and the final whole-tree gate passed all 67 checks without snapshot changes before the full Debug suite and ReleaseSafe build both passed.
 - **friction:** The exact-candidate Barracuda editor gate failed untouched Canvas zoom-in at 50.6 ms p95 versus its 45 ms budget, while the same stripped binary immediately passed standalone at 31.0 ms; certifying the candidate required a 72-second diagnostic rerun plus a second 148-second full release attempt. A variance-aware retry of only the exact browser gate would avoid repeating already-green compilation and 4,000+ tests for this non-code failure.
+
+## 2026-08-28 · codex · eda — widen hand-routed power copper locally
+- **good:** `import-layering` rejected a new `serve/pcb_rules_json.zig` → `placement/power_route_width.zig` dependency before commit, and `canonical-idiom` caught a hand-rolled hierarchical-net leaf split; using existing model data plus `net_name.leaf` cleared both while the final 67-check, full Debug, ReleaseSafe, and Barracuda editor gates passed without snapshot changes.
