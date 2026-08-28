@@ -10891,3 +10891,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · zig_genetic_cascades — deploy VCO input rendering
 - **good:** Both fresh-prefix release deployments ran all 67 Guardian checks successfully before atomically swapping and restarting the live `rf-cascades` service; the old process remained available throughout each roughly two-minute build.
+
+## 2026-08-28 · codex · zig_genetic_cascades — save Barracuda HMC733 as the driven input
+- **good:** The commit hook and fresh-prefix production deployment both passed all 67 checks while the saved Barracuda result was upgraded from an undriven gain-only response to explicit +5 dBm HMC733 input and output-power arrays.
