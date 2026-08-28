@@ -10822,3 +10822,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — distinguish generated RF-fence vias
 - **good:** The embedded-JavaScript contract kept the Canvas and WebGPU dashed-annulus paths tied to the same non-perimeter provenance rule, and every focused, commit, and exact-candidate Guardian run passed all 67 checks without snapshot changes.
+
+## 2026-08-28 · codex · eda — flip sub-circuit copper with board side
+- **good:** The `spec` check immediately caught that the strengthened browser regression tag no longer matched its SPEC requirement; after updating the exact contract, the focused test, whole-tree commit gate, and final exact-candidate run passed all 67 checks without snapshot changes, while the feedback-only follow-up commit correctly reused the cached green inputs.
