@@ -10858,3 +10858,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — widen hand-routed power copper locally
 - **good:** `import-layering` rejected a new `serve/pcb_rules_json.zig` → `placement/power_route_width.zig` dependency before commit, and `canonical-idiom` caught a hand-rolled hierarchical-net leaf split; using existing model data plus `net_name.leaf` cleared both while the final 67-check, full Debug, ReleaseSafe, and Barracuda editor gates passed without snapshot changes.
+
+## 2026-08-28 · codex · eda — connect custom pours by copper overlap
+- **good:** `spec` immediately required exact contracts for pad-edge and via-edge custom-pour connectivity, while `pub-api-surface` previewed only the two intended fill-overlap queries; after the reviewed updates, all 67 checks, focused pour regressions, the full Debug suite, ReleaseSafe build, and deterministic Barracuda editor gate passed in one exact-commit release attempt.
