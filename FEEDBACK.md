@@ -10838,3 +10838,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — retain the C127 wide-land taper
 - **good:** The exact C127 corner-profile regression distinguished a visible 0.30-to-0.1899 mm wide-land taper from both the former 0.0283 mm needle and the overcorrected no-taper case; the linked `spec` contract, whole-tree gate, full Debug suite, ReleaseSafe build, and deterministic Barracuda editor gate passed without snapshot changes.
+
+## 2026-08-28 · codex · eda — anchor RF fences at grounded filter pads
+- **good:** `spec`, `type-size`, and `shadowed-const` caught both new unlinked fence contracts, an eighth public report field, and a duplicated geometry epsilon in the first focused run; the fixes kept the behavior explicitly specified and avoided API growth before the whole-tree commit gate passed all 67 checks.
+- **good:** The exact-commit full suite caught an existing `mode=all` assertion that did not account for a new pad-first anchor deliberately winning over a coincident contour site; refining the contract to count that second barrel as deduplicated produced 4,094/4,094 passing tests on the next release run.
+- **friction:** The required Barracuda editor gate then failed twice on untouched renderer code, including against the already-deployed `main` binary (Canvas zoom-in 30.8 ms median / 48.7 ms p95 versus 30 / 45 ms budgets). Its live ignored layout workload also changed between invocations (72→76→77 RF paths), so an unrelated mutable workload prevented candidate certification after two full release attempts; snapshotting the performance project inputs inside `prepare-release.sh` would make this gate attributable and reproducible.
