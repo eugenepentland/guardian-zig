@@ -10884,3 +10884,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · designs — restore pre-base-LNA Barracuda pair
 - **good:** Restoring the exact pre-base-amplifier schematic sources and the matching 217-part base layout snapshot produced zero ERC violations on both boards, a fully routed 164/164 base layout, and zero base DRC errors; the RF layout retained only six errors (three stale post-change copper conditions plus their open-net reports and one existing same-net via-spacing issue).
+
+## 2026-08-28 · codex · zig_genetic_cascades — frequency-dependent VCO output-power analysis
+- **good:** `spec`, `change-classification`, `dead-pub`, and `repeated-string-literal` precisely caught the missing source-curve contract, missing server regression, unreferenced exported point type, and a repeated diagnostic path; after those fixes and a surgical `pub-api-surface` acceptance, the full 67-check gate and all 170 tests passed.
+- **friction:** The build-wired Guardian binary first warned it was newer than the last green run, while the PATH `guardian-check commit` immediately warned it was older; both gates passed, but the conflicting provenance warnings made it unclear which runner should be trusted and required an extra full test/gate cycle.
