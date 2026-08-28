@@ -10898,3 +10898,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · designs — retry Barracuda dual-LNA update without passive churn
 - **good:** Guardian-backed builds and ERC checks passed both Barracuda boards with zero violations; the base design's 231 `instances` origin/refdes pairs exactly matched the last pre-DC-block-change snapshot after retaining the bypassed switch capacitor as a same-net DNP identity slot.
 - **bug:** On the same base source, `netlisp build` printed the LNA/switch/detector as `lna/U35`, `calsw/U30`, and `pwr_det/U32`, while `netlisp instances`, `net`, and PCB-layout evaluation reported `lna/U32`, `calsw/U33`, and `pwr_det/U35`. The build also emitted derived-ID collision warnings. This command-to-command refdes disagreement makes BOM/build output disagree with layout and net-query identities and should be gated as an error.
+
+## 2026-08-28 · codex · zig_genetic_cascades — render Barracuda LMX2595 PLL source
+- **good:** The whole-tree commit gate and fresh-prefix production deployment both passed all 67 checks while adding and embedding a distinct PLL schematic asset; the live service restarted successfully with the saved Barracuda source identity changed without altering its +5 dBm power curve.
