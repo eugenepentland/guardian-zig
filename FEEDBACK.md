@@ -10806,3 +10806,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — prioritize viewed-layer trace selection
 - **good:** The `spec` check immediately caught an accidental rewrite of an existing Web Server behavior tag, and the exact-commit full Debug suite caught a stale true-diameter via-fringe assertion after the selection highlight was intentionally halved; correcting both produced a green 67-check, 4,082-test, concurrent ReleaseSafe candidate on the second release attempt.
+
+## 2026-08-28 · codex · netlisp — integrate naming assets and RF refill fix
+- **good:** After rebasing the RF autosave fix onto the completed naming cleanup, the combined exact-commit gate passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build; the post-merge deploy reused that candidate and passed every health probe.
