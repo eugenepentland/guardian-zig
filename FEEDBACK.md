@@ -10789,3 +10789,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — smooth RF via pour antipads
 - **good:** The spec-linked Barracuda lattice-phase regression, all 186 focused pour tests, the 67-check whole-tree gate, the full Debug suite, and the concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
+
+## 2026-08-28 · codex · guardian-zig — classify the current ROI cohort
+- **good:** Stable-subject triage collapsed 70 current advisory `line-length` findings to 23 file subjects and the full 28-subject cohort reached 100% evidence-backed label coverage without repeating labels for 2,492 commit-specific observations.
+- **friction:** `guardian-roi pending` and the raw observation records expose identity and location but not the measured value or diagnostic message, so classifying the 28 subjects required an additional verbose full run of `file-size`, `function-length`, and `line-length`; including the latest metric and concise diagnostic in pending output would remove that extra gate cycle.
