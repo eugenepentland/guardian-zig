@@ -10783,3 +10783,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-28 · codex · eda — copper-pour fabrication safety
 - **good:** `bool-ops-per-condition`, `spec`, shard coverage, the whole-tree commit gate, and the exact-commit release gate tightened the new fail-closed pour topology and final-geometry DRC coverage; the final candidate passed all 67 checks, the full Debug suite, and the concurrent ReleaseSafe build without snapshot changes.
 - **wish:** The exact-commit gate does not exercise sequential real-socket requests, so a pre-existing httpz stale epoll-event use-after-free surfaced only when the post-gate audit fetched a 3.07 MB CAM response and then fab readiness on a fresh connection. A small ReleaseSafe HTTP lifecycle smoke test would catch this class before candidate handoff.
+
+## 2026-08-28 · codex · eda — realize controlled-impedance pour gaps
+- **good:** The `spec` check caught the new final-contour gap regression before its exact SPEC bullet was linked; after linking, all 67 whole-tree checks, 185 focused pour tests, the full Debug suite, and concurrent ReleaseSafe build passed in one exact-commit release attempt without snapshot changes.
