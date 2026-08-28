@@ -10803,3 +10803,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — preserve RF pour refill across autosave
 - **good:** The `spec` check caught the missing Web Server contract for the new autosave/refill race regression in the first focused run; linking the exact requirement cleared the retry, and the whole-tree 67-check gate, full Debug suite, and concurrent ReleaseSafe build passed without snapshot changes.
+
+## 2026-08-28 · codex · eda — prioritize viewed-layer trace selection
+- **good:** The `spec` check immediately caught an accidental rewrite of an existing Web Server behavior tag, and the exact-commit full Debug suite caught a stale true-diameter via-fringe assertion after the selection highlight was intentionally halved; correcting both produced a green 67-check, 4,082-test, concurrent ReleaseSafe candidate on the second release attempt.
