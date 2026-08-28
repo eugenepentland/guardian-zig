@@ -10878,3 +10878,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · designs — restore Barracuda Base passive identities
 - **good:** The Guardian-backed base-board build and ERC check passed with zero violations after restoring the pre-variant PE42553 module; comparing all 231 origin-to-refdes pairs against the 20:17 layout snapshot confirmed an exact reference-designator recovery rather than relying on a spot check.
+
+## 2026-08-28 · codex · designs — reorder Barracuda RF IF chain
+- **good:** Guardian-backed builds and ERC checks passed the RF and matched base boards with zero violations after ordering the IF path as mixer, fixed attenuator, LFCW, LFCN, TSY amplifier, HMC1119 DSA, and connector; six boundary-net queries proved the sequence and a complete 208-part origin/refdes comparison against the pre-edit layout snapshot confirmed no identity churn.
