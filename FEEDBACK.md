@@ -10868,3 +10868,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — exact-fit hand-routed power intervals
 - **good:** The linked power-routing specification and embedded-browser regressions passed the focused, whole-tree commit, and exact-candidate gates without snapshot changes; the final run cleared all 67 checks, the full Debug suite, concurrent ReleaseSafe build, and deterministic Barracuda editor gate on its first attempt.
+
+## 2026-08-28 · codex · designs — move Barracuda IF LNA to base board
+- **good:** Guardian-backed `netlisp build` and `netlisp check` passed both `barracuda-base` and `barracuda` after the matched B3 connector and IF-chain change; ERC exposed an LP5907 EN direct strap that needed an explicit `strap-ok`, and the annotation cleared both designs to zero errors.
