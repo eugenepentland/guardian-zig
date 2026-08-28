@@ -10831,3 +10831,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · eda — prevent C127 corner-taper neck-down
 - **good:** The exact Barracuda C127 browser regression, its linked `spec` contract, the whole-tree commit gate, and the exact-candidate release all passed in one attempt; the final run cleared all 67 checks, the full Debug suite, concurrent ReleaseSafe build, and deterministic editor gate without snapshot changes.
+
+## 2026-08-28 · codex · eda — widen power routes after centerline search
+- **good:** The first exact-commit release run caught both completeness seams the focused adaptive-routing tests missed: the new `power_width` warning lacked settings-drawer help and the canonical severity coverage test still expected every warning from its whole-board fixture set. After those fixes, all 67 checks, the full Debug suite, concurrent ReleaseSafe build, and deterministic Barracuda editor gate passed on the rebased candidate.
+- **friction:** Successful filtered test runs still print a `failed command:` line immediately after `guardian/test: PASS` and exit zero, making green focused runs look contradictory and requiring an extra exit-status/log check each time.
