@@ -444,6 +444,7 @@ Every nondeterminism source must be injected, not acquired. Each check ships wit
 | **test-skip-ban** | A test whose body is empty or whose first statement is an unconditional `return error.SkipZigTest;` — it still satisfies its `// spec:` tag while never running (a conditional `if (…) return error.SkipZigTest;` is legal) |
 | **prod-imports-no-test** | Production code `@import`-ing a `*_test.zig` or `tests/` path |
 | **fuzz-presence** *(opt-in)* | A file in `[fuzz_presence] modules` that has no `std.testing.fuzz` call (or is missing/unreadable — fail-closed). Off unless `[fuzz_presence] modules` names at least one path; guardian points it at the parser/matcher/scanner cores it fuzzes |
+| **concurrency-test-presence** *(opt-in)* | A file in `[concurrency_presence] modules` whose tests never spawn a second unit of execution (or that is missing/unreadable — fail-closed). Holding a mutex, a lock table or a rev guard is not evidence that anything is serialized; this refuses to let a file you declared concurrency-critical carry no concurrency test. Accepts `Thread.spawn` / `Thread.Pool` / `io.concurrent` (incl. `Io.Group.concurrent`), in a `test` body or in a helper a test calls; rejects locks alone and `io.async` (std says it "may be called immediately", so it can run inline) |
 
 ### Complexity Bounds (Tier 1)
 | Check | Blocks on |
@@ -1678,6 +1679,7 @@ inline table is a single-line value.
 | `[dora]` | `enabled`, `sink_path` |
 | `[benchmark]` | `gate` (metric names opted into the ledger ratchet) |
 | `[fuzz_presence]` | `modules` |
+| `[concurrency_presence]` | `modules` |
 | `[int_from_float]` | `guard_fns`, `require_guard` |
 | `[measurement]` | `paths` |
 | `[divergent_const]` | `ignore_names`, `mode` (`"units"` (default) \| `"all"`) |

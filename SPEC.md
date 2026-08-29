@@ -32,6 +32,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Defaults completeness off and parses its enabled and exempt_sections settings
 - Parses the dora sink path and enabled toggle
 - Parses the fuzz_presence modules list
+- Parses the concurrency_presence modules list
 - Parses the script_string_safety blob_files list
 - Parses the dead_model_field struct rule and rejects an incomplete one
 - Parses the int_from_float guard_fns and require_guard lists
@@ -1093,6 +1094,12 @@ without an explained `--force`.
 
 - Passes each configured module that contains a std.testing.fuzz call
 - Flags a configured module whose source has no fuzz call
+- Hard-fails a configured module that is missing or unreadable
+
+## Concurrency Test Presence
+
+- Passes a configured module whose test spawns a unit of concurrency
+- Flags a configured module whose locks are never exercised by a test
 - Hard-fails a configured module that is missing or unreadable
 
 ## Script String Safety

@@ -689,6 +689,19 @@ pub const FuzzPresenceCfg = struct {
     modules: []const []const u8 = &.{},
 };
 
+/// Per-check config for concurrency-test-presence. Each path in `modules` must
+/// contain a test that spawns a second unit of execution (`Thread.spawn`,
+/// `Thread.Pool`, or an `Io.concurrent` call), directly or through a helper the
+/// test calls. Opt-in by construction: an empty list (the default) is a no-op,
+/// so the check does nothing until a project names the files whose shared
+/// mutable state it expects to keep under test. Paths are walker-relative,
+/// resolved under the project dir; a listed file that is missing/unreadable or
+/// carries no concurrency test is a hard failure, so a stale entry fails the
+/// gate closed rather than silently passing.
+pub const ConcurrencyPresenceCfg = struct {
+    modules: []const []const u8 = &.{},
+};
+
 /// Per-check config for int-from-float-budget's sanctioned-wrapper mode. An
 /// `@intFromFloat` in the body of a function whose name is in `guard_fns` IS the
 /// sanctioned guard (e.g. eda's `numeric.checkedInt`, which validates
@@ -773,6 +786,7 @@ pub const Config = struct {
     completeness: CompletenessCfg = .{},
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},
+    concurrency_presence: ConcurrencyPresenceCfg = .{},
     script_string_safety: ScriptStringSafetyCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
     divergent_const: DivergentConstCfg = .{},

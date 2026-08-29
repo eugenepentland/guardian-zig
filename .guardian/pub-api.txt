@@ -215,6 +215,7 @@ src/checks/completeness.zig::waiver_prefix value
 src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::analyzeMirror | fn analyzeMirror( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rule: config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/concurrency_presence.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/const_fold.zig::Value union_
 src/checks/const_fold.zig::foldNode | fn foldNode(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value
 src/checks/const_fold.zig::foldSpelled | fn foldSpelled(text: []const u8) ?Value
@@ -422,6 +423,7 @@ src/config.zig::ChangeClassificationCfg struct_
 src/config.zig::CompletenessCfg struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::ConceptRule struct_
+src/config.zig::ConcurrencyPresenceCfg struct_
 src/config.zig::Config struct_
 src/config.zig::DeadModelFieldRule struct_
 src/config.zig::DeadPubCfg struct_
