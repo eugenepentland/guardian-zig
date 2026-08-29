@@ -981,6 +981,27 @@ const entries = [_]Entry{
     \\Exempt: off unless `[fuzz_presence] modules` names at least one file; drop
     \\a path from that list if it no longer needs a fuzz harness.
     },
+    .{ .name = "script-string-safety", .text =
+    \\Why (opt-in): a JSON/string serializer whose output is embedded verbatim in
+    \\an HTML `<script>` element must escape `<`, or a `</script>` sequence in the
+    \\data terminates the element early — a stored-XSS class. A plain
+    \\application/json writer legitimately need not escape `<`, so only the consumer
+    \\knows which serializers feed a script blob.
+    \\Fix: escape `<` as `\u003c` in the flagged serializer (see
+    \\json_writer.writeScriptString), or route its strings through that helper.
+    \\Exempt: off unless `[script_string_safety] blob_files` names at least one
+    \\file; drop a file whose output never lands in a `<script>` element.
+    },
+    .{ .name = "dead-model-field", .text =
+    \\Why (opt-in): a model-struct field parsed from input and rendered to the user
+    \\but read by no decision path is a contract shown and enforced by nobody — the
+    \\displayed value drifts from what the tool actually does.
+    \\Fix: read the field in an enforcement path (ERC / requirement / validation),
+    \\stop surfacing it, or — if its check lives in a file the rule didn't list —
+    \\add that file's glob to the rule's `logic` list.
+    \\Exempt: off unless `[[dead_model_field]]` names a struct; list exact `fields`
+    \\to check precisely, or an `owner` file to discover the struct's fields.
+    },
     .{ .name = "module-doc-header", .text =
     \\Why: a src file over the line threshold (`[module_doc_header] min_lines`,
     \\default 200) is where a reader arrives cold and needs orientation, yet an

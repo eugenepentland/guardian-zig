@@ -72,6 +72,8 @@ const check_change_classification = @import("../checks/change_classification.zig
 const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
 const check_fatal_exit = @import("../checks/fatal_exit.zig");
 const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
+const check_script_string_safety = @import("../checks/script_string_safety.zig");
+const check_dead_model_field = @import("../checks/dead_model_field.zig");
 const check_module_doc_header = @import("../checks/module_doc_header.zig");
 const check_external_gates = @import("../checks/external_gates.zig");
 const check_policy_drift = @import("../checks/policy_drift.zig");
@@ -540,6 +542,26 @@ pub const all: []const Command = &.{
         .run = check_fuzz_presence.run,
     },
     .{
+        .name = "script-string-safety",
+        .summary = "Flag a script-blob JSON serializer that escapes \" and \\ but not < (stored XSS; opt-in)",
+        // Whole-tree like its lexical cousins concept/canonical-idiom: the
+        // `blob_files` globs reach paths the parsed source index need not hold,
+        // and the scan reads them from disk, so there is nothing for a
+        // diff-scoped run to narrow it to.
+        .scope = .whole_tree,
+        .run = check_script_string_safety.run,
+    },
+    .{
+        .name = "dead-model-field",
+        .summary = "Flag a struct field surfaced in output but read by no enforcement path (opt-in)",
+        .needs_ast = .yes,
+        // Whole-tree like dead-pub: a field's liveness is a cross-file property
+        // — its enforcing read can live in a file the diff never touched, so a
+        // narrowed view would report a live field as dead.
+        .scope = .whole_tree,
+        .run = check_dead_model_field.run,
+    },
+    .{
         .name = "module-doc-header",
         .summary = "Require a //! module doc header on src files over [module_doc_header] min_lines (default 200)",
         .scope = .per_file,
@@ -631,16 +653,16 @@ pub fn printHelp() void {
 /// compile-time property: `Command.scope` has no default, so a newly
 /// registered check must classify itself.)
 const inherently_whole_tree = [_][]const u8{
-    "spec",                  "spec-init",         "mutate",
-    "debt",                  "spec-quality",      "completeness",
-    "imports",               "pub-api-surface",   "panic-budget",
-    "dead-pub",              "orphan-files",      "int-from-float-budget",
-    "unsafe-ops-budget",     "test-coverage",     "repeated-string-literal",
-    "change-classification", "fuzz-presence",     "external-gates",
-    "policy-drift",          "test-reachability", "merge-state",
-    "concept",               "canonical-idiom",   "divergent-const",
-    "shadowed-const",        "twin-referent",     "import-layering",
-    "twin-parity",
+    "spec",                  "spec-init",            "mutate",
+    "debt",                  "spec-quality",         "completeness",
+    "imports",               "pub-api-surface",      "panic-budget",
+    "dead-pub",              "orphan-files",         "int-from-float-budget",
+    "unsafe-ops-budget",     "test-coverage",        "repeated-string-literal",
+    "change-classification", "fuzz-presence",        "external-gates",
+    "policy-drift",          "test-reachability",    "merge-state",
+    "concept",               "canonical-idiom",      "divergent-const",
+    "shadowed-const",        "twin-referent",        "import-layering",
+    "twin-parity",           "script-string-safety", "dead-model-field",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

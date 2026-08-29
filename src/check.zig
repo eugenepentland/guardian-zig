@@ -775,6 +775,8 @@ test {
     _ = @import("checks/function_length.zig");
     _ = @import("checks/function_size.zig");
     _ = @import("checks/fuzz_presence.zig");
+    _ = @import("checks/script_string_safety.zig");
+    _ = @import("checks/dead_model_field.zig");
     _ = @import("checks/import_layering.zig");
     _ = @import("checks/imports.zig");
     _ = @import("checks/int_from_float_budget.zig");

@@ -221,6 +221,7 @@ src/checks/const_fold.zig::foldSpelled | fn foldSpelled(text: []const u8) ?Value
 src/checks/const_fold.zig::hasUnitSegment | fn hasUnitSegment(name: []const u8) bool
 src/checks/const_fold.zig::renderValue | fn renderValue(allocator: Allocator, v: Value) Allocator.Error![]const u8
 src/checks/const_fold.zig::valuesEqual | fn valuesEqual(a: Value, b: Value) bool
+src/checks/dead_model_field.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/debug_print_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/debug_print_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -283,6 +284,8 @@ src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) regist
 src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/script_string_safety.zig::analyzeFile | fn analyzeFile(allocator: Allocator, rel_path: []const u8, text: []const u8) Allocator.Error!?reporter.Violation
+src/checks/script_string_safety.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/shadowed_const.zig::analyzeIndex | fn analyzeIndex( allocator: Allocator, files: []const ast_index.Entry, cfg: config.ShadowedConstCfg, rules: []const config.ShadowRule, ) Allocator.Error![]const reporter.Violation
 src/checks/shadowed_const.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/spec.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -420,6 +423,7 @@ src/config.zig::CompletenessCfg struct_
 src/config.zig::ComplexityCfg struct_
 src/config.zig::ConceptRule struct_
 src/config.zig::Config struct_
+src/config.zig::DeadModelFieldRule struct_
 src/config.zig::DeadPubCfg struct_
 src/config.zig::DivergentConstCfg struct_
 src/config.zig::DivergentConstMode enum_
@@ -447,6 +451,7 @@ src/config.zig::OrphanFilesCfg struct_
 src/config.zig::PolicyCfg struct_
 src/config.zig::PolicyMode enum_
 src/config.zig::PolicyProfile enum_
+src/config.zig::ScriptStringSafetyCfg struct_
 src/config.zig::ShadowRule struct_
 src/config.zig::ShadowedConstCfg struct_
 src/config.zig::ShadowedConstMode enum_
