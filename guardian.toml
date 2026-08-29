@@ -63,6 +63,14 @@ enabled = true
 [fuzz_presence]
 modules = ["src/config_parser.zig", "src/walk.zig", "src/text.zig", "src/spec/parser.zig", "src/snapshot.zig", "src/ratchet.zig", "src/git.zig", "src/dora.zig", "src/sink.zig", "src/violation_key.zig", "src/merge/three_way.zig"]
 
+# concurrency-test-presence is opt-in: each listed module must keep a test that
+# spawns a second unit of execution. Guardian's ROI sink is appended by parallel
+# check workers under a lock; its structure tests would still pass if the lock
+# were removed, so the two-writer test is the only thing that proves the
+# serialization. A refactor that drops it reds the gate.
+[concurrency_presence]
+modules = ["src/check_roi.zig"]
+
 # Guardian's own [[ban]] rule — the config-side ban the `ban` check enforces.
 # A gate check must report and return error.CheckFailed: reporter.fatal exits the
 # process on the spot, so every later check is skipped and `all` never prints the
@@ -96,7 +104,7 @@ reason = "reporter.fail(...) then `return error.CheckFailed`, so the run finishe
 # install_hook and spec_init.
 [[allow]]
 check = "ban-fs"
-paths = ["src/merge/*", "src/cli/merge_file*", "src/cli/merge_driver*", "src/cli/selfcheck*", "src/walk*", "src/cache*", "src/external_inputs.zig", "src/snapshot*", "src/config*", "src/required_inputs*", "src/missing_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/testing/*", "src/cli/debt*", "src/cli/history*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*", "src/check_roi*"]
+paths = ["src/merge/*", "src/cli/merge_file*", "src/cli/merge_driver*", "src/cli/selfcheck*", "src/walk*", "src/cache*", "src/external_inputs.zig", "src/snapshot*", "src/config*", "src/required_inputs*", "src/missing_inputs*", "src/metadata_transaction*", "src/spec/parser*", "src/checks/spec_init*", "src/checks/dead_pub*", "src/checks/change_classification*", "src/checks/completeness*", "src/checks/fuzz_presence*", "src/checks/concurrency_presence*", "src/testing/*", "src/cli/debt*", "src/cli/history*", "src/cli/doctor*", "src/cli/install_hook*", "src/baseline.zig", "src/ratchet.zig", "src/mutation/*", "src/sink*", "src/dora*", "src/check_roi*"]
 
 # Delivery telemetry, benchmark recording, and supervised external performance
 # gates legitimately read time for durations/deadlines. The test runner joins

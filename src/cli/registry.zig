@@ -72,6 +72,7 @@ const check_change_classification = @import("../checks/change_classification.zig
 const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
 const check_fatal_exit = @import("../checks/fatal_exit.zig");
 const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
+const check_concurrency_presence = @import("../checks/concurrency_presence.zig");
 const check_script_string_safety = @import("../checks/script_string_safety.zig");
 const check_dead_model_field = @import("../checks/dead_model_field.zig");
 const check_module_doc_header = @import("../checks/module_doc_header.zig");
@@ -542,6 +543,15 @@ pub const all: []const Command = &.{
         .run = check_fuzz_presence.run,
     },
     .{
+        .name = "concurrency-test-presence",
+        .summary = "Require a concurrency test in each configured module (opt-in)",
+        // Whole-tree like fuzz-presence: the verdict is over the config's own
+        // path list, read from disk rather than from the parsed index, so a
+        // diff-scoped run has nothing to narrow it to.
+        .scope = .whole_tree,
+        .run = check_concurrency_presence.run,
+    },
+    .{
         .name = "script-string-safety",
         .summary = "Flag a script-blob JSON serializer that escapes \" and \\ but not < (stored XSS; opt-in)",
         // Whole-tree like its lexical cousins concept/canonical-idiom: the
@@ -653,16 +663,17 @@ pub fn printHelp() void {
 /// compile-time property: `Command.scope` has no default, so a newly
 /// registered check must classify itself.)
 const inherently_whole_tree = [_][]const u8{
-    "spec",                  "spec-init",            "mutate",
-    "debt",                  "spec-quality",         "completeness",
-    "imports",               "pub-api-surface",      "panic-budget",
-    "dead-pub",              "orphan-files",         "int-from-float-budget",
-    "unsafe-ops-budget",     "test-coverage",        "repeated-string-literal",
-    "change-classification", "fuzz-presence",        "external-gates",
-    "policy-drift",          "test-reachability",    "merge-state",
-    "concept",               "canonical-idiom",      "divergent-const",
-    "shadowed-const",        "twin-referent",        "import-layering",
-    "twin-parity",           "script-string-safety", "dead-model-field",
+    "spec",                      "spec-init",       "mutate",
+    "debt",                      "spec-quality",    "completeness",
+    "imports",                   "pub-api-surface", "panic-budget",
+    "dead-pub",                  "orphan-files",    "int-from-float-budget",
+    "unsafe-ops-budget",         "test-coverage",   "repeated-string-literal",
+    "change-classification",     "fuzz-presence",   "external-gates",
+    "concurrency-test-presence", "policy-drift",    "test-reachability",
+    "merge-state",               "concept",         "canonical-idiom",
+    "divergent-const",           "shadowed-const",  "twin-referent",
+    "import-layering",           "twin-parity",     "script-string-safety",
+    "dead-model-field",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered

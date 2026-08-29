@@ -194,6 +194,7 @@ const Section = enum {
     completeness,
     dora,
     fuzz_presence,
+    concurrency_presence,
     script_string_safety,
     int_from_float,
     divergent_const,
@@ -1181,7 +1182,8 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .mutation => if (key[0] == 's') .string else .unsigned,
         .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
-        .fuzz_presence, .script_string_safety, .int_from_float, .measurement, .twin_referent => .string_array,
+        .fuzz_presence, .concurrency_presence, .script_string_safety => .string_array,
+        .int_from_float, .measurement, .twin_referent => .string_array,
         // `mode` is prose; `ignore_names` is an array.
         .divergent_const => if (key[0] == 'm') .string else .string_array,
         .shadowed_const => shadowedConstValueKind(key),
@@ -1614,6 +1616,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
+        .concurrency_presence => &.{"modules"},
         .script_string_safety => &.{"blob_files"},
         .int_from_float => &.{ "guard_fns", "require_guard" },
         .divergent_const => &.{ ignore_names_key, mode_key },
@@ -1678,6 +1681,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .completeness => try applyCompletenessKey(ctx, kv),
         .dora => applyDoraKey(ctx, kv),
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
+        .concurrency_presence => try applyConcurrencyPresenceKey(ctx, kv),
         .script_string_safety => try applyScriptStringSafetyKey(ctx, kv),
         .int_from_float => try applyIntFromFloatKey(ctx, kv),
         .divergent_const => try applyDivergentConstKey(ctx, kv),
@@ -1742,6 +1746,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
+        .{ "concurrency_presence", Section.concurrency_presence },
         .{ "script_string_safety", Section.script_string_safety },
         .{ "int_from_float", Section.int_from_float },
         .{ "divergent_const", Section.divergent_const },
@@ -1946,6 +1951,14 @@ fn applyDoraKey(ctx: ApplyCtx, kv: KeyVal) void {
 fn applyFuzzPresenceKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     if (std.mem.eql(u8, kv.key, "modules")) {
         ctx.cfg.fuzz_presence.modules = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the `[concurrency_presence] modules` list — the files whose shared
+/// mutable state must keep a test that spawns a second unit of execution.
+fn applyConcurrencyPresenceKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, "modules")) {
+        ctx.cfg.concurrency_presence.modules = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -3070,6 +3083,30 @@ test "parse [fuzz_presence] defaults empty and reads the modules list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.fuzz_presence.modules.len);
     try std.testing.expectEqualStrings("src/config_parser.zig", cfg.fuzz_presence.modules[0]);
     try std.testing.expectEqualStrings("src/walk.zig", cfg.fuzz_presence.modules[1]);
+}
+
+// spec: Configuration - Parses the concurrency_presence modules list
+
+test "parse [concurrency_presence] defaults empty and reads the modules list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: no modules configured, so the check is a no-op.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.concurrency_presence.modules.len);
+    const cfg = try parse(arena.allocator(),
+        \\[fuzz_presence]
+        \\modules = ["src/walk.zig"]
+        \\[concurrency_presence]
+        \\modules = ["src/check_roi.zig", "src/store.zig"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.concurrency_presence.modules.len);
+    try std.testing.expectEqualStrings("src/check_roi.zig", cfg.concurrency_presence.modules[0]);
+    try std.testing.expectEqualStrings("src/store.zig", cfg.concurrency_presence.modules[1]);
+    // Two same-shaped string-array sections in one file must not share storage:
+    // the fuzz_presence/int_from_float pair once did, and one section silently
+    // read the other's paths.
+    try std.testing.expectEqual(@as(usize, 1), cfg.fuzz_presence.modules.len);
+    try std.testing.expectEqualStrings("src/walk.zig", cfg.fuzz_presence.modules[0]);
 }
 
 // spec: Configuration - Parses the script_string_safety blob_files list

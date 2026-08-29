@@ -981,6 +981,28 @@ const entries = [_]Entry{
     \\Exempt: off unless `[fuzz_presence] modules` names at least one file; drop
     \\a path from that list if it no longer needs a fuzz harness.
     },
+    .{ .name = "concurrency-test-presence", .text =
+    \\Why (opt-in): a mutex, a lock table or a rev guard can sit in a file for its
+    \\whole life with nothing proving it serializes anything — the motivating case
+    \\was a lockless check-then-write where two savers both read rev=5, both wrote
+    \\rev=6, and one write was silently lost. A lock EXISTING is not the lock being
+    \\exercised, and no static check can decide the runtime property; this one only
+    \\refuses to let a file you declared concurrency-critical carry no concurrency
+    \\test at all.
+    \\Fix: add a test that starts a second unit of execution over the shared state —
+    \\`std.Thread.spawn` (joined), `Thread.Pool`, or `io.concurrent` /
+    \\`Io.Group.concurrent`. The spawn may live in a helper the test calls, so
+    \\test-no-conditional can still push the join loop out of the test body.
+    \\Not accepted: a lock, RwLock, Semaphore or Condition on its own (that is the
+    \\thing being questioned), and `io.async` / `Group.async` — std's own docs say
+    \\the function "may be called immediately", so an async test can pass having
+    \\never interleaved. Only spelling matched on the TOKEN stream counts: a
+    \\mention in a comment or a string literal never does, and a spawn no test
+    \\reaches is production code.
+    \\Exempt: off unless `[concurrency_presence] modules` names at least one file;
+    \\a listed file that is missing/unreadable fails closed, so drop a path from
+    \\that list when it no longer guards shared mutable state.
+    },
     .{ .name = "script-string-safety", .text =
     \\Why (opt-in): a JSON/string serializer whose output is embedded verbatim in
     \\an HTML `<script>` element must escape `<`, or a `</script>` sequence in the
