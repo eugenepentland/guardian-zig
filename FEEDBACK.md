@@ -10944,3 +10944,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-29 · codex · eda — system-review HTTP workspace and release controls
 - **good:** The zero-match test-filter guard caught that three new handler/policy tests were reachable from the production router but absent from the sharded test root; after adding the explicit import and shard prefix, the focused run selected all three and passed 29/29 instead of yielding a misleading green.
 - **friction:** The `AssemblyRenderer` callback intentionally uses an `*anyopaque` context, so its conventional paired `@ptrCast(@alignCast(...))` consumes two whole-tree unsafe-operation budget entries even though the type-erased callback API requires that recovery; a narrowly recognized callback-context idiom would avoid snapshot churn for this pattern.
+
+## 2026-08-29 · codex · eda — fail-closed system-review evidence
+- **good:** `error-discipline` identified every public `anyerror` system-package surface in one run; narrow wrappers over compiler-inferred implementations exposed exact named error sets without manually losing renderer or filesystem failures, and the next gate removed the check entirely while focused source-failure and identity-binding regressions passed.
