@@ -10901,3 +10901,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-28 · codex · zig_genetic_cascades — render Barracuda LMX2595 PLL source
 - **good:** The whole-tree commit gate and fresh-prefix production deployment both passed all 67 checks while adding and embedding a distinct PLL schematic asset; the live service restarted successfully with the saved Barracuda source identity changed without altering its +5 dBm power curve.
+
+## 2026-08-29 · codex · zig_genetic_cascades — scale passband gain chart to in-band extrema
+- **good:** The whole-tree commit gate and fresh-prefix production deployment both passed all 67 checks while the focused JavaScript check confirmed that the new Y-axis calculation excludes extreme stopband values and supplies a safe span for flat passband gain.
