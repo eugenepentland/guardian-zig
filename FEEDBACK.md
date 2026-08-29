@@ -10921,3 +10921,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-29 · codex · zig_genetic_cascades — add resistive RF tap editor
 - **good:** The server `spec` contract linked cleanly to an embedded-JavaScript asset test, and both build-wired project and server gates passed all 69 checks alongside the full test suite on the first run.
+
+## 2026-08-29 · codex · zig_genetic_cascades — deploy resistive RF tap editor
+- **good:** The fresh-prefix production release passed both build-wired 69-check Guardian gates before the atomic binary swap; the service restarted cleanly and the public cache-busted JavaScript asset contained the new editor.
