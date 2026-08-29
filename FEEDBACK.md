@@ -10918,3 +10918,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-29 · codex · zig_genetic_cascades — plot cumulative stage gain
 - **good:** Both build-wired project and server gates passed all 69 checks while validating a JavaScript/CSS-only review-chart change; the newer-binary provenance warning was explicit and did not obscure the green result.
+
+## 2026-08-29 · codex · zig_genetic_cascades — add resistive RF tap editor
+- **good:** The server `spec` contract linked cleanly to an embedded-JavaScript asset test, and both build-wired project and server gates passed all 69 checks alongside the full test suite on the first run.
