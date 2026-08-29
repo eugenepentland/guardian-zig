@@ -10924,3 +10924,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-29 · codex · zig_genetic_cascades — deploy resistive RF tap editor
 - **good:** The fresh-prefix production release passed both build-wired 69-check Guardian gates before the atomic binary swap; the service restarted cleanly and the public cache-busted JavaScript asset contained the new editor.
+
+## 2026-08-29 · codex · zig_genetic_cascades — overlay cumulative stage frequency responses
+- **good:** The linked server contract, direct-and-converted response regression, full test suite, and both build-wired gates passed all 69 checks after `unsafe-ops-budget` rejected two avoidable `@constCast` operations in the first build; copying the small interpolation grid kept the implementation safe without a budget change.
