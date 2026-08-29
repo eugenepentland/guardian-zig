@@ -10907,3 +10907,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-29 · codex · eda — unify stable refdes across build, queries, checks, and PCB reads
 - **good:** The `spec` check caught the missing exact contract on the first focused run; after linking it, the 260-test affected suite, whole-tree 67-check commit gate, full Debug/ReleaseSafe candidate, and deterministic Barracuda editor gate all passed, and the deployed CLI reproduced identical `lna/U35`, `calsw/U30`, `splitter/U31`, and `pwr_det/U32` identities across build and `instances`.
+
+## 2026-08-29 · codex · eda — bind assembly BOM rows to stable source identity
+- **good:** `spec`, `catch-discipline`, `test-no-conditional`, `debug-print-ban`, and `pub-api-surface` each caught a concrete first-pass issue; after the linked contract, explicit recoverable logging, hoisted test helper, infrastructure logger, and surgical two-symbol API snapshot, all 67 whole-tree checks, the full Debug suite, ReleaseSafe build, and deterministic Barracuda editor gate passed.
