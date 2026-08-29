@@ -32,6 +32,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Defaults completeness off and parses its enabled and exempt_sections settings
 - Parses the dora sink path and enabled toggle
 - Parses the fuzz_presence modules list
+- Parses the script_string_safety blob_files list
+- Parses the dead_model_field struct rule and rejects an incomplete one
 - Parses the int_from_float guard_fns and require_guard lists
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
@@ -1092,6 +1094,21 @@ without an explained `--force`.
 - Passes each configured module that contains a std.testing.fuzz call
 - Flags a configured module whose source has no fuzz call
 - Hard-fails a configured module that is missing or unreadable
+
+## Script String Safety
+
+- Flags a script-blob escaper that escapes quote and backslash but not <
+- Flags an if-form escaper that omits the < arm
+- Flags a file that emits JSON strings only through an unsafe helper
+- Passes a serializer that escapes < as u003c
+- Passes a file that routes strings through writeScriptString
+- Ignores a file that emits no JSON strings at all
+
+## Dead Model Field
+
+- Discovers every depth-1 field of the named struct
+- Counts a field access under a period and skips its key string
+- Flags a field read under output globs but never under logic globs
 ## Module Doc Header
 
 - Flags a module over the line threshold with no module doc header

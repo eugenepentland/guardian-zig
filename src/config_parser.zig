@@ -26,6 +26,7 @@ const ShadowRule = config.ShadowRule;
 const LayeringRule = config.LayeringRule;
 const LiteralsFrom = config.LiteralsFrom;
 const TwinRule = config.TwinRule;
+const DeadModelFieldRule = config.DeadModelFieldRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -193,6 +194,7 @@ const Section = enum {
     completeness,
     dora,
     fuzz_presence,
+    script_string_safety,
     int_from_float,
     divergent_const,
     shadowed_const,
@@ -215,7 +217,7 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, concept, idiom, shadow, layering, twin, external };
+const ArrayKind = enum { none, boundary, allow, ban, concept, idiom, shadow, layering, twin, dead_model_field, external };
 
 const ParseState = struct {
     section: Section = .top,
@@ -257,6 +259,12 @@ const ParseState = struct {
     cur_surfaces: std.ArrayList([]const u8) = .empty,
     cur_parity_test: ?[]const u8 = null,
     twins: std.ArrayList(TwinRule) = .empty,
+    cur_dmf_struct: ?[]const u8 = null,
+    cur_dmf_owner: ?[]const u8 = null,
+    cur_dmf_fields: std.ArrayList([]const u8) = .empty,
+    cur_dmf_output: std.ArrayList([]const u8) = .empty,
+    cur_dmf_logic: std.ArrayList([]const u8) = .empty,
+    dead_model_fields: std.ArrayList(DeadModelFieldRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -334,6 +342,7 @@ const ParseState = struct {
             .shadow => try self.flushShadow(allocator, diag),
             .layering => try self.flushLayering(allocator, diag),
             .twin => try self.flushTwin(allocator, diag),
+            .dead_model_field => try self.flushDeadModelField(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -598,6 +607,73 @@ const ParseState = struct {
         });
     }
 
+    /// Closes a `[[dead_model_field]]` entry. Every way to be inert is refused,
+    /// because each reads in the config like an enforced contract while checking
+    /// nothing: no `struct` (the finding and its `<struct>|<field>` baseline key
+    /// are built from it), no `output` (nothing surfaces a field, so nothing can
+    /// be "surfaced but unenforced"), neither `fields` nor `owner` (no field set
+    /// to check and no file to discover one from), and a `struct` a previous
+    /// entry already named (two rules under one struct would share, and silently
+    /// freeze with, each other's baseline keys). An empty `logic` is allowed: a
+    /// project may legitimately assert that NONE of a struct's surfaced fields
+    /// are enforced yet.
+    fn flushDeadModelField(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const name = self.cur_dmf_struct orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[dead_model_field]]: missing required key 'struct'", .{});
+            return error.IncompleteTable;
+        };
+        try self.requireDeadModelFieldRule(allocator, name, diag);
+        for (self.dead_model_fields.items) |existing| {
+            if (!std.mem.eql(u8, existing.struct_name, name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[dead_model_field]] struct '{s}'", .{name});
+            return error.InvalidConfig;
+        }
+        try self.dead_model_fields.append(allocator, .{
+            .struct_name = name,
+            .owner = self.cur_dmf_owner,
+            .fields = try self.cur_dmf_fields.toOwnedSlice(allocator),
+            .output = try self.cur_dmf_output.toOwnedSlice(allocator),
+            .logic = try self.cur_dmf_logic.toOwnedSlice(allocator),
+            .reason = self.cur_reason,
+        });
+    }
+
+    /// Names the first missing required half of the `[[dead_model_field]]` entry
+    /// being closed: a non-empty `output`, and a field set — either an explicit
+    /// `fields` list or an `owner` to discover one from.
+    fn requireDeadModelFieldRule(
+        self: *const ParseState,
+        allocator: Allocator,
+        name: []const u8,
+        diag: *Diagnostic,
+    ) ParseError!void {
+        const missing: ?[]const u8 = if (self.cur_dmf_output.items.len == 0)
+            "'output' must be a non-empty string array (the render/review globs)"
+        else if (self.cur_dmf_fields.items.len == 0 and self.cur_dmf_owner == null)
+            "needs an explicit 'fields' array or an 'owner' file to discover fields from"
+        else
+            null;
+        const detail = missing orelse return;
+        try setDiag(allocator, diag, self.array_line, "incomplete [[dead_model_field]] '{s}': {s}", .{ name, detail });
+        return error.IncompleteTable;
+    }
+
+    fn setDeadModelFieldKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "struct")) {
+            self.cur_dmf_struct = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "owner")) {
+            self.cur_dmf_owner = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "fields")) {
+            self.cur_dmf_fields = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "output")) {
+            self.cur_dmf_output = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "logic")) {
+            self.cur_dmf_logic = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -636,6 +712,11 @@ const ParseState = struct {
         self.cur_twin_name = null;
         self.cur_surfaces = .empty;
         self.cur_parity_test = null;
+        self.cur_dmf_struct = null;
+        self.cur_dmf_owner = null;
+        self.cur_dmf_fields = .empty;
+        self.cur_dmf_output = .empty;
+        self.cur_dmf_logic = .empty;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -668,6 +749,7 @@ const ParseState = struct {
             .shadow => try self.setShadowKey(allocator, kv),
             .layering => try self.setLayeringKey(allocator, kv),
             .twin => try self.setTwinKey(allocator, kv),
+            .dead_model_field => try self.setDeadModelFieldKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -851,6 +933,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "shadow")) return .shadow;
     if (std.mem.eql(u8, name, "layering")) return .layering;
     if (std.mem.eql(u8, name, "twin")) return .twin;
+    if (std.mem.eql(u8, name, "dead_model_field")) return .dead_model_field;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -911,6 +994,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.shadow_rules = try st.shadows.toOwnedSlice(allocator);
     cfg.layering_rules = try st.layerings.toOwnedSlice(allocator);
     cfg.twin_rules = try st.twins.toOwnedSlice(allocator);
+    cfg.dead_model_field_rules = try st.dead_model_fields.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -1024,6 +1108,12 @@ fn arrayValueKind(kind: ArrayKind, key: []const u8) ValueKind {
         .layering => if (key[0] == 'n' or key[0] == 'r') .string else .string_array,
         // name / parity_test are prose; surfaces is an array.
         .twin => if (std.mem.eql(u8, key, surfaces_key)) .string_array else .string,
+        // struct / owner / reason are prose; fields / output / logic are arrays.
+        .dead_model_field => if (std.mem.eql(u8, key, "struct") or
+            std.mem.eql(u8, key, "owner") or std.mem.eql(u8, key, "reason"))
+            .string
+        else
+            .string_array,
         .external => externalValueKind(key),
         .none => .string_array,
     };
@@ -1091,7 +1181,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .mutation => if (key[0] == 's') .string else .unsigned,
         .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
-        .fuzz_presence, .int_from_float, .measurement, .twin_referent => .string_array,
+        .fuzz_presence, .script_string_safety, .int_from_float, .measurement, .twin_referent => .string_array,
         // `mode` is prose; `ignore_names` is an array.
         .divergent_const => if (key[0] == 'm') .string else .string_array,
         .shadowed_const => shadowedConstValueKind(key),
@@ -1524,6 +1614,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .completeness => &.{ "enabled", "exempt_sections" },
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
+        .script_string_safety => &.{"blob_files"},
         .int_from_float => &.{ "guard_fns", "require_guard" },
         .divergent_const => &.{ ignore_names_key, mode_key },
         .shadowed_const => &.{ mode_key, ignore_values_key, min_float_digits_key, min_int_digits_key },
@@ -1553,6 +1644,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
             "files", require_in_key, literals_from_key, "reason",
         },
         .twin => &.{ "name", surfaces_key, parity_test_key },
+        .dead_model_field => &.{ "struct", "owner", "fields", "output", "logic", "reason" },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -1586,6 +1678,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .completeness => try applyCompletenessKey(ctx, kv),
         .dora => applyDoraKey(ctx, kv),
         .fuzz_presence => try applyFuzzPresenceKey(ctx, kv),
+        .script_string_safety => try applyScriptStringSafetyKey(ctx, kv),
         .int_from_float => try applyIntFromFloatKey(ctx, kv),
         .divergent_const => try applyDivergentConstKey(ctx, kv),
         .shadowed_const => try applyShadowedConstKey(ctx, kv),
@@ -1649,6 +1742,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
         .{ "fuzz_presence", Section.fuzz_presence },
+        .{ "script_string_safety", Section.script_string_safety },
         .{ "int_from_float", Section.int_from_float },
         .{ "divergent_const", Section.divergent_const },
         .{ "shadowed_const", Section.shadowed_const },
@@ -1852,6 +1946,14 @@ fn applyDoraKey(ctx: ApplyCtx, kv: KeyVal) void {
 fn applyFuzzPresenceKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     if (std.mem.eql(u8, kv.key, "modules")) {
         ctx.cfg.fuzz_presence.modules = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the `[script_string_safety] blob_files` allowlist — the JSON/string
+/// serializers whose output is embedded verbatim in an HTML `<script>` element.
+fn applyScriptStringSafetyKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, "blob_files")) {
+        ctx.cfg.script_string_safety.blob_files = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -2968,6 +3070,59 @@ test "parse [fuzz_presence] defaults empty and reads the modules list" {
     try std.testing.expectEqual(@as(usize, 2), cfg.fuzz_presence.modules.len);
     try std.testing.expectEqualStrings("src/config_parser.zig", cfg.fuzz_presence.modules[0]);
     try std.testing.expectEqualStrings("src/walk.zig", cfg.fuzz_presence.modules[1]);
+}
+
+// spec: Configuration - Parses the script_string_safety blob_files list
+
+test "parse [script_string_safety] defaults empty and reads the blob_files list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.script_string_safety.blob_files.len);
+    const cfg = try parse(arena.allocator(),
+        \\[script_string_safety]
+        \\blob_files = ["src/serve/pcb_part_json.zig", "src/power_integrity_json.zig"]
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.script_string_safety.blob_files.len);
+    try std.testing.expectEqualStrings("src/serve/pcb_part_json.zig", cfg.script_string_safety.blob_files[0]);
+}
+
+// spec: Configuration - Parses the dead_model_field struct rule and rejects an incomplete one
+
+test "parse [[dead_model_field]] reads a rule and refuses one with no field source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const defaults = try parse(a, "");
+    try std.testing.expectEqual(@as(usize, 0), defaults.dead_model_field_rules.len);
+    const cfg = try parse(a,
+        \\[[dead_model_field]]
+        \\struct = "ElectricalDecl"
+        \\owner = "src/eval/env.zig"
+        \\fields = ["max_voltage"]
+        \\output = ["src/review_json.zig", "src/render_html.zig"]
+        \\logic = ["src/erc.zig", "src/checks.zig"]
+        \\reason = "nothing checks it"
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.dead_model_field_rules.len);
+    const rule = cfg.dead_model_field_rules[0];
+    try std.testing.expectEqualStrings("ElectricalDecl", rule.struct_name);
+    try std.testing.expectEqualStrings("src/eval/env.zig", rule.owner.?);
+    try std.testing.expectEqual(@as(usize, 1), rule.fields.len);
+    try std.testing.expectEqual(@as(usize, 2), rule.output.len);
+    // A rule with an output but no field source (neither fields nor owner) is
+    // inert, so it is refused rather than silently checking nothing.
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[dead_model_field]]
+        \\struct = "Foo"
+        \\output = ["src/render.zig"]
+    ));
+    // A rule with a field source but no output can never surface anything.
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[dead_model_field]]
+        \\struct = "Foo"
+        \\fields = ["bar"]
+    ));
 }
 
 // spec: Configuration - Parses the int_from_float guard_fns and require_guard lists

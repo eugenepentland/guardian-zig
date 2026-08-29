@@ -644,6 +644,40 @@ pub const TestCoverageCfg = struct {
     exempt_names: []const []const u8 = &.{},
 };
 
+/// Per-check config for script-string-safety. `blob_files` names the JSON/string
+/// serializers whose output is embedded verbatim into an HTML `<script>` element
+/// (path globs, walker-relative). Inside a listed file, a JSON-string escaper —
+/// one that opens a `"` and escapes `"` and `\` — that never escapes `<` (and a
+/// file that emits JSON strings only through such an unsafe helper) is a stored-
+/// XSS class: `</script>` in the data terminates the element. Opt-in by
+/// construction: an empty list (the default) makes the check a no-op, because a
+/// plain `application/json` writer legitimately need not escape `<` — only the
+/// consumer knows which serializers actually feed a script blob.
+pub const ScriptStringSafetyCfg = struct {
+    blob_files: []const []const u8 = &.{},
+};
+
+/// One `[[dead_model_field]]` entry — a struct whose fields are checked for the
+/// "surfaced but never enforced" drift, by the `dead-model-field` check.
+/// `struct_name` names the owning struct (leads every finding and its baseline
+/// key); `owner` is the file that declares it (used to auto-discover fields when
+/// `fields` is empty); `fields` optionally pins the exact field names to check
+/// (the precise mode — avoids conflating a field with a same-named field on
+/// another struct); `output` globs the render/review files a field may be read
+/// in and still be dead; `logic` globs the decision/enforcement files whose read
+/// proves a field is live; `reason` closes every violation.
+///
+/// A field referenced under `output` but under none of `logic` is a contract
+/// shown to the user and enforced by nobody — the drift this check exists for.
+pub const DeadModelFieldRule = struct {
+    struct_name: []const u8,
+    owner: ?[]const u8 = null,
+    fields: []const []const u8 = &.{},
+    output: []const []const u8 = &.{},
+    logic: []const []const u8 = &.{},
+    reason: ?[]const u8 = null,
+};
+
 /// Per-check config for fuzz-presence. Each path in `modules` must contain at
 /// least one `std.testing.fuzz` call. Opt-in by construction: an empty list (the
 /// default) is a no-op, so the check does nothing until a project names the
@@ -739,6 +773,7 @@ pub const Config = struct {
     completeness: CompletenessCfg = .{},
     dora: DoraCfg = .{},
     fuzz_presence: FuzzPresenceCfg = .{},
+    script_string_safety: ScriptStringSafetyCfg = .{},
     int_from_float: IntFromFloatCfg = .{},
     divergent_const: DivergentConstCfg = .{},
     shadowed_const: ShadowedConstCfg = .{},
@@ -770,6 +805,10 @@ pub const Config = struct {
     /// TwinRule). Empty (the default) makes the `twin-parity` check a trivial
     /// pass.
     twin_rules: []const TwinRule = &.{},
+    /// [[dead_model_field]] entries: project-declared model structs whose
+    /// surfaced-but-unenforced fields the `dead-model-field` check flags. Empty
+    /// (the default) makes that check a trivial pass.
+    dead_model_field_rules: []const DeadModelFieldRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.
