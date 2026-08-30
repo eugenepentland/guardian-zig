@@ -10957,3 +10957,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-30 · codex · eda — internal power-fill via connectivity
 - **good:** The focused `spec` check caught the missing exact Web Server contract for the new WASM internal-plane via regression on its first run; after linking it, all 70 whole-tree checks, the full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and editor state-ownership invariants passed.
+
+## 2026-08-30 · codex · eda — load adaptive-width geometry gate on demand
+- **good:** The updated exact `spec` contract, async browser regression, all 70 whole-tree checks, full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and editor state-ownership invariants passed without a gate-driven retry.
