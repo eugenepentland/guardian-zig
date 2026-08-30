@@ -10954,3 +10954,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-30 · codex · eda — whole-board adaptive trace-width recheck
 - **good:** The `spec` check rejected a new PCB-editor contract that I had appended to an existing `// spec:` tag, naming both the unlinked combined tag and the two unverified bullets; splitting the button behavior into its own exact tagged test cleared all 70 checks before the full Debug, ReleaseSafe, and Barracuda editor gates passed.
+
+## 2026-08-30 · codex · eda — internal power-fill via connectivity
+- **good:** The focused `spec` check caught the missing exact Web Server contract for the new WASM internal-plane via regression on its first run; after linking it, all 70 whole-tree checks, the full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and editor state-ownership invariants passed.
