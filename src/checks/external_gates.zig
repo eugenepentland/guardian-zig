@@ -16,13 +16,79 @@ const snapshot_helper = @import("../snapshot_helper.zig");
 
 const max_output_bytes: usize = 4 * 1024 * 1024;
 
+const check_name = "external-gates";
+
+/// Detail line naming the `[benchmark]` record a misconfigured gate points at.
+const benchmark_detail = "benchmark: {s}";
+
+/// One failing invocation, held until the whole set has run.
+///
+/// Failures are COLLECTED rather than printed as they happen, because the
+/// baseline layer reconstructs a check's findings from its output and only an
+/// indented line under a header counts (`baseline.extract`). Reporting each
+/// failure as its own `reporter.fail` header — which is what this check used to
+/// do — produced a check that printed "FAILED" and yielded ZERO keyed
+/// violations, so a failing gate was recorded as nothing, compared against a
+/// baseline of nothing, and passed. Every `[[external]]` in every project was
+/// advisory as a result. See the tests at the bottom of this file.
+const Failure = struct {
+    violation: reporter.Violation,
+    /// Child output or a resource measurement, rendered under the violation.
+    detail: []const u8 = "",
+};
+
+const Failures = struct {
+    allocator: std.mem.Allocator,
+    items: std.ArrayList(Failure) = .empty,
+
+    /// Record one failing invocation. `identity` keys it independently of the
+    /// message wording, so rephrasing a diagnostic never re-keys a baseline.
+    fn add(
+        self: *Failures,
+        gate: config.ExternalGate,
+        input: ?[]const u8,
+        message: []const u8,
+        detail: []const u8,
+    ) std.mem.Allocator.Error!void {
+        try self.items.append(self.allocator, .{
+            .violation = .{
+                .check = check_name,
+                .file = input orelse gate.name,
+                .identity = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{s}|{s}",
+                    .{ gate.name, input orelse "" },
+                ),
+                .message = try std.fmt.allocPrint(
+                    self.allocator,
+                    "external gate '{s}' {s}{s}{s}",
+                    .{ gate.name, message, if (input != null) " for " else "", input orelse "" },
+                ),
+            },
+            .detail = detail,
+        });
+    }
+
+    fn addFmt(
+        self: *Failures,
+        gate: config.ExternalGate,
+        input: ?[]const u8,
+        message: []const u8,
+        comptime detail_fmt: []const u8,
+        detail_args: anytype,
+    ) std.mem.Allocator.Error!void {
+        const detail = try std.fmt.allocPrint(self.allocator, detail_fmt, detail_args);
+        return self.add(gate, input, message, detail);
+    }
+};
+
 /// Runs every configured `[[external]]` command and blocks on spawn/nonzero.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     if (ctx.cfg.external_gates.len == 0) {
         reporter.ok("external-gates: none configured", .{});
         return;
     }
-    var failed: usize = 0;
+    var failures: Failures = .{ .allocator = ctx.allocator };
     var invocations: usize = 0;
     var skipped: usize = 0;
     var changed: ?scope.Decision = null;
@@ -36,34 +102,34 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
             }
         }
         const inputs = external_inputs.expand(ctx.allocator, ctx.project_dir, gate.inputs) catch |e| {
-            failed += 1;
-            reporter.fail("external gate '{s}' could not expand inputs: {s}", .{ gate.name, @errorName(e) });
+            try failures.add(gate, null, "could not expand inputs", @errorName(e));
             continue;
         };
         const missing = try external_inputs.unmatched(ctx.allocator, gate.inputs, inputs);
         if (missing.len > 0) {
-            failed += 1;
-            reporter.fail("external gate '{s}' has {d} unmatched input pattern(s)", .{ gate.name, missing.len });
-            for (missing) |pattern| reporter.detail("  missing: {s}\n", .{pattern});
+            try failures.addFmt(gate, null, "has unmatched input pattern(s)", "missing: {s}", .{
+                try std.mem.join(ctx.allocator, ", ", missing),
+            });
             continue;
         }
         if (external_inputs.usesPlaceholder(gate.command)) {
             if (inputs.len == 0) {
-                failed += 1;
-                reporter.fail("external gate '{s}' uses {s} but declares no inputs", .{ gate.name, external_inputs.placeholder });
+                try failures.addFmt(gate, null, "declares no inputs", "uses {s} but matched no file", .{
+                    external_inputs.placeholder,
+                });
                 continue;
             }
             for (inputs) |input| {
                 invocations += 1;
                 const argv = try external_inputs.argvForInput(ctx.allocator, gate.command, input);
-                if (!try runOne(ctx, gate, argv, input)) failed += 1;
+                try runOne(ctx, &failures, gate, argv, input);
             }
         } else {
             invocations += 1;
-            if (!try runOne(ctx, gate, gate.command, null)) failed += 1;
+            try runOne(ctx, &failures, gate, gate.command, null);
         }
     }
-    if (failed > 0) return error.CheckFailed;
+    if (failures.items.items.len > 0) return reportFailures(failures.items.items);
     reporter.ok("external-gates: {d} configured gate(s), {d} invocation(s) passed, {d} path-scoped skip(s)", .{
         ctx.cfg.external_gates.len,
         invocations,
@@ -71,14 +137,27 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     });
 }
 
+/// Header, then one structured violation per failing invocation. The header is
+/// what a reader sees first; the emitted records are what the baseline layer
+/// keys, so this is the shape that makes a failing gate actually block.
+fn reportFailures(items: []const Failure) registry.RunError!void {
+    reporter.fail("external-gates FAILED ({d} invocation(s))", .{items.len});
+    for (items) |failure| {
+        reporter.emit(failure.violation);
+        if (failure.detail.len > 0) reporter.detail("    {s}\n", .{failure.detail});
+    }
+    return error.CheckFailed;
+}
+
 fn runOne(
     ctx: *registry.RunCtx,
+    failures: *Failures,
     gate: config.ExternalGate,
     argv: []const []const u8,
     input: ?[]const u8,
-) registry.RunError!bool {
+) registry.RunError!void {
     if (gate.benchmark != null or gate.timeout_secs > 0 or gate.max_rss_mib > 0)
-        return runBudgeted(ctx, gate, argv, input);
+        return runBudgeted(ctx, failures, gate, argv, input);
     const result = std.process.run(ctx.allocator, wiring.io(), .{
         .argv = argv,
         .cwd = .{ .path = ctx.project_dir },
@@ -86,22 +165,23 @@ fn runOne(
         .stderr_limit = .limited64(max_output_bytes),
     }) catch |e| {
         if (e == error.OutOfMemory) return error.OutOfMemory;
-        if (input) |path|
-            reporter.fail("external gate '{s}' could not start for {s}: {s}", .{ gate.name, path, @errorName(e) })
-        else
-            reporter.fail("external gate '{s}' could not start: {s}", .{ gate.name, @errorName(e) });
-        return false;
+        return failures.add(gate, input, "could not start", @errorName(e));
     };
-    if (result.term.success()) return true;
-    if (input) |path|
-        reporter.fail("external gate '{s}' FAILED for {s}", .{ gate.name, path })
-    else
-        reporter.fail("external gate '{s}' FAILED", .{gate.name});
-    const stderr = std.mem.trim(u8, result.stderr, &std.ascii.whitespace);
-    const stdout = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
-    if (stderr.len > 0) reporter.detail("  stderr: {s}\n", .{stderr});
-    if (stdout.len > 0) reporter.detail("  stdout: {s}\n", .{stdout});
-    return false;
+    if (result.term.success()) return;
+    return failures.add(gate, input, "exited unsuccessfully", childOutput(ctx.allocator, result.stdout, result.stderr));
+}
+
+/// The child's output, trimmed and labelled, for the line under the violation.
+/// stderr first — a failing gate's diagnostic almost always lives there — and
+/// the two are joined so one failure stays one detail line.
+fn childOutput(allocator: std.mem.Allocator, stdout_raw: []const u8, stderr_raw: []const u8) []const u8 {
+    const stderr = std.mem.trim(u8, stderr_raw, &std.ascii.whitespace);
+    const stdout = std.mem.trim(u8, stdout_raw, &std.ascii.whitespace);
+    if (stderr.len > 0 and stdout.len > 0)
+        return std.fmt.allocPrint(allocator, "stderr: {s} | stdout: {s}", .{ stderr, stdout }) catch stderr;
+    if (stderr.len > 0) return std.fmt.allocPrint(allocator, "stderr: {s}", .{stderr}) catch stderr;
+    if (stdout.len > 0) return std.fmt.allocPrint(allocator, "stdout: {s}", .{stdout}) catch stdout;
+    return "";
 }
 
 const second_ns = std.time.ns_per_s;
@@ -109,52 +189,52 @@ const mib_bytes: u64 = 1024 * 1024;
 
 fn runBudgeted(
     ctx: *registry.RunCtx,
+    failures: *Failures,
     gate: config.ExternalGate,
     argv: []const []const u8,
     input: ?[]const u8,
-) registry.RunError!bool {
-    const elapsed_limit = try benchmarkLimit(ctx, gate) orelse if (gate.benchmark != null) return false else null;
+) registry.RunError!void {
+    const elapsed_limit = try benchmarkLimit(ctx, failures, gate) orelse
+        if (gate.benchmark != null) return else null;
     const configured_timeout = if (gate.timeout_secs == 0) @as(u64, 0) else @as(u64, gate.timeout_secs) * second_ns;
     const timeout_ns = minNonzero(configured_timeout, elapsed_limit orelse 0);
     const result = budget_runner.run(ctx.allocator, argv, ctx.project_dir, timeout_ns) catch |e| {
         if (e == error.OutOfMemory) return error.OutOfMemory;
-        reportGateFailure(gate.name, input, "could not run under resource supervision", @errorName(e));
-        return false;
+        return failures.add(gate, input, "could not run under resource supervision", @errorName(e));
     };
+    const seconds = @as(f64, @floatFromInt(timeout_ns)) / @as(f64, second_ns);
     if (!result.term.success()) {
-        if (result.timed_out) {
-            reportGateFailure(gate.name, input, "exceeded its wall-time ceiling", null);
-            reporter.detail("  elapsed ceiling: {d:.3}s\n", .{@as(f64, @floatFromInt(timeout_ns)) / @as(f64, second_ns)});
-            return false;
-        }
-        reportGateFailure(gate.name, input, "exited unsuccessfully", null);
-        return false;
+        if (result.timed_out)
+            return failures.addFmt(gate, input, "exceeded its wall-time ceiling", "elapsed ceiling: {d:.3}s", .{seconds});
+        return failures.add(gate, input, "exited unsuccessfully", "");
     }
     const max_rss_bytes = @as(u64, gate.max_rss_mib) * mib_bytes;
     if (resourceViolation(result.timed_out, result.elapsed_ns, result.max_rss_bytes, elapsed_limit, max_rss_bytes)) |violation| {
         switch (violation) {
-            .timeout => {
-                reportGateFailure(gate.name, input, "exceeded its wall-time ceiling", null);
-                reporter.detail("  elapsed ceiling: {d:.3}s\n", .{@as(f64, @floatFromInt(timeout_ns)) / @as(f64, second_ns)});
-            },
-            .benchmark => {
-                const limit = elapsed_limit.?;
-                reportGateFailure(gate.name, input, "regressed beyond its recorded benchmark ceiling", null);
-                reporter.detail("  elapsed: {d:.3}s; ceiling: {d:.3}s\n", .{
+            .timeout => try failures.addFmt(gate, input, "exceeded its wall-time ceiling", "elapsed ceiling: {d:.3}s", .{seconds}),
+            .benchmark => try failures.addFmt(
+                gate,
+                input,
+                "regressed beyond its recorded benchmark ceiling",
+                "elapsed: {d:.3}s; ceiling: {d:.3}s",
+                .{
                     @as(f64, @floatFromInt(result.elapsed_ns)) / @as(f64, second_ns),
-                    @as(f64, @floatFromInt(limit)) / @as(f64, second_ns),
-                });
-            },
-            .rss_unavailable => reportGateFailure(gate.name, input, "could not obtain peak RSS on this platform", null),
-            .rss => {
-                reportGateFailure(gate.name, input, "exceeded its peak-RSS ceiling", null);
-                reporter.detail("  peak RSS: {d:.1} MiB; ceiling: {d} MiB\n", .{
+                    @as(f64, @floatFromInt(elapsed_limit.?)) / @as(f64, second_ns),
+                },
+            ),
+            .rss_unavailable => try failures.add(gate, input, "could not obtain peak RSS on this platform", ""),
+            .rss => try failures.addFmt(
+                gate,
+                input,
+                "exceeded its peak-RSS ceiling",
+                "peak RSS: {d:.1} MiB; ceiling: {d} MiB",
+                .{
                     @as(f64, @floatFromInt(result.max_rss_bytes.?)) / @as(f64, mib_bytes),
                     gate.max_rss_mib,
-                });
-            },
+                },
+            ),
         }
-        return false;
+        return;
     }
     reporter.detail("  external gate '{s}' resources: {d:.3}s", .{
         gate.name,
@@ -164,26 +244,35 @@ fn runBudgeted(
         reporter.detail(", {d:.1} MiB peak RSS\n", .{@as(f64, @floatFromInt(rss)) / @as(f64, mib_bytes)})
     else
         reporter.detail("\n", .{});
-    return true;
 }
 
-fn benchmarkLimit(ctx: *registry.RunCtx, gate: config.ExternalGate) registry.RunError!?u64 {
+fn benchmarkLimit(
+    ctx: *registry.RunCtx,
+    failures: *Failures,
+    gate: config.ExternalGate,
+) registry.RunError!?u64 {
     const name = gate.benchmark orelse return null;
     const path = try snapshot_helper.snapshotPath(ctx.allocator, ctx.project_dir, benchmark.leaf);
     const records = benchmark.read(ctx.allocator, path) catch |e| {
-        reporter.fail("external gate '{s}' cannot read benchmark ledger: {s}", .{ gate.name, @errorName(e) });
+        try failures.add(gate, null, "cannot read benchmark ledger", @errorName(e));
         return null;
     };
     const record = benchmark.find(records, name) orelse {
-        reporter.fail("external gate '{s}' names missing benchmark '{s}'", .{ gate.name, name });
+        try failures.addFmt(gate, null, "names a missing benchmark", benchmark_detail, .{name});
         return null;
     };
     if (record.direction != .min or !std.mem.eql(u8, record.unit, "s") or record.value <= 0) {
-        reporter.fail("external gate '{s}' benchmark '{s}' must be a positive, min-direction value in seconds", .{ gate.name, name });
+        try failures.addFmt(
+            gate,
+            null,
+            "names a benchmark that is not a positive, min-direction value in seconds",
+            benchmark_detail,
+            .{name},
+        );
         return null;
     }
     return secondsToNs(regressionCeiling(record.value, gate.max_regression_pct)) orelse {
-        reporter.fail("external gate '{s}' benchmark '{s}' produces an unusable elapsed ceiling", .{ gate.name, name });
+        try failures.addFmt(gate, null, "derives an unusable elapsed ceiling", benchmark_detail, .{name});
         return null;
     };
 }
@@ -221,13 +310,6 @@ fn resourceViolation(
     return null;
 }
 
-fn reportGateFailure(name: []const u8, input: ?[]const u8, message: []const u8, detail: ?[]const u8) void {
-    if (input) |path|
-        reporter.fail("external gate '{s}' {s} for {s}{s}{s}", .{ name, message, path, if (detail != null) ": " else "", detail orelse "" })
-    else
-        reporter.fail("external gate '{s}' {s}{s}{s}", .{ name, message, if (detail != null) ": " else "", detail orelse "" });
-}
-
 fn runsForChanges(decision: scope.Decision, patterns: []const []const u8) bool {
     if (patterns.len == 0) return true;
     return switch (decision) {
@@ -241,6 +323,118 @@ fn runsForChanges(decision: scope.Decision, patterns: []const []const u8) bool {
     };
 }
 
+const baseline = @import("../baseline.zig");
+
+/// Run the check under capture and return the keys the baseline layer would
+/// record for it. This is the whole point of the shape: `run` returning
+/// `error.CheckFailed` is NOT enough, because `runWithBaseline` swallows that
+/// error and reconstructs the findings from what the check reported.
+fn keysFor(arena: std.mem.Allocator, cfg: *const config.Config, project_dir: []const u8) ![]const baseline.Keyed {
+    var ctx: registry.RunCtx = .{
+        .allocator = arena,
+        .project_dir = project_dir,
+        .cfg = cfg,
+        .quiet = false,
+    };
+    var cap: reporter.Capture = .{ .allocator = arena };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    run(&ctx) catch |e| switch (e) {
+        error.CheckFailed => {},
+        else => return e,
+    };
+    return baseline.keyedViolations(arena, check_name, cap.buf.items, cap.records.items);
+}
+
+// spec: External Gates - Records each failing external gate as a keyed violation, so a failing gate is what blocks rather than only what is printed
+
+test "a failing external gate produces a keyed violation, not just printed text" {
+    // THE REGRESSION. This check used to report every failure as its own
+    // unindented `reporter.fail` header. `baseline.extract` collects only
+    // INDENTED lines beneath a header, and treats the `stderr:`/`stdout:` lines
+    // this check emitted as trailing hint prose that ends the block — so a
+    // failing gate yielded ZERO keys. Against an empty baseline that is "0
+    // current, 0 recorded: baseline matches", which is green. Every
+    // `[[external]]` gate in every project was advisory, and the projects
+    // relying on them (JS syntax gates, schema checks, policy scripts) had no
+    // gate at all. Measured in the netlisp tree: 27 declared gates, a
+    // deliberately failing one, `0 blocking`.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg: config.Config = .{ .external_gates = &.{.{
+        .name = "always-fails",
+        .command = &.{ "sh", "-c", "echo boom >&2; exit 1" },
+    }} };
+
+    const keys = try keysFor(a, &cfg, ".");
+    try std.testing.expectEqual(@as(usize, 1), keys.len);
+    // Keyed by gate name, so rewording the diagnostic cannot re-key a baseline.
+    try std.testing.expect(std.mem.indexOf(u8, keys[0].key, "always-fails") != null);
+    try std.testing.expect(std.mem.indexOf(u8, keys[0].line, "always-fails") != null);
+}
+
+// spec: External Gates - Keys a per-input external gate failure by gate name and input path so one file's failure is one violation
+test "every failing per-input invocation is separately keyed" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-external-keys";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir ++ "/assets");
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/a.js", .data = "ok" });
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/assets/b.js", .data = "ok" });
+
+    const cfg: config.Config = .{ .external_gates = &.{.{
+        .name = "js-syntax",
+        .command = &.{ "false", external_inputs.placeholder },
+        .inputs = &.{"assets/*.js"},
+    }} };
+
+    // Two files, two failures, two DISTINCT keys — one file being fixed must
+    // resolve exactly one baseline row, never collapse into a shared one.
+    const keys = try keysFor(a, &cfg, dir);
+    try std.testing.expectEqual(@as(usize, 2), keys.len);
+    try std.testing.expect(!std.mem.eql(u8, keys[0].key, keys[1].key));
+    try std.testing.expect(std.mem.indexOf(u8, keys[0].key, "assets/a.js") != null);
+    try std.testing.expect(std.mem.indexOf(u8, keys[1].key, "assets/b.js") != null);
+}
+
+// spec: External Gates - Records a misconfigured external gate as a keyed violation the same way a failing one is
+test "a misconfigured external gate is keyed too, not silently tolerated" {
+    // The config-error paths (unmatched input pattern, a placeholder with no
+    // inputs, a missing benchmark record) had the same defect as the failure
+    // path: printed, never keyed. A gate that cannot run is exactly as
+    // ungated as a gate that fails.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg: config.Config = .{ .external_gates = &.{.{
+        .name = "js-syntax",
+        .command = &.{"true"},
+        .inputs = &.{"definitely-missing-assets/*.js"},
+    }} };
+
+    const keys = try keysFor(a, &cfg, ".");
+    try std.testing.expectEqual(@as(usize, 1), keys.len);
+    try std.testing.expect(std.mem.indexOf(u8, keys[0].line, "unmatched input pattern") != null);
+}
+
+// spec: External Gates - Reports no violation for a passing external gate
+test "a passing external gate keys nothing" {
+    // The other direction: the fix must not turn a green run into debt.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cfg: config.Config = .{ .external_gates = &.{.{
+        .name = "always-passes",
+        .command = &.{"true"},
+    }} };
+    try std.testing.expectEqual(@as(usize, 0), (try keysFor(a, &cfg, ".")).len);
+}
+
 // spec: External Gates - Runs configured argv commands without a shell and blocks on nonzero exit
 
 test "external gate failure propagates without a shell" {
@@ -248,8 +442,12 @@ test "external gate failure propagates without a shell" {
         .name = "expected-failure",
         .command = &.{"false"},
     }} };
+    // Arena, as in production: this check owns the child's captured output and
+    // the rendered violation text for the length of one run and frees neither.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
     var ctx: registry.RunCtx = .{
-        .allocator = std.testing.allocator,
+        .allocator = arena.allocator(),
         .project_dir = ".",
         .cfg = &cfg,
         .quiet = false,

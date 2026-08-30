@@ -411,13 +411,14 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
     // Inner scope so the capture is restored *before* processOutcome runs —
     // otherwise the outcome's reporter.fail / detail would route into the
     // capture buffer instead of stderr.
+    var check_failed = false;
     {
         const prior = reporter.default.capture;
         defer reporter.default.capture = prior;
         reporter.default.capture = &capture;
 
         cmd.run(ctx) catch |e| switch (e) {
-            error.CheckFailed => {},
+            error.CheckFailed => check_failed = true,
             else => return e,
         };
     }
@@ -427,6 +428,8 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
     // while only the blocking records below participate in debt metadata.
     for (capture.warnings.items) |warning| reporter.warn(warning);
 
+    if (check_failed) try requireNamedFindings(ctx, cmd.name, &capture);
+
     return processOutcome(
         ctx,
         cmd.name,
@@ -435,6 +438,43 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
         capture.warnings.items,
         force_refresh,
     );
+}
+
+/// A check that fails while naming NOTHING must not be turned green here.
+///
+/// Everything below this point reconstructs a check's findings from what it
+/// reported, and reports the diff against the stored baseline. A check that
+/// returned `CheckFailed` but produced no record, no warning and no extractable
+/// violation line therefore arrives as "0 current violations" — which against
+/// an empty baseline is `matched`, and `matched` is GREEN. The check's own
+/// verdict is discarded in favour of a reconstruction that found nothing.
+///
+/// That is not hypothetical: `external-gates` reported every failing gate as
+/// its own unindented `reporter.fail` header, which `extract` does not collect,
+/// so a project's whole set of `[[external]]` gates silently stopped blocking.
+/// A failure that cannot be keyed also cannot be baselined or accepted, so
+/// propagating it is the only correct answer — and it names the check, because
+/// the defect is always in the check's reporting rather than in the tree.
+fn requireNamedFindings(
+    ctx: *types.RunCtx,
+    check_name: []const u8,
+    capture: *const reporter.Capture,
+) types.RunError!void {
+    if (capture.records.items.len > 0 or capture.warnings.items.len > 0) return;
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    if ((try extract(arena.allocator(), capture.buf.items)).len > 0) return;
+    reporter.fail(
+        "{s}: FAILED without naming a single finding — its verdict cannot be keyed, " ++
+            "baselined or accepted, so it is propagated as-is",
+        .{check_name},
+    );
+    reporter.detail(
+        "  fix: report each finding with reporter.emit (preferred, carries an identity) " ++
+            "or as an indented line beneath one header line.\n",
+        .{},
+    );
+    return error.CheckFailed;
 }
 
 /// Keyed violations for the baseline diff. Prefers the structured records a
@@ -1813,6 +1853,70 @@ fn warningOnly(_: *types.RunCtx) types.RunError!void {
         .file = "src/x.zig",
         .message = "1200 lines (recommended 1000; hard limit 10000)",
     });
+}
+
+/// The defect shape: a check that fails and reports only an UNINDENTED header.
+/// `extract` collects indented lines, so this reconstructs to zero findings.
+fn failsWithoutNamingAnything(_: *types.RunCtx) types.RunError!void {
+    reporter.fail("something-check FAILED (3 occurrence(s))", .{});
+    return error.CheckFailed;
+}
+
+/// The same check reporting correctly: one header, one indented finding.
+fn failsNamingOne(_: *types.RunCtx) types.RunError!void {
+    reporter.fail("something-check FAILED (1 occurrence(s))", .{});
+    reporter.detail("  src/x.zig:1: something is wrong\n", .{});
+    return error.CheckFailed;
+}
+
+// spec: Baseline Mode - Propagates a check that fails without naming a finding instead of reconstructing it as an empty, matching baseline
+test "a check that fails while naming nothing is not turned green by the baseline" {
+    // THE CLASS BUG. Everything in processOutcome works off findings
+    // RECONSTRUCTED from the check's output, so a check that fails while
+    // reporting nothing extractable arrives as "0 current violations" — which
+    // against an empty baseline is `matched`, and `matched` is green. The
+    // check's own verdict was discarded in favour of a reconstruction that
+    // found nothing. That is how every `[[external]]` gate in a real project
+    // stopped blocking while still printing "FAILED".
+    const dir = "zig-cache/test-baseline-unnamed";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+
+    const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: types.RunCtx = .{
+        .allocator = std.testing.allocator,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    try std.testing.expectError(error.CheckFailed, runWithBaseline(&ctx, .{
+        .name = "something-check",
+        .summary = "test",
+        .scope = .whole_tree,
+        .run = failsWithoutNamingAnything,
+    }));
+    // And it says WHICH check, because the defect is in the check's reporting
+    // rather than anywhere in the tree being scanned.
+    try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "something-check") != null);
+    try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "without naming a single finding") != null);
+
+    // The other direction: a check that names its finding goes down the normal
+    // baseline path and is NOT caught by the guard.
+    outer.buf.clearRetainingCapacity();
+    try runWithBaseline(&ctx, .{
+        .name = "something-check",
+        .summary = "test",
+        .scope = .whole_tree,
+        .run = failsNamingOne,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "without naming a single finding") == null);
 }
 
 test "runWithBaseline replays warnings without ratcheting them" {
