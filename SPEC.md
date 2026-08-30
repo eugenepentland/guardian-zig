@@ -370,6 +370,10 @@ blocking correctness checks and advisory maintainability guidance.
 ## External Gates
 
 - Runs configured argv commands without a shell and blocks on nonzero exit
+- Records each failing external gate as a keyed violation, so a failing gate is what blocks rather than only what is printed
+- Keys a per-input external gate failure by gate name and input path so one file's failure is one violation
+- Records a misconfigured external gate as a keyed violation the same way a failing one is
+- Reports no violation for a passing external gate
 - Runs an input-placeholder command once for every file matched by an input glob
 - Fails when a declared external input pattern matches no file
 - Runs opt-in external performance gates only when configured hot paths change
@@ -551,6 +555,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Captures each check's current violations on first run and only fails on additions
 - Defers first-record and prune writes to a metadata-writable run
 - Wraps a single check run with capture, diff, and outcome reporting
+- Propagates a check that fails without naming a finding instead of reconstructing it as an empty, matching baseline
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
 - Keeps the deny_growth policy reason visible in concise acceptance output
