@@ -10947,3 +10947,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-29 · codex · eda — fail-closed system-review evidence
 - **good:** `error-discipline` identified every public `anyerror` system-package surface in one run; narrow wrappers over compiler-inferred implementations exposed exact named error sets without manually losing renderer or filesystem failures, and the next gate removed the check entirely while focused source-failure and identity-binding regressions passed.
+
+## 2026-08-30 · codex · eda — deterministic multi-board review packages
+- **good:** The final whole-tree run cleared all 70 Guardian checks, the commit wrapper passed 4,338 sharded tests and committed exactly 28 intended paths, and exact-commit release preparation passed the full Debug suite plus the ReleaseSafe build.
+- **bug:** The post-Guardian Barracuda browser gate opened the live editable design and successfully autosaved a gitignored stale-layout migration before failing because it observed that same POST. The server history snapshot allowed an exact restore, and certification succeeded against an isolated normalized copy, but a release gate should snapshot its mutable workload or run it read-only so validation cannot alter user design state.
