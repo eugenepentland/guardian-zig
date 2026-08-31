@@ -10976,3 +10976,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-31 · codex · eda — persistent dossier sidebar
 - **good:** The exact SPEC/test link, focused 37-test system-review run, whole-tree 70-check gate, full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants all passed on the first release cycle.
+
+## 2026-08-31 · codex · eda — explicit stale dossier regeneration
+- **good:** `type-size` caught the public dossier cache view growing from seven to eight fields; encoding the private outdated state through the existing validation marker kept the API compact, and the exact SPEC/test links plus the final 70-check whole-tree release gate passed cleanly.
