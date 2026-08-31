@@ -10970,3 +10970,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-08-31 · codex · eda — dossier board assembly gallery
 - **good:** `pub-api-surface`, `doc-comments`, `type-size`, `bool-ops-per-condition`, and `spec` named the new review-evidence API, aggregate, dense sprite-filename predicate, and missing dossier contract in the first focused run; restructuring the evidence and surgically refreshing the public API snapshot left all 70 whole-tree checks green.
 - **friction:** The exact-commit release gate's first three-run Barracuda editor sample failed only `canvas.zoom_in.worst_p95_ms` at 51 ms against 45 ms, while the production build and every full-test shard passed. An immediate rerun of the unchanged clean commit passed the editor gate and invariants, costing another 180 seconds; reporting host-load context or retrying one isolated timing outlier would make this gate less noisy without weakening the median contract.
+
+## 2026-08-31 · codex · eda — interactive dossier Assembly viewers
+- **good:** The `file-size` ratchet prevented growth in the already-near-cap `pcb_layout_page.zig`, and `pub-api-surface` exposed the exact standalone-renderer additions and obsolete public types; a net reduction of 151 lines plus a surgical API snapshot left the final 70-check whole-tree release gate green.
