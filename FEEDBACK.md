@@ -10979,3 +10979,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-31 · codex · eda — explicit stale dossier regeneration
 - **good:** `type-size` caught the public dossier cache view growing from seven to eight fields; encoding the private outdated state through the existing validation marker kept the API compact, and the exact SPEC/test links plus the final 70-check whole-tree release gate passed cleanly.
+
+## 2026-08-31 · codex · zig_genetic_cascades — native RF evidence export
+- **good:** `test-reachability`, `error-discipline`, `unsafe-ops-budget`, `bool-ops-per-condition`, `repeated-string-literal`, and `pub-api-surface` each identified a concrete issue in the new evidence CLI; resolving them and surgically accepting the reviewed API additions left all 70 whole-tree checks and 603 tests green.
