@@ -10973,3 +10973,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-31 · codex · eda — interactive dossier Assembly viewers
 - **good:** The `file-size` ratchet prevented growth in the already-near-cap `pcb_layout_page.zig`, and `pub-api-surface` exposed the exact standalone-renderer additions and obsolete public types; a net reduction of 151 lines plus a surgical API snapshot left the final 70-check whole-tree release gate green.
+
+## 2026-08-31 · codex · eda — persistent dossier sidebar
+- **good:** The exact SPEC/test link, focused 37-test system-review run, whole-tree 70-check gate, full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants all passed on the first release cycle.
