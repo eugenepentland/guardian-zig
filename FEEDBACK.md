@@ -10960,3 +10960,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-30 · codex · eda — load adaptive-width geometry gate on demand
 - **good:** The updated exact `spec` contract, async browser regression, all 70 whole-tree checks, full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and editor state-ownership invariants passed without a gate-driven retry.
+
+## 2026-08-31 · codex · eda — scan-first system dossier
+- **good:** The diff-scoped `pub-api-surface`, `doc-comments`, `bool-ops-per-condition`, and `spec` checks prevented four renderer-only symbols from leaking into the public API and named the exact documentation, dense heading predicate, and waiver-contract gaps; making the types private, simplifying the predicate, and linking the contract left the final whole-tree 70-check release gate green without snapshot churn.
