@@ -11035,3 +11035,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · guardian-zig — classify current ROI cohort
 - **good:** `guardian-roi pending` collapsed 720 commit-specific advisory observations into 30 stable subjects; evidence-backed `label-subject` classifications propagated across every recurrence and produced a 100%-covered summary with 21 useful-review and 9 false-positive subjects instead of counting repeated warnings as new value.
+
+## 2026-09-01 · codex · zig_genetic_cascades — RF shield-via and trace-dimension inspector
+- **good:** The schema and browser-asset contracts, reviewed two-symbol public API refresh, commit hook, and both root/server 70-check gates passed while preserving 353 generated GND-via records and the single signal-via distinction.
+- **friction:** The default shared Zig cache again treated changed embedded JavaScript and example JSON as green while leaving the installed server binary 77 minutes older than the assets; only a fresh `--cache-dir` produced the UI under test. Guardian simultaneously alternated “binary is OLDER” and “binary is NEWER” warnings between normal and fresh-cache builds, costing two browser cycles and two full recompiles.
