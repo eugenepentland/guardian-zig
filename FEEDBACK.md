@@ -10982,3 +10982,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-08-31 · codex · zig_genetic_cascades — native RF evidence export
 - **good:** `test-reachability`, `error-discipline`, `unsafe-ops-budget`, `bool-ops-per-condition`, `repeated-string-literal`, and `pub-api-surface` each identified a concrete issue in the new evidence CLI; resolving them and surgically accepting the reviewed API additions left all 70 whole-tree checks and 603 tests green.
+
+## 2026-09-01 · codex · zig_genetic_cascades — deployed RF evidence viewer
+- **good:** The root and server-scoped gates caught the repeated cache-header literals and exposed exactly the three intended HTTP handler additions for API review; after extracting constants and accepting that surface, all 70 checks passed through the production Release build and deployment.
