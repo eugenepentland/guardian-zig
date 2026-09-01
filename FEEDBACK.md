@@ -11042,3 +11042,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — MM1-0626HSM-2 cascade model
 - **good:** The commit-time whole-tree gate passed all 70 checks for the datasheet-driven mixer, spur-table, and response-curve update; only the existing 72 report-only line-length findings remained.
+
+## 2026-09-01 · codex · zig_genetic_cascades — native filtered-spur chart and IF-filter comparison
+- **good:** `change-classification`, `error-discipline`, `spec`, and `pub-api-surface` identified the shared spur evaluator's missing contract, inferred error set, and reviewed API additions; the corrected implementation passed both root/server 70-check gates and the full commit test suite.
+- **friction:** The normal green build again reused an installed `rf-design` that rejected the already-committed `trace_geometry` schema; a fresh `--cache-dir` rebuild accepted the same spec and produced the current filter results. Guardian simultaneously warned that its binary was older than the prior gate, so the successful cached build did not establish that the consumer artifact was current.
