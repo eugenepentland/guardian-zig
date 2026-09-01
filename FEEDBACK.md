@@ -11067,3 +11067,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — keep masked traces below component lands
 - **good:** The first diff-scoped `spec` run caught the new renderer-order contract's missing exact SPEC/test linkage; after adding the named regression, the 70-check commit gate and exact-commit release gate passed with no snapshot churn, followed by the full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants.
+
+## 2026-09-01 · codex · eda — suppress transient adaptive-power DRC errors
+- **good:** The diff-scoped `spec` check caught an accidentally renamed browser-contract tag before commit; after updating its exact SPEC link, the commit and exact-commit release gates passed all 70 checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants in one release cycle.
