@@ -11003,3 +11003,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-01 · codex · zig_genetic_cascades — unified saved-result reports
 - **good:** The root and server-scoped 70-check gates linked the new per-band temperature, sampled-two-port, saved-report, and evidence-state-override contracts to their regressions; the commit wrapper ran the full test suite and committed exactly the 17 intended paths.
 - **friction:** Running `guardian-check accept pub-api-surface .` from the repository root did not refresh the independently configured `server/.guardian` surface, so the next build repeated the same two-symbol finding. Running the command again from `server/` fixed it; an explicit project path in the first diagnostic would have avoided the extra acceptance cycle.
+
+## 2026-09-01 · codex · zig_genetic_cascades — deploy unified saved-result reports
+- **good:** Both 70-check production-build gates passed after preserving and merging the pre-existing cumulative-response and RF-tap edits; the atomic deployment restarted cleanly and the live authenticated result/report routes and cache-busted assets passed their health probes.
