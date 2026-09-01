@@ -11025,3 +11025,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-01 · codex · zig_genetic_cascades — routed trace geometry inspector
 - **good:** The schema, exact SPEC/test links, reviewed two-symbol public API refresh, root/server 70-check gates, full tests, and production deployment all passed; browser checks confirmed 31 routed shapes, exactly one via-bearing trace, and the foreground modal in both light and dark presentation.
 - **friction:** The same clean worktree alternated Guardian's “binary is NEWER” and “binary is OLDER” warnings between build and commit despite green checks, while Zig reused an rf-design artifact that rejected the newly added schema field until the worktree cache was moved aside. The conflicting freshness signals cost one failed validation and a full clean rebuild.
+
+## 2026-09-01 · codex · guardian-zig — classify current ROI cohort
+- **good:** `guardian-roi pending` collapsed 720 commit-specific advisory observations into 30 stable subjects; evidence-backed `label-subject` classifications propagated across every recurrence and produced a 100%-covered summary with 21 useful-review and 9 false-positive subjects instead of counting repeated warnings as new value.
