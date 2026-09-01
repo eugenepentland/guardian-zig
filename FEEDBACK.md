@@ -11050,3 +11050,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-01 · codex · eda — rebuildable board heatsink defaults
 - **good:** `import-layering`, `doc-comments`, generated-doc consistency, `pub-api-surface`, and `type-size` each caught a concrete integration boundary while the new board DSL and thermal adapter were being added; the reviewed fixes and surgical snapshot updates finished with all 70 checks green in both exact-commit release cycles.
 - **good:** The zero-match test-filter guard exposed that the new module's regression was not yet rooted in the exhaustive test bridge/shard manifest, and `spec` rejected an accidental unlinked tag on the grid-outline follow-up; both prevented green-looking tests that did not carry the intended coverage.
+
+## 2026-09-01 · codex · zig_genetic_cascades — single LFCN Barracuda cascade
+- **good:** The commit-time whole-tree gate passed all 70 checks for the example-design-only removal of the upstream LFCN-1575D+ stage, with no snapshot churn or unrelated findings beyond the 70 report-only line-length entries.
