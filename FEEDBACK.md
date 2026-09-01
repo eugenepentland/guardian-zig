@@ -11064,3 +11064,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-01 · codex · eda — separate grounded schematic shunts and mark DNP passives
 - **good:** The exact-commit release gate caught a real renderer regression that the new focused test missed: shared internal RF-bias branches expanded from 80 px to 180 px when shunt-slot reservation was applied too broadly. The named failing test and exact height made the boundary-only predicate straightforward to identify; the corrected change then passed all 70 Guardian checks and 4,491 tests.
 - **friction:** Catching that cross-topology regression cost one full 175-second release attempt because the focused fixture covered only the intended external CPOUT/VTUNE case; a renderer topology test matrix or a cheaper pre-release layout-contract target would surface this class before the production candidate gate.
+
+## 2026-09-01 · codex · eda — keep masked traces below component lands
+- **good:** The first diff-scoped `spec` run caught the new renderer-order contract's missing exact SPEC/test linkage; after adding the named regression, the 70-check commit gate and exact-commit release gate passed with no snapshot churn, followed by the full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants.
