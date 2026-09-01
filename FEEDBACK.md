@@ -11073,3 +11073,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — stabilize persisted BOM release evidence
 - **good:** `change-classification` and `spec` required a linked regression for the BOM-fingerprint fix; the corrected change then passed all 70 whole-tree checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants before the verified candidate deployed cleanly.
+
+## 2026-09-01 · codex · eda — complete design archive export
+- **good:** `pub-api-surface` produced a surgical snapshot for the archive composer, STEP/KiCad reuse seams, and handler; the zero-match/shard coverage discipline also prompted explicit test-root and shard claims before the exact-candidate run. All 70 whole-tree checks, 4,498 Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants then passed.
+- **good:** `bool-ops-per-condition` identified the archive's five-operation revision-stability check and led to an auditable three-invariant loop in one focused gate cycle.
+- **friction:** `guardian-check commit .` rejected the invocation only after requiring an undocumented `--intent` value, and `guardian-check commit --help` repeated the same error instead of showing usage; discovering the accepted command cost two calls.
