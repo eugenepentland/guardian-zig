@@ -11021,3 +11021,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — per-net Barracuda EDA trace cascade
 - **good:** The exact SPEC/test link and both root/server Guardian gates passed all 70 checks through the full test suite, commit hook, and production deployment; a browser verification then confirmed all 31 active-path EDA trace links survived the saved-result round trip with their physical metadata intact.
+
+## 2026-09-01 · codex · zig_genetic_cascades — routed trace geometry inspector
+- **good:** The schema, exact SPEC/test links, reviewed two-symbol public API refresh, root/server 70-check gates, full tests, and production deployment all passed; browser checks confirmed 31 routed shapes, exactly one via-bearing trace, and the foreground modal in both light and dark presentation.
+- **friction:** The same clean worktree alternated Guardian's “binary is NEWER” and “binary is OLDER” warnings between build and commit despite green checks, while Zig reused an rf-design artifact that rejected the newly added schema field until the worktree cache was moved aside. The conflicting freshness signals cost one failed validation and a full clean rebuild.
