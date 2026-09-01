@@ -11056,3 +11056,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — conservative ERM6/ERF6 loss allowance
 - **good:** The commit-time whole-tree gate passed all 70 checks for the Barracuda example-model update from 0.10 dB to 0.25 dB connector loss; only the existing 70 report-only line-length findings remained.
+
+## 2026-09-01 · codex · zig_genetic_cascades — commit preserved amplifier fix and deploy Barracuda updates
+- **good:** The preserved unilateral-amplifier source, specification, and regressions passed the full Zig test target and 70-check commit gate; the combined Barracuda branch then built in Release mode, deployed atomically, restarted `rf-cascades`, and passed the port-5883 health check.
+- **friction:** The release build reported itself as diff-scoped with zero files against the just-created merge commit even though deployment needed whole-tree confidence; earlier per-commit whole-tree gates supplied that confidence, but a release/deploy gate should explicitly force whole-tree mode.
