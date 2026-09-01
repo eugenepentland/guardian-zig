@@ -11013,5 +11013,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-01 · codex · zig_genetic_cascades — clickable PCB interconnect diagram
 - **good:** The exact SPEC/test links and both root/server Guardian gates passed all 70 checks through the full test suite and production deployment while the new saved-design provenance round-trip regression kept PCB trace metadata inspectable after reload.
 
+## 2026-09-01 · codex · zig_genetic_cascades — cumulative stage-budget drilldown
+- **good:** Exact SPEC/test links, the whole-tree commit gate, and both production-build gates passed all 70 checks; the browser regression then verified populated cumulative gain/power charts and presentation-only folding of mixer response models without changing cascade math.
+
 ## 2026-09-01 · codex · eda — searchable trace net property
 - **good:** The JavaScript/CSS-only searchable-combobox change passed the commit and exact-commit 70-check whole-tree gates, full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and all seven state-ownership browser invariants in one release cycle; the merged identical-tree candidate then deployed with every health probe green.
