@@ -10985,3 +10985,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — deployed RF evidence viewer
 - **good:** The root and server-scoped gates caught the repeated cache-header literals and exposed exactly the three intended HTTP handler additions for API review; after extracting constants and accepting that surface, all 70 checks passed through the production Release build and deployment.
+
+## 2026-09-01 · codex · eda — expand repeated schematic pins and decoupling capacitors
+- **good:** The first diff-scoped run caught all three integration mistakes in one report: an unformatted renderer, a stale/new SPEC-tag mismatch, and a new depth-6 scene-height helper. Formatting, linking the replacement contracts, and extracting one slot-count helper cleared all 70 checks without snapshot acceptance; the whole-tree commit and release Guardian gates then passed.
+- **friction:** After Guardian, full tests, and ReleaseSafe build passed, the unrelated Barracuda timing probe failed five Canvas thresholds (31.5–33.3 ms medians; 53.8–58 ms p95/max). The unchanged retained binary immediately passed a locked retry at 19.4–20.6 ms medians and 31.7–31.9 ms p95/max, but official certification required a second 172-second release wrapper run. A bounded isolated retry for a timing-only failure would remove this recurring host-jitter cost without weakening the fail-closed code/test gates.
