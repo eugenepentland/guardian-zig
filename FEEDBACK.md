@@ -11053,3 +11053,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — single LFCN Barracuda cascade
 - **good:** The commit-time whole-tree gate passed all 70 checks for the example-design-only removal of the upstream LFCN-1575D+ stage, with no snapshot churn or unrelated findings beyond the 70 report-only line-length entries.
+
+## 2026-09-01 · codex · zig_genetic_cascades — conservative ERM6/ERF6 loss allowance
+- **good:** The commit-time whole-tree gate passed all 70 checks for the Barracuda example-model update from 0.10 dB to 0.25 dB connector loss; only the existing 70 report-only line-length findings remained.
