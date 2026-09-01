@@ -11070,3 +11070,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — suppress transient adaptive-power DRC errors
 - **good:** The diff-scoped `spec` check caught an accidentally renamed browser-contract tag before commit; after updating its exact SPEC link, the commit and exact-commit release gates passed all 70 checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants in one release cycle.
+
+## 2026-09-01 · codex · eda — stabilize persisted BOM release evidence
+- **good:** `change-classification` and `spec` required a linked regression for the BOM-fingerprint fix; the corrected change then passed all 70 whole-tree checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants before the verified candidate deployed cleanly.
