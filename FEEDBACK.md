@@ -11009,3 +11009,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — hide opposite-layer RF tapers
 - **good:** The focused Guardian-wrapped regression exposed that the first asset test accidentally matched `discard` in an explanatory source comment rather than the WGSL function body; correcting the assertion left all 70 whole-tree checks, full Debug tests, ReleaseSafe build, deterministic RF-heavy Barracuda editor gate, and state-ownership invariants green in one release cycle.
+
+## 2026-09-01 · codex · zig_genetic_cascades — clickable PCB interconnect diagram
+- **good:** The exact SPEC/test links and both root/server Guardian gates passed all 70 checks through the full test suite and production deployment while the new saved-design provenance round-trip regression kept PCB trace metadata inspectable after reload.
