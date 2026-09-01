@@ -10995,3 +10995,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — keep passive-linked schematic pins on one side
 - **good:** `doc-comments` and `pub-api-surface` identified the one new cross-renderer passive-path helper and supplied the surgical acceptance command; after documenting and reviewing that exact addition, all 70 whole-tree checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants passed in one release cycle.
+
+## 2026-09-01 · codex · eda — editable trace width and net properties
+- **good:** The commit and exact-commit release gates passed all 70 whole-tree checks, the full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and seven state-ownership browser invariants; the post-merge deploy reused the verified identical-tree candidate and passed every health probe.
+- **friction:** `zig build --seed=1 test -Dtest-filter='static assets'` selected 26 unnamed test blocks but no named match, so the zero-match guard correctly rejected the otherwise-green run and directed me to `guardian-check test-filter . --args`; that helper then explained that JavaScript-only changed paths cannot derive a Zig test name. Cost: one unnecessary 14-second gate cycle, but no misleading validation claim.
