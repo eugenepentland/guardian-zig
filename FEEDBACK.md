@@ -11018,3 +11018,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — searchable trace net property
 - **good:** The JavaScript/CSS-only searchable-combobox change passed the commit and exact-commit 70-check whole-tree gates, full Debug suite, ReleaseSafe build, deterministic Barracuda editor gate, and all seven state-ownership browser invariants in one release cycle; the merged identical-tree candidate then deployed with every health probe green.
+
+## 2026-09-01 · codex · zig_genetic_cascades — per-net Barracuda EDA trace cascade
+- **good:** The exact SPEC/test link and both root/server Guardian gates passed all 70 checks through the full test suite, commit hook, and production deployment; a browser verification then confirmed all 31 active-path EDA trace links survived the saved-result round trip with their physical metadata intact.
