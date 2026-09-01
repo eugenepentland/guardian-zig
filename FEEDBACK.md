@@ -11006,3 +11006,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — deploy unified saved-result reports
 - **good:** Both 70-check production-build gates passed after preserving and merging the pre-existing cumulative-response and RF-tap edits; the atomic deployment restarted cleanly and the live authenticated result/report routes and cache-busted assets passed their health probes.
+
+## 2026-09-01 · codex · eda — hide opposite-layer RF tapers
+- **good:** The focused Guardian-wrapped regression exposed that the first asset test accidentally matched `discard` in an explanatory source comment rather than the WGSL function body; correcting the assertion left all 70 whole-tree checks, full Debug tests, ReleaseSafe build, deterministic RF-heavy Barracuda editor gate, and state-ownership invariants green in one release cycle.
