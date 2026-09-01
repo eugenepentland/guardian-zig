@@ -11030,5 +11030,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **good:** The exact inline-model SPEC/test link and both root/server `run-all` gates passed all 70 checks, and a clean-cache full test run verified the behavioral RF-model change without snapshot churn.
 - **friction:** The default `.zig-cache` reused an `rf-design` artifact older than the changed `inline_stage.zig` through both `zig build test` and `zig build rf-design`; both commands appeared green but two design replays still showed the obsolete 3.01 dB HFCW loss. Running with a fresh `--cache-dir` rebuilt the code and immediately produced the correct 0.50 dB loss, costing two misleading validation runs plus a full clean rebuild. Guardian simultaneously alternated “binary is OLDER” and “binary is NEWER” warnings, so the warnings did not identify which consumer artifact was stale.
 
+## 2026-09-01 · codex · zig_genetic_cascades — deploy unilateral amplifier fix
+- **good:** The fresh staged ReleaseFast deployment passed both root/server 70-check Guardian gates, atomically swapped all production binaries, restarted `rf-cascades`, and passed both the local port-5883 and public HTTPS health checks; the deployed CLI replay reported the corrected 0.50 dB HFCW loss.
+
 ## 2026-09-01 · codex · guardian-zig — classify current ROI cohort
 - **good:** `guardian-roi pending` collapsed 720 commit-specific advisory observations into 30 stable subjects; evidence-backed `label-subject` classifications propagated across every recurrence and produced a 100%-covered summary with 21 useful-review and 9 false-positive subjects instead of counting repeated warnings as new value.
