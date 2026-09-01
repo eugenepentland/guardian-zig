@@ -10992,3 +10992,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · zig_genetic_cascades — passive sparse-line interpolation fix
 - **good:** `spec`, `pub-api-surface`, and `test-no-conditional` caught the missing fromSamples contract, an unnecessarily public subdivision constant, and an assertion-free setup loop on the first run; the corrected regression then passed all 70 checks and 607 tests through the commit gate and production deployment.
+
+## 2026-09-01 · codex · eda — keep passive-linked schematic pins on one side
+- **good:** `doc-comments` and `pub-api-surface` identified the one new cross-renderer passive-path helper and supplied the surgical acceptance command; after documenting and reviewing that exact addition, all 70 whole-tree checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants passed in one release cycle.
