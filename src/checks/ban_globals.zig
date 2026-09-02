@@ -55,6 +55,10 @@ pub fn analyzeContent(
     return violations.toOwnedSlice(allocator);
 }
 
+// twin-drift-ok: ban-hardcoded-paths runs the same tokenizer walk and flags a
+// different token (a string literal, not a file-scope var). What the two share
+// is the walk, and factoring that out puts a callback inside a per-token loop
+// that runs over every file of the tree.
 fn scan(ctx: *ScanCtx, content: []const u8) Allocator.Error!void {
     const z = try ctx.allocator.dupeSentinel(u8, content, 0);
     var tok = std.zig.Tokenizer.init(z);

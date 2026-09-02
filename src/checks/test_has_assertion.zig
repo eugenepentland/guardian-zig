@@ -35,6 +35,9 @@ pub fn analyzeContent(
     return violations.toOwnedSlice(allocator);
 }
 
+// twin-drift-ok: test-skip-ban walks the same test-header token stream and asks
+// a different question of each body (does it assert, vs is it skipped or
+// empty); the divergence is the question, not an unpropagated edit.
 fn scan(ctx: *ScanCtx, z: [:0]const u8) Allocator.Error!void {
     var tok = std.zig.Tokenizer.init(z);
 

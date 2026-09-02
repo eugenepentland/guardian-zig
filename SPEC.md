@@ -1263,6 +1263,24 @@ without an explained `--force`.
 - Indexes declared, field and dereferenced names as the tree's symbols
 - Parses the ignore globs
 
+## Twin Drift
+
+- Normalizes a body by dropping comments and blank lines and collapsing whitespace
+- Measures overlap as twice the longest common subsequence over both body lengths
+- Skips a body shorter than the configured statement floor
+- Stays silent on identical copies unless report_identical asks for them
+- Reports a drifted pair above the similarity floor and no pair below it
+- Names the lines one copy never got and passes over a re-wrapped one
+- Silences a pair annotated twin-drift-ok above either copy
+- Silences a function name the ignore list holds
+- Pairs a struct member with a top-level function of the same bare name
+- Names a declared mirror in the message without exempting it
+- Skips a private helper only test blocks reach
+- Keys a pair by the two paths under the shared name so a further edit does not re-key it
+- Leaves a pair uncompared when a body exceeds max_lines
+- Parses the twin-drift thresholds and defaults them
+- Hard-fails a similarity outside zero to one and an unknown key
+
 ## Duplicate JSON Key
 
 - Flags one key written twice by two prints into one open object
@@ -1281,3 +1299,4 @@ without an explained `--force`.
 ## Text Helpers
 
 - Counts lines forward across ascending offsets in one pass
+- Matches a word only at both its boundaries

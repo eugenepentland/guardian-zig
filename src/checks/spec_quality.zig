@@ -2,6 +2,7 @@ const std = @import("std");
 const spec_parser = @import("../spec/parser.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
+const text_helpers = @import("../text.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -98,7 +99,7 @@ fn firstVaguePhrase(
     const lower = try toLowerOwned(allocator, statement);
     for (phrases) |phrase| {
         const lower_phrase = try toLowerOwned(allocator, phrase);
-        if (containsWord(lower, lower_phrase)) return phrase;
+        if (text_helpers.containsWord(lower, lower_phrase)) return phrase;
     }
     return null;
 }
@@ -124,30 +125,26 @@ fn toLowerOwned(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
     return buf;
 }
 
-/// True if `phrase` appears in `text` with word boundaries on both sides
-/// (or at start/end of text). Both inputs assumed already lowercased.
-fn containsWord(text: []const u8, phrase: []const u8) bool {
-    if (phrase.len == 0 or phrase.len > text.len) return false;
-    var search_start: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search_start, phrase)) |idx| {
-        const left_ok = idx == 0 or !std.ascii.isAlphanumeric(text[idx - 1]);
-        const end = idx + phrase.len;
-        const right_ok = end == text.len or !std.ascii.isAlphanumeric(text[end]);
-        if (left_ok and right_ok) return true;
-        search_start = idx + 1;
-    }
-    return false;
-}
-
 // spec: Spec Quality - Flags vague behavior phrases in SPEC.md
 // spec: Spec Quality - Rejects behaviors shorter than the minimum length
 // spec: Spec Quality - Fails when SPEC.md is missing instead of silently skipping
 
-test "containsWord respects word boundaries" {
-    try std.testing.expect(containsWord("handles things properly here", "properly"));
-    try std.testing.expect(!containsWord("supports the proper interface", "properly"));
-    try std.testing.expect(containsWord("works correctly with input", "works correctly"));
-    try std.testing.expect(!containsWord("nonpropery", "propery"));
+test "firstVaguePhrase matches a forbidden phrase only at its word boundaries" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const phrases: []const []const u8 = &.{ "properly", "works correctly" };
+    try std.testing.expectEqualStrings(
+        "properly",
+        (try firstVaguePhrase(a, "handles things Properly here", phrases)).?,
+    );
+    try std.testing.expectEqualStrings(
+        "works correctly",
+        (try firstVaguePhrase(a, "works correctly with input", phrases)).?,
+    );
+    // `proper` is not `properly`, and a phrase glued inside a longer word is not
+    // a match — the boundary rule lives in text.containsWord.
+    try std.testing.expect((try firstVaguePhrase(a, "supports the proper interface", phrases)) == null);
 }
 
 test "reportMissingSpec fails loudly and names the resolved project dir" {

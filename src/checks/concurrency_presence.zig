@@ -279,6 +279,9 @@ fn hasConcurrencyTest(allocator: Allocator, source: []const u8) Allocator.Error!
 /// unreadable (null content) or carries no test that spawns a unit of
 /// concurrency. An empty `modules` slice yields no violations (the check is
 /// opt-in by listing paths).
+// twin-drift-ok: concurrency-test-presence is fuzz-presence's sibling by
+// design — the same "every configured module must keep a marker test" sweep,
+// asking for a different marker and reporting a different reason.
 fn analyzeModules(allocator: Allocator, modules: []const ModuleSource) Allocator.Error![]const []const u8 {
     var violations: std.ArrayList([]const u8) = .empty;
     for (modules) |m| {

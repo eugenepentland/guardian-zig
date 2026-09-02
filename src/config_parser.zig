@@ -119,6 +119,13 @@ const auto_mode = "auto";
 const ignore_values_key = "ignore_values";
 const min_float_digits_key = "min_float_digits";
 const min_int_digits_key = "min_int_digits";
+const min_statements_key = "min_statements";
+const min_similarity_key = "min_similarity";
+const report_identical_key = "report_identical";
+/// Floor on `[twin_drift] min_statements`. A one-line body two files agree on
+/// is not evidence of anything, so a floor below this would make the check's
+/// own population meaningless rather than merely noisy.
+const min_twin_statements = 2;
 /// The `[[shadow]]` referent key. Spelled `const` in TOML (it names a Zig
 /// const); the Config field is `const_ref`, since `const` is a Zig keyword.
 const shadow_const_key = "const";
@@ -200,6 +207,7 @@ const Section = enum {
     divergent_const,
     shadowed_const,
     twin_referent,
+    twin_drift,
     measurement,
     policy,
     doctor,
@@ -1081,7 +1089,7 @@ fn applyKeyValueLine(
     try applySectionKey(.{ .allocator = allocator, .cfg = cfg }, st.section, kv);
 }
 
-const ValueKind = enum { boolean, unsigned, string, string_array, inline_table };
+const ValueKind = enum { boolean, unsigned, float, string, string_array, inline_table };
 
 /// The value shape of one `[[array-table]]` key. Split out of `valueKind` so
 /// the two halves — array tables and `[section]`s — each stay inside the
@@ -1137,6 +1145,18 @@ fn shadowedConstValueKind(key: []const u8) ValueKind {
     return if (key[0] == 'm') .unsigned else .string_array;
 }
 
+/// The value shape of one `[twin_drift]` key. `min_similarity` is the only
+/// fractional setting in the whole config, and it shares its `m` prefix with
+/// two counts, so it is matched whole before the prefix branch can claim it.
+fn twinDriftValueKind(key: []const u8) ValueKind {
+    if (std.mem.eql(u8, key, min_similarity_key)) return .float;
+    return switch (key[0]) {
+        'm' => .unsigned,
+        'r' => .boolean,
+        else => .string_array,
+    };
+}
+
 /// Returns the value shape from the already-validated section/key position.
 /// The first-character branches are unambiguous within each section and avoid
 /// maintaining a third duplicate list of every supported key.
@@ -1187,6 +1207,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         // `mode` is prose; `ignore_names` is an array.
         .divergent_const => if (key[0] == 'm') .string else .string_array,
         .shadowed_const => shadowedConstValueKind(key),
+        .twin_drift => twinDriftValueKind(key),
         .policy => if (std.mem.eql(u8, key, "profile") or std.mem.eql(u8, key, lock_against_key))
             .string
         else if (std.mem.eql(u8, key, lock_enabled_key))
@@ -1212,6 +1233,7 @@ fn validateValue(
     const ok = switch (kind) {
         .boolean => parseBool(kv.val) != null,
         .unsigned => std.fmt.parseInt(u32, kv.val, 10) catch null != null,
+        .float => std.fmt.parseFloat(f64, kv.val) catch null != null,
         .string => isValidString(kv.val),
         .string_array => isValidStringArray(kv.val),
         // Shape only here (is it a `{ … }` at all); the per-key rules are
@@ -1256,6 +1278,9 @@ fn validateValue(
     }
     if (st.array_kind == .none and st.section == .hysteresis) {
         try validateHysteresis(allocator, kv, line_no, diag);
+    }
+    if (st.array_kind == .none and st.section == .twin_drift) {
+        try validateTwinDrift(allocator, kv, line_no, diag);
     }
     if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
     if (st.array_kind == .concept) {
@@ -1353,6 +1378,44 @@ fn validateHysteresis(
         );
         return error.InvalidValue;
     }
+}
+
+/// Rejects a `[twin_drift]` setting the check could not honor: a
+/// `min_similarity` outside the open interval (0, 1) — 0 pairs every function
+/// with every same-named one and 1.0 asks for identical bodies, which is
+/// `report_identical`'s job — or a `min_statements` under 2, which would pair
+/// one-line bodies where agreement means nothing. Both fail closed at parse
+/// time, because a threshold that silently means something else is worse than
+/// no threshold.
+fn validateTwinDrift(
+    allocator: Allocator,
+    kv: KeyVal,
+    line_no: u32,
+    diag: *Diagnostic,
+) ParseError!void {
+    if (std.mem.eql(u8, kv.key, min_similarity_key)) {
+        const share = std.fmt.parseFloat(f64, kv.val) catch return;
+        if (share > 0 and share < 1) return;
+        try setDiag(
+            allocator,
+            diag,
+            line_no,
+            "twin_drift min_similarity must be between 0 and 1 exclusive (got '{s}')",
+            .{kv.val},
+        );
+        return error.InvalidValue;
+    }
+    if (!std.mem.eql(u8, kv.key, min_statements_key)) return;
+    const floor = std.fmt.parseInt(u32, kv.val, 10) catch return;
+    if (floor >= min_twin_statements) return;
+    try setDiag(
+        allocator,
+        diag,
+        line_no,
+        "twin_drift min_statements must be at least {d} (got {d})",
+        .{ min_twin_statements, floor },
+    );
+    return error.InvalidValue;
 }
 
 /// `hysteresis.supported` as one comma-joined string for the diagnostic above,
@@ -1622,6 +1685,10 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .divergent_const => &.{ ignore_names_key, mode_key },
         .shadowed_const => &.{ mode_key, ignore_values_key, min_float_digits_key, min_int_digits_key },
         .twin_referent => &.{"ignore"},
+        .twin_drift => &.{
+            min_statements_key, min_similarity_key, report_identical_key,
+            "ignore",           max_lines_key,
+        },
         .measurement => &.{"paths"},
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
         .doctor => &.{ "zig_cache_warn_mib", "guardian_cache_warn_mib" },
@@ -1687,6 +1754,7 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .divergent_const => try applyDivergentConstKey(ctx, kv),
         .shadowed_const => try applyShadowedConstKey(ctx, kv),
         .twin_referent => try applyTwinReferentKey(ctx, kv),
+        .twin_drift => try applyTwinDriftKey(ctx, kv),
         .measurement => try applyMeasurementKey(ctx, kv),
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
         .doctor => config_policy.applyDoctor(ctx.cfg, kv.key, kv.val),
@@ -1751,6 +1819,7 @@ fn sectionFor(name: []const u8) Section {
         .{ "int_from_float", Section.int_from_float },
         .{ "divergent_const", Section.divergent_const },
         .{ "shadowed_const", Section.shadowed_const },
+        .{ "twin_drift", Section.twin_drift },
         .{ "twin_referent", Section.twin_referent },
         .{ "measurement", Section.measurement },
         .{ "policy", Section.policy },
@@ -2012,6 +2081,24 @@ fn applyShadowedConstKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
 fn applyTwinReferentKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     if (std.mem.eql(u8, kv.key, "ignore")) {
         ctx.cfg.twin_referent.ignore = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies one `[twin_drift]` key. Both thresholds are already range-checked by
+/// `validateTwinDrift`, so a parse failure here is impossible rather than
+/// tolerated.
+fn applyTwinDriftKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.twin_drift;
+    if (std.mem.eql(u8, kv.key, "ignore")) {
+        g.ignore = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, min_statements_key)) {
+        g.min_statements = std.fmt.parseInt(u32, kv.val, 10) catch g.min_statements;
+    } else if (std.mem.eql(u8, kv.key, min_similarity_key)) {
+        g.min_similarity = std.fmt.parseFloat(f64, kv.val) catch g.min_similarity;
+    } else if (std.mem.eql(u8, kv.key, max_lines_key)) {
+        g.max_lines = std.fmt.parseInt(u32, kv.val, 10) catch g.max_lines;
+    } else if (std.mem.eql(u8, kv.key, report_identical_key)) {
+        g.report_identical = parseBool(kv.val) orelse g.report_identical;
     }
 }
 
@@ -3634,6 +3721,53 @@ test "parse divergent_const keys and default the mode to units" {
     try std.testing.expectEqual(config.DivergentConstMode.all, cfg.divergent_const.mode);
     try std.testing.expectEqual(@as(usize, 2), cfg.divergent_const.ignore_names.len);
     try std.testing.expectEqualStrings("margin", cfg.divergent_const.ignore_names[1]);
+}
+
+// spec: Twin Drift - Parses the twin-drift thresholds and defaults them
+
+test "parse twin_drift keys and default the thresholds" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const default_cfg = try parse(a, "");
+    try std.testing.expectEqual(@as(u32, 8), default_cfg.twin_drift.min_statements);
+    try std.testing.expectEqual(@as(f64, 0.6), default_cfg.twin_drift.min_similarity);
+    try std.testing.expectEqual(@as(u32, 400), default_cfg.twin_drift.max_lines);
+    try std.testing.expect(!default_cfg.twin_drift.report_identical);
+    const cfg = try parse(a,
+        \\[twin_drift]
+        \\min_statements = 12
+        \\min_similarity = 0.75
+        \\report_identical = true
+        \\max_lines = 250
+        \\ignore = ["run", "deinit"]
+    );
+    try std.testing.expectEqual(@as(u32, 12), cfg.twin_drift.min_statements);
+    try std.testing.expectEqual(@as(f64, 0.75), cfg.twin_drift.min_similarity);
+    try std.testing.expectEqual(@as(u32, 250), cfg.twin_drift.max_lines);
+    try std.testing.expect(cfg.twin_drift.report_identical);
+    try std.testing.expectEqualStrings("deinit", cfg.twin_drift.ignore[1]);
+}
+
+// spec: Twin Drift - Hard-fails a similarity outside zero to one and an unknown key
+
+test "parse rejects an out-of-range twin_drift threshold and an unknown key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var diag: Diagnostic = .{};
+    try std.testing.expectError(
+        error.InvalidValue,
+        parseInto(a, "[twin_drift]\nmin_similarity = 1.0\n", &diag),
+    );
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "between 0 and 1 exclusive") != null);
+    // 1.0 is `report_identical`'s subject and 0 pairs everything, so both ends
+    // are closed; the interior and the statement floor are open.
+    try std.testing.expectError(error.InvalidValue, parse(a, "[twin_drift]\nmin_similarity = 0\n"));
+    try std.testing.expectError(error.InvalidValue, parse(a, "[twin_drift]\nmin_statements = 1\n"));
+    try std.testing.expectError(error.UnknownKey, parse(a, "[twin_drift]\nmin_overlap = 0.5\n"));
+    _ = try parse(a, "[twin_drift]\nmin_similarity = 0.99\nmin_statements = 2\n");
 }
 
 // spec: Divergent Const - Hard-fails a grouping mode that is neither units nor all

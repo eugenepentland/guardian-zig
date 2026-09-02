@@ -13,6 +13,28 @@ pub fn lineOf(source: []const u8, byte_offset: usize) u32 {
     return line;
 }
 
+/// True when `word` appears in `text` with a non-alphanumeric byte (or the end
+/// of the text) on both sides, so a deferred-work marker does not match inside
+/// a longer word and a vague-phrase scan does not match `proper` inside
+/// `properly`. Case-sensitive: a caller that wants case folding lowercases both
+/// sides first.
+///
+/// Lifted here from `panic-budget` and `spec-quality`, which held the same ten
+/// lines under two parameter names — `twin-drift` found the pair at 70%
+/// similarity, since the rename is all that stopped them being identical.
+pub fn containsWord(text: []const u8, word: []const u8) bool {
+    if (word.len == 0 or word.len > text.len) return false;
+    var search_start: usize = 0;
+    while (std.mem.indexOfPos(u8, text, search_start, word)) |idx| {
+        const left_ok = idx == 0 or !std.ascii.isAlphanumeric(text[idx - 1]);
+        const end = idx + word.len;
+        const right_ok = end == text.len or !std.ascii.isAlphanumeric(text[end]);
+        if (left_ok and right_ok) return true;
+        search_start = idx + 1;
+    }
+    return false;
+}
+
 /// Forward-only line counter for a scan that visits ascending byte offsets.
 /// `lineOf` restarts at byte 0 every call, so a check asking for the line of
 /// each of a file's declarations is quadratic in file size; this walks the
@@ -93,6 +115,19 @@ test "LineCursor reports the same lines as lineOf while walking forward" {
     try std.testing.expectEqual(lineOf(s, 9), cursor.at(s, 9));
     // Past the end clamps to the last line, exactly as lineOf does.
     try std.testing.expectEqual(lineOf(s, 999), cursor.at(s, 999));
+}
+
+// spec: Text Helpers - Matches a word only at both its boundaries
+
+test "containsWord requires a boundary on both sides" {
+    try std.testing.expect(containsWord("// marker: fix", "marker"));
+    try std.testing.expect(containsWord("marker", "marker"));
+    // The whole point: a longer word that merely CONTAINS it is not a match.
+    try std.testing.expect(!containsWord("// markers are fine", "marker"));
+    try std.testing.expect(!containsWord("// xmarker", "marker"));
+    try std.testing.expect(!containsWord("", "marker"));
+    // A later occurrence still counts once an earlier one is rejected.
+    try std.testing.expect(containsWord("markers and marker", "marker"));
 }
 
 test "TestScope is in_test only inside a test body" {

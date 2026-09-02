@@ -48,6 +48,7 @@ const check_twin_parity = @import("../checks/twin_parity.zig");
 const check_divergent_const = @import("../checks/divergent_const.zig");
 const check_shadowed_const = @import("../checks/shadowed_const.zig");
 const check_twin_referent = @import("../checks/twin_referent.zig");
+const check_twin_drift = @import("../checks/twin_drift.zig");
 const check_duplicate_json_key = @import("../checks/duplicate_json_key.zig");
 const check_ban_time = @import("../checks/ban_time.zig");
 const check_ban_rng = @import("../checks/ban_rng.zig");
@@ -384,6 +385,17 @@ pub const all: []const Command = &.{
         .run = check_twin_referent.run,
     },
     .{
+        .name = check_twin_drift.check_name,
+        .summary = "Flag two same-named functions in different files whose copied bodies have drifted apart",
+        .needs_ast = .yes,
+        // Whole-tree by construction: the other half of every pair lives in a
+        // file the diff never touched — that is what makes the drift invisible
+        // in the first place — so a narrowed index would report a live twin as
+        // resolved the moment only one copy was edited.
+        .scope = .whole_tree,
+        .run = check_twin_drift.run,
+    },
+    .{
         .name = "duplicate-json-key",
         .summary = "Flag one JSON key written twice into the same object by one function",
         .needs_ast = .yes,
@@ -673,7 +685,7 @@ const inherently_whole_tree = [_][]const u8{
     "merge-state",               "concept",         "canonical-idiom",
     "divergent-const",           "shadowed-const",  "twin-referent",
     "import-layering",           "twin-parity",     "script-string-safety",
-    "dead-model-field",
+    "dead-model-field",          "twin-drift",
 };
 
 /// True when every name in `inherently_whole_tree` resolves to a registered
