@@ -44,7 +44,17 @@ pub const legacy_version: u32 = 1;
 /// One current violation: the identity the baseline stores plus the rendered
 /// line used to report it. Keeping both is what lets the file be keyed by
 /// identity while failures still read as human diagnostics.
-pub const Keyed = struct { key: []const u8, line: []const u8 };
+///
+/// `growth_exempt` carries the emitting check's `Violation.growth_exempt`
+/// forward: an ADDED key a `deny_growth` refresh may still record, because the
+/// check proved it is pre-existing debt this change only made visible. It
+/// affects the refusal arithmetic in `denyGrowthGuard` and nothing else — the
+/// row is stored, diffed, and reported like any other.
+pub const Keyed = struct {
+    key: []const u8,
+    line: []const u8,
+    growth_exempt: bool = false,
+};
 
 /// Outcome of one check's baseline lifecycle. Maps to user-visible
 /// reporter output: `created`, `matched`, `shrunk` and `refreshed`
@@ -527,6 +537,7 @@ pub fn keyedViolations(
         for (records, 0..) |v, i| out[i] = .{
             .key = try violation_key.fromRecord(arena, check_name, v),
             .line = try reporter.flatLine(arena, v),
+            .growth_exempt = v.growth_exempt,
         };
         return out;
     }
@@ -1574,6 +1585,21 @@ const max_listed_growth: usize = 10;
 /// Fails the run when `check_name` is in `[baseline] deny_growth` and a refresh
 /// would grow its baseline. Only fires on the refresh path; an existing
 /// baseline is required (initial creation is not "growth"). A no-op otherwise.
+///
+/// **An identity baseline is guarded by its COUNT, not key by key.** The
+/// per-item ratchet flavour refuses a refresh that raises a value *or adds a
+/// key* (`ratchet.wouldGrow`); this one refuses a refresh that leaves the
+/// baseline LARGER than it found it, so a reconciliation that resolves eighteen
+/// rows and records two lands. That is the intended asymmetry — a v3 row is one
+/// violation, so the count IS the debt, and a swap is not growth — and the two
+/// were documented as one rule until eda hit the difference in practice
+/// (2026-09-02: an `accept twin-drift` that added two keys while removing
+/// eighteen passed, against a doc that said adding a key fails).
+///
+/// On top of that, `growth_exempt` additions are discounted: a check may prove
+/// that a specific added key is pre-existing debt its change only made visible
+/// (see `twin-drift`'s surfaced pairs). Everything else about the refusal is
+/// unchanged, and a check that never sets the flag sees the historical rule.
 fn denyGrowthGuard(
     arena: Allocator,
     ctx: *types.RunCtx,
@@ -1582,31 +1608,49 @@ fn denyGrowthGuard(
     violations: []const Keyed,
     force_refresh: bool,
 ) types.RunError!void {
-    const old_count = baselineViolationCount(arena, path);
-    if (!growthDenied(ctx.cfg.baseline.deny_growth, check_name, old_count, violations.len, force_refresh)) return;
+    if (!force_refresh) return;
+    if (!nameInList(ctx.cfg.baseline.deny_growth, check_name)) return;
+    const old_count = baselineViolationCount(arena, path) orelse return;
+    const added = try growthAdditions(arena, path, violations);
+    if (!growthDenied(old_count, violations.len, added.exempt)) return;
     reporter.fail(
         "refusing to refresh {s}: baseline would grow {d}→{d}; " ++
             "fix the new violations or remove {s} from deny_growth",
-        .{ check_name, old_count.?, violations.len, check_name },
+        .{ check_name, old_count, violations.len - added.exempt, check_name },
     );
-    const names = try growthNames(arena, path, violations);
-    reportGrowthNames(names);
+    reportGrowthNames(added.names);
     reportGrowthEscape(check_name);
-    try emitDenyGrowthDetail(arena, check_name, names);
+    try emitDenyGrowthDetail(arena, check_name, added.names);
     return error.CheckFailed;
 }
 
-/// The identity keys a refused refresh would ADD. Returned rather than printed
-/// because the same set has to ride BOTH channels — the bounded detail block and
-/// the structured record concise `accept` output replays — and a refusal that
-/// names its keys on only one of them names them to only half its readers.
-/// Best-effort on the read: an unreadable baseline just yields no names.
-fn growthNames(arena: Allocator, path: []const u8, violations: []const Keyed) Allocator.Error![]const []const u8 {
-    const snap = snapshot.read(arena, path, version) catch return &.{};
+/// What a refresh would ADD to an identity baseline: the keys that would be
+/// recorded and are NOT growth-exempt (`names`, the set the refusal is about),
+/// and how many exempt ones there are (`exempt`, discounted from the count the
+/// refusal compares). Returned rather than printed because `names` has to ride
+/// BOTH channels — the bounded detail block and the structured record concise
+/// `accept` output replays — and a refusal that names its keys on only one of
+/// them names them to only half its readers. Best-effort on the read: an
+/// unreadable baseline just yields no names.
+const GrowthAdditions = struct { names: []const []const u8, exempt: usize };
+
+fn growthAdditions(
+    arena: Allocator,
+    path: []const u8,
+    violations: []const Keyed,
+) Allocator.Error!GrowthAdditions {
+    const snap = snapshot.read(arena, path, version) catch return .{ .names = &.{}, .exempt = 0 };
     const parts = try splitAgainst(arena, snap.lines, violations);
-    const out = try arena.alloc([]const u8, parts.added.len);
-    for (parts.added, 0..) |k, i| out[i] = k.key;
-    return out;
+    var names: std.ArrayList([]const u8) = .empty;
+    var exempt: usize = 0;
+    for (parts.added) |k| {
+        if (k.growth_exempt) {
+            exempt += 1;
+            continue;
+        }
+        try names.append(arena, k.key);
+    }
+    return .{ .names = try names.toOwnedSlice(arena), .exempt = exempt };
 }
 
 /// Names what a refusal would record, bounded. The refusal used to print only a
@@ -1688,20 +1732,12 @@ fn refusalMessage(arena: Allocator, names: []const []const u8) Allocator.Error![
 }
 
 /// Pure decision for denyGrowthGuard: a refresh of a deny_growth check with an
-/// existing baseline is denied exactly when the new count exceeds the old.
-/// `old_count` is null when no baseline exists yet — initial creation is never
-/// "growth", so it is always allowed.
-fn growthDenied(
-    deny_list: []const []const u8,
-    check_name: []const u8,
-    old_count: ?usize,
-    new_count: usize,
-    force_refresh: bool,
-) bool {
-    if (!force_refresh) return false;
-    if (!nameInList(deny_list, check_name)) return false;
-    const oc = old_count orelse return false;
-    return new_count > oc;
+/// existing baseline is denied exactly when the new count — less the additions
+/// the check proved exempt — exceeds the old. Callers reach it only after
+/// establishing that this IS a refresh of a listed check with a readable
+/// baseline; initial creation is never "growth".
+fn growthDenied(old_count: usize, new_count: usize, exempt_added: usize) bool {
+    return new_count - exempt_added > old_count;
 }
 
 /// Current recorded violation count in a baseline file, or null when it is
@@ -3298,19 +3334,61 @@ test "lifecycle creates no baseline file when there are no violations" {
 
 // spec: Baseline Mode - Refuses to refresh a deny_growth baseline that would grow
 
-test "growthDenied blocks refresh growth only for a listed check with a prior baseline" {
-    const deny = &[_][]const u8{"spec"};
-    // A refresh that would grow the listed check's baseline (5 > 3) is denied.
-    try std.testing.expect(growthDenied(deny, "spec", 3, 5, true));
+test "growthDenied compares counts and discounts a proven-exempt addition" {
+    // A refresh that would grow the baseline (5 > 3) is denied.
+    try std.testing.expect(growthDenied(3, 5, 0));
     // A refresh that holds or shrinks is fine (pruning is always safe).
-    try std.testing.expect(!growthDenied(deny, "spec", 3, 3, true));
-    try std.testing.expect(!growthDenied(deny, "spec", 3, 2, true));
-    // A check not in deny_growth is never guarded.
-    try std.testing.expect(!growthDenied(deny, "magic-number", 3, 5, true));
-    // Without a refresh, growth is the ordinary `grown` failure, not this guard.
-    try std.testing.expect(!growthDenied(deny, "spec", 3, 5, false));
-    // No prior baseline (null) — initial creation is never "growth".
-    try std.testing.expect(!growthDenied(deny, "spec", null, 5, true));
+    try std.testing.expect(!growthDenied(3, 3, 0));
+    try std.testing.expect(!growthDenied(3, 2, 0));
+    // An identity baseline is guarded by its COUNT, not key by key: a
+    // reconciliation that resolves rows and records fewer new ones lands, which
+    // is the flavour difference `ratchet.wouldGrow` does NOT share.
+    try std.testing.expect(!growthDenied(20, 4, 0));
+    // A growth_exempt addition is discounted: 3 -> 4 with one exempt row is a
+    // hold, and a second, non-exempt row still tips it over.
+    try std.testing.expect(!growthDenied(3, 4, 1));
+    try std.testing.expect(growthDenied(3, 5, 1));
+}
+
+// spec: Baseline Mode - Records a proven-exempt addition under deny_growth and refuses the rest
+
+test "denyGrowthGuard writes a growth-exempt addition and still refuses an ordinary one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const path = "zig-cache/test-baseline-growth-exempt.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+    const recorded = [_]Keyed{.{ .key = "twin-drift|alpha", .line = "alpha" }};
+    _ = try lifecycle(a, path, &recorded, false, true);
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const cfg: config_mod.Config = .{ .baseline = .{ .enabled = true, .deny_growth = &.{"twin-drift"} } };
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = ".", .cfg = &cfg, .quiet = true };
+
+    // A surfaced twin-drift pair: the check PROVED neither of its files changed
+    // against the base, so recording it is pre-existing debt made visible, not
+    // growth this change introduced.
+    const with_exempt = [_]Keyed{
+        recorded[0],
+        .{ .key = "twin-drift|beta", .line = "beta", .growth_exempt = true },
+    };
+    try denyGrowthGuard(a, &ctx, "twin-drift", path, &with_exempt, true);
+
+    // A pair the change DID touch carries no exemption, so the refusal stands —
+    // and names that key alone, not the exempt one riding along beside it.
+    const with_both = with_exempt ++ [_]Keyed{.{ .key = "twin-drift|gamma", .line = "gamma" }};
+    try std.testing.expectError(
+        error.CheckFailed,
+        denyGrowthGuard(a, &ctx, "twin-drift", path, &with_both, true),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "twin-drift|gamma") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "twin-drift|beta") == null);
 }
 
 // spec: Baseline Introspection - Splits a check's current findings into new, live, and resolved rows
@@ -3355,7 +3433,7 @@ test "the deny-growth refusal names each key it would add, on both channels" {
     reporter.default.capture = &cap;
 
     const grown = try keyedLines(a, "concept", &.{ "alpha", "beta", "gamma" });
-    const names = try growthNames(a, path, grown);
+    const names = (try growthAdditions(a, path, grown)).names;
     reportGrowthNames(names);
     try emitDenyGrowthDetail(a, "concept", names);
     // A count alone ("would grow 1→3") cannot tell a deliberately declared new

@@ -126,6 +126,57 @@ sibling checkout.
     `--dry-run`. The sample also joins the reported pair's `fix_hint`, so
     `last-run.jsonl` names what drifted on rows that have no advisory tier to
     read it from. No identity key moved: a consumer's frozen rows stay LIVE.
+  - **A corpus shift no longer changes the verdict on files nothing touched.**
+    The v2 proposal is corpus-wide — `idf(s) = ln((N+1)/(df+1)) + 1` moves
+    whenever a body is added or removed ANYWHERE — so a pair sitting just under
+    `pair_similarity` crosses it with no edit to either of its own files.
+    Measured in eda (2026-09-02) while merging five branches that each
+    reconciled a disjoint family out of 125 frozen pairs: after the first merge
+    removed 40 bodies, the next branch's rebased tree reported
+    `module_policy.stripUpper` / `pin_roles.normalizeIdent` (90% LCS) and
+    `assembly_debug.writeJsonString` / `route_review.writeJsonString` as NEW
+    blocking rows in files no branch had touched, and one merge left main red
+    until a later branch's baseline happened to carry the row. Both pairs were
+    real drift, so the *proposal* was right and the tf-idf pass and the LCS
+    judgement are unchanged; what BLOCKS is narrowed instead.
+    - A pair already recorded in the baseline is LIVE, exactly as before.
+    - An unrecorded pair BLOCKS only when this change touched one of its two
+      files, read through the same `scope.resolve` every other diff-aware
+      feature uses: `--against` / `GUARDIAN_AGAINST` when given, else the merge
+      base with `main`/`master`, working tree plus index, untracked included.
+    - Every other unrecorded pair is **SURFACED**: it does not block and the run
+      does not record it. It rides the advisory channel as ONE collapsed line
+      (`twin-drift: N pair(s) surfaced by corpus shift, none in files this
+      change touched — advisory; guardian-check accept twin-drift . records
+      them`), flagged `alert` so `--summary` cannot bury it behind a finding
+      count, expanded per pair (with drift samples) by `--verbose`, listed by
+      `--list` in a new `SURFACED (n)` bucket between NEW and LIVE, and left
+      alone by `--dry-run`, whose contract is still every finding unfiltered.
+    - With no resolvable base — outside a repository, or with no `main`/`master`
+      to merge-base against — nothing can be PROVEN untouched, so every
+      unrecorded pair blocks (the pre-narrowing behaviour) and the run says so
+      in one line under the failure.
+    - `guardian-check accept twin-drift .` records the surfaced pairs, and may
+      do so under `[baseline] deny_growth` even though it adds keys — but only
+      for pairs the run proved neither file changed against the base: that is
+      pre-existing debt made visible, not growth the change introduced. A pair
+      whose file the change touched is never surfaced, never carries the
+      exemption, and is still refused. Identity keys are untouched, and the
+      frozen-pair advisory suppression is unchanged.
+- **`[baseline] deny_growth` is documented per flavor, matching the code.** The
+  docs said a refresh that would "raise a recorded value or add a key" fails for
+  both baseline flavors; only the per-item ratchet (v2) has ever worked that way.
+  An identity baseline (v3) is guarded by its COUNT — a row is one violation, so
+  the count is the debt, a swap is not growth, and a reconciliation that resolves
+  eighteen rows while recording two lands (which is what eda observed on
+  2026-09-02, against a doc that said it should fail). The lenient rule is the
+  intended one and is kept; README, CLAUDE.md and `explain` now state both rules
+  separately. On top of it, `reporter.Violation` gains `growth_exempt`: a check
+  may mark an addition a `deny_growth` refresh may still record, having PROVEN
+  it is pre-existing debt the change only made visible. Exempt additions are
+  discounted from the count comparison and are named in no refusal; every other
+  addition is refused exactly as before. `twin-drift`'s surfaced pairs are the
+  only user today.
 - Group ROI triage by stable subject (Guardian digest + check + finding key),
   so recurring commit-specific observation IDs no longer inflate the pending
   backlog or usefulness totals. `guardian-roi pending` now defaults to the

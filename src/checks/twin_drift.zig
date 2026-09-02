@@ -118,6 +118,8 @@ const ast_index = @import("../ast/index.zig");
 const baseline = @import("../baseline.zig");
 const violation_key = @import("../violation_key.zig");
 const config = @import("../config.zig");
+const scope = @import("../scope.zig");
+const snapshot_helper = @import("../snapshot_helper.zig");
 const lexical_scan = @import("lexical_scan.zig");
 
 const Allocator = std.mem.Allocator;
@@ -1109,8 +1111,97 @@ fn frozenPairs(ctx: *registry.RunCtx) Allocator.Error![]const []const u8 {
     return baseline.frozenKeys(ctx.allocator, ctx.project_dir, check_name);
 }
 
+// ── What blocks ─────────────────────────────────────────────────────────
+
+/// The change this run judges an UNRECORDED pair against.
+///
+/// The proposal is corpus-wide by construction: `idf(s) = ln((N+1)/(df+1)) + 1`
+/// moves whenever a body is added or removed ANYWHERE in the tree, so a pair
+/// sitting just under `pair_similarity` crosses it with no edit to either of
+/// its own files. Measured in eda (2026-09-02, five branches each reconciling a
+/// disjoint family out of 125 frozen pairs): after the first merge removed 40
+/// bodies, the next branch's rebased tree reported `module_policy.stripUpper`
+/// and `pin_roles.normalizeIdent` (90% LCS, cosine crossed the floor from
+/// below) as a NEW blocking row in two files no branch had touched, and
+/// `assembly_debug.writeJsonString` / `route_review.writeJsonString` with it;
+/// one merge left main red until a later branch's baseline happened to carry
+/// the row. Both pairs were real drift — the proposal was RIGHT — but a gate
+/// whose verdict on files A and B changes because file C was deleted is not a
+/// stable gate, and it contradicts Guardian's own rule: block at commit what
+/// the change introduced.
+///
+/// So the tf-idf proposal and the LCS judgement are untouched, and what BLOCKS
+/// is narrowed: an unrecorded pair blocks only when this change touched one of
+/// its two files. Everything else is SURFACED — advisory, recordable by
+/// `accept`, never silently dropped.
+const Touched = union(enum) {
+    /// The base resolved: exactly this plan's paths differ from it (working
+    /// tree plus index, plus untracked files).
+    plan: scope.Plan,
+    /// No base could be resolved; the payload is why. Nothing can be PROVEN
+    /// untouched, so every unrecorded pair blocks — the pre-narrowing
+    /// behaviour, kept because failing open here would hide real drift from
+    /// every project judged outside a git repository.
+    unresolved: []const u8,
+
+    /// True when this change touched either side of `t`.
+    fn covers(self: Touched, t: Twin) bool {
+        return switch (self) {
+            .unresolved => true,
+            .plan => |p| p.covers(t.a.file) or p.covers(t.b.file),
+        };
+    }
+
+    /// Why no base resolved, or null when one did.
+    fn missingBase(self: Touched) ?[]const u8 {
+        return switch (self) {
+            .unresolved => |reason| reason,
+            .plan => null,
+        };
+    }
+};
+
+/// The run's diff scope, read through the SAME resolver every other diff-aware
+/// feature uses: `--against` / `GUARDIAN_AGAINST` when given, else the merge
+/// base with `main`/`master`, plus untracked files. The posture is empty on
+/// purpose — the seam `external-gates` already reads — because `scope.Posture`
+/// decides whether the per-file checks may be NARROWED, and a `--gate` run is
+/// exactly the run that must still be able to say what its change touched.
+fn touchedIn(ctx: *registry.RunCtx) Allocator.Error!Touched {
+    return switch (try scope.resolve(ctx.allocator, ctx.project_dir, ctx.against, .{})) {
+        .scoped => |p| .{ .plan = p },
+        .whole_tree => |reason| .{ .unresolved = reason },
+    };
+}
+
+/// How one drifted pair is treated by this run.
+const Verdict = enum {
+    /// Recorded in the baseline (LIVE), or in a file this change touched, or
+    /// judged with no base to prove otherwise: emitted as a violation, and the
+    /// baseline layer above decides whether it blocks.
+    blocking,
+    /// Unrecorded, and neither file was touched: advisory only.
+    surfaced,
+};
+
+/// The split above as a pure function of its inputs, so the policy can be read
+/// — and tested — without a repository or a baseline file.
+fn verdictFor(recorded_here: bool, touched: Touched, dry_run: bool, t: Twin) Verdict {
+    // `--dry-run` promises every current finding with no filtering of any kind,
+    // and the surfaced tier is a filter.
+    if (dry_run or recorded_here or touched.covers(t)) return .blocking;
+    return .surfaced;
+}
+
 /// Entry point for the twin-drift check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
+    return runAgainst(ctx, try touchedIn(ctx));
+}
+
+/// The check with its diff scope already resolved. Split from `run` so the
+/// policy above is exercised over stated inputs rather than over whatever git
+/// happens to say about the directory a test wrote its fixtures into.
+fn runAgainst(ctx: *registry.RunCtx, touched: Touched) registry.RunError!void {
     const allocator = ctx.allocator;
     var storage: ast_index.Index = undefined;
     const idx = try ast_index.resolve(ctx.source_index, allocator, ctx.project_dir, &storage);
@@ -1128,14 +1219,86 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         reporter.ok("twin-drift: no copied function body has drifted from its twin", .{});
         return;
     }
-    reporter.fail("twin-drift FAILED ({d} drifted pair(s))", .{found.twins.len});
     const frozen = try frozenPairs(ctx);
+    var blocking: std.ArrayList(Twin) = .empty;
+    var surfaced: std.ArrayList(Twin) = .empty;
     for (found.twins) |t| {
-        reporter.emitQuiet(try violationFor(allocator, t));
+        switch (verdictFor(try recorded(allocator, frozen, t), touched, ctx.dry_run, t)) {
+            .blocking => try blocking.append(allocator, t),
+            .surfaced => try surfaced.append(allocator, t),
+        }
+    }
+    // An accept of THIS check is the one run that records a surfaced pair, so it
+    // is the one run that emits it as a violation: the baseline layer writes
+    // what the check reported, and `growth_exempt` is the proof it may do so
+    // under `deny_growth` (see `reportSurfaced`).
+    const recording = snapshot_helper.shouldUpdateForCtx(ctx, check_name);
+    if (blocking.items.len > 0) {
+        reporter.fail("twin-drift FAILED ({d} drifted pair(s))", .{blocking.items.len});
+        for (blocking.items) |t| {
+            reporter.emitQuiet(try violationFor(allocator, t));
+            if (try detailFor(allocator, frozen, t)) |d| reporter.warn(d);
+        }
+        reporter.detail("  fix: {s}\n", .{fix_hint});
+        if (touched.missingBase()) |reason| reporter.detail(
+            "  note: no diff base ({s}) \u{2014} every unrecorded pair blocks\n",
+            .{reason},
+        );
+    } else if (surfaced.items.len > 0) {
+        reporter.ok("twin-drift: no drifted pair in the files this change touched", .{});
+    }
+    if (surfaced.items.len > 0) try reportSurfaced(ctx, frozen, surfaced.items, recording);
+    if (blocking.items.len > 0 or (recording and surfaced.items.len > 0)) return error.CheckFailed;
+}
+
+/// The surfaced tier's output: ONE line by default, the pairs themselves under
+/// `--verbose` (and under `--list`, which renders its own SURFACED bucket from
+/// these records rather than printing them).
+///
+/// The collapsed line is flagged `alert` for the same reason `near_cap`'s is. A
+/// surfaced pair is real drift this change did not cause, so it belongs in the
+/// advisory tier — but that tier collapses to a bare `N finding(s) —
+/// report-only` count under `--summary`, and burying the line that says "there
+/// are pairs here nobody has looked at" is how frozen drift rots.
+/// `run_view.showsAlerts` replays it whatever the collapse decided. It stays a
+/// warning: no baseline, ratchet or snapshot records it.
+///
+/// Under `recording` the pairs are emitted as violations instead, carrying
+/// `growth_exempt` — this run PROVED neither file changed against the base, so
+/// recording them is pre-existing debt made visible, not growth the change
+/// introduced, and `[baseline] deny_growth` may accept them. A pair whose file
+/// the change DID touch is never surfaced, so it never carries the flag and a
+/// deny_growth refresh still refuses it.
+fn reportSurfaced(
+    ctx: *registry.RunCtx,
+    frozen: []const []const u8,
+    surfaced: []const Twin,
+    recording: bool,
+) Allocator.Error!void {
+    const allocator = ctx.allocator;
+    if (recording) {
+        for (surfaced) |t| {
+            var v = try violationFor(allocator, t);
+            v.growth_exempt = true;
+            reporter.emitQuiet(v);
+        }
+        return;
+    }
+    reporter.warn(.{
+        .check = check_name,
+        .alert = true,
+        .message = try std.fmt.allocPrint(
+            allocator,
+            "{s}: {d} pair(s) surfaced by corpus shift, none in files this change touched " ++
+                "\u{2014} advisory; guardian-check accept {s} . records them",
+            .{ check_name, surfaced.len, check_name },
+        ),
+    });
+    if (!ctx.verbose and !ctx.list) return;
+    for (surfaced) |t| {
+        reporter.warn(try violationFor(allocator, t));
         if (try detailFor(allocator, frozen, t)) |d| reporter.warn(d);
     }
-    reporter.detail("  fix: {s}\n", .{fix_hint});
-    return error.CheckFailed;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -1436,15 +1599,33 @@ fn baselineProject(a: Allocator, dir: []const u8, rows: []const []const u8) !voi
     });
 }
 
+/// A change that edited both copies: every drifted pair between them is in
+/// scope, which is the posture the pre-narrowing behaviour was the whole of.
+const touched_both: Touched = .{ .plan = .{ .base = "test-base", .files = &.{ "src/a.zig", "src/b.zig" } } };
+
+/// A resolved base that touched neither copy — the corpus-shift posture, where
+/// an unrecorded pair is surfaced rather than blocking.
+const touched_neither: Touched = .{ .plan = .{ .base = "test-base", .files = &.{"src/elsewhere.zig"} } };
+
 /// Runs the check over `dir` under capture and hands back what it reported.
-/// The check always FAILS when a pair drifted — the baseline layer above it is
-/// what turns frozen debt green — so the verdict is swallowed and only the two
-/// channels are inspected.
-fn captureOver(ctx: *registry.RunCtx, cap: *reporter.Capture) !void {
+/// The diff scope is STATED rather than resolved: these fixtures live in a
+/// gitignored scratch directory, so asking git about them would answer about
+/// Guardian's own repository. The check FAILS whenever it emits a violation —
+/// the baseline layer above it is what turns frozen debt green — so the verdict
+/// is swallowed and only the two channels are inspected.
+fn captureOver(ctx: *registry.RunCtx, cap: *reporter.Capture, touched: Touched) !void {
     const prior = reporter.default.capture;
     defer reporter.default.capture = prior;
     reporter.default.capture = cap;
-    try testing.expectError(error.CheckFailed, run(ctx));
+    try testing.expectError(error.CheckFailed, runAgainst(ctx, touched));
+}
+
+/// The same, for a run that emits nothing blocking and therefore passes.
+fn captureGreenOver(ctx: *registry.RunCtx, cap: *reporter.Capture, touched: Touched) !void {
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = cap;
+    try runAgainst(ctx, touched);
 }
 
 // spec: Twin Drift - Prints no drift sample for a pair its own baseline already records
@@ -1460,7 +1641,7 @@ test "twin-drift: a pair frozen in the baseline gets no advisory detail" {
     const cfg: config.Config = .{ .baseline = .{ .enabled = true } };
     var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
     var cap: reporter.Capture = .{ .allocator = a };
-    try captureOver(&ctx, &cap);
+    try captureOver(&ctx, &cap, touched_both);
 
     // The keyed violation still fires: subtracting it is the baseline layer's
     // job, and it is what keeps a consumer's frozen row LIVE rather than
@@ -1486,7 +1667,7 @@ test "twin-drift: a pair the baseline does not record keeps its detail" {
     const cfg: config.Config = .{ .baseline = .{ .enabled = true } };
     var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
     var cap: reporter.Capture = .{ .allocator = a };
-    try captureOver(&ctx, &cap);
+    try captureOver(&ctx, &cap, touched_both);
 
     try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
     try testing.expect(std.mem.indexOf(u8, cap.warnings.items[0].message, "out += 6;") != null);
@@ -1511,13 +1692,156 @@ test "twin-drift: a dry run keeps the detail for a frozen pair" {
         .dry_run = true,
     };
     var cap: reporter.Capture = .{ .allocator = a };
-    try captureOver(&ctx, &cap);
+    try captureOver(&ctx, &cap, touched_both);
 
     // Same frozen row as the first test, opposite answer: `--dry-run` promises
     // every current finding with no baseline filtering, and the sample is part
     // of the finding.
     try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
     try testing.expect(std.mem.indexOf(u8, cap.warnings.items[0].message, "out += 6;") != null);
+}
+
+/// A project holding the one drifted pair with a baseline that records a
+/// DIFFERENT pair — the state every stability test below starts from, so the
+/// pair under test is always unrecorded and the file is always readable.
+fn unrecordedProject(a: Allocator, dir: []const u8) !void {
+    return baselineProject(a, dir, &.{"twin-drift|parseRule|src/a.zig|parseOther|src/b.zig"});
+}
+
+/// The baseline-mode config those tests share.
+const baseline_on: config.Config = .{ .baseline = .{ .enabled = true } };
+
+// spec: Twin Drift - Blocks an unrecorded pair when the change touched one of its files
+
+test "twin-drift: an unrecorded pair in a touched file is a blocking violation" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-touched";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &baseline_on, .quiet = true };
+    var cap: reporter.Capture = .{ .allocator = a };
+    // The change edited src/b.zig; ONE of the two sides is enough.
+    try captureOver(&ctx, &cap, .{ .plan = .{ .base = "test-base", .files = &.{"src/b.zig"} } });
+
+    try testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    try testing.expect(!cap.records.items[0].growth_exempt);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "twin-drift FAILED (1 drifted pair(s))") != null);
+}
+
+// spec: Twin Drift - Surfaces an unrecorded pair in untouched files as one advisory line
+
+test "twin-drift: an unrecorded pair in untouched files surfaces instead of blocking" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-surfaced";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &baseline_on, .quiet = true };
+    var cap: reporter.Capture = .{ .allocator = a };
+    // The corpus-shift posture: the same drift, in two files the change never
+    // opened. It is real — so it is reported — but it is not this change's.
+    try captureGreenOver(&ctx, &cap, touched_neither);
+
+    try testing.expectEqual(@as(usize, 0), cap.records.items.len);
+    try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    const line = cap.warnings.items[0].message;
+    try testing.expectEqualStrings(
+        "twin-drift: 1 pair(s) surfaced by corpus shift, none in files this change touched " ++
+            "\u{2014} advisory; guardian-check accept twin-drift . records them",
+        line,
+    );
+    // Flagged so `--summary` cannot collapse it into a bare finding count.
+    try testing.expect(cap.warnings.items[0].alert);
+}
+
+// spec: Twin Drift - Names every surfaced pair under a verbose run
+
+test "twin-drift: --verbose expands the collapsed surfaced line into its pairs" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-surfaced-verbose";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+
+    var ctx: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &baseline_on,
+        .quiet = true,
+        .verbose = true,
+    };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureGreenOver(&ctx, &cap, touched_neither);
+
+    // The collapsed line, the pair itself (keyed, so `--list` can bucket it),
+    // and the drift sample that says WHAT diverged.
+    try testing.expectEqual(@as(usize, 3), cap.warnings.items.len);
+    try testing.expectEqualStrings(
+        "parseRule|src/a.zig|parseRule|src/b.zig",
+        cap.warnings.items[1].identity.?,
+    );
+    try testing.expect(std.mem.indexOf(u8, cap.warnings.items[2].message, "out += 6;") != null);
+}
+
+// spec: Twin Drift - Blocks every unrecorded pair when no diff base resolves
+
+test "twin-drift: an unresolvable diff base blocks every unrecorded pair" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-no-base";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &baseline_on, .quiet = true };
+    var cap: reporter.Capture = .{ .allocator = a };
+    // Outside a repository nothing can be PROVEN untouched, so the narrowing
+    // must fail closed onto the pre-narrowing behaviour rather than go quiet.
+    try captureOver(&ctx, &cap, .{ .unresolved = "no diff base could be resolved" });
+
+    try testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "no diff base (no diff base could be resolved)") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "every unrecorded pair blocks") != null);
+}
+
+// spec: Twin Drift - Records a surfaced pair as growth-exempt and a touched one as ordinary growth
+
+test "twin-drift: an accept records a surfaced pair exempt and a touched pair not" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-accept";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+
+    // `accept twin-drift .` — the one run that records a surfaced pair, so the
+    // one run that emits it as a violation for the baseline layer to write.
+    var ctx: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &baseline_on,
+        .quiet = true,
+        .refresh = &.{check_name},
+    };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&ctx, &cap, touched_neither);
+    try testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    // Proven pre-existing: neither file changed against the base, so a
+    // `deny_growth` refresh may record it (see baseline.denyGrowthGuard).
+    try testing.expect(cap.records.items[0].growth_exempt);
+
+    // The same accept over a pair the change DID touch carries no exemption,
+    // so `deny_growth` still refuses to ratify it.
+    var touched_cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&ctx, &touched_cap, touched_both);
+    try testing.expectEqual(@as(usize, 1), touched_cap.records.items.len);
+    try testing.expect(!touched_cap.records.items[0].growth_exempt);
 }
 
 // spec: Twin Drift - Silences a pair annotated twin-drift-ok above either copy

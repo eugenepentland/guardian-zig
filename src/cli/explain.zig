@@ -807,6 +807,29 @@ const entries = [_]Entry{
     \\is not pairing by protocol: one interface implemented once per file still
     \\looks alike whatever the implementations are called, so `ignore` still
     \\earns its keep.
+    \\Stability: the cosine is corpus-wide, so `idf` moves whenever a body is
+    \\added or removed ANYWHERE and a pair just under the floor can cross it
+    \\with no edit to either of its own files. Measured in eda (2026-09-02):
+    \\merging one reconciliation branch removed 40 bodies and the next branch's
+    \\rebased tree reported `stripUpper`/`normalizeIdent` as a NEW blocking row
+    \\in two files no branch had touched. So the proposal and the judgement are
+    \\unchanged and what BLOCKS is narrowed. A drifted pair already in the
+    \\baseline is LIVE. An unrecorded one BLOCKS only when this change touched
+    \\one of its two files — the same diff scope everything else uses
+    \\(`--against` / `GUARDIAN_AGAINST`, else the merge base with main/master,
+    \\working tree plus index). Every other unrecorded pair is SURFACED: it does
+    \\not block and this run does not record it, and it is reported on the
+    \\advisory channel as one collapsed line, expanded per pair by `--verbose`.
+    \\`--list` shows them in their own SURFACED bucket between NEW and LIVE, and
+    \\`--dry-run` is unchanged (everything, unfiltered). Outside a repository —
+    \\or with no base to resolve — nothing can be proven untouched, so every
+    \\unrecorded pair blocks and the run says so in one line.
+    \\Accepting: `guardian-check accept twin-drift .` records the surfaced
+    \\pairs. Under `[baseline] deny_growth = ["twin-drift"]` that is allowed
+    \\even when it adds keys, but ONLY for pairs the run proved neither file
+    \\changed against the base: pre-existing debt made visible is not growth the
+    \\change introduced. A pair whose file the change touched is never surfaced,
+    \\so it never carries the exemption and the refusal still stands for it.
     \\Baseline: one violation per pair, keyed `<nameA>|<fileA>|<nameB>|<fileB>`
     \\with the two sides ordered by path, so editing either copy further moves
     \\the percentage without re-keying the row. Renaming a copy DOES re-key it —
