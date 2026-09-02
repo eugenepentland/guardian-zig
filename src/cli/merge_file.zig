@@ -97,6 +97,16 @@ fn resolve(a: Allocator, kind: artifact.Kind, sides: [3]Side) Allocator.Error!Me
             const c = try three_way.mergeCounters(a, base, ours, theirs);
             break :blk .{ .lines = c.lines, .needs_regen = c.needs_regen };
         },
+        // A frozen scoring table is ONE measurement of ONE corpus: every row is
+        // a document frequency counted over the same set of bodies, so a row
+        // taken from ours beside a row taken from theirs describes a corpus
+        // neither branch ever had. There is no row-wise rule that is even
+        // approximately right, and refusing outright would hand a human a
+        // 40,000-row conflict they cannot resolve by reading either. So the
+        // deterministic answer is OURS whole — the merged tree keeps scoring
+        // exactly as this branch did — plus the regenerate marker, which makes
+        // `merge-state` say so until an accept re-measures it.
+        .frozen_table => .{ .lines = ours, .needs_regen = true },
         // Refused before `resolve` is reached; listed so a new kind must decide.
         .unmergeable => .{ .lines = &.{}, .needs_regen = false },
     };
@@ -194,14 +204,25 @@ fn checkNameFor(path: ?[]const u8) []const u8 {
 }
 
 /// Prints the one-line outcome, plus the regeneration command when the result
-/// contains a guessed counter.
+/// result was not measured (a guessed counter, or a kept-whole frozen table).
 fn report(kind: artifact.Kind, merged: Merged, marked: bool, hint: ?[]const u8) void {
     reporter.ok("merge-file: merged {d} {s} row(s)", .{ merged.lines.len, @tagName(kind) });
     if (!marked) return;
-    reporter.detail(
-        "  both sides moved a counter — the file is marked for regeneration: {s}={s} zig build\n",
-        .{ snapshot_helper.update_env, checkNameFor(hint) },
-    );
+    reporter.detail("  {s} — the file is marked for regeneration: {s}={s} zig build\n", .{
+        whyRegen(kind),
+        snapshot_helper.update_env,
+        checkNameFor(hint),
+    });
+}
+
+/// Why the merged result is a placeholder rather than a measurement. Only two
+/// kinds ever reach here, and saying "both sides moved a counter" over a frozen
+/// scoring table would name a resolution that never ran.
+fn whyRegen(kind: artifact.Kind) []const u8 {
+    return switch (kind) {
+        .frozen_table => "a frozen scoring table cannot be line-merged, so OURS was kept whole",
+        else => "both sides moved a counter",
+    };
 }
 
 /// Refuses the merge: git records an ordinary conflict, and the message names
@@ -466,4 +487,35 @@ test "versionOf agrees across sides, abstaining for an empty base" {
     try testing.expectEqual(@as(u32, 2), versionOf(.{ s.side(0), s.side(2), s.side(2) }).?);
     // One side self-migrated mid-branch: there is no correct union, so refuse.
     try testing.expect(versionOf(.{ s.side(2), s.side(2), s.side(3) }) == null);
+}
+
+// spec: Merge - Keeps ours whole and marks a frozen scoring table for regeneration
+
+test "merge-file resolves a frozen df table by keeping ours" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two branches each re-froze the table on their own corpus. Every row is a
+    // frequency counted over one set of bodies, so mixing rows would describe a
+    // corpus neither branch had; the answer is ours whole, plus the marker that
+    // makes `merge-state` ask for a re-measurement.
+    const merged = try runFixture(a, "frozen-df", ".guardian/twin-drift-df.txt", .{
+        "# guardian-snapshot v4\ndocs 500\n0000000a 3\n0000000b\n",
+        "# guardian-snapshot v4\ndocs 510\n0000000a 4\n0000000b\n0000000c 2\n",
+        "# guardian-snapshot v4\ndocs 540\n0000000a 9\n0000000d 7\n",
+    });
+    try testing.expect(std.mem.indexOf(u8, merged, "docs 510\n") != null);
+    try testing.expect(std.mem.indexOf(u8, merged, "0000000a 4\n") != null);
+    try testing.expect(std.mem.indexOf(u8, merged, "0000000c 2\n") != null);
+    // Nothing of theirs leaked in — not the count, not a row only they had.
+    try testing.expect(std.mem.indexOf(u8, merged, "docs 540") == null);
+    try testing.expect(std.mem.indexOf(u8, merged, "0000000d") == null);
+    // And the file says out loud that it is a kept copy, not a measurement.
+    try testing.expect(snapshot.hasRegenMarker(merged));
+    try testing.expect(std.mem.indexOf(u8, merged, "GUARDIAN_UPDATE_SNAPSHOT=twin-drift") != null);
+    try testing.expectEqualStrings(
+        "a frozen scoring table cannot be line-merged, so OURS was kept whole",
+        whyRegen(.frozen_table),
+    );
 }

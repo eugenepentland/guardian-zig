@@ -299,6 +299,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Marks a counter both sides moved for regeneration
 - Leaves an uncontested counter merge unmarked
 - Merges a counter file both sides grew and marks it for regeneration
+- Keeps ours whole and marks a frozen scoring table for regeneration
 - Merges a per-item ratchet from real files
 - Merges identity baselines and the public API surface as sets
 - Merges an unsorted side and writes a canonically sorted result
@@ -582,6 +583,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Matches a v1 text baseline by rendered line instead of identity key
 - Lists a threshold check's keys with each live value against its frozen ceiling
 - Names the baseline file a listing is split against
+- Replays a run's alert lines above the listing
 - Reads a stored metadata file as absent when it is missing or in another format version
 - Writes no baseline ratchet or snapshot on an introspection run
 - Refuses the introspection flags on a command that is not a single gate check
@@ -1314,6 +1316,15 @@ without an explained `--force`.
 - Blocks every unrecorded pair when no diff base resolves
 - Records a surfaced pair as growth-exempt and a touched one as ordinary growth
 - Leaves a pair uncompared when a body exceeds max_lines
+- Leaves every scoring frequency live when no frozen table exists
+- Holds a pair's verdict steady when an unrelated body leaves the corpus
+- Weighs a shingle the frozen table never saw at its live frequency
+- Round-trips every frozen shingle through a fixed-width base-36 key
+- Warns once and scores live when the frozen table cannot be read
+- Writes the frozen table only on an accept that names this check
+- Reports the frozen table's coverage on a list run
+- Says so once when the frozen table was merge-resolved rather than measured
+- Drops a merge-resolve marker when an accept re-measures the table
 - Parses the twin-drift thresholds and defaults them
 - Hard-fails a similarity outside zero to one and an unknown key
 

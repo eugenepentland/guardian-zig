@@ -163,6 +163,89 @@ sibling checkout.
       whose file the change touched is never surfaced, never carries the
       exemption, and is still refused. Identity keys are untouched, and the
       frozen-pair advisory suppression is unchanged.
+  - **The idf table is frozen, so Guardian's own scoring stops moving.** The
+    narrowing above decides what a corpus shift may BLOCK; this decides whether
+    it moves a score at all. Across the same five eda merges, **128 of 174**
+    untouched surviving pairs (74%) changed score with neither of their own
+    files edited, five reported pairs sat within 0.02 of the 0.5 floor, and the
+    `stripUpper` pair crossed it from 0.4927 — a knife-edge, measured in
+    `docs/twin-drift-scoring-study-2026-09-02.md`. Removing the idf is not the
+    fix: it IS the discriminator, and every corpus-independent weighting the
+    study measured gave back the separation that rejects `padNets` at 0.44 and
+    `placement` at 0.33. So the weighting stays and the TABLE is pinned.
+    - `.guardian/twin-drift-df.txt` (v4) holds the document count and every
+      shingle's frequency as they stood at the last accept: a `docs <N>` header
+      row, then one row per shingle ascending — a bare 8-character base-36 key
+      at the implicit frequency 1, `<key> <df>` above it.
+    - **Both halves of the decision read it**, the idf weight AND the
+      `2 <= df <= max_df` proposal gate. The gate too, because a boilerplate
+      3-gram drifting across `max_df` adds or removes real mass from an
+      untouched pair's cosine — freezing only the weight still let the eda pair
+      cross. What stays live is the posting COUNT, which only sizes each
+      posting list. Two bodies that did not change therefore score
+      bit-identically however the rest of the tree moved: replayed over the
+      study's six eda states, a table frozen at the first reproduces the
+      frozen-idf reference exactly five merges later (125/85/49/31/14/0 pairs,
+      `stripUpper` never admitted).
+    - A shingle the table has never seen falls back to its LIVE frequency, so
+      code added since the freeze is proposed and judged normally.
+    - **No table means no change.** A project without one scores exactly as it
+      did before the file existed, and no ordinary run, `--gate`, `--dry-run` or
+      `--list` ever creates or rewrites it — `--dry-run` and `--list` DO read an
+      existing one, because that is scoring, not baseline filtering. Only an
+      accept that names twin-drift writes it: `guardian-check accept twin-drift
+      .`, `GUARDIAN_UPDATE_SNAPSHOT=twin-drift` (or `=all`), or `zig build
+      guardian-accept -Dguardian-checks=twin-drift`. Accept means ratify the
+      current state, so the table is rewritten from the corpus this run measured
+      even when no pair is new; the write is the same content-checked atomic
+      replacement every other `.guardian/` file uses, so a re-accept that
+      measures the same corpus leaves `git status` clean. It is not a baseline:
+      `deny_growth` and hysteresis do not apply to it.
+    - **The whole vocabulary is stored, df=1 rows included**, and that is
+      measured rather than lazy. Dropping the df=1 tail would cut eda's table
+      from 264,931 rows to 85,392 — but an absent shingle falls back to live,
+      and a 3-gram that was unique at freeze time and is held by two bodies now
+      IS the corpus shift: a df>=2-only table replayed 125/**86**/50/32/15/0 and
+      re-admitted the very `stripUpper` pair this feature exists to remove. The
+      other way out (treat an absent shingle as df=1) is worse, since `proposes`
+      needs df >= 2 and every 3-gram of a newly added file would then be unable
+      to propose anything — two fresh copies of one rule would go unseen. The
+      row count is paid, and paid down in the encoding: the truncated key and
+      the implicit df=1 take eda's table from 5.9 MB raw to **2.5 MB**. The key
+      is the low 41 bits of the shingle hash, where the expected number of
+      distinct 3-grams sharing a key over eda's vocabulary is 16 (0.006%), and a
+      collision costs those two shingles one merged frequency — never a crash, a
+      missed pair, or a non-deterministic file.
+    - **An unusable table warns and scores live**, never degrades in silence: a
+      stale version, a broken row, a missing `docs` count or leftover conflict
+      markers each produce ONE line naming the file, the reason, and
+      `guardian-check accept twin-drift .`.
+    - `guardian-check twin-drift . --list` now heads its output with the table's
+      coverage — how many of this run's live shingles it holds, and its frozen N
+      against the live one — so staleness is a thing you look up before a
+      release rather than a line on every gate run. (`--list` replays every
+      `alert` advisory line above the listing now, the same rule
+      `run_view.showsAlerts` applies under `--summary`.)
+    - `guardian-check merge-file` classifies the table as its own artifact kind
+      and resolves a conflict by keeping **OURS whole**, then marking the file
+      for regeneration: every row is one measurement of one corpus, so a row
+      from ours beside a row from theirs describes a corpus neither branch had.
+      `install-merge-driver`'s `.guardian/**` attribute already covers it, and
+      `twin-drift-df` joins `pub-api` as a metadata leaf whose basename resolves
+      to its check — so a named refresh keeps the table through a red sibling.
+    - **A merge-resolved table is used, and says so.** The regenerate marker is
+      a comment, so `snapshot.parse` drops it and the stale-but-valid table
+      would otherwise be scored against in silence (`merge-state` reports the
+      marker, but only on an `all` pass — a direct `guardian-check twin-drift .`
+      never sees it). The table is still used, because one branch's freeze is a
+      real measurement; the check just prints one `alert` line naming the file,
+      the marker and `guardian-check accept twin-drift .`, and the accept that
+      re-measures it replaces the file whole, marker included.
+    - Freezing removes drift caused by Guardian's OWN scoring and nothing else.
+      It does not touch a pair that genuinely crosses because someone edited a
+      third file, and every refresh is a fresh chance for such a pair to appear
+      — which is what the diff-aware narrowing above is for. The study is
+      explicit that of the two, the narrowing is the more important.
 - **`[baseline] deny_growth` is documented per flavor, matching the code.** The
   docs said a refresh that would "raise a recorded value or add a key" fails for
   both baseline flavors; only the per-item ratchet (v2) has ever worked that way.

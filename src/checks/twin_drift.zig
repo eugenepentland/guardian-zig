@@ -101,6 +101,46 @@
 //! and moves no identity key: `identityFor` is untouched, so a consumer's
 //! frozen rows stay LIVE.
 //!
+//! **The idf table is FROZEN, because a live one moves every score at once.**
+//! `idf(s) = ln((N+1)/(df+1)) + 1` is a function of the whole corpus, so adding
+//! or deleting a body ANYWHERE re-weighs every shingle in the tree — measured on
+//! eda across five merges: 128 of 174 untouched surviving pairs (74%) changed
+//! score without either of their own files being edited, and one pair crossed
+//! the 0.5 floor into a blocking row in two files no branch had opened
+//! (`docs/twin-drift-scoring-study-2026-09-02.md`). Removing the idf is not the
+//! fix — it IS the discriminator, and every corpus-independent weighting
+//! measured gave back the separation that rejects `padNets` at 0.44. So the
+//! weighting stays and the TABLE is pinned: `.guardian/twin-drift-df.txt` holds
+//! the document count and the per-shingle frequency of the corpus as it stood
+//! at the last `accept twin-drift`, and every score decision reads that instead
+//! of the tree in front of it. A shingle the table has never seen — one a change
+//! just introduced — falls back to its live frequency. With no table the check
+//! behaves exactly as it did before one existed, so a zero-config project
+//! notices nothing.
+//!
+//! Both halves of the decision are frozen, the weight AND `proposes`: the
+//! proposal gate is `2 <= df <= max_df`, so a boilerplate 3-gram drifting across
+//! `max_df` adds or removes real mass from an untouched pair's cosine. Freezing
+//! only the weight still let the eda pair cross. What stays live is the posting
+//! COUNT, because a posting list has to be exactly as long as the number of
+//! bodies written into it. Two bodies that did not change therefore score
+//! bit-identically however the rest of the tree moved — replayed over the
+//! study's six eda states, a table frozen at the first reproduces the study's
+//! frozen-idf column exactly (125/85/49/31/14/0) five merges later.
+//!
+//! Freezing is not a substitute for the diff-aware blocking below; the study is
+//! explicit that it is the lesser of the two. It removes drift caused by
+//! Guardian's own scoring. It does nothing about a pair that genuinely crosses
+//! because a third file changed, and every refresh is a fresh chance for such a
+//! pair to appear — which is what `Touched`/SURFACED is for.
+//!
+//! **The corpus is the whole tree on every run.** twin-drift is registered
+//! `whole_tree`, so `run_all.indexFor` hands it the complete index even when the
+//! surrounding run is diff-scoped, and `scope.Posture` refuses to scope a run
+//! with a refresh pending. A diff-scoped run therefore reads the same corpus a
+//! whole-tree one does — only which pairs BLOCK narrows — and no run that could
+//! write a partial table exists.
+//!
 //! `fix_hint` still carries the sample for the OTHER reader. `last-run.jsonl`
 //! has no advisory tier — a warning never reaches it — so `sinkHint` puts what
 //! drifted on the row beside the remedy, and the baseline layer forwards it
@@ -119,6 +159,7 @@ const baseline = @import("../baseline.zig");
 const violation_key = @import("../violation_key.zig");
 const config = @import("../config.zig");
 const scope = @import("../scope.zig");
+const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
 const lexical_scan = @import("lexical_scan.zig");
 
@@ -633,11 +674,29 @@ fn bodyShingles(allocator: Allocator, body: []const []const u8) Allocator.Error!
 const Term = struct { id: u32, tf: u32, weight: f64 };
 
 /// The whole run's tf-idf document set: one weighted term list per candidate,
-/// ascending by id, plus the document frequency of every shingle in the
-/// vocabulary.
+/// ascending by id, plus — per vocabulary id — the shingle it stands for and
+/// the two document frequencies the pass reads.
+///
+/// The two frequencies are the whole of the freeze. `df` is what this run
+/// MEASURED, and only `buildPostings` reads it, to size each posting list: a
+/// list must be exactly as long as the number of bodies that will be written
+/// into it, or the index is corrupt. `scoring_df` is what every DECISION reads
+/// — the idf weight and `proposes` alike — and it is the frozen table's value
+/// wherever the table has one. Keeping them apart is what lets a stale table
+/// change the verdict without touching the index's shape.
+///
+/// `hashes` is what makes a frozen lookup possible at all: a vocabulary id is
+/// an artifact of the order this run happened to intern shingles in and means
+/// nothing across two runs, while the shingle hash is the same number in every
+/// corpus that holds that 3-gram.
 const Corpus = struct {
     docs: []const []Term,
     df: []const u32,
+    scoring_df: []u32,
+    hashes: []const u64,
+    /// The document count the idf divides by — frozen with the table when there
+    /// is one, else this run's own candidate count.
+    scoring_docs: usize,
 };
 
 /// Orders a document's terms by vocabulary id, so the sparse accumulation below
@@ -654,6 +713,7 @@ fn buildCorpus(allocator: Allocator, candidates: []const Candidate) Allocator.Er
     var vocab: std.AutoHashMapUnmanaged(u64, u32) = .empty;
     defer vocab.deinit(allocator);
     var df: std.ArrayList(u32) = .empty;
+    var hashes: std.ArrayList(u64) = .empty;
     var counts: std.AutoHashMapUnmanaged(u32, u32) = .empty;
     defer counts.deinit(allocator);
 
@@ -667,6 +727,7 @@ fn buildCorpus(allocator: Allocator, candidates: []const Candidate) Allocator.Er
             if (!slot.found_existing) {
                 slot.value_ptr.* = @intCast(df.items.len);
                 try df.append(allocator, 0);
+                try hashes.append(allocator, s);
             }
             const seen = try counts.getOrPut(allocator, slot.value_ptr.*);
             if (seen.found_existing) {
@@ -685,7 +746,38 @@ fn buildCorpus(allocator: Allocator, candidates: []const Candidate) Allocator.Er
         std.mem.sort(Term, terms, {}, lessById);
         docs[i] = terms;
     }
-    return .{ .docs = docs, .df = try df.toOwnedSlice(allocator) };
+    const measured = try df.toOwnedSlice(allocator);
+    return .{
+        .docs = docs,
+        .df = measured,
+        // Live until `applyFrozen` says otherwise, so a project with no table
+        // scores exactly as it did before the table existed.
+        .scoring_df = try allocator.dupe(u32, measured),
+        .hashes = try hashes.toOwnedSlice(allocator),
+        .scoring_docs = candidates.len,
+    };
+}
+
+/// Substitutes the frozen table into everything that DECIDES: the document
+/// count and, per shingle, the frequency both the idf and `proposes` read. A
+/// shingle the table does not hold keeps its live frequency.
+///
+/// Nothing here touches `Corpus.df`, so `buildPostings` still allocates against
+/// the tree in front of it. What changes is which shingles are allowed to
+/// propose and how heavily each one counts — and because BOTH are frozen, two
+/// bodies that did not change get a bit-identical score however the rest of the
+/// tree moved. Freezing only the weight is not enough: `proposes` gates a
+/// shingle on `df <= max_df`, so a boilerplate 3-gram drifting across that line
+/// adds or removes real mass from an untouched pair's cosine. Measured on eda's
+/// six states, weight-only freezing still let `module_policy.stripUpper` cross
+/// the floor at state 2 in two files nothing had touched — the exact failure
+/// the freeze exists to remove.
+fn applyFrozen(corpus: *Corpus, frozen: ?FrozenDf) void {
+    const table = frozen orelse return;
+    corpus.scoring_docs = table.docs;
+    for (corpus.scoring_df, corpus.hashes) |*frequency, hash| {
+        frequency.* = table.df.get(dfKey(hash)) orelse frequency.*;
+    }
 }
 
 /// Inverse document frequency, smoothed: `ln((N+1)/(df+1)) + 1`. The textbook
@@ -702,18 +794,332 @@ fn idf(docs: usize, frequency: u32) f64 {
 
 /// Weighs every term `tf·idf` and L2-normalises each document, so the cosine
 /// between two of them is a plain dot product. A body whose weights are all
-/// zero cannot be normalised and simply pairs with nothing.
+/// zero cannot be normalised and simply pairs with nothing. Reads the scoring
+/// frequencies, so a frozen table decides the weights (see `applyFrozen`).
 fn weighDocs(corpus: Corpus) void {
     for (corpus.docs) |terms| {
         var sum: f64 = 0;
         for (terms) |*t| {
-            t.weight = @as(f64, @floatFromInt(t.tf)) * idf(corpus.docs.len, corpus.df[t.id]);
+            t.weight = @as(f64, @floatFromInt(t.tf)) *
+                idf(corpus.scoring_docs, corpus.scoring_df[t.id]);
             sum += t.weight * t.weight;
         }
         if (sum == 0) continue;
         const norm = @sqrt(sum);
         for (terms) |*t| t.weight /= norm;
     }
+}
+
+// ── The frozen df table ─────────────────────────────────────────────────
+
+/// Where the frozen table lives, beside the baselines it stabilises.
+const df_leaf = "twin-drift-df.txt";
+
+/// Its snapshot header version. Distinct from every other `.guardian/` format
+/// (v1/v2 counters, v2 ratchets and pub-api, v3 identity baselines) so the
+/// merge driver can classify the file from its header alone when git hands it
+/// three temporaries and no pathname.
+const df_version: u32 = 4;
+
+/// The row that carries the frozen document count. Four characters, where every
+/// shingle row's first field is exactly `df_key_len`, so the two can never be
+/// confused whatever order the file is sorted into.
+const df_docs_field = "docs";
+
+/// The df a row with no count spells. `1` is the overwhelming majority of any
+/// corpus's vocabulary (eda: 179,539 of 264,931 shingles), and writing it out
+/// would be a third of the file spent repeating the same character.
+const df_implicit: u32 = 1;
+
+/// Bits of the 64-bit shingle hash a row stores, and the base-36 width that
+/// holds them (36^8 > 2^41). Truncating is a size decision with a measurable
+/// error bar: over eda's 264,931 shingles the expected number of distinct
+/// 3-grams sharing a stored key is 16 — 0.006% of the vocabulary — and a
+/// collision costs those shingles one merged frequency, never a crash, a
+/// missed pair, or a non-deterministic file.
+const df_key_bits = 41;
+const df_key_len = 8;
+const df_key_mask: u64 = (@as(u64, 1) << df_key_bits) - 1;
+
+/// The stored key of a shingle hash.
+fn dfKey(hash: u64) u64 {
+    return hash & df_key_mask;
+}
+
+/// A committed df table: the document count that was frozen with it, and the df
+/// of every shingle it kept. Absent shingles are NOT recorded as zero — they are
+/// absent, and `weighingDf` falls back to the live count for them.
+const FrozenDf = struct {
+    docs: usize,
+    df: std.AutoHashMapUnmanaged(u64, u32),
+};
+
+/// `<project>/.guardian/twin-drift-df.txt`.
+fn dfPath(allocator: Allocator, project_dir: []const u8) Allocator.Error![]const u8 {
+    return snapshot_helper.snapshotPath(allocator, project_dir, df_leaf);
+}
+
+/// One stored key as base-36, zero-padded to a fixed width so the file sorts
+/// stably and a row's two fields can be told apart by length alone.
+fn encodeDfKey(key: u64) [df_key_len]u8 {
+    var out: [df_key_len]u8 = @splat('0');
+    var rest = key;
+    var i: usize = df_key_len;
+    while (i > 0) {
+        i -= 1;
+        const digit: u8 = @intCast(rest % 36);
+        out[i] = if (digit < 10) '0' + digit else 'a' + (digit - 10);
+        rest /= 36;
+    }
+    return out;
+}
+
+/// The key a stored field spells, or null when it is not one — a wrong width, a
+/// character outside base-36, or a value past `df_key_bits`.
+fn decodeDfKey(text: []const u8) ?u64 {
+    if (text.len != df_key_len) return null;
+    var value: u64 = 0;
+    for (text) |c| {
+        const digit: u64 = switch (c) {
+            '0'...'9' => c - '0',
+            'a'...'z' => c - 'a' + 10,
+            else => return null,
+        };
+        value = value * 36 + digit;
+    }
+    return if (value > df_key_mask) null else value;
+}
+
+/// The committed table, or null when this project has none (the zero-config
+/// case: scoring then reads live df exactly as it always has).
+///
+/// A file that is present but unreadable — a stale version, a broken row, a
+/// missing `docs` header — is NOT silently ignored: it warns once, naming the
+/// file and the command that rewrites it, and then falls back to live df. A
+/// frozen table is a scoring input, so degrading quietly would move every score
+/// with nothing on the console to explain why.
+fn loadFrozenDf(allocator: Allocator, project_dir: []const u8) Allocator.Error!?FrozenDf {
+    const path = try dfPath(allocator, project_dir);
+    // The BYTES rather than `snapshot.read`, because the merge driver's
+    // regenerate marker is a comment and every parser here drops comments — so
+    // a table that a merge resolved instead of measuring would otherwise be
+    // indistinguishable from one an accept had just written.
+    const content = fs.cwd().readFileAlloc(allocator, path, max_df_bytes) catch |e| switch (e) {
+        error.FileNotFound => return null,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return warnUnusableDf(allocator, path, "it could not be read"),
+    };
+    const snap = snapshot.parse(allocator, content, df_version) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return warnUnusableDf(allocator, path, describeDfError(e)),
+    };
+    const table = try parseFrozenDf(allocator, path, snap.lines) orelse return null;
+    if (snapshot.hasRegenMarker(content)) try warnMergedDf(allocator, path);
+    return table;
+}
+
+/// Upper bound on a frozen table this check will read — the same ceiling every
+/// other `.guardian/` reader uses. eda's is 2.5 MB, so the headroom is real.
+const max_df_bytes = 16 * 1024 * 1024;
+
+/// The one line a merge-resolved table earns.
+///
+/// `merge-file` cannot combine two frozen corpora, so it keeps OURS whole and
+/// stamps `snapshot.regen_marker`. That result is a VALID freeze — it is one
+/// branch's real measurement — so the table is still used and nothing fails.
+/// But it describes the tree as that branch left it, not the merged tree in
+/// front of the check, and the marker is a comment: `snapshot.parse` drops it
+/// and every scoring decision below would read the stale table in silence. The
+/// `merge-state` check does report the marker, but only on an `all` pass; a
+/// direct `guardian-check twin-drift .` never sees it. So this says so once, on
+/// the alert tier, where `--summary` cannot collapse it and `--list` replays it
+/// above the listing.
+fn warnMergedDf(allocator: Allocator, path: []const u8) Allocator.Error!void {
+    reporter.warn(.{
+        .check = check_name,
+        .alert = true,
+        .file = path,
+        .message = try std.fmt.allocPrint(
+            allocator,
+            "{s}: the frozen df table {s} was resolved by a merge rather than measured (`{s}`) " ++
+                "\u{2014} scoring uses it as it stands; `guardian-check accept {s} .` re-measures " ++
+                "it on this tree",
+            .{ check_name, df_leaf, snapshot.regen_marker, check_name },
+        ),
+    });
+}
+
+/// Why a stored table could not be read, in one clause.
+fn describeDfError(e: snapshot.ReadError) []const u8 {
+    return switch (e) {
+        error.VersionMismatch => "it was written by a different Guardian format version",
+        error.ConflictMarkers => "it still holds unresolved merge conflict markers",
+        error.BadFormat => "its header is missing or malformed",
+        else => "it could not be read",
+    };
+}
+
+/// Turns already-parsed snapshot rows into a table, or warns and returns null.
+fn parseFrozenDf(
+    allocator: Allocator,
+    path: []const u8,
+    rows: []const []const u8,
+) Allocator.Error!?FrozenDf {
+    var docs: ?usize = null;
+    var df: std.AutoHashMapUnmanaged(u64, u32) = .empty;
+    for (rows) |row| {
+        const space = std.mem.indexOfScalar(u8, row, ' ');
+        const field = if (space) |s| row[0..s] else row;
+        const value = if (space) |s| row[s + 1 ..] else "";
+        if (std.mem.eql(u8, field, df_docs_field)) {
+            docs = std.fmt.parseInt(usize, value, 10) catch
+                return warnUnusableDf(allocator, path, "its `docs` count is not a number");
+            continue;
+        }
+        const key = decodeDfKey(field) orelse
+            return warnUnusableDf(allocator, path, "a row's shingle key is not an 8-character base-36 word");
+        // A bare key is the implicit df=1 row; anything else spells its count.
+        const count = if (space == null) df_implicit else std.fmt.parseInt(u32, value, 10) catch
+            return warnUnusableDf(allocator, path, "a row's frequency is not a number");
+        try df.put(allocator, key, count);
+    }
+    const n = docs orelse
+        return warnUnusableDf(allocator, path, "it carries no `docs` count");
+    return .{ .docs = n, .df = df };
+}
+
+/// The one warning an unusable table earns, and the null it resolves to.
+fn warnUnusableDf(allocator: Allocator, path: []const u8, why: []const u8) Allocator.Error!?FrozenDf {
+    reporter.warn(.{
+        .check = check_name,
+        .file = path,
+        .message = try std.fmt.allocPrint(
+            allocator,
+            "{s}: ignoring the frozen df table {s} \u{2014} {s}; scoring falls back to live " ++
+                "document frequency (`guardian-check accept {s} .` rewrites it)",
+            .{ check_name, df_leaf, why, check_name },
+        ),
+    });
+    return null;
+}
+
+/// The rows of a table frozen from `corpus`: the `docs` count, then one row per
+/// shingle ascending by key — a bare `<key>` at the implicit df, `<key> <df>`
+/// above it.
+///
+/// The WHOLE vocabulary is written, df=1 shingles included, and that is a
+/// measured decision rather than an oversight. Dropping the df=1 tail would cut
+/// eda's table from 264,931 rows to 85,392 — but a shingle the table does not
+/// hold falls back to its LIVE frequency, and a 3-gram that was unique when the
+/// table was frozen and is held by two bodies now is exactly the corpus shift
+/// the freeze exists to absorb. Replayed over eda's six states, a df>=2-only
+/// table reported 125/86/50/32/15/0 against the frozen-idf reference of
+/// 125/85/49/31/14/0: it re-admitted `module_policy.stripUpper` in two files
+/// nothing had touched, which is the one finding this whole feature exists to
+/// remove. The other way out — treating an absent shingle as df=1 instead of
+/// live — is worse, because `proposes` needs df >= 2: every 3-gram of a NEWLY
+/// added file would then be unable to propose anything, and two fresh copies of
+/// one rule, the freshest drift there is, would go unseen until the next
+/// accept. So the row count is paid, and paid down in the encoding instead: the
+/// truncated key and the implicit df=1 take eda's table from 5.9 MB to 2.5 MB.
+///
+/// Two shingles whose hashes truncate to one key are folded to the larger
+/// count, so the file holds each key exactly once and reading it back cannot
+/// depend on row order.
+fn frozenDfRows(allocator: Allocator, corpus: Corpus) Allocator.Error![]const []const u8 {
+    var by_key: std.AutoHashMapUnmanaged(u64, u32) = .empty;
+    defer by_key.deinit(allocator);
+    for (corpus.hashes, corpus.df) |hash, frequency| {
+        const slot = try by_key.getOrPut(allocator, dfKey(hash));
+        slot.value_ptr.* = if (slot.found_existing) @max(slot.value_ptr.*, frequency) else frequency;
+    }
+    var keys: std.ArrayList([]const u8) = .empty;
+    var it = by_key.iterator();
+    while (it.next()) |e| {
+        const key = encodeDfKey(e.key_ptr.*);
+        try keys.append(allocator, if (e.value_ptr.* == df_implicit)
+            try allocator.dupe(u8, key[0..])
+        else
+            try std.fmt.allocPrint(allocator, "{s} {d}", .{ key[0..], e.value_ptr.* }));
+    }
+    std.mem.sort([]const u8, keys.items, {}, lessThanRow);
+    var rows: std.ArrayList([]const u8) = .empty;
+    try rows.append(allocator, try std.fmt.allocPrint(
+        allocator,
+        "{s} {d}",
+        .{ df_docs_field, corpus.docs.len },
+    ));
+    try rows.appendSlice(allocator, keys.items);
+    return rows.toOwnedSlice(allocator);
+}
+
+/// Orders two rendered rows, so the written file is byte-stable across runs.
+fn lessThanRow(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.order(u8, a, b) == .lt;
+}
+
+/// Rewrites the table from the corpus this run measured. Called only from an
+/// accept of THIS check (see `writesDfTable`): accept means "ratify the current
+/// state", so the table is refreshed even when no pair is new.
+fn writeFrozenDf(
+    allocator: Allocator,
+    project_dir: []const u8,
+    corpus: Corpus,
+) (Allocator.Error || snapshot.WriteError)!void {
+    const path = try dfPath(allocator, project_dir);
+    const rows = try frozenDfRows(allocator, corpus);
+    // The content-identical short-circuit every other `.guardian/` writer uses:
+    // an accept that re-measures the same corpus leaves `git status` clean.
+    _ = try snapshot.writePresortedChecked(allocator, path, df_version, rows);
+}
+
+/// True when this run may (re)write the table: an accept that NAMES this check,
+/// and nothing else.
+///
+/// `shouldUpdateForCtx` is the one seam every accept path already goes through
+/// — `guardian-check accept twin-drift .`, `GUARDIAN_UPDATE_SNAPSHOT=twin-drift`
+/// (or `=all`), and the `zig build guardian-accept -Dguardian-checks=…` step
+/// that spells the env var — so the table refreshes wherever a snapshot would,
+/// and accepting an unrelated check never re-freezes the scoring. It is the
+/// same flag the surfaced tier already reads, which is what makes one accept
+/// record the surfaced pairs AND the table they were scored with.
+///
+/// The two exclusions are the read-only contracts: `--dry-run` and `--list` DO
+/// read an existing table (that is scoring, not baseline filtering) but may
+/// never write one, even under the environment variable — and
+/// `cli/introspect.zig` clears `refresh` besides.
+///
+/// A diff-scoped run cannot reach here, twice over: `scope.Posture` refuses to
+/// scope a run with a refresh pending, and twin-drift is classified
+/// `whole_tree`, so `run_all.indexFor` hands it the entire index even when the
+/// surrounding run IS scoped. The corpus this table is frozen from is therefore
+/// always the whole tree.
+fn writesDfTable(ctx: *registry.RunCtx) bool {
+    if (ctx.dry_run or ctx.list) return false;
+    return snapshot_helper.shouldUpdateForCtx(ctx, check_name);
+}
+
+/// The `--list` header naming what the frozen table covers: how many of this
+/// run's live shingles it holds, and the document count it was frozen at
+/// against the one measured now. Deliberately NOT printed on an ordinary run —
+/// staleness is a thing to look up before a release, not a line on every gate.
+fn dfCoverage(allocator: Allocator, frozen: ?FrozenDf, corpus: Corpus) Allocator.Error![]const u8 {
+    const table = frozen orelse return std.fmt.allocPrint(
+        allocator,
+        "{s}: no frozen df table ({s}) \u{2014} scoring uses live document frequency; " ++
+            "`guardian-check accept {s} .` freezes it",
+        .{ check_name, df_leaf, check_name },
+    );
+    var held: usize = 0;
+    for (corpus.hashes) |hash| {
+        if (table.df.contains(dfKey(hash))) held += 1;
+    }
+    return std.fmt.allocPrint(
+        allocator,
+        "{s}: frozen df table {s} covers {d}/{d} live shingle(s); frozen N = {d}, live N = {d} " ++
+            "\u{2014} `guardian-check accept {s} .` refreshes it",
+        .{ check_name, df_leaf, held, corpus.hashes.len, table.docs, corpus.docs.len, check_name },
+    );
 }
 
 /// True when a shingle may propose a pair: held by at least two bodies (one is
@@ -741,9 +1147,12 @@ const Postings = struct {
 fn buildPostings(allocator: Allocator, corpus: Corpus) Allocator.Error!Postings {
     const starts = try allocator.alloc(u32, corpus.df.len + 1);
     var total: u32 = 0;
-    for (corpus.df, 0..) |frequency, id| {
+    // The DECISION is the scoring frequency (frozen when a table says so); the
+    // LENGTH is the live one, because that is how many bodies the fill loop
+    // below actually has to write.
+    for (corpus.df, corpus.scoring_df, 0..) |live, scoring, id| {
         starts[id] = total;
-        if (proposes(frequency)) total += frequency;
+        if (proposes(scoring)) total += live;
     }
     starts[corpus.df.len] = total;
 
@@ -754,7 +1163,7 @@ fn buildPostings(allocator: Allocator, corpus: Corpus) Allocator.Error!Postings 
     @memcpy(cursor, starts[0..corpus.df.len]);
     for (corpus.docs, 0..) |terms, i| {
         for (terms) |t| {
-            if (!proposes(corpus.df[t.id])) continue;
+            if (!proposes(corpus.scoring_df[t.id])) continue;
             docs[cursor[t.id]] = @intCast(i);
             weights[cursor[t.id]] = t.weight;
             cursor[t.id] += 1;
@@ -789,7 +1198,7 @@ fn cosinePairs(
     for (corpus.docs, 0..) |terms, i| {
         touched.clearRetainingCapacity();
         for (terms) |t| {
-            if (!proposes(corpus.df[t.id])) continue;
+            if (!proposes(corpus.scoring_df[t.id])) continue;
             const from = postings.starts[t.id];
             const to = postings.starts[t.id + 1];
             for (postings.docs[from..to], postings.weights[from..to]) |j, w| {
@@ -817,6 +1226,9 @@ fn cosinePairs(
 const Analysis = struct {
     twins: []const Twin,
     oversize: u32,
+    /// The tf-idf document set this pass built, kept so an accept can freeze
+    /// the df table it was scored with rather than measuring the tree twice.
+    corpus: Corpus,
 };
 
 /// Every drifted twin across an already-parsed set of files. The tf-idf index
@@ -828,11 +1240,13 @@ fn analyzeIndex(
     allocator: Allocator,
     files: []const ast_index.Entry,
     cfg: config.TwinDriftCfg,
+    frozen: ?FrozenDf,
 ) Allocator.Error!Analysis {
     var candidates: std.ArrayList(Candidate) = .empty;
     for (files) |*entry| try collectFile(allocator, entry, cfg, &candidates);
 
-    const corpus = try buildCorpus(allocator, candidates.items);
+    var corpus = try buildCorpus(allocator, candidates.items);
+    applyFrozen(&corpus, frozen);
     weighDocs(corpus);
     const postings = try buildPostings(allocator, corpus);
     const proposed = try cosinePairs(allocator, corpus, postings, cfg.pair_similarity);
@@ -851,7 +1265,7 @@ fn analyzeIndex(
         const twin = try measure(allocator, a, b, cfg) orelse continue;
         try out.append(allocator, twin);
     }
-    return .{ .twins = try out.toOwnedSlice(allocator), .oversize = oversize };
+    return .{ .twins = try out.toOwnedSlice(allocator), .oversize = oversize, .corpus = corpus };
 }
 
 // ── Reporting ───────────────────────────────────────────────────────────
@@ -1206,7 +1620,14 @@ fn runAgainst(ctx: *registry.RunCtx, touched: Touched) registry.RunError!void {
     var storage: ast_index.Index = undefined;
     const idx = try ast_index.resolve(ctx.source_index, allocator, ctx.project_dir, &storage);
     const files = try allowedFiles(allocator, idx.files, ctx.cfg.extraAllowed(check_name));
-    const found = try analyzeIndex(allocator, files, ctx.cfg.twin_drift);
+    const frozen_df = try loadFrozenDf(allocator, ctx.project_dir);
+    const found = try analyzeIndex(allocator, files, ctx.cfg.twin_drift, frozen_df);
+    if (writesDfTable(ctx)) try writeFrozenDf(allocator, ctx.project_dir, found.corpus);
+    if (ctx.list) reporter.warn(.{
+        .check = check_name,
+        .alert = true,
+        .message = try dfCoverage(allocator, frozen_df, found.corpus),
+    });
     if (found.oversize > 0) reporter.warn(.{
         .check = check_name,
         .message = try std.fmt.allocPrint(
@@ -1370,7 +1791,7 @@ fn analyzeSources(
         const z = try a.dupeSentinel(u8, s[1], 0);
         try files.append(a, try testEntry(a, s[0], z));
     }
-    return analyzeIndex(a, files.items, cfg);
+    return analyzeIndex(a, files.items, cfg, null);
 }
 
 // spec: Twin Drift - Normalizes a body by dropping comments and blank lines and collapsing whitespace
@@ -2036,11 +2457,11 @@ test "twin-drift: a scaffolding-only overlap is under the pair floor" {
             \\
         ),
     });
-    const found = try analyzeIndex(a, try entriesOf(a, sources.items), .{});
+    const found = try analyzeIndex(a, try entriesOf(a, sources.items), .{}, null);
     try testing.expectEqual(@as(usize, 0), found.twins.len);
     // The LCS the judgement uses would have said yes — 8 of 11 lines are shared
     // — so it is the pair floor, not the similarity floor, keeping this quiet.
-    const wide = try analyzeIndex(a, try entriesOf(a, sources.items), .{ .pair_similarity = 0.01 });
+    const wide = try analyzeIndex(a, try entriesOf(a, sources.items), .{ .pair_similarity = 0.01 }, null);
     try testing.expect(wide.twins.len > 0);
 }
 
@@ -2138,4 +2559,404 @@ test "twin-drift: a body over max_lines is counted rather than compared" {
     }, .{ .max_lines = 4 });
     try testing.expectEqual(@as(usize, 0), found.twins.len);
     try testing.expectEqual(@as(u32, 1), found.oversize);
+}
+
+// ── Tests: the frozen df table ──────────────────────────────────────────
+
+/// The ten filler bodies that make `scaffold_body` scaffolding. With them in
+/// the corpus the pair below is under the pair floor; without them it is over —
+/// the corpus shift this whole feature exists to pin, written small.
+fn scaffoldFillerSources(a: Allocator) ![]const [2][]const u8 {
+    var sources: std.ArrayList([2][]const u8) = .empty;
+    for (0..10) |i| {
+        var body: std.ArrayList(u8) = .empty;
+        try body.appendSlice(a, scaffold_body);
+        for (0..12) |k| {
+            try body.appendSlice(a, try std.fmt.allocPrint(
+                a,
+                "    out = f{d}_{d}(v) + g{d}_{d}(v) * h{d}_{d}(v) - j{d}_{d}(v);\n",
+                .{ i, k, i, k, i, k, i, k },
+            ));
+        }
+        const name = try std.fmt.allocPrint(a, "src/filler{d}.zig", .{i});
+        try sources.append(a, .{ name, try renamedSource(a, "sweep", body.items) });
+    }
+    return sources.toOwnedSlice(a);
+}
+
+/// The two bodies under test, appended to whatever corpus surrounds them.
+fn scaffoldPairSources(a: Allocator, prefix: []const [2][]const u8) ![]const [2][]const u8 {
+    var sources: std.ArrayList([2][]const u8) = .empty;
+    try sources.appendSlice(a, prefix);
+    try sources.append(a, .{
+        "src/left.zig",
+        try renamedSource(a, "collectLeft", scaffold_body ++
+            \\    out += widthOf(v);
+            \\    out += heightOf(v);
+            \\    out += depthOf(v);
+            \\
+        ),
+    });
+    try sources.append(a, .{
+        "src/right.zig",
+        try renamedSource(a, "collectRight", scaffold_body ++
+            \\    out -= angleOf(v);
+            \\    out -= radiusOf(v);
+            \\    out -= chordOf(v);
+            \\
+        ),
+    });
+    return sources.toOwnedSlice(a);
+}
+
+/// Freezes a table from `sources` through the real rendering and the real
+/// parser, so every test below exercises the encoding a consumer commits rather
+/// than an in-memory shortcut.
+fn frozenFrom(a: Allocator, sources: []const [2][]const u8) !FrozenDf {
+    const found = try analyzeIndex(a, try entriesOf(a, sources), .{}, null);
+    const rows = try frozenDfRows(a, found.corpus);
+    return (try parseFrozenDf(a, "test-table.txt", rows)).?;
+}
+
+// spec: Twin Drift - Leaves every scoring frequency live when no frozen table exists
+
+test "twin-drift: with no table the scoring frequencies are the measured ones" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const found = try analyzeIndex(a, try entriesOf(a, try scaffoldPairSources(a, &.{})), .{}, null);
+    // Byte-for-byte the pre-freeze behaviour: every decision reads what this
+    // run measured, and the document count is this run's own.
+    try testing.expectEqualSlices(u32, found.corpus.df, found.corpus.scoring_df);
+    try testing.expectEqual(found.corpus.docs.len, found.corpus.scoring_docs);
+}
+
+// spec: Twin Drift - Holds a pair's verdict steady when an unrelated body leaves the corpus
+
+test "twin-drift: a frozen table pins a pair that a deletion elsewhere would surface" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const with_fillers = try scaffoldPairSources(a, try scaffoldFillerSources(a));
+    const without = try scaffoldPairSources(a, &.{});
+
+    // Ten unrelated bodies write the same scaffolding, so the pair's only
+    // common ground is discounted and it stays under the floor.
+    const before = try analyzeIndex(a, try entriesOf(a, with_fillers), .{}, null);
+    try testing.expectEqual(@as(usize, 0), before.twins.len);
+    // Delete them — nothing about either copy changes — and a live idf makes
+    // that same scaffolding rare enough to propose the pair.
+    const after = try analyzeIndex(a, try entriesOf(a, without), .{}, null);
+    try testing.expectEqual(@as(usize, 1), after.twins.len);
+
+    // Scored against the table frozen while the fillers were there, the pair is
+    // exactly where it was: the deletion moved no verdict.
+    const frozen = try frozenFrom(a, with_fillers);
+    const pinned = try analyzeIndex(a, try entriesOf(a, without), .{}, frozen);
+    try testing.expectEqual(@as(usize, 0), pinned.twins.len);
+}
+
+// spec: Twin Drift - Weighs a shingle the frozen table never saw at its live frequency
+
+test "twin-drift: an unseen shingle falls back to the live frequency" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const frozen = try frozenFrom(a, try scaffoldPairSources(a, &.{}));
+
+    // The same two bodies plus a third whose lines share no 3-gram with them:
+    // every shingle of the newcomer is one the table has never seen.
+    const grown = try scaffoldPairSources(a, &.{
+        .{
+            "src/new.zig",
+            try renamedSource(a, "collectNew",
+                \\    var tally: u32 = 0;
+                \\    tally = seatOf(v) * rowOf(v);
+                \\    tally = tally + berthOf(v);
+                \\    tally = tally - deckOf(v);
+                \\    tally = tally * cabinOf(v);
+                \\    tally = tally / holdOf(v);
+                \\    tally = tally + keelOf(v);
+                \\    return tally;
+                \\
+            ),
+        },
+    });
+    const found = try analyzeIndex(a, try entriesOf(a, grown), .{}, frozen);
+
+    var seen_frozen = false;
+    var seen_live = false;
+    for (found.corpus.hashes, found.corpus.df, found.corpus.scoring_df) |hash, live, scoring| {
+        if (frozen.df.get(dfKey(hash))) |stored| {
+            try testing.expectEqual(stored, scoring);
+            seen_frozen = true;
+        } else {
+            // Never seen: the live count stands, which is what keeps a copy
+            // added AFTER the freeze visible to the index at all.
+            try testing.expectEqual(live, scoring);
+            seen_live = true;
+        }
+    }
+    try testing.expect(seen_frozen and seen_live);
+    // The count divided by is the frozen one, not this larger corpus's.
+    try testing.expectEqual(frozen.docs, found.corpus.scoring_docs);
+    try testing.expect(found.corpus.scoring_docs != found.corpus.docs.len);
+}
+
+// spec: Twin Drift - Round-trips every frozen shingle through a fixed-width base-36 key
+
+test "twin-drift: the frozen table's rows round-trip through their encoding" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try expectKeysRoundTrip();
+    // Only the fixed width, in the lower-case alphabet, decodes.
+    try testing.expect(decodeDfKey("0000000") == null);
+    try testing.expect(decodeDfKey("000000000") == null);
+    try testing.expect(decodeDfKey("0000000A") == null);
+
+    // The rendered file is sorted, headed by its document count, and spells the
+    // implicit frequency as a bare key.
+    const found = try analyzeIndex(a, try entriesOf(a, try scaffoldPairSources(a, &.{})), .{}, null);
+    const rows = try frozenDfRows(a, found.corpus);
+    try testing.expectEqualStrings("docs 2", rows[0]);
+    try testing.expect(std.sort.isSorted([]const u8, rows[1..], {}, lessThanRow));
+    try testing.expect(bareRowCount(rows[1..]) > 0);
+
+    // And every measured frequency survives the trip back.
+    const reread = (try parseFrozenDf(a, "test-table.txt", rows)).?;
+    try testing.expectEqual(@as(usize, 2), reread.docs);
+    for (found.corpus.hashes, found.corpus.df) |hash, live| {
+        try testing.expectEqual(live, reread.df.get(dfKey(hash)).?);
+    }
+}
+
+/// Every stored key survives `encodeDfKey` → `decodeDfKey` at the fixed width,
+/// across the interesting corners of the key space.
+fn expectKeysRoundTrip() !void {
+    for ([_]u64{ 0, 1, 35, 36, df_key_mask, 0xdead_beef_cafe_1234 }) |raw| {
+        const key = dfKey(raw);
+        const text = encodeDfKey(key);
+        try testing.expectEqual(@as(usize, df_key_len), text.len);
+        try testing.expectEqual(key, decodeDfKey(text[0..]).?);
+    }
+}
+
+/// How many of `rows` are a bare key — the implicit-frequency spelling.
+fn bareRowCount(rows: []const []const u8) usize {
+    var bare: usize = 0;
+    for (rows) |row| {
+        if (std.mem.indexOfScalar(u8, row, ' ') == null) bare += 1;
+    }
+    return bare;
+}
+
+/// Writes `content` as the frozen table of a throwaway project and reads it
+/// back under capture, so a broken file's ONE warning can be inspected.
+fn loadTableFrom(a: Allocator, dir: []const u8, content: []const u8, cap: *reporter.Capture) !?FrozenDf {
+    try fs.cwd().deleteTree(dir);
+    try fs.cwd().makePath(try std.fmt.allocPrint(a, "{s}/.guardian", .{dir}));
+    try fs.cwd().writeFile(.{
+        .sub_path = try std.fmt.allocPrint(a, "{s}/.guardian/{s}", .{ dir, df_leaf }),
+        .data = content,
+    });
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = cap;
+    return loadFrozenDf(a, dir);
+}
+
+// spec: Twin Drift - Warns once and scores live when the frozen table cannot be read
+
+test "twin-drift: an unusable frozen table warns and falls back to live frequencies" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-df-broken";
+    defer fs.cwd().deleteTree(dir) catch {};
+
+    const broken = [_][]const u8{
+        // A row that is not a key at all.
+        "# guardian-snapshot v4\ndocs 12\nnot-a-key 3\n",
+        // A key row whose frequency is not a number.
+        "# guardian-snapshot v4\ndocs 12\n0000000a many\n",
+        // No document count to divide by.
+        "# guardian-snapshot v4\n0000000a 3\n",
+        // A `docs` row that is not a number.
+        "# guardian-snapshot v4\ndocs lots\n",
+        // Written by a format version this Guardian does not speak.
+        "# guardian-snapshot v99\ndocs 12\n0000000a 3\n",
+        // Left unresolved by a hand-merge.
+        "# guardian-snapshot v4\ndocs 12\n<<<<<<< HEAD\n0000000a 3\n",
+    };
+    for (broken) |content| {
+        var cap: reporter.Capture = .{ .allocator = a };
+        // Never a crash, and never a silent degrade: the table is refused and
+        // the run says which file it refused and what rewrites it.
+        try testing.expect(try loadTableFrom(a, dir, content, &cap) == null);
+        try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+        const message = cap.warnings.items[0].message;
+        try testing.expect(std.mem.indexOf(u8, message, df_leaf) != null);
+        try testing.expect(std.mem.indexOf(u8, message, "live document frequency") != null);
+        try testing.expect(std.mem.indexOf(u8, message, "accept twin-drift .") != null);
+    }
+
+    // A well-formed table is read in silence.
+    var quiet: reporter.Capture = .{ .allocator = a };
+    const good = try loadTableFrom(a, dir, "# guardian-snapshot v4\ndocs 12\n0000000a 3\n0000000b\n", &quiet);
+    try testing.expectEqual(@as(usize, 0), quiet.warnings.items.len);
+    try testing.expectEqual(@as(usize, 12), good.?.docs);
+    try testing.expectEqual(@as(u32, 3), good.?.df.get(decodeDfKey("0000000a").?).?);
+    try testing.expectEqual(@as(u32, df_implicit), good.?.df.get(decodeDfKey("0000000b").?).?);
+}
+
+// spec: Twin Drift - Writes the frozen table only on an accept that names this check
+
+test "twin-drift: an accept freezes the table and an ordinary run leaves none" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-df-write";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+    const path = try std.fmt.allocPrint(a, "{s}/.guardian/{s}", .{ dir, df_leaf });
+
+    // An ordinary gate run measures the corpus and writes nothing: a consumer
+    // that never accepts never grows the file, and `git status` stays clean.
+    var plain: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &baseline_on, .quiet = true };
+    var plain_cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&plain, &plain_cap, touched_both);
+    try testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
+
+    // The accept of THIS check is the one run that records it.
+    var accepting: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &baseline_on,
+        .quiet = true,
+        .refresh = &.{check_name},
+    };
+    var accept_cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&accepting, &accept_cap, touched_both);
+    try fs.cwd().access(path, .{});
+    // What landed is a table this Guardian can read back.
+    const reloaded = (try loadFrozenDf(a, dir)).?;
+    try testing.expect(reloaded.docs > 0);
+    try testing.expect(reloaded.df.count() > 0);
+
+    // Accepting a DIFFERENT check leaves it alone, and so do the two read-only
+    // introspection flags.
+    try testing.expect(!writesDfTable(&plain));
+    try testing.expect(writesDfTable(&accepting));
+    var dry = accepting;
+    dry.dry_run = true;
+    try testing.expect(!writesDfTable(&dry));
+    var listing = accepting;
+    listing.list = true;
+    try testing.expect(!writesDfTable(&listing));
+    var other = plain;
+    other.refresh = &.{"pub-api-surface"};
+    try testing.expect(!writesDfTable(&other));
+}
+
+// spec: Twin Drift - Reports the frozen table's coverage on a list run
+
+test "twin-drift: the list header names the table's coverage and both counts" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const found = try analyzeIndex(a, try entriesOf(a, try scaffoldPairSources(a, &.{})), .{}, null);
+
+    // No table: the line says so and names the command that makes one.
+    const none = try dfCoverage(a, null, found.corpus);
+    try testing.expect(std.mem.indexOf(u8, none, "no frozen df table") != null);
+    try testing.expect(std.mem.indexOf(u8, none, "accept twin-drift .") != null);
+
+    // A table frozen from this very corpus covers all of it, at its own count.
+    const frozen = try frozenFrom(a, try scaffoldPairSources(a, &.{}));
+    const covered = try dfCoverage(a, frozen, found.corpus);
+    const both = try std.fmt.allocPrint(
+        a,
+        "covers {d}/{d} live shingle(s); frozen N = 2, live N = 2",
+        .{ found.corpus.hashes.len, found.corpus.hashes.len },
+    );
+    try testing.expect(std.mem.indexOf(u8, covered, both) != null);
+}
+
+// spec: Twin Drift - Says so once when the frozen table was merge-resolved rather than measured
+
+test "twin-drift: a merge-resolved table is still used and says so once" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-df-merged";
+    defer fs.cwd().deleteTree(dir) catch {};
+
+    // Exactly what `merge-file` leaves behind for this format: OURS whole,
+    // under the regenerate marker it stamps on a result it did not measure.
+    const merged = "# guardian-snapshot v4\n" ++ snapshot.regen_marker ++
+        " (GUARDIAN_UPDATE_SNAPSHOT=twin-drift)\ndocs 12\n0000000a 3\n0000000b\n";
+    var cap: reporter.Capture = .{ .allocator = a };
+    const table = try loadTableFrom(a, dir, merged, &cap);
+
+    // Still USED — one branch's real measurement is a valid freeze, and the
+    // marker is not a reason to fall back to a live idf.
+    try testing.expectEqual(@as(usize, 12), table.?.docs);
+    try testing.expectEqual(@as(u32, 3), table.?.df.get(decodeDfKey("0000000a").?).?);
+    // …and said out loud exactly once, on the tier `--summary` cannot collapse.
+    try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    try testing.expect(cap.warnings.items[0].alert);
+    const message = cap.warnings.items[0].message;
+    try testing.expect(std.mem.indexOf(u8, message, df_leaf) != null);
+    try testing.expect(std.mem.indexOf(u8, message, snapshot.regen_marker) != null);
+    try testing.expect(std.mem.indexOf(u8, message, "accept twin-drift .") != null);
+
+    // The same file without the marker is read in silence, so the line is about
+    // the merge and not about having a table at all.
+    var quiet: reporter.Capture = .{ .allocator = a };
+    _ = try loadTableFrom(a, dir, "# guardian-snapshot v4\ndocs 12\n0000000a 3\n0000000b\n", &quiet);
+    try testing.expectEqual(@as(usize, 0), quiet.warnings.items.len);
+}
+
+// spec: Twin Drift - Drops a merge-resolve marker when an accept re-measures the table
+
+test "twin-drift: an accept rewrites a merge-resolved table without its marker" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-df-remeasure";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+    const path = try std.fmt.allocPrint(a, "{s}/.guardian/{s}", .{ dir, df_leaf });
+
+    // A table a merge resolved, sitting in the project when the accept runs.
+    try fs.cwd().writeFile(.{
+        .sub_path = path,
+        .data = "# guardian-snapshot v4\n" ++ snapshot.regen_marker ++
+            " (GUARDIAN_UPDATE_SNAPSHOT=twin-drift)\ndocs 12\n0000000a 3\n",
+    });
+    var accepting: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &baseline_on,
+        .quiet = true,
+        .refresh = &.{check_name},
+    };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&accepting, &cap, touched_both);
+
+    // The write is a full replacement, so the marker is gone and the count is
+    // this tree's — the merge's placeholder cannot survive its own remedy.
+    const after = try fs.cwd().readFileAlloc(a, path, max_df_bytes);
+    try testing.expect(!snapshot.hasRegenMarker(after));
+    try testing.expect(std.mem.indexOf(u8, after, "docs 12\n") == null);
+
+    // And a run over the rewritten table is silent again.
+    var quiet: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &quiet;
+    _ = try loadFrozenDf(a, dir);
+    reporter.default.capture = prior;
+    try testing.expectEqual(@as(usize, 0), quiet.warnings.items.len);
 }

@@ -89,6 +89,7 @@ fn reportList(
     capture: *const reporter.Capture,
 ) types.RunError!void {
     const path = try baseline.pathFor(a, ctx.project_dir, check_name);
+    printAlerts(capture);
     if (!ctx.cfg.policy.usesBaselineFor(check_name, ctx.cfg.baseline)) reporter.detail(
         "  note: baseline mode is off for {s} in this project — every row below blocks\n",
         .{check_name},
@@ -126,6 +127,20 @@ fn listIdentity(
         "{s}: {d} new, {d} live, {d} resolved (baseline unchanged)",
         .{ check_name, parts.added.len, parts.live.len, parts.removed.len },
     );
+}
+
+/// Replays the run's ALERT lines above the listing. `--list` discards the
+/// check's own output and prints rows instead, and the alert tier is exactly
+/// the tier that must survive a collapse (`run_view.showsAlerts` is the same
+/// rule for `--summary`): a near-cap warning, or twin-drift's frozen-df
+/// coverage header, is context a reader running `--list` before a release is
+/// there to find. Keyed alerts are rows, not prose — those belong to the
+/// SURFACED bucket below and are skipped here so nothing prints twice.
+fn printAlerts(capture: *const reporter.Capture) void {
+    for (capture.warnings.items) |w| {
+        if (!w.alert or w.identity != null) continue;
+        reporter.ok("{s}", .{w.message});
+    }
 }
 
 /// The SURFACED bucket: findings a check reported on the ADVISORY channel while
@@ -564,4 +579,33 @@ test "storedHeader distinguishes an absent, a v1, and a v3 baseline file" {
     try std.testing.expect(std.mem.indexOf(u8, legacy, "v1 text-keyed") != null);
     const current = try storedHeader(a, path, .{ .keys = &rows, .match = .key, .present = true });
     try std.testing.expect(std.mem.indexOf(u8, current, "1 recorded key(s)") != null);
+}
+
+// spec: Baseline Introspection - Replays a run's alert lines above the listing
+
+test "printAlerts replays unkeyed alerts and leaves rows and plain warnings out" {
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    // An alert with no identity is context about the run — twin-drift's
+    // frozen-table coverage, a near-cap warning — and `--list` replaces the
+    // check's own output, so it would otherwise vanish exactly where a reader
+    // went looking for it.
+    reporter.warn(.{ .check = "twin-drift", .alert = true, .message = "frozen df table covers 9/10" });
+    // A keyed alert is a ROW; the SURFACED bucket prints it, so it must not
+    // print twice. A plain warning is ordinary advisory detail.
+    reporter.warn(.{ .check = "twin-drift", .alert = true, .message = "a pair", .identity = "a|x|b|y" });
+    reporter.warn(.{ .check = "twin-drift", .message = "an ordinary advisory line" });
+
+    var replay: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer replay.deinit();
+    reporter.default.capture = &replay;
+    printAlerts(&cap);
+    reporter.default.capture = prior;
+
+    try std.testing.expect(std.mem.indexOf(u8, replay.buf.items, "frozen df table covers 9/10") != null);
+    try std.testing.expect(std.mem.indexOf(u8, replay.buf.items, "a pair") == null);
+    try std.testing.expect(std.mem.indexOf(u8, replay.buf.items, "an ordinary advisory line") == null);
 }

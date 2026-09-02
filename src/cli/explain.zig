@@ -807,13 +807,36 @@ const entries = [_]Entry{
     \\is not pairing by protocol: one interface implemented once per file still
     \\looks alike whatever the implementations are called, so `ignore` still
     \\earns its keep.
-    \\Stability: the cosine is corpus-wide, so `idf` moves whenever a body is
-    \\added or removed ANYWHERE and a pair just under the floor can cross it
-    \\with no edit to either of its own files. Measured in eda (2026-09-02):
-    \\merging one reconciliation branch removed 40 bodies and the next branch's
-    \\rebased tree reported `stripUpper`/`normalizeIdent` as a NEW blocking row
-    \\in two files no branch had touched. So the proposal and the judgement are
-    \\unchanged and what BLOCKS is narrowed. A drifted pair already in the
+    \\Stability: the cosine is corpus-wide, so a LIVE `idf` moves whenever a
+    \\body is added or removed ANYWHERE and a pair just under the floor can
+    \\cross it with no edit to either of its own files. Measured in eda
+    \\(2026-09-02): merging one reconciliation branch removed 40 bodies and the
+    \\next branch's rebased tree reported `stripUpper`/`normalizeIdent` as a NEW
+    \\blocking row in two files no branch had touched; across five merges 74% of
+    \\untouched surviving pairs changed score. Two things answer that, and both
+    \\are on.
+    \\ (1) The idf table is FROZEN in `.guardian/twin-drift-df.txt`: the
+    \\document count and every shingle's frequency as they stood at the last
+    \\`accept twin-drift`, read instead of the tree in front of it. Both the
+    \\weight and the `2 <= df <= 96` proposal gate read the frozen value (the
+    \\gate too, because a boilerplate 3-gram drifting across 96 adds real mass
+    \\to an untouched pair's cosine), so two bodies that did not change score
+    \\bit-identically however the rest of the tree moved. A shingle the table
+    \\has never seen falls back to its live frequency, so code added since the
+    \\freeze is still paired normally. With NO table the check behaves exactly
+    \\as it did before one existed — a zero-config project notices nothing, and
+    \\only `accept twin-drift .` (or `GUARDIAN_UPDATE_SNAPSHOT=twin-drift`)
+    \\writes or refreshes it. An unreadable table warns and scores live rather
+    \\than degrading in silence; `--list` prints its coverage and its frozen N
+    \\against the live one. `merge-file` cannot line-merge it — the rows are one
+    \\measurement of one corpus — so a conflict keeps OURS whole and marks the
+    \\file for regeneration; such a table is one branch's real freeze and is
+    \\still used, but every run says so once until an accept re-measures it.
+    \\ (2) What BLOCKS is narrowed — the more important of the two, because a
+    \\freeze removes drift caused by Guardian's own scoring and nothing else,
+    \\never a pair that crosses because someone edited a third file, and every
+    \\refresh is a fresh chance for such a pair to appear. The proposal and the
+    \\judgement stay as they are; only the verdict narrows. A pair already in the
     \\baseline is LIVE. An unrecorded one BLOCKS only when this change touched
     \\one of its two files — the same diff scope everything else uses
     \\(`--against` / `GUARDIAN_AGAINST`, else the merge base with main/master,
@@ -825,7 +848,9 @@ const entries = [_]Entry{
     \\or with no base to resolve — nothing can be proven untouched, so every
     \\unrecorded pair blocks and the run says so in one line.
     \\Accepting: `guardian-check accept twin-drift .` records the surfaced
-    \\pairs. Under `[baseline] deny_growth = ["twin-drift"]` that is allowed
+    \\pairs AND re-freezes the df table from the corpus it just measured, so one
+    \\command ratifies both what the check found and what it scored with. Under
+    \\`[baseline] deny_growth = ["twin-drift"]` recording is allowed
     \\even when it adds keys, but ONLY for pairs the run proved neither file
     \\changed against the base: pre-existing debt made visible is not growth the
     \\change introduced. A pair whose file the change touched is never surfaced,

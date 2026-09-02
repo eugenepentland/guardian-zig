@@ -546,6 +546,31 @@ those are discounted from the comparison.
 File size, function length, and line length only emit ratchet records beyond
 their generous hard limits; their recommended-limit warnings never need acceptance.
 
+**twin-drift's scoring is frozen beside its baseline.** Its tf-idf proposal is
+corpus-wide, so a live `idf` moves EVERY score whenever a body is added or
+removed anywhere — measured on eda, 74% of untouched surviving pairs changed
+score across a merge, and one crossed the floor into a blocking row in two files
+nothing had touched (`docs/twin-drift-scoring-study-2026-09-02.md`).
+`.guardian/twin-drift-df.txt` (v4) therefore pins the document count and every
+shingle's frequency as of the last accept, and BOTH the weight and the
+`2 <= df <= max_df` proposal gate read it — the gate too, because a boilerplate
+3-gram drifting across `max_df` adds real mass to an untouched pair's cosine.
+Only the posting COUNT stays live (it sizes each posting list). A shingle the
+table has never seen falls back to its live frequency, so code added since the
+freeze is paired normally, and a project with NO table behaves exactly as it did
+before the file existed. Only an accept naming twin-drift writes it
+(`accept twin-drift .`, `GUARDIAN_UPDATE_SNAPSHOT=twin-drift`/`=all`,
+`-Dguardian-checks=twin-drift`); no ordinary run, `--gate`, `--dry-run` or
+`--list` ever creates one, though `--dry-run`/`--list` do READ one. It is not a
+baseline — `deny_growth` and hysteresis do not apply — and `merge-file` keeps
+OURS whole on a conflict and marks the file for regeneration; a table carrying
+that marker is still used, but warns once per run until an accept re-measures
+it (the marker is a comment, so nothing else would see it). An unreadable
+table warns once and scores live; `twin-drift . --list` heads its output with
+the table's coverage and its frozen N against the live one. The whole vocabulary
+is stored (eda: 264,931 rows / 2.5 MB), because a df>=2-only table re-admitted
+the exact pair the freeze removes.
+
 **Those three hard caps are also under hysteresis — trip → no accept → shrink
 to recover** (`[hysteresis]`, `src/hysteresis.zig`; `enabled` default true,
 `recover_pct` default 20 valid 1..90, `checks` default
