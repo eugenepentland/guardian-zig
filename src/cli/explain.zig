@@ -1024,6 +1024,42 @@ const entries = [_]Entry{
     \\Exempt: off unless `[[dead_model_field]]` names a struct; list exact `fields`
     \\to check precisely, or an `owner` file to discover the struct's fields.
     },
+    .{ .name = "projection-completeness", .text =
+    \\Why (opt-in): a struct literal that rebuilds a value out of the parts it
+    \\happens to hold — `Copper{ .tracks = rr.tracks, .vias = rr.vias }` — keeps
+    \\compiling unchanged when the struct grows a field, because every field
+    \\DEFAULTS. The compiler cannot help: an omitted field is not an error, it is
+    \\a silent empty. In eda, `pour.Copper` gained `arcs` and five such literals
+    \\kept projecting the old bundle, so the connectivity oracle they feed read a
+    \\net joined only by an arc as an OPEN; ten sites were fixed by hand across
+    \\three follow-up commits and two were still wrong after that.
+    \\Fix: set every field the `[[projection]]` rule declares — they travel
+    \\together — or, if this one deliberately drops a field, note
+    \\`// projection-ok: <why>` on the literal's line, on a comment line directly
+    \\above it, or on the enclosing statement's line. That note is the exemption:
+    \\the omission gets a reason in the source instead of a baseline row.
+    \\Scope: `type` matches the TAIL of a literal's type path at a segment
+    \\boundary, so a bare `Copper` covers `Copper{`, `pour.Copper{` and
+    \\`routed_copper.Copper{` — and the qualified `routed_copper.Copper` covers
+    \\only the last, which is what you want when the repo holds several
+    \\same-named types (eda has four `Copper`s; one is a two-field struct whose
+    \\COMPLETE literal a bare rule reads as a partial projection).
+    \\An anonymous `.{ … }` literal has no path, so it is judged only when it
+    \\sets `anonymous_min_fields` (default 2) of the declared set AND sets
+    \\nothing outside `fields` + `optional` — list every field of the type across
+    \\those two keys. That half is still weaker than the typed one: measured on
+    \\eda it reported 98 anonymous literals to the typed half's 4, and roughly
+    \\two thirds were `SavedRoutes` / `LiftedNet` literals whose whole vocabulary
+    \\is a subset of Copper's. `anonymous_min_fields = 0` turns it off, which is
+    \\the right setting for field names as common as `tracks`/`vias`.
+    \\A literal setting NONE of the declared fields is not a projection of this
+    \\bundle and is never reported, and `test` blocks are skipped (a fixture may
+    \\build a partial value).
+    \\Exempt: off unless `[[projection]]` declares a rule; `allow` globs exempt
+    \\paths per rule and `[[allow]] check = "projection-completeness"` exempts
+    \\them for every rule. Keyed `<name>|<file>|<fn>|<sorted fields set>`, so
+    \\rewording the message or moving the literal never re-keys a baseline.
+    },
     .{ .name = "module-doc-header", .text =
     \\Why: a src file over the line threshold (`[module_doc_header] min_lines`,
     \\default 200) is where a reader arrives cold and needs orientation, yet an

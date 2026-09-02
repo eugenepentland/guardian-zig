@@ -35,6 +35,8 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the concurrency_presence modules list
 - Parses the script_string_safety blob_files list
 - Parses the dead_model_field struct rule and rejects an incomplete one
+- Parses the projection field bundle and rejects an incomplete one
+- Rejects a projection rule that could never report a partial literal
 - Parses the int_from_float guard_fns and require_guard lists
 - Parses the against and full command-line flags
 - Parses the only, skip, and version command-line flags
@@ -1121,6 +1123,20 @@ without an explained `--force`.
 - Discovers every depth-1 field of the named struct
 - Counts a field access under a period and skips its key string
 - Flags a field read under output globs but never under logic globs
+
+## Projection Completeness
+
+- Flags a partial projection whether the type is written bare or qualified
+- Judges an anonymous literal only once it sets the configured field count
+- Narrows to one of several same-named types when the rule qualifies the path
+- Ignores an anonymous literal setting a field the projection never declares
+- Passes a literal that sets every declared field
+- Accepts a deliberate omission noted on the literal or the line above it
+- Skips a partial literal built inside a test block
+- Exempts a file the rule's own allow globs name
+- Names the set and unset fields and closes with the rule's reason
+- Keys a finding by the rule, file, function and sorted field set
+
 ## Module Doc Header
 
 - Flags a module over the line threshold with no module doc header

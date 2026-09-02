@@ -27,6 +27,7 @@ const LayeringRule = config.LayeringRule;
 const LiteralsFrom = config.LiteralsFrom;
 const TwinRule = config.TwinRule;
 const DeadModelFieldRule = config.DeadModelFieldRule;
+const ProjectionRule = config.ProjectionRule;
 const ExternalGate = config.ExternalGate;
 const arrayTableName = value.arrayTableName;
 const bestMatch = value.bestMatch;
@@ -104,6 +105,11 @@ const parity_test_key = "parity_test";
 /// One surface is a capability, not a twin: there is nothing for a second
 /// implementation to disagree with.
 const min_surfaces = 2;
+const anonymous_min_fields_key = "anonymous_min_fields";
+/// One field travels with nothing: a `[[projection]]` bundle needs two before a
+/// literal can be partial, and an anonymous literal needs two before it is
+/// recognizably that projection rather than a coincidence of field names.
+const min_projection_fields = 2;
 const on_build_key = "on_build";
 const measurement_paths_key = "paths";
 const ignore_names_key = "ignore_names";
@@ -218,7 +224,20 @@ const ApplyCtx = struct {
     cfg: *Config,
 };
 
-const ArrayKind = enum { none, boundary, allow, ban, concept, idiom, shadow, layering, twin, dead_model_field, external };
+const ArrayKind = enum {
+    none,
+    boundary,
+    allow,
+    ban,
+    concept,
+    idiom,
+    shadow,
+    layering,
+    twin,
+    dead_model_field,
+    projection,
+    external,
+};
 
 const ParseState = struct {
     section: Section = .top,
@@ -266,6 +285,13 @@ const ParseState = struct {
     cur_dmf_output: std.ArrayList([]const u8) = .empty,
     cur_dmf_logic: std.ArrayList([]const u8) = .empty,
     dead_model_fields: std.ArrayList(DeadModelFieldRule) = .empty,
+    cur_projection_name: ?[]const u8 = null,
+    cur_projection_type: ?[]const u8 = null,
+    cur_projection_fields: std.ArrayList([]const u8) = .empty,
+    cur_projection_optional: std.ArrayList([]const u8) = .empty,
+    cur_projection_allow: std.ArrayList([]const u8) = .empty,
+    cur_projection_anon: u32 = config.default_anonymous_min_fields,
+    projections: std.ArrayList(ProjectionRule) = .empty,
     cur_name: ?[]const u8 = null,
     cur_command: std.ArrayList([]const u8) = .empty,
     cur_inputs: std.ArrayList([]const u8) = .empty,
@@ -344,6 +370,7 @@ const ParseState = struct {
             .layering => try self.flushLayering(allocator, diag),
             .twin => try self.flushTwin(allocator, diag),
             .dead_model_field => try self.flushDeadModelField(allocator, diag),
+            .projection => try self.flushProjection(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -675,6 +702,90 @@ const ParseState = struct {
         }
     }
 
+    /// Closes a `[[projection]]` entry. Every way to be inert is refused rather
+    /// than stored, because each reads in the config like an enforced bundle
+    /// while enforcing nothing: no `name` (the violation and its
+    /// `<name>|<file>|<fn>|<fields>` baseline key are built from it), no `type`
+    /// (nothing to match a literal against), fewer than two `fields` (a single
+    /// field cannot travel WITH anything, so no literal could ever be partial),
+    /// no `reason` (a projection finding is unactionable without the invariant
+    /// the bundle encodes — the same rule `[[idiom]]` applies), an
+    /// `anonymous_min_fields` no literal could satisfy, and a `name` a previous
+    /// entry already used (two rules under one name would share, and silently
+    /// freeze with, each other's baseline keys).
+    fn flushProjection(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        const name = self.cur_projection_name orelse {
+            try setDiag(allocator, diag, self.array_line, "incomplete [[projection]]: missing required key 'name'", .{});
+            return error.IncompleteTable;
+        };
+        const type_name = try self.requireProjectionRule(allocator, name, diag);
+        for (self.projections.items) |existing| {
+            if (!std.mem.eql(u8, existing.name, name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[projection]] name '{s}'", .{name});
+            return error.InvalidConfig;
+        }
+        try self.projections.append(allocator, .{
+            .name = name,
+            .type_name = type_name,
+            .fields = try self.cur_projection_fields.toOwnedSlice(allocator),
+            .optional = try self.cur_projection_optional.toOwnedSlice(allocator),
+            .anonymous_min_fields = self.cur_projection_anon,
+            .allow = try self.cur_projection_allow.toOwnedSlice(allocator),
+            .reason = self.cur_reason.?,
+        });
+    }
+
+    /// Names the first missing or unusable required half of the `[[projection]]`
+    /// entry being closed, or returns the validated `type` — so the required key
+    /// is proven present by the value that flows into the rule rather than by an
+    /// `unreachable` after a separate check.
+    ///
+    /// `anonymous_min_fields` is range-checked against the declared set: `0`
+    /// disables anonymous matching, `1` would enrol every anonymous literal that
+    /// happens to share one common field name (a family so wide the rule gets
+    /// disabled rather than fixed), and a value above `fields.len` can never be
+    /// reached, so both are config errors instead of silent inertness.
+    fn requireProjectionRule(
+        self: *const ParseState,
+        allocator: Allocator,
+        name: []const u8,
+        diag: *Diagnostic,
+    ) ParseError![]const u8 {
+        const anon = self.cur_projection_anon;
+        const fields = self.cur_projection_fields.items.len;
+        const missing: ?[]const u8 = if (self.cur_projection_type == null)
+            "missing required key 'type' (the struct's type name)"
+        else if (fields < min_projection_fields)
+            "'fields' needs at least 2 entries (one field travels with nothing)"
+        else if (self.cur_reason == null)
+            "missing required key 'reason' (name the invariant the bundle carries)"
+        else if (anon != 0 and (anon < min_projection_fields or anon > fields))
+            "'anonymous_min_fields' must be 0 (off) or between 2 and the number of declared fields"
+        else
+            null;
+        const detail = missing orelse return self.cur_projection_type.?;
+        try setDiag(allocator, diag, self.array_line, "incomplete [[projection]] '{s}': {s}", .{ name, detail });
+        return error.IncompleteTable;
+    }
+
+    fn setProjectionKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "name")) {
+            self.cur_projection_name = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "type")) {
+            self.cur_projection_type = try parseStringAlloc(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "fields")) {
+            self.cur_projection_fields = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "optional")) {
+            self.cur_projection_optional = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, anonymous_min_fields_key)) {
+            self.cur_projection_anon = parseU32(kv.val, self.cur_projection_anon);
+        } else if (std.mem.eql(u8, kv.key, "allow")) {
+            self.cur_projection_allow = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "reason")) {
+            self.cur_reason = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
     fn beginArrayTable(
         self: *ParseState,
         allocator: Allocator,
@@ -718,6 +829,12 @@ const ParseState = struct {
         self.cur_dmf_fields = .empty;
         self.cur_dmf_output = .empty;
         self.cur_dmf_logic = .empty;
+        self.cur_projection_name = null;
+        self.cur_projection_type = null;
+        self.cur_projection_fields = .empty;
+        self.cur_projection_optional = .empty;
+        self.cur_projection_allow = .empty;
+        self.cur_projection_anon = config.default_anonymous_min_fields;
         self.cur_name = null;
         self.cur_command = .empty;
         self.cur_inputs = .empty;
@@ -751,6 +868,7 @@ const ParseState = struct {
             .layering => try self.setLayeringKey(allocator, kv),
             .twin => try self.setTwinKey(allocator, kv),
             .dead_model_field => try self.setDeadModelFieldKey(allocator, kv),
+            .projection => try self.setProjectionKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -935,6 +1053,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "layering")) return .layering;
     if (std.mem.eql(u8, name, "twin")) return .twin;
     if (std.mem.eql(u8, name, "dead_model_field")) return .dead_model_field;
+    if (std.mem.eql(u8, name, "projection")) return .projection;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
 }
@@ -996,6 +1115,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.layering_rules = try st.layerings.toOwnedSlice(allocator);
     cfg.twin_rules = try st.twins.toOwnedSlice(allocator);
     cfg.dead_model_field_rules = try st.dead_model_fields.toOwnedSlice(allocator);
+    cfg.projection_rules = try st.projections.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -1115,9 +1235,22 @@ fn arrayValueKind(kind: ArrayKind, key: []const u8) ValueKind {
             .string
         else
             .string_array,
+        .projection => projectionValueKind(key),
         .external => externalValueKind(key),
         .none => .string_array,
     };
+}
+
+/// The value shape of one `[[projection]]` key: `name` / `type` / `reason` are
+/// prose, `anonymous_min_fields` is a count, and the rest are arrays. Spelled
+/// out rather than branched on a first character: `allow` and
+/// `anonymous_min_fields` share an `a`, which is exactly the pair a shorthand
+/// would silently mis-shape.
+fn projectionValueKind(key: []const u8) ValueKind {
+    if (std.mem.eql(u8, key, anonymous_min_fields_key)) return .unsigned;
+    if (std.mem.eql(u8, key, "name") or std.mem.eql(u8, key, "type") or
+        std.mem.eql(u8, key, "reason")) return .string;
+    return .string_array;
 }
 
 /// The value shape of one `[[external]]` key: two prose keys, three arrays, and
@@ -1265,6 +1398,7 @@ fn validateValue(
     if (st.array_kind == .idiom) try validateRuleName(allocator, "idiom", kv, line_no, diag);
     if (st.array_kind == .layering) try validateRuleName(allocator, "layering", kv, line_no, diag);
     if (st.array_kind == .twin) try validateRuleName(allocator, "twin", kv, line_no, diag);
+    if (st.array_kind == .projection) try validateRuleName(allocator, "projection", kv, line_no, diag);
 
     // Values used as filesystem/config identifiers must not be empty. Array
     // tables additionally need non-empty identities even when both keys exist.
@@ -1390,10 +1524,12 @@ fn validateBanChain(
     }
 }
 
-/// Rejects a `[[concept]]` / `[[idiom]]` / `[[layering]]` `name` that is not
+/// Rejects a `[[concept]]` / `[[idiom]]` / `[[layering]]` / `[[twin]]` /
+/// `[[projection]]` `name` that is not
 /// kebab-case. The name is what every violation says out loud and — as half of
 /// the rule's baseline key (`<file>|<name>` for a concept, `<rule>|<file>` for
-/// an idiom, `<name>|<from>|<to>` for a layering edge) — what a `.guardian/`
+/// an idiom, `<name>|<from>|<to>` for a layering edge, `<name>|<file>|<fn>|…`
+/// for a projection) — what a `.guardian/`
 /// diff is read by, so it is an identifier a reader has to live with, not
 /// free-form prose. `reason` is where prose belongs. `kind` names the array
 /// table in the diagnostic, so the callers share one rule without sharing one
@@ -1648,6 +1784,9 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         },
         .twin => &.{ "name", surfaces_key, parity_test_key },
         .dead_model_field => &.{ "struct", "owner", "fields", "output", "logic", "reason" },
+        .projection => &.{
+            "name", "type", "fields", "optional", anonymous_min_fields_key, "allow", "reason",
+        },
         .external => &.{ "name", "command", "inputs", "paths", benchmark_key, "max_regression_pct", timeout_secs_key, "max_rss_mib" },
         .none => &.{},
     };
@@ -3159,6 +3298,130 @@ test "parse [[dead_model_field]] reads a rule and refuses one with no field sour
         \\[[dead_model_field]]
         \\struct = "Foo"
         \\fields = ["bar"]
+    ));
+}
+
+// spec: Configuration - Parses the projection field bundle and rejects an incomplete one
+
+test "parse [[projection]] reads a rule and refuses one missing a required key" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try std.testing.expectEqual(@as(usize, 0), (try parse(a, "")).projection_rules.len);
+    const cfg = try parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias", "arcs", "rf_paths"]
+        \\optional = ["zones"]
+        \\anonymous_min_fields = 3
+        \\allow = ["src/placement/pour.zig"]
+        \\reason = "connectivity oracles carve every copper kind"
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.projection_rules.len);
+    const rule = cfg.projection_rules[0];
+    try std.testing.expectEqualStrings("routed-copper", rule.name);
+    try std.testing.expectEqualStrings("Copper", rule.type_name);
+    try std.testing.expectEqual(@as(usize, 4), rule.fields.len);
+    try std.testing.expectEqualStrings("zones", rule.optional[0]);
+    try std.testing.expectEqual(@as(u32, 3), rule.anonymous_min_fields);
+    try std.testing.expectEqualStrings("src/placement/pour.zig", rule.allow[0]);
+    // Anonymous matching defaults to two declared fields, so a rule that never
+    // mentions the key still judges a coerced `.{ … }` literal.
+    const defaulted = try parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\reason = "they travel together"
+    );
+    try std.testing.expectEqual(@as(u32, 2), defaulted.projection_rules[0].anonymous_min_fields);
+    // No name, no type and no reason each leave a rule that reads as enforced
+    // while enforcing nothing.
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[projection]]
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\reason = "r"
+    ));
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\fields = ["tracks", "vias"]
+        \\reason = "r"
+    ));
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+    ));
+}
+
+// spec: Configuration - Rejects a projection rule that could never report a partial literal
+
+test "parse [[projection]] refuses a one-field bundle, an out-of-range threshold and a reused name" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var diag: Diagnostic = .{};
+    // One field travels with nothing: no literal of that type could ever be
+    // partial, so the rule is inert rather than lenient.
+    try std.testing.expectError(error.IncompleteTable, parseInto(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks"]
+        \\reason = "r"
+    , &diag));
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "at least 2 entries") != null);
+    // 1 would enrol every anonymous literal sharing one common field name; 5
+    // exceeds the declared set and can never be reached.
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\anonymous_min_fields = 1
+        \\reason = "r"
+    ));
+    try std.testing.expectError(error.IncompleteTable, parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\anonymous_min_fields = 5
+        \\reason = "r"
+    ));
+    // The name is half of every baseline key, so it is kebab-case and unique.
+    try std.testing.expectError(error.InvalidValue, parse(a,
+        \\[[projection]]
+        \\name = "Routed Copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\reason = "r"
+    ));
+    try std.testing.expectError(error.InvalidConfig, parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\reason = "r"
+        \\
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "arcs"]
+        \\reason = "r"
+    ));
+    // An unknown key is a typo the parser must not absorb silently.
+    try std.testing.expectError(error.UnknownKey, parse(a,
+        \\[[projection]]
+        \\name = "routed-copper"
+        \\type = "Copper"
+        \\fields = ["tracks", "vias"]
+        \\field = ["arcs"]
+        \\reason = "r"
     ));
 }
 

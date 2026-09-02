@@ -75,6 +75,7 @@ const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
 const check_concurrency_presence = @import("../checks/concurrency_presence.zig");
 const check_script_string_safety = @import("../checks/script_string_safety.zig");
 const check_dead_model_field = @import("../checks/dead_model_field.zig");
+const check_projection_completeness = @import("../checks/projection_completeness.zig");
 const check_module_doc_header = @import("../checks/module_doc_header.zig");
 const check_external_gates = @import("../checks/external_gates.zig");
 const check_policy_drift = @import("../checks/policy_drift.zig");
@@ -570,6 +571,17 @@ pub const all: []const Command = &.{
         // narrowed view would report a live field as dead.
         .scope = .whole_tree,
         .run = check_dead_model_field.run,
+    },
+    .{
+        .name = check_projection_completeness.check_name,
+        .summary = "Flag a struct literal that projects only part of a declared field bundle (opt-in)",
+        .needs_ast = .yes,
+        // Per-file: a literal is judged entirely on what it sets against the
+        // rule's declared field list, so a narrowed view reaches the same
+        // verdict for every file it holds. Nothing about the type's declaration
+        // site or any other file changes the answer.
+        .scope = .per_file,
+        .run = check_projection_completeness.run,
     },
     .{
         .name = "module-doc-header",
