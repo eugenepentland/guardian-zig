@@ -560,6 +560,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Propagates a check that fails without naming a finding instead of reconstructing it as an empty, matching baseline
 - Prunes the baseline file when resolved violations shrink it
 - Refuses to refresh a deny_growth baseline that would grow
+- Records a proven-exempt addition under deny_growth and refuses the rest
 - Keeps the deny_growth policy reason visible in concise acceptance output
 - Prefers structured records over scraped text when present
 - Leaves a matched baseline untouched when only line numbers shifted
@@ -577,6 +578,7 @@ blocking correctness checks and advisory maintainability guidance.
 ## Baseline Introspection
 
 - Splits a check's current findings into new, live, and resolved rows
+- Buckets a keyed advisory finding as surfaced rather than new
 - Matches a v1 text baseline by rendered line instead of identity key
 - Lists a threshold check's keys with each live value against its frozen ceiling
 - Names the baseline file a listing is split against
@@ -1306,6 +1308,11 @@ without an explained `--force`.
 - Proposes no pair below the configured pair floor
 - Never reaches a body that shares no shingle rare enough to propose a pair
 - Keys a pair by both names under both paths ordered by path
+- Blocks an unrecorded pair when the change touched one of its files
+- Surfaces an unrecorded pair in untouched files as one advisory line
+- Names every surfaced pair under a verbose run
+- Blocks every unrecorded pair when no diff base resolves
+- Records a surfaced pair as growth-exempt and a touched one as ordinary growth
 - Leaves a pair uncompared when a body exceeds max_lines
 - Parses the twin-drift thresholds and defaults them
 - Hard-fails a similarity outside zero to one and an unknown key

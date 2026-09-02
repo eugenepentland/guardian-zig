@@ -1471,8 +1471,21 @@ fn printAlerts(ctx: *types.RunCtx, name: []const u8, r: CheckResult) void {
     for (r.warnings) |w| {
         if (!w.alert) continue;
         const line = reporter.flatLine(ctx.allocator, w) catch continue;
+        // A fileless alert whose message already opens with its check name
+        // would otherwise read `guardian: twin-drift: twin-drift: …`.
+        if (namesItself(line, name)) {
+            reporter.detail("{s}{s}\n", .{ reporter.prefix, line });
+            continue;
+        }
         reporter.detail("{s}{s}: {s}\n", .{ reporter.prefix, name, line });
     }
+}
+
+/// True when a rendered finding already begins `<check>: `.
+fn namesItself(line: []const u8, name: []const u8) bool {
+    return line.len > name.len + 1 and
+        std.mem.startsWith(u8, line, name) and
+        line[name.len] == ':';
 }
 
 // spec: Run Summary - Replays an alert finding when a check's own output is collapsed or hidden

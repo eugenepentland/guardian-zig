@@ -535,8 +535,14 @@ v1 baselines self-migrate to v3 on first run, guarded so the re-key can neither
 drop a violation nor adopt a new one (it is refused if any file gained
 violations). Reword-prone checks should set `identity` (see
 `src/violation_key.zig`). `[baseline] deny_growth =
-["spec", ...]` freezes the named checks' baselines against ever growing — a
-refresh that would raise their count (or add a key) fails instead.
+["spec", ...]` freezes the named checks' baselines against ever growing, and
+what counts as growth follows the flavor: a **per-item ratchet** refuses a
+refresh that raises a value *or adds a key*, while an **identity baseline**
+refuses one that leaves the file larger than it found it — a row is one
+violation, so the count is the debt and a swap is not growth. The one exception
+is an addition a check marked `growth_exempt` after PROVING it is pre-existing
+debt its change only made visible (today only `twin-drift`'s surfaced pairs);
+those are discounted from the comparison.
 File size, function length, and line length only emit ratchet records beyond
 their generous hard limits; their recommended-limit warnings never need acceptance.
 

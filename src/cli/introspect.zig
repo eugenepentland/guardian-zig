@@ -108,14 +108,51 @@ fn listIdentity(
     const keyed = try baseline.keyedViolations(a, check_name, capture.buf.items, capture.records.items);
     const stored = try readStored(a, path);
     const parts = try baseline.splitAgainst(a, stored.keys, try rowsFor(a, keyed, stored.match));
+    const surfaced = try surfacedRows(a, check_name, stored.match, capture);
     reporter.ok("{s}: {s}", .{ check_name, try storedHeader(a, path, stored) });
     printRows("NEW", "firing and unrecorded — this is what would block", parts.added);
+    if (surfaced.len > 0) printRows(
+        "SURFACED",
+        "firing and unrecorded, but in no file this change touched — advisory until accepted",
+        surfaced,
+    );
     printRows("LIVE", "firing AND frozen in the baseline", parts.live);
     printKeys("RESOLVED", "recorded keys with nothing firing behind them", parts.removed);
+    if (surfaced.len > 0) return reporter.ok(
+        "{s}: {d} new, {d} surfaced, {d} live, {d} resolved (baseline unchanged)",
+        .{ check_name, parts.added.len, surfaced.len, parts.live.len, parts.removed.len },
+    );
     reporter.ok(
         "{s}: {d} new, {d} live, {d} resolved (baseline unchanged)",
         .{ check_name, parts.added.len, parts.live.len, parts.removed.len },
     );
+}
+
+/// The SURFACED bucket: findings a check reported on the ADVISORY channel while
+/// still keying them, which is how a check says "this is real and unrecorded,
+/// and my change did not cause it". `twin-drift` is the case — a pair its
+/// corpus-wide proposal exposed in two files the diff never touched — and the
+/// listing has to show them, because they are precisely the rows a reader is
+/// running `--list` to find before a release.
+///
+/// An advisory record with no `identity` is ordinary prose (a `spec` hint, a
+/// near-cap alert), not a row: those stay out. Keyed through the same
+/// `keyedViolations` the gate and the other buckets use, so a surfaced row and
+/// the baseline row an `accept` would write can never disagree.
+fn surfacedRows(
+    a: Allocator,
+    check_name: []const u8,
+    match: MatchBy,
+    capture: *const reporter.Capture,
+) types.RunError![]baseline.Keyed {
+    var rows: std.ArrayList(reporter.Violation) = .empty;
+    for (capture.warnings.items) |w| {
+        if (w.identity == null) continue;
+        try rows.append(a, w);
+    }
+    if (rows.items.len == 0) return &.{};
+    const keyed = try baseline.keyedViolations(a, check_name, "", rows.items);
+    return rowsFor(a, keyed, match);
 }
 
 /// How a stored baseline's rows match current findings. A v3 file holds identity
@@ -407,6 +444,40 @@ test "rowsFor keys rows by identity for v3 and by rendered line for v1" {
     const v1 = try rowsFor(a, &keyed, .line);
     try std.testing.expectEqualStrings("a.zig:1: one", v1[0].key);
     try std.testing.expectEqualStrings("a.zig:1: one", v1[0].line);
+}
+
+// spec: Baseline Introspection - Buckets a keyed advisory finding as surfaced rather than new
+
+test "surfacedRows takes the keyed warnings and leaves ordinary advisory prose out" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    // The collapsed stand-in line and a drift sample carry no identity: they
+    // are prose about the rows, not rows.
+    reporter.warn(.{ .check = "twin-drift", .message = "2 pair(s) surfaced by corpus shift" });
+    reporter.warn(.{
+        .check = "twin-drift",
+        .file = "src/a.zig",
+        .line = 12,
+        .message = "twin-drift: fn stripUpper and src/b.zig:40 fn normalizeIdent share 90%",
+        .identity = "stripUpper|src/a.zig|normalizeIdent|src/b.zig",
+    });
+    reporter.default.capture = prior;
+
+    const rows = try surfacedRows(a, "twin-drift", .key, &cap);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    // Keyed exactly as the gate keys it, so the bucket and the row an `accept`
+    // would write can never disagree about which pair this is.
+    try std.testing.expectEqualStrings(
+        "twin-drift|stripUpper|src/a.zig|normalizeIdent|src/b.zig",
+        rows[0].key,
+    );
+    try std.testing.expect(std.mem.startsWith(u8, rows[0].line, "src/a.zig:12: "));
 }
 
 // spec: Baseline Introspection - Lists a threshold check's keys with each live value against its frozen ceiling

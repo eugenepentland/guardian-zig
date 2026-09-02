@@ -38,6 +38,13 @@ pub const prefix = "guardian: ";
 /// `near_cap.zig`). The run summary replays an alert whatever the collapse
 /// decision was. It changes nothing else: an alert is still a warning, so no
 /// baseline, ratchet or snapshot ever records it.
+///
+/// `growth_exempt` marks a violation that a `[baseline] deny_growth` refresh may
+/// record even though it ADDS a key: pre-existing debt this change made visible,
+/// not growth this change introduced. The check that sets it must have PROVEN
+/// that (see `twin-drift`, whose surfaced pairs are the drift a corpus shift
+/// exposed in files the change never touched). It relaxes nothing else — the
+/// key is stored, reported, and gated exactly like any other.
 pub const Violation = struct {
     check: []const u8 = "",
     file: ?[]const u8 = null,
@@ -48,6 +55,7 @@ pub const Violation = struct {
     ratchet_key: ?[]const u8 = null,
     metric: ?u64 = null,
     alert: bool = false,
+    growth_exempt: bool = false,
 };
 
 /// One finding routed to the non-blocking measurement channel: the check that
