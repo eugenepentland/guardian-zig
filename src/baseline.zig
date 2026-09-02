@@ -398,6 +398,33 @@ pub fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8
     return std.fmt.allocPrint(arena, "{s}/.guardian/baselines/{s}.txt", .{ project_dir, check_name });
 }
 
+/// The keys a check's baseline already records — its frozen debt, as the
+/// `<check>|<discriminator>` rows `keyedViolations` produces. Empty when the
+/// file is absent or in a format this build cannot read: for a READ-ONLY caller
+/// "nothing is known to be frozen" is the honest answer, and it is the safe one
+/// — a miss costs one extra (correct) advisory line and can never hide a
+/// violation, which the lifecycle above decides on its own.
+///
+/// Public because a check that emits ADVISORY detail beside its violations has
+/// to tell frozen debt from the finding this change introduced. The advisory
+/// channel is excluded from baselines by construction (that is what makes it
+/// survive baseline mode's capture-and-replace), so nothing downstream can
+/// subtract those lines for the check — `spec` consults this for its
+/// unlinked-tag hints, `twin-drift` for its per-pair drift sample. Both read
+/// exactly the file the lifecycle writes, so neither can drift from the gate.
+pub fn frozenKeys(
+    arena: Allocator,
+    project_dir: []const u8,
+    check_name: []const u8,
+) Allocator.Error![]const []const u8 {
+    const path = try pathFor(arena, project_dir, check_name);
+    const snap = snapshot.read(arena, path, version) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return &.{},
+    };
+    return snap.lines;
+}
+
 /// Run `cmd` with output captured, then apply the baseline lifecycle.
 /// Used by both `run-all` and the single-check dispatch in `check.zig`.
 pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void {
@@ -2500,6 +2527,32 @@ fn proseViolation(_: *types.RunCtx) types.RunError!void {
     reporter.detail("  src/x.zig:16: catch block is empty (silently swallows the error)\n", .{});
     reporter.detail("  fix: handle the error explicitly with a switch or named return.\n", .{});
     return error.CheckFailed;
+}
+
+// spec: Baseline Mode - Hands a check its own recorded keys and answers with none when it has no baseline
+
+test "frozenKeys returns the recorded rows and degrades to none for an absent file" {
+    const dir = "zig-cache/test-baseline-frozen-keys";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Nothing recorded yet: the honest answer for a read-only caller is "no key
+    // is known to be frozen", never a failure.
+    try std.testing.expectEqual(@as(usize, 0), (try frozenKeys(a, dir, "twin-drift")).len);
+
+    const path = try pathFor(a, dir, "twin-drift");
+    _ = try lifecycle(a, path, &.{
+        .{ .key = "twin-drift|parseRule|src/a.zig|parseRule|src/b.zig", .line = "src/a.zig:1: drifted" },
+    }, true, true);
+
+    const keys = try frozenKeys(a, dir, "twin-drift");
+    try std.testing.expectEqual(@as(usize, 1), keys.len);
+    try std.testing.expectEqualStrings("twin-drift|parseRule|src/a.zig|parseRule|src/b.zig", keys[0]);
 }
 
 // spec: Baseline Mode - Forwards a newly reported violation to the sink with its location and fix hint

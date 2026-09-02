@@ -16,7 +16,6 @@ const spec_matcher = @import("../spec/matcher.zig");
 const spec_hints = @import("../spec/hints.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
-const snapshot = @import("../snapshot.zig");
 const baseline = @import("../baseline.zig");
 const test_reach = @import("../ast/test_reach.zig");
 const import_graph = @import("../ast/import_graph.zig");
@@ -256,12 +255,7 @@ fn frozenTags(
     allocator: Allocator,
     project_dir: []const u8,
 ) registry.RunError![]const spec_hints.FrozenTag {
-    const path = try baseline.pathFor(allocator, project_dir, check_name);
-    const snap = snapshot.read(allocator, path, baseline.version) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return &.{},
-    };
-    return spec_hints.frozenUnlinked(allocator, snap.lines);
+    return spec_hints.frozenUnlinked(allocator, try baseline.frozenKeys(allocator, project_dir, check_name));
 }
 
 /// The unlinked tags that are NOT already frozen — the ones this change

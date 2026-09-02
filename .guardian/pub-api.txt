@@ -74,6 +74,7 @@ src/baseline.zig::Outcome union_
 src/baseline.zig::Split struct_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::firstFixHint | fn firstFixHint(captured: []const u8) ?[]const u8
+src/baseline.zig::frozenKeys | fn frozenKeys( arena: Allocator, project_dir: []const u8, check_name: []const u8, ) Allocator.Error![]const []const u8
 src/baseline.zig::keyedViolations | fn keyedViolations( arena: Allocator, check_name: []const u8, captured: []const u8, records: []const reporter.Violation, ) Allocator.Error![]const Keyed
 src/baseline.zig::legacy_version value
 src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: []const Keyed, force_refresh: bool, write_allowed: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
