@@ -11159,3 +11159,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-02 · codex · eda — PCB Find focus cleanup and Pin-to-net navigation
 - **good:** `spec` rejected an accidentally unlinked browser-contract tag during the focused loop, and the corrected change then passed all 72 whole-tree checks in both the commit and exact-commit release gates alongside the new Chromium invariant and its negative self-test.
+
+## 2026-09-02 · codex · eda — preserve RF fence vias beside launch tapers
+- **good:** `spec` rejected both new regression contracts when their tags were initially placed inside existing test bodies; moving each tag directly above its test made the exact linkage explicit, and the corrected commit passed all 72 whole-tree checks, full Debug tests, the ReleaseSafe build, deterministic Barracuda editor gate, and PCB state-ownership invariants.
