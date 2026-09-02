@@ -11156,3 +11156,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-02 · codex · eda — datasheet-first board-review agents
 - **good:** `spec` caught the stale contract left when fabrication-audit HTML was removed from the Review page, and the full 4,617-test gate caught the new `board_review_state` test missing from `test_shards.zig`; both were concrete integration mistakes fixed before the exact-commit ReleaseSafe candidate.
 - **friction:** The passing focused `zig build test -Dtest-filter=...` runs still printed `failed command:` immediately after `guardian/test: PASS`, so every focused verification required checking the outer exit code to distinguish success from a real failure.
+
+## 2026-09-02 · codex · eda — PCB Find focus cleanup and Pin-to-net navigation
+- **good:** `spec` rejected an accidentally unlinked browser-contract tag during the focused loop, and the corrected change then passed all 72 whole-tree checks in both the commit and exact-commit release gates alongside the new Chromium invariant and its negative self-test.
