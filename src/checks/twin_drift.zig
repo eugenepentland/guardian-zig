@@ -22,7 +22,7 @@
 //! normalised bodies overlap by at least `min_similarity` but are not equal.
 //! Similarity is `2·|LCS| / (|A| + |B|)` over normalised body lines (comments
 //! and blanks dropped, internal whitespace collapsed), which reads directly as
-//! "share N% of their body". The motivating pair measures 82% — one copy has
+//! "share N% of their body". The motivating pair measures 81% — one copy has
 //! grown four lines the other never got.
 //!
 //! **Same-name is the v1 pairing key** — cheap, and the shape every motivating

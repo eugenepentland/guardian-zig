@@ -399,13 +399,13 @@ readable only in `src/checks/completeness.zig`.
 
 ## What Guardian Checks
 
-67 checks gate the build (most hard-block; completeness/test-coverage/
+72 checks gate the build (most hard-block; completeness/test-coverage/
 oom-discipline/fuzz-presence are opt-in and default off). Formatting is one of them:
 the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
 `zig fmt --check` build step. Three more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command and the `debt` report (70 registry
+command and the `debt` report (75 registry
 entries total; `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -454,8 +454,8 @@ exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
 never comes up empty and can never be confused with "the pattern was wrong":
 
 ```
-run-all: 67 check(s) passed                                  # green
-run-all: 67 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 72 check(s) passed                                  # green
+run-all: 72 checks — 0 blocking, N report-only               # green, demoted findings
 run-all: 2/76 failed (type-size, …) — 3 report-only          # blocking
 run-all: cached — 0 blocking (inputs unchanged since last green run)
 ```
