@@ -11231,3 +11231,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-02 · codex · eda — adaptive thermal mesh and exact PCB outline
 - **good:** `pub-api-surface`, `spec`, and the browser-contract tests caught the intended adaptive-grid API additions plus one stale JavaScript marker before release; the corrected exact commit passed all 72 Guardian checks and the full 4,646-test release gate.
 - **friction:** passing focused `zig build test -Dtest-filter=...` shards still print `failed command:` beneath a successful Guardian result when another aggregate step controls the build, so each focused run required checking the outer exit code to tell success from failure.
+
+## 2026-09-02 · codex · eda — position cooling fans in the PCB editor
+- **good:** The whole-tree gate passed all 72 checks and kept the near-cap `pcb_layout_page.zig` change honest: extracting the cooling modals reduced it to 9,649 code lines while adding the saved fan model, placement UI, and thermal plumbing.
+- **friction:** Focused fan tests, `test-compile`, browser invariants, and Guardian all passed, but the exact-commit release suite alone exercised a static-assets test whose literal view-state marker was invalidated by inserting `fan:1`. Mapping changes to `src/serve/assets/pcb_board.js` into that focused shard would catch this small compatibility contract before the three-minute release gate.
