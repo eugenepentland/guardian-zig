@@ -11227,3 +11227,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **friction:** after a rebase, `accept twin-drift .` recorded two NEW keys under `deny_growth` because the net row count still shrank; the documented rule says "or add a key" fails. Either the doc or the check is wrong; the lenient behaviour was what made the sequence workable, so if it is intended, document it.
 - **good:** the `.guardian` merge driver composed five branches' disjoint baseline prunes and pub-api additions across five sequential rebases without one manual conflict (`merged 33/16/2 identity_baseline row(s)`, `merged 5218…5320 pub_api row(s)`).
 - **wish:** `guardian-check twin-drift <dir> --list` after a rebase was the step that caught every corpus-shift row before release; a `--against <ref>` mode that prints only rows the diff could have caused would make that a one-line pre-release check instead of a triage.
+
+## 2026-09-02 · codex · eda — adaptive thermal mesh and exact PCB outline
+- **good:** `pub-api-surface`, `spec`, and the browser-contract tests caught the intended adaptive-grid API additions plus one stale JavaScript marker before release; the corrected exact commit passed all 72 Guardian checks and the full 4,646-test release gate.
+- **friction:** passing focused `zig build test -Dtest-filter=...` shards still print `failed command:` beneath a successful Guardian result when another aggregate step controls the build, so each focused run required checking the outer exit code to tell success from failure.
