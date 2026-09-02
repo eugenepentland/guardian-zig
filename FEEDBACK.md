@@ -11150,6 +11150,9 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-02 · codex · zig_genetic_cascades — polish chart axes and summary metrics
 - **good:** Guardian linked both new designer-page contracts to their static-asset regression, passed all 72 checks in the test and whole-tree commit gates, and repeated both project gates successfully during the production release build.
 
+## 2026-09-02 · codex · zig_genetic_cascades — search every component from the part picker
+- **good:** The `spec` and `change-classification` gates accepted the linked API and browser regressions for canonical hit types and global picker behavior; all 72 checks passed in the test, whole-tree commit, and production release runs before the service restarted healthy.
+
 ## 2026-09-02 · codex · eda — datasheet-first board-review agents
 - **good:** `spec` caught the stale contract left when fabrication-audit HTML was removed from the Review page, and the full 4,617-test gate caught the new `board_review_state` test missing from `test_shards.zig`; both were concrete integration mistakes fixed before the exact-commit ReleaseSafe candidate.
 - **friction:** The passing focused `zig build test -Dtest-filter=...` runs still printed `failed command:` immediately after `guardian/test: PASS`, so every focused verification required checking the outer exit code to distinguish success from a real failure.
