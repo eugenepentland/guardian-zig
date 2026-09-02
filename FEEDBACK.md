@@ -11251,3 +11251,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-02 · codex · eda — solve a fan and passive heatsink simultaneously
 - **good:** The whole-tree Guardian gate passed all 72 checks on both exact commits, while the full 4,670-test release suite caught the one stale MCP scenario-enum schema outside the focused thermal selection. Updating that contract produced a clean exact-commit candidate and prevented `fan_heatsink` from shipping as a renderer option strict MCP clients could not request.
+
+## 2026-09-02 · codex · eda — keep fabrication ID on masked silkscreen
+- **good:** The `spec` check caught a newly tagged perimeter-mask regression before commit because its requirement had not yet been added to `SPEC.md`; linking the placement and deferred-editor contracts made the next whole-tree run pass all 72 checks, followed by a clean 4,672-test exact-commit release.
