@@ -11147,6 +11147,9 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-02 · codex · zig_genetic_cascades — show only the final-stage gain trace
 - **good:** The exact SPEC-tagged static-asset regression passed with both project gates in `zig build test`, the whole-tree pre-commit gate passed all 72 checks, and the release deploy repeated both 72-check gates before restarting the healthy service.
 
+## 2026-09-02 · codex · zig_genetic_cascades — polish chart axes and summary metrics
+- **good:** Guardian linked both new designer-page contracts to their static-asset regression, passed all 72 checks in the test and whole-tree commit gates, and repeated both project gates successfully during the production release build.
+
 ## 2026-09-02 · codex · eda — datasheet-first board-review agents
 - **good:** `spec` caught the stale contract left when fabrication-audit HTML was removed from the Review page, and the full 4,617-test gate caught the new `board_review_state` test missing from `test_shards.zig`; both were concrete integration mistakes fixed before the exact-commit ReleaseSafe candidate.
 - **friction:** The passing focused `zig build test -Dtest-filter=...` runs still printed `failed command:` immediately after `guardian/test: PASS`, so every focused verification required checking the outer exit code to distinguish success from a real failure.
