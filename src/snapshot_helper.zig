@@ -60,15 +60,18 @@ fn isRejectedBroadToken(v: []const u8) bool {
     return std.mem.eql(u8, v, "1") or std.mem.eql(u8, v, "true");
 }
 
-/// A spelling of a check name that isn't the registered one. The snapshot leaf
-/// and the check name diverge for exactly one check (`.guardian/pub-api.txt` vs
-/// `pub-api-surface`), and the file is what a reviewer has just been looking at
-/// when they reach for the accept command — so the leaf's basename resolves to
-/// the check everywhere a name is accepted. Anything not listed here is
-/// returned unchanged and still hard-fails the registry validator.
+/// A spelling of a check name that isn't the registered one. A metadata leaf
+/// and the check name diverge for two files (`.guardian/pub-api.txt` vs
+/// `pub-api-surface`, and `.guardian/twin-drift-df.txt` — twin-drift's frozen
+/// scoring table, which is not a baseline and so cannot share its leaf), and
+/// the file is what a reviewer has just been looking at when they reach for the
+/// accept command — so the leaf's basename resolves to the check everywhere a
+/// name is accepted. Anything not listed here is returned unchanged and still
+/// hard-fails the registry validator.
 const Alias = struct { spelling: []const u8, check: []const u8 };
 const aliases = [_]Alias{
     .{ .spelling = "pub-api", .check = "pub-api-surface" },
+    .{ .spelling = "twin-drift-df", .check = "twin-drift" },
 };
 
 /// Resolves an alias spelling to its registered check name; every other name
@@ -233,6 +236,9 @@ fn appendMetadataRelPaths(
     try out.append(allocator, try std.fmt.allocPrint(allocator, "baselines/{s}.txt", .{name}));
     try out.append(allocator, try std.fmt.allocPrint(allocator, "{s}.txt", .{name}));
     if (std.mem.eql(u8, name, "pub-api-surface")) try out.append(allocator, "pub-api.txt");
+    // twin-drift owns a second file its baseline leaf does not cover: the
+    // frozen df table an accept rewrites beside the baseline.
+    if (std.mem.eql(u8, name, "twin-drift")) try out.append(allocator, "twin-drift-df.txt");
 }
 
 /// Prints the full set of working ways to accept a snapshot/baseline check's
@@ -493,6 +499,15 @@ test "canonicalCheckName resolves the snapshot leaf spelling and leaves typos al
     try testing.expect(refreshIncludes(r, "pub-api-surface"));
     // Its metadata expansion is the canonical check's, not a "pub-api.txt.txt".
     try testing.expectEqualStrings("pub-api.txt", (try metadataRelPathsFor(a, r.named))[2]);
+
+    // twin-drift's frozen scoring table is the second leaf that is not spelled
+    // like its check, and the check owns it alongside its baseline — so a named
+    // refresh has to keep BOTH files through a red sibling.
+    try testing.expectEqualStrings("twin-drift", canonicalCheckName("twin-drift-df"));
+    const twin = try metadataRelPathsFor(a, &.{"twin-drift"});
+    try testing.expectEqual(@as(usize, 3), twin.len);
+    try testing.expectEqualStrings("baselines/twin-drift.txt", twin[0]);
+    try testing.expectEqualStrings("twin-drift-df.txt", twin[2]);
 
     // Everything else passes through untouched, so an unknown name still
     // hard-fails the registry validator instead of silently refreshing nothing.

@@ -1,5 +1,33 @@
 # twin-drift scoring stability — measurement report
 
+**Shipped 2026-09-02.** The Recommendation below is implemented: twin-drift
+freezes its df table in `.guardian/twin-drift-df.txt`, refreshed by
+`guardian-check accept twin-drift .`, with live df as the fallback for a shingle
+the table has never seen. Two departures from the prototype described here, both
+forced by re-running this study's replay against the shipped code:
+
+1. **`proposes` reads the frozen df too, not only the weight.** The method note
+   below says the freeze substituted the weighting df while "the posting counts
+   stay live". Read as "the proposal gate `2 <= df <= max_df` also stays live",
+   that does not reproduce the frozen-idf column: `module_policy.stripUpper`
+   crossed the floor at state 2, because a shingle drifting across `max_df`
+   adds or removes real mass from an untouched pair's truncated cosine. With
+   the gate frozen as well — and only the posting-list LENGTHS live, which is
+   what the index allocation actually needs — the replay reproduces
+   125/85/49/31/14/0 exactly. That is also what makes this variant's "score
+   drift identically zero by construction" true.
+2. **The table stores the whole vocabulary**, so the sub-1 MB target was not
+   met. Dropping the df=1 tail (264,931 rows → 85,392, ~1.1 MB) replayed
+   125/**86**/50/32/15/0 and re-admitted the `stripUpper` pair, because a
+   shingle the table lacks falls back to live df and a 3-gram that was unique at
+   freeze time and is shared now is precisely the corpus shift being absorbed.
+   The shipped encoding pays the row count and compresses the row instead — a
+   truncated 41-bit base-36 key and an implicit df=1 — landing eda state 1 at
+   **2,566,742 bytes / 264,931 rows**, against 5.9 MB for the raw dump measured
+   here.
+
+Everything below is the original measurement, unchanged.
+
 **Status: measurement only.** The prototype lives uncommitted in the worktree
 `/home/epentland/ai/canopy/guardian-zig/.claude/worktrees/agent-ae881ab291caeb4ee`
 (branch `worktree-agent-ae881ab291caeb4ee`), behind `GUARDIAN_TWIN_SCORE`, and

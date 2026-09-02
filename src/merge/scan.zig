@@ -119,7 +119,7 @@ fn checkNameFor(rel_path: []const u8) []const u8 {
 pub fn describe(trouble: Trouble) []const u8 {
     return switch (trouble) {
         .unresolved => "unresolved conflict markers",
-        .pending_regen => "merged with a guessed counter; regenerate before committing",
+        .pending_regen => "merged from a guess rather than a measurement; regenerate before committing",
         .malformed_row => "row does not parse in this file's format",
     };
 }

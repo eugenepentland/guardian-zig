@@ -27,6 +27,13 @@ pub const Kind = enum {
     counters,
     /// v2 public API surface: `<path>::<decl> | <signature>` rows.
     pub_api,
+    /// v4 frozen scoring table (`.guardian/twin-drift-df.txt`): a `docs <N>`
+    /// count plus `<10-char base-36 shingle key> <df>` rows. Not line-mergeable
+    /// in any meaningful sense — the rows are one measurement of one corpus,
+    /// and a union of two corpora's frequencies is a table neither branch ever
+    /// measured — so `cli/merge_file.zig` keeps OURS whole and marks the result
+    /// for regeneration.
+    frozen_table,
     /// No safe automatic resolution: the mutation cohort, the benchmark ledger,
     /// mismatched headers, or a format this Guardian does not know.
     unmergeable,
@@ -139,6 +146,7 @@ fn kindFromPath(path: []const u8, version: u32) ?Kind {
     if (std.mem.indexOf(u8, path, "baselines/") != null) return baselineKind(version);
     const leaf = std.fs.path.basename(path);
     if (std.mem.eql(u8, leaf, "pub-api.txt")) return .pub_api;
+    if (std.mem.eql(u8, leaf, frozen_table_leaf)) return .frozen_table;
     if (std.mem.eql(u8, leaf, "mutation.txt")) return .unmergeable;
     if (std.mem.eql(u8, leaf, "benchmarks.txt")) return .unmergeable;
     // Every budget check writes `<name>-budget.txt` counters, and naming them by
@@ -161,11 +169,59 @@ fn baselineKind(version: u32) ?Kind {
 /// merge driver usually runs on.
 fn kindFromRows(version: u32, rows: []const []const u8) Kind {
     if (rows.len == 0) return .counters; // nothing to merge; any kind renders the header
+    // Ahead of the counter test, because a frozen scoring table's rows are a
+    // strict subset of the `<name> <int>` shape and merging them as counters
+    // would silently produce a corpus nobody ever measured.
+    if (looksFrozenTable(rows)) return .frozen_table;
     if (allRows(rows, isCounterRow)) return .counters;
     if (version == baseline.version) return .identity_baseline;
     if (allRows(rows, isPubApiRow)) return .pub_api;
     if (allRows(rows, isRatchetRow)) return .ratchet;
     return .unmergeable;
+}
+
+/// The leaf of the one frozen scoring table Guardian writes. Named here rather
+/// than imported from the check that owns it, so the merge layer stays a pure
+/// data module with no dependency on any check.
+const frozen_table_leaf = "twin-drift-df.txt";
+
+/// The `docs <N>` row every frozen table carries, and the fixed width of a
+/// shingle key row's first field.
+const frozen_docs_field = "docs";
+const frozen_key_len = 8;
+
+/// True when the pooled rows are a frozen scoring table: every row parses as
+/// one, AND at least one of them is the `docs <N>` count that no other format
+/// writes. Both halves are needed — the key rows alone would also read as
+/// budget counters.
+fn looksFrozenTable(rows: []const []const u8) bool {
+    var seen_docs = false;
+    for (rows) |row| {
+        if (!isFrozenTableRow(row)) return false;
+        if (std.mem.startsWith(u8, row, frozen_docs_field ++ " ")) seen_docs = true;
+    }
+    return seen_docs;
+}
+
+/// True for a `docs <N>` count row, a `<8-char base-36 key> <df>` row, or the
+/// bare key that spells the table's implicit frequency.
+fn isFrozenTableRow(row: []const u8) bool {
+    const sp = std.mem.indexOfScalar(u8, row, ' ') orelse
+        return row.len == frozen_key_len and isBase36Word(row);
+    const field = row[0..sp];
+    _ = std.fmt.parseInt(u64, row[sp + 1 ..], 10) catch return false;
+    if (std.mem.eql(u8, field, frozen_docs_field)) return true;
+    return field.len == frozen_key_len and isBase36Word(field);
+}
+
+/// True when every character is a base-36 digit in the lower-case spelling the
+/// table writes.
+fn isBase36Word(text: []const u8) bool {
+    for (text) |c| {
+        if (std.ascii.isDigit(c)) continue;
+        if (c < 'a' or c > 'z') return false;
+    }
+    return true;
 }
 
 /// True when every row satisfies `pred` (vacuously true for no rows).
@@ -228,6 +284,7 @@ pub fn malformedRows(arena: Allocator, content: []const u8, kind: Kind) Allocato
 const row_validators = [_]struct { kind: Kind, pred: *const fn ([]const u8) bool }{
     .{ .kind = .counters, .pred = isCounterRow },
     .{ .kind = .ratchet, .pred = isRatchetRow },
+    .{ .kind = .frozen_table, .pred = isFrozenTableRow },
 };
 
 /// The row validator for a structured format, or null when its rows are opaque.
@@ -254,6 +311,17 @@ test "classify separates the four artifact formats" {
     try testing.expect(classify(null, 2, &ratchets) == .ratchet);
     try testing.expect(classify(null, 2, &api) == .pub_api);
     try testing.expect(classify(null, 3, &identities) == .identity_baseline);
+
+    // A frozen scoring table is separated from budget counters by its `docs`
+    // count plus the fixed-width base-36 keys beside it — its rows would
+    // otherwise read as `<name> <int>` counters and be merged value-by-value.
+    const frozen = [_][]const u8{ "docs 5769", "0000000a 3", "0000000b" };
+    try testing.expect(classify(null, 4, &frozen) == .frozen_table);
+    try testing.expect(classify(".guardian/twin-drift-df.txt", 4, &frozen) == .frozen_table);
+    // Without the count row the same keys are just counters, and a counter file
+    // that happens to hold a `docs` row is still not a table.
+    try testing.expect(classify(null, 1, &.{"0000000a 3"}) == .counters);
+    try testing.expect(classify(null, 1, &.{ "docs 12", "@alignCast 68" }) == .counters);
 
     // The path wins when it is known: pub-api.txt is a surface list even though
     // its rows would also pass as free text, and the ledgers never auto-merge.
