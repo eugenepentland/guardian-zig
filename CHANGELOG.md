@@ -114,6 +114,18 @@ sibling checkout.
       of two hand-written copies of the same loop. A third, the copied
       owned-string-map insert behind `FakeEnv.set` and `FakeFs.writeFile`, moved
       to `fakes/owned_map.zig`.
+  - **Frozen pairs are silent.** The advisory detail rode `reporter.warn`,
+    which no baseline records — so a project that baselined its whole backlog
+    kept being told about all of it: eda, with 125 pairs frozen and
+    `twin-drift . --list` reading `NEW (0) / LIVE (125)`, still saw
+    `twin-drift: 124 finding(s) — report-only` and 124 `warning:` lines on every
+    cold gate. The check now consults its OWN baseline (the new public
+    `baseline.frozenKeys`, which `spec` reuses for its unlinked-tag hints) and
+    prints the sample only for a pair that is actually being reported — a NEW
+    pair, or every pair when baseline mode is off for the check or under
+    `--dry-run`. The sample also joins the reported pair's `fix_hint`, so
+    `last-run.jsonl` names what drifted on rows that have no advisory tier to
+    read it from. No identity key moved: a consumer's frozen rows stay LIVE.
 - Group ROI triage by stable subject (Guardian digest + check + finding key),
   so recurring commit-specific observation IDs no longer inflate the pending
   backlog or usefulness totals. `guardian-roi pending` now defaults to the

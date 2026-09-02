@@ -79,14 +79,44 @@
 //! the divergence contradicts a written promise. The only exemptions are an
 //! explicit `// twin-drift-ok: <reason>` above either copy, `[twin_drift]
 //! ignore`, and the generic `[[allow]]` path list.
+//!
+//! **The drift sample is filtered against this check's own baseline.** Each
+//! pair reports twice: a `reporter.emit` Violation the baseline layer can
+//! freeze, and an advisory `reporter.warn` naming the lines only one copy has.
+//! The advisory channel is excluded from baselines by construction — that is
+//! what makes it survive baseline mode's capture-and-replace — so nothing
+//! downstream could subtract it, and a project that froze its whole backlog
+//! kept being told about it on every run (measured in eda: 125 frozen pairs,
+//! `--list` reading `NEW (0) / LIVE (125)`, and a cold gate still printing
+//! `twin-drift: 124 finding(s) — report-only` plus 124 `warning:` lines).
+//!
+//! Of the two available fixes, this check consults the baseline itself
+//! (`frozenPairs` → `detailFor`) rather than moving the sample onto the console
+//! through the Violation's `fix_hint`. `fix_hint` would have been filtered for
+//! free, but on the text path it would also have been INVISIBLE: this check
+//! reports through `emitQuiet`, whose printed line drops the hint by design
+//! (one shared `fix:` line beneath the list is the console contract), and
+//! baseline mode replays a NEW violation as its stored `flatLine`, which
+//! carries no hint either. Consulting the baseline is also the smaller change
+//! and moves no identity key: `identityFor` is untouched, so a consumer's
+//! frozen rows stay LIVE.
+//!
+//! `fix_hint` still carries the sample for the OTHER reader. `last-run.jsonl`
+//! has no advisory tier — a warning never reaches it — so `sinkHint` puts what
+//! drifted on the row beside the remedy, and the baseline layer forwards it
+//! only for a pair this run actually reported. Frozen debt is therefore silent
+//! on both channels, and a NEW pair carries the sample on both.
 
 const std = @import("std");
+const fs = @import("../fs.zig");
 const walk = @import("../walk.zig");
 const reporter = @import("../reporter.zig");
 const registry = @import("../cli/types.zig");
 const ast = @import("../ast/parser.zig");
 const ast_decls = @import("../ast/decls.zig");
 const ast_index = @import("../ast/index.zig");
+const baseline = @import("../baseline.zig");
+const violation_key = @import("../violation_key.zig");
 const config = @import("../config.zig");
 const lexical_scan = @import("lexical_scan.zig");
 
@@ -852,23 +882,72 @@ fn violationFor(allocator: Allocator, t: Twin) Allocator.Error!reporter.Violatio
         .file = t.a.file,
         .line = t.a.line,
         .message = message,
-        .fix_hint = fix_hint,
-        .identity = try std.fmt.allocPrint(
-            allocator,
-            "{s}|{s}|{s}|{s}",
-            .{ t.a.name, t.a.file, t.b.name, t.b.file },
-        ),
+        .fix_hint = try sinkHint(allocator, t),
+        .identity = try identityFor(allocator, t),
         .metric = t.percent,
     };
+}
+
+/// The pair's identity: both names under both paths, ordered by path. ONE
+/// definition, read by the Violation above and by the frozen-key lookup below,
+/// so the key the gate stores and the key the advisory channel consults can
+/// never drift apart — the whole suppression rests on the two agreeing.
+fn identityFor(allocator: Allocator, t: Twin) Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(allocator, "{s}|{s}|{s}|{s}", .{ t.a.name, t.a.file, t.b.name, t.b.file });
+}
+
+/// True when `frozen` — the rows of this project's `twin-drift` baseline —
+/// already records this pair. Keyed through `violation_key.fromRecord`, the
+/// same function `baseline.keyedViolations` runs the emitted record through,
+/// rather than by re-formatting the stored line here.
+fn recorded(allocator: Allocator, frozen: []const []const u8, t: Twin) Allocator.Error!bool {
+    if (frozen.len == 0) return false;
+    const key = try violation_key.fromRecord(allocator, check_name, .{
+        .check = check_name,
+        .message = "",
+        .identity = try identityFor(allocator, t),
+    });
+    for (frozen) |row| {
+        if (std.mem.eql(u8, row, key)) return true;
+    }
+    return false;
 }
 
 /// The advisory line naming WHAT drifted: up to four lines that one copy has
 /// and the other does not. It rides `reporter.warn` because baselines and
 /// ratchets exclude the advisory channel by construction — the sample changes
 /// with every edit to either body, and no consumer should ever have to accept
-/// it. Null when the two bodies hold the same lines in a different order, which
-/// the sample cannot show.
-fn detailFor(allocator: Allocator, t: Twin) Allocator.Error!?reporter.Violation {
+/// it.
+///
+/// That exclusion is also why `frozen` is a parameter. Nothing downstream can
+/// subtract an advisory line for this check, so a project that baselined its
+/// whole backlog kept getting the sample for all of it (measured in eda: 125
+/// frozen pairs, 124 `warning:` lines on every gate run, and a `twin-drift:
+/// 124 finding(s) — report-only` beside a `--list` reading `NEW (0)`). Frozen
+/// debt must be silent, so the check consults its OWN baseline and returns null
+/// for a pair already recorded there — the same seam `spec` uses for its
+/// unlinked-tag hints. `frozen` is empty whenever nothing will be subtracted
+/// (baseline mode off for this check, `--dry-run`), and then every pair keeps
+/// its detail.
+///
+/// Also null when the two bodies hold the same lines in a different order,
+/// which the sample cannot show.
+fn detailFor(allocator: Allocator, frozen: []const []const u8, t: Twin) Allocator.Error!?reporter.Violation {
+    if (try recorded(allocator, frozen, t)) return null;
+    const sample = (try driftSample(allocator, t)) orelse return null;
+    return .{
+        .check = check_name,
+        .file = t.a.file,
+        .line = t.a.line,
+        .message = try std.fmt.allocPrint(allocator, "twin-drift: fn {s} \u{2014}{s}", .{ t.a.name, sample }),
+    };
+}
+
+/// The sample itself — `` only in <fileA>: `x`; only in <fileB>: `y`;`` — with
+/// no leading prose, so the two readers can frame it their own way. Null when
+/// the two bodies hold the same lines in a different order, which the sample
+/// cannot show.
+fn driftSample(allocator: Allocator, t: Twin) Allocator.Error!?[]const u8 {
     const raw_a = try onlyIn(allocator, t.a, t.b);
     const raw_b = try onlyIn(allocator, t.b, t.a);
     if (raw_a.len == 0 and raw_b.len == 0) return null;
@@ -880,7 +959,6 @@ fn detailFor(allocator: Allocator, t: Twin) Allocator.Error!?reporter.Violation 
     const only_a = if (kept_a.len + kept_b.len == 0) raw_a else kept_a;
     const only_b = if (kept_a.len + kept_b.len == 0) raw_b else kept_b;
     var buf: std.ArrayList(u8) = .empty;
-    try appendFmt(allocator, &buf, "twin-drift: fn {s} \u{2014}", .{t.a.name});
     // Half the room to each side when both drifted, so a long one-sided list
     // cannot crowd the other copy's lines out of the sample entirely.
     const shown_a = try appendSide(allocator, &buf, t.a.file, only_a, if (only_b.len == 0)
@@ -890,7 +968,20 @@ fn detailFor(allocator: Allocator, t: Twin) Allocator.Error!?reporter.Violation 
     const shown = shown_a + try appendSide(allocator, &buf, t.b.file, only_b, max_detail_lines - shown_a);
     const total = only_a.len + only_b.len;
     if (total > shown) try appendFmt(allocator, &buf, " (+{d} more)", .{total - shown});
-    return .{ .check = check_name, .file = t.a.file, .line = t.a.line, .message = try buf.toOwnedSlice(allocator) };
+    return try buf.toOwnedSlice(allocator);
+}
+
+/// The remedy the JSONL sink carries for one pair, which is where the second
+/// reader of the sample lives. `last-run.jsonl` has no "beneath the list"
+/// channel and no advisory tier at all — warnings never reach it — so a row
+/// that said only "reconcile the two copies" named no subject to reconcile.
+/// The sample rides `fix_hint`, which `emitQuiet` keeps off the printed line
+/// (the console gets it once, through `detailFor`), and which the baseline
+/// layer forwards ONLY for a violation this run actually reported — so frozen
+/// debt stays out of the log for exactly the reason it stays off the console.
+fn sinkHint(allocator: Allocator, t: Twin) Allocator.Error![]const u8 {
+    const sample = (try driftSample(allocator, t)) orelse return fix_hint;
+    return std.fmt.allocPrint(allocator, "{s} what drifted:{s}", .{ fix_hint, sample });
 }
 
 /// Appends one formatted fragment to a growing message.
@@ -1002,6 +1093,22 @@ fn allowedFiles(
     return kept.toOwnedSlice(allocator);
 }
 
+/// The pairs whose drift sample this run must NOT print: the keys already
+/// recorded in `.guardian/baselines/twin-drift.txt`.
+///
+/// Empty — every pair keeps its detail — in the two cases where nothing is
+/// being subtracted from this check's violations, and the sample therefore
+/// belongs beside every one of them: baseline mode is not what filters this
+/// check (`[baseline] enabled = false`, or a `[policy]` mode that bypasses it),
+/// and `--dry-run`, whose entire contract is "every current finding, no
+/// baseline filtering". `--list` is unaffected either way: it reports keyed
+/// rows, never the advisory channel.
+fn frozenPairs(ctx: *registry.RunCtx) Allocator.Error![]const []const u8 {
+    if (ctx.dry_run) return &.{};
+    if (!ctx.cfg.policy.usesBaselineFor(check_name, ctx.cfg.baseline)) return &.{};
+    return baseline.frozenKeys(ctx.allocator, ctx.project_dir, check_name);
+}
+
 /// Entry point for the twin-drift check.
 pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
     const allocator = ctx.allocator;
@@ -1022,9 +1129,10 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         return;
     }
     reporter.fail("twin-drift FAILED ({d} drifted pair(s))", .{found.twins.len});
+    const frozen = try frozenPairs(ctx);
     for (found.twins) |t| {
         reporter.emitQuiet(try violationFor(allocator, t));
-        if (try detailFor(allocator, t)) |d| reporter.warn(d);
+        if (try detailFor(allocator, frozen, t)) |d| reporter.warn(d);
     }
     reporter.detail("  fix: {s}\n", .{fix_hint});
     return error.CheckFailed;
@@ -1201,7 +1309,7 @@ test "twin-drift: a drifted pair fires and a dissimilar pair does not" {
     const v = try violationFor(a, t);
     try testing.expectEqualStrings("parseRule|src/a.zig|parseRule|src/b.zig", v.identity.?);
     try testing.expect(std.mem.indexOf(u8, v.message, "share 94% of their body") != null);
-    const detail = (try detailFor(a, t)).?;
+    const detail = (try detailFor(a, &.{}, t)).?;
     try testing.expect(std.mem.indexOf(u8, detail.message, "out += 6;") != null);
 
     // A body that shares only its scaffolding is under the floor and silent.
@@ -1262,10 +1370,154 @@ test "twin-drift: the detail names new content rather than a re-wrapped line" {
         .{ "src/b.zig", wrapped_call },
     }, .{});
     try testing.expectEqual(@as(usize, 1), found.twins.len);
-    const detail = (try detailFor(a, found.twins[0])).?;
+    const detail = (try detailFor(a, &.{}, found.twins[0])).?;
     try testing.expect(std.mem.indexOf(u8, detail.message, "`out += 7;`") != null);
     // `v,` is the first copy's own line, split — not something it never got.
     try testing.expect(std.mem.indexOf(u8, detail.message, "`v,`") == null);
+}
+
+// spec: Twin Drift - Carries what drifted on the reported pair's machine-readable fix hint
+
+test "twin-drift: the sink hint names the remedy and what drifted" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const found = try analyzeSources(a, &.{
+        .{ "src/a.zig", try ruleSource(a, "", base_body) },
+        .{ "src/b.zig", try ruleSource(a, "", try grownBody(a)) },
+    }, .{});
+    try testing.expectEqual(@as(usize, 1), found.twins.len);
+    // `emitQuiet` keeps this off the printed line — it exists for the JSONL
+    // row, which has no advisory tier to read the warning from.
+    const hint = (try violationFor(a, found.twins[0])).fix_hint.?;
+    try testing.expect(std.mem.indexOf(u8, hint, "lift the shared part") != null);
+    try testing.expect(std.mem.indexOf(u8, hint, "what drifted:") != null);
+    try testing.expect(std.mem.indexOf(u8, hint, "out += 6;") != null);
+}
+
+/// `base_body` with one statement the other copy never got. Spliced from
+/// `base_body` rather than written out a second time, so the two fixtures
+/// cannot drift apart in the one file whose whole subject is copies drifting
+/// apart.
+fn grownBody(a: Allocator) Allocator.Error![]const u8 {
+    return std.mem.replaceOwned(u8, a, base_body, "    return out;", "    out += 6;\n    return out;");
+}
+
+/// The baseline row the pair `baselineProject` writes is keyed under: exactly
+/// `<check>|<identity>`, the form `baseline.keyedViolations` stores.
+const frozen_row = "twin-drift|parseRule|src/a.zig|parseRule|src/b.zig";
+
+/// A throwaway project holding that one drifted pair, with `rows` already
+/// recorded in its twin-drift baseline. The stored state is the only thing the
+/// three tests below vary.
+fn baselineProject(a: Allocator, dir: []const u8, rows: []const []const u8) !void {
+    // deleteTree succeeds on a path that does not exist, so a first run and a
+    // rerun after a crashed one both start from the same empty project.
+    try fs.cwd().deleteTree(dir);
+    try fs.cwd().makePath(try std.fmt.allocPrint(a, "{s}/src", .{dir}));
+    try fs.cwd().makePath(try std.fmt.allocPrint(a, "{s}/.guardian/baselines", .{dir}));
+    try fs.cwd().writeFile(.{
+        .sub_path = try std.fmt.allocPrint(a, "{s}/src/a.zig", .{dir}),
+        .data = try ruleSource(a, "", base_body),
+    });
+    try fs.cwd().writeFile(.{
+        .sub_path = try std.fmt.allocPrint(a, "{s}/src/b.zig", .{dir}),
+        .data = try ruleSource(a, "", try grownBody(a)),
+    });
+    var stored: std.ArrayList(u8) = .empty;
+    try stored.appendSlice(a, "# guardian-snapshot v3\n");
+    for (rows) |row| {
+        try stored.appendSlice(a, row);
+        try stored.append(a, '\n');
+    }
+    try fs.cwd().writeFile(.{
+        .sub_path = try std.fmt.allocPrint(a, "{s}/.guardian/baselines/twin-drift.txt", .{dir}),
+        .data = stored.items,
+    });
+}
+
+/// Runs the check over `dir` under capture and hands back what it reported.
+/// The check always FAILS when a pair drifted — the baseline layer above it is
+/// what turns frozen debt green — so the verdict is swallowed and only the two
+/// channels are inspected.
+fn captureOver(ctx: *registry.RunCtx, cap: *reporter.Capture) !void {
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = cap;
+    try testing.expectError(error.CheckFailed, run(ctx));
+}
+
+// spec: Twin Drift - Prints no drift sample for a pair its own baseline already records
+
+test "twin-drift: a pair frozen in the baseline gets no advisory detail" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-frozen";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try baselineProject(a, dir, &.{frozen_row});
+
+    const cfg: config.Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&ctx, &cap);
+
+    // The keyed violation still fires: subtracting it is the baseline layer's
+    // job, and it is what keeps a consumer's frozen row LIVE rather than
+    // RESOLVED.
+    try testing.expectEqual(@as(usize, 1), cap.records.items.len);
+    // The advisory sample beside it does not — nothing downstream could filter
+    // it, so this run is the only place that can stay quiet.
+    try testing.expectEqual(@as(usize, 0), cap.warnings.items.len);
+}
+
+// spec: Twin Drift - Keeps the drift sample for a pair its baseline does not record
+
+test "twin-drift: a pair the baseline does not record keeps its detail" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-new";
+    defer fs.cwd().deleteTree(dir) catch {};
+    // A baseline holding a DIFFERENT pair: the file is readable and non-empty,
+    // so a suppression keyed on anything but the identity would still hide this.
+    try baselineProject(a, dir, &.{"twin-drift|parseRule|src/a.zig|parseOther|src/b.zig"});
+
+    const cfg: config.Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: registry.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &cfg, .quiet = true };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&ctx, &cap);
+
+    try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    try testing.expect(std.mem.indexOf(u8, cap.warnings.items[0].message, "out += 6;") != null);
+}
+
+// spec: Twin Drift - Keeps every drift sample under a dry run whatever the baseline records
+
+test "twin-drift: a dry run keeps the detail for a frozen pair" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-dry-run";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try baselineProject(a, dir, &.{frozen_row});
+
+    const cfg: config.Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+        .dry_run = true,
+    };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&ctx, &cap);
+
+    // Same frozen row as the first test, opposite answer: `--dry-run` promises
+    // every current finding with no baseline filtering, and the sample is part
+    // of the finding.
+    try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    try testing.expect(std.mem.indexOf(u8, cap.warnings.items[0].message, "out += 6;") != null);
 }
 
 // spec: Twin Drift - Silences a pair annotated twin-drift-ok above either copy

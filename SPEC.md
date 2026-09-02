@@ -572,6 +572,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Preserves the count of same-key violations across a stored baseline
 - Skips findings whose file is missing and gitignored instead of counting them
 - Forwards a newly reported violation to the sink with its location and fix hint
+- Hands a check its own recorded keys and answers with none when it has no baseline
 
 ## Baseline Introspection
 
@@ -1289,6 +1290,10 @@ without an explained `--force`.
 - Stays silent on identical copies unless report_identical asks for them
 - Reports a drifted pair above the similarity floor and no pair below it
 - Names the lines one copy never got and passes over a re-wrapped one
+- Carries what drifted on the reported pair's machine-readable fix hint
+- Prints no drift sample for a pair its own baseline already records
+- Keeps the drift sample for a pair its baseline does not record
+- Keeps every drift sample under a dry run whatever the baseline records
 - Silences a pair annotated twin-drift-ok above either copy
 - Silences a function name the ignore list holds
 - Reads a struct member function as a candidate like a top-level one
