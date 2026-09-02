@@ -762,6 +762,44 @@ const entries = [_]Entry{
     \\Baseline: one violation per `<file>|<referent>`, so rewording the sentence
     \\around a claim — or moving it down the file — keeps its key.
     },
+    .{ .name = "twin-drift", .text =
+    \\Why: two hand-written copies of one rule stopped agreeing. Measured in eda
+    \\(an audit of 155 fix commits, 2026-09): that is the cause behind 25 of
+    \\them. The live case is `buildNetClassOverrides`, duplicated in
+    \\drc_session.zig and wasm_drc.zig — the header of the first says the JSON
+    \\board parser was copied on purpose to stay under the file-size cap. The
+    \\wasm copy then gained `.class`, `.power_branch_width`, `.keepout_mm` and
+    \\`.keepout_escape_mm`; the session copy gained none of them, so the session
+    \\DRC now runs with no keepout rule. The two share no type, no call and no
+    \\file, so nothing in the compiler can see it and each copy's own tests keep
+    \\passing.
+    \\Fix: reconcile the two copies, or lift the shared part into one fn both
+    \\call. If the divergence is deliberate, say so above either copy:
+    \\  // twin-drift-ok: the wasm bridge clamps to the page's own limits
+    \\A `mirrors X` / `same as Y` claim in the doc comment does NOT exempt the
+    \\pair — a declared mirror that drifted is the worst case, not the safe one
+    \\— but the message then says `(declared mirror)`.
+    \\Exempt: the annotation above, `[twin_drift] ignore = ["run", "deinit"]`
+    \\for a name a project implements once per file as an INTERFACE rather than
+    \\copying, `[[allow]] check = "twin-drift"` for a path, or the `disabled`
+    \\list.
+    \\Limits: pairing is by NAME (v1) — two functions in different files sharing
+    \\one, member fns by their bare name — so a copy that was renamed is
+    \\invisible. Similarity is 2*|LCS| / (|A| + |B|) over normalised body lines
+    \\(comments and blanks dropped, internal whitespace collapsed, one entry per
+    \\source line), reported as "share N% of their body". IDENTICAL bodies are
+    \\NOT reported: that is duplication debt, and listing it would bury the pair
+    \\that is actively wrong — `[twin_drift] report_identical = true` asks for
+    \\the inventory. Bodies under `min_statements` (default 8) are scaffolding
+    \\and never compared; a body over `max_lines` (default 400) is counted and
+    \\skipped rather than paid for. A fn inside a `test` block, and a private fn
+    \\reachable only from `test` blocks in its own file, are both skipped — a
+    \\per-file fixture written to the same shape is not a twin.
+    \\Baseline: one violation per pair, keyed `<name>|<fileA>|<fileB>` with the
+    \\two paths ordered, so editing either copy further moves the percentage
+    \\without re-keying the row. The differing lines ride the advisory channel,
+    \\which no baseline records.
+    },
     .{ .name = "duplicate-json-key", .text =
     \\Why: one function writes the same JSON key twice into the same object, so
     \\the blob is last-wins today and a SyntaxError under any strict reader.

@@ -307,6 +307,8 @@ src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry
 src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/twin_drift.zig::check_name value
+src/checks/twin_drift.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/twin_parity.zig::analyze | fn analyze( allocator: Allocator, rules: []const config.TwinRule, test_names: []const []const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/twin_parity.zig::check_name value
 src/checks/twin_parity.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -464,6 +466,7 @@ src/config.zig::SpecQualityCfg struct_
 src/config.zig::TestCoverageCfg struct_
 src/config.zig::TestFilterCfg struct_
 src/config.zig::TestReachabilityCfg struct_
+src/config.zig::TwinDriftCfg struct_
 src/config.zig::TwinReferentCfg struct_
 src/config.zig::TwinRule struct_
 src/config.zig::TypeSizeCfg struct_
@@ -1003,6 +1006,7 @@ src/testing/golden_runner.zig::update_env value
 src/text.zig::LineCursor struct_
 src/text.zig::TestScope struct_
 src/text.zig::at | fn at(self: *LineCursor, source: []const u8, byte_offset: usize) u32
+src/text.zig::containsWord | fn containsWord(text: []const u8, word: []const u8) bool
 src/text.zig::lineOf | fn lineOf(source: []const u8, byte_offset: usize) u32
 src/text.zig::update | fn update(self: *TestScope, tag: std.zig.Token.Tag) void
 src/version.zig::string value

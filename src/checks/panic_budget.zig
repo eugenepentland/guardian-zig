@@ -11,6 +11,7 @@ const registry = @import("../cli/types.zig");
 const ast_index = @import("../ast/index.zig");
 const snapshot = @import("../snapshot.zig");
 const snapshot_helper = @import("../snapshot_helper.zig");
+const text_helpers = @import("../text.zig");
 
 const print = reporter.detail;
 const ok = reporter.ok;
@@ -99,23 +100,10 @@ fn countCommentMarkers(content: []const u8) struct { todos: u32, fixmes: u32 } {
     while (lines.next()) |line| {
         const slash = std.mem.indexOf(u8, line, "//") orelse continue;
         const tail = line[slash..];
-        if (containsWord(tail, "TODO")) todos += 1;
-        if (containsWord(tail, "FIXME")) fixmes += 1;
+        if (text_helpers.containsWord(tail, "TODO")) todos += 1;
+        if (text_helpers.containsWord(tail, "FIXME")) fixmes += 1;
     }
     return .{ .todos = todos, .fixmes = fixmes };
-}
-
-fn containsWord(text: []const u8, word: []const u8) bool {
-    if (word.len == 0 or word.len > text.len) return false;
-    var search_start: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search_start, word)) |idx| {
-        const left_ok = idx == 0 or !std.ascii.isAlphanumeric(text[idx - 1]);
-        const end = idx + word.len;
-        const right_ok = end == text.len or !std.ascii.isAlphanumeric(text[end]);
-        if (left_ok and right_ok) return true;
-        search_start = idx + 1;
-    }
-    return false;
 }
 
 const QuotaCounts = struct { calls: u32 = 0, max_value: u64 = 0 };

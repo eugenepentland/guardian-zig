@@ -117,6 +117,21 @@ paths = ["src/merge/*", "src/cli/merge_file*", "src/cli/merge_driver*", "src/cli
 check = "ban-time"
 paths = ["src/dora*", "src/cli/bench*", "src/budget_runner.zig", "src/test_runner.zig"]
 
+# twin-drift: four of the names it pairs are Guardian's own check-plugin
+# protocol rather than copies of a rule. Every check file implements `run` (the
+# registry's `Command.run`), most implement a pure `analyzeContent` /
+# `analyzeFile` core, and the walker-backed ones implement a `fileVisit`
+# callback. One implementation per check is what the interface REQUIRES, so
+# their bodies are meant to look alike and a drift between two of them is not a
+# finding — 51 of the 57 rows this check first reported were exactly that.
+# Everything else stays live: the six remaining pairs carry their own
+# `// twin-drift-ok:` annotation naming what deliberately differs, and the one
+# genuine duplicate it found (`containsWord`, spelled identically in
+# panic-budget and spec-quality under two parameter names) was reconciled into
+# text.zig instead of exempted.
+[twin_drift]
+ignore = ["run", "analyzeContent", "analyzeFile", "fileVisit"]
+
 [int_from_float]
 guard_fns = ["secondsToNs"]
 

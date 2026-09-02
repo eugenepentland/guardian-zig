@@ -32,6 +32,52 @@ sibling checkout.
   projection carries a reason rather than a baseline row. Keyed
   `<name>|<file>|<fn>|<sorted fields set>`, so rewording the message or moving
   the literal never re-keys a consumer baseline.
+
+- New `twin-drift` check with a `[twin_drift]` config table: two functions in
+  DIFFERENT files sharing a name whose copied bodies have stopped agreeing.
+  Measured in eda (an audit of 155 fix commits, 2026-09), "two hand-written
+  copies of one rule drifted" is the cause behind 25 of them. The live case is
+  `buildNetClassOverrides`, duplicated in `drc_session.zig` and `wasm_drc.zig`:
+  the first file's header says the JSON board parser was copied on purpose to
+  stay under the file-size cap, then the wasm copy gained `.class`,
+  `.power_branch_width`, `.keepout_mm` and `.keepout_escape_mm` over two commits
+  and the session copy gained none of them, so the session DRC now runs with no
+  keepout rule. The two share no type, no call and no file, so nothing in the
+  compiler can see it and each copy's own tests keep passing.
+  - Similarity is `2*|LCS| / (|A| + |B|)` over normalised body lines (comments
+    and blanks dropped, internal whitespace collapsed, one entry per source
+    line), which reads directly as "share N% of their body"; the motivating
+    pair measures 81% against a 0.6 floor.
+  - IDENTICAL bodies are NOT reported. Byte-identical twins are duplication
+    debt, and listing them buries the pair that is actively wrong — the same two
+    files hold four of them. `report_identical = true` asks for that inventory.
+  - A `mirrors X` / `same as Y` claim in either doc comment does NOT exempt the
+    pair, because a declared mirror that drifted is the worst case; the message
+    says `(declared mirror)` instead. The exemptions are `// twin-drift-ok:
+    <reason>` above either copy, `[twin_drift] ignore` for a name a project
+    implements once per file as an interface, and `[[allow]]`.
+  - A fn inside a `test` block, and a private fn reachable only from `test`
+    blocks in its own file (directly or through another such helper), are both
+    skipped: excluding those per-file fixtures took the eda run from 203
+    findings to 69.
+  - The advisory detail line names WHAT drifted — up to four lines one copy has
+    and the other does not, preferring new content over a line the other copy
+    merely re-wrapped, so the motivating pair reports its four missing rule
+    fields rather than a moved brace. It rides `reporter.warn`, which no
+    baseline records; the violation itself is keyed `<name>|<fileA>|<fileB>`,
+    so editing either copy further moves the percentage without re-keying the
+    row.
+  - Cost: candidates are grouped by name, a bag-of-lines upper bound rejects
+    most pairs in O(n+m), and a body over `max_lines` (default 400) is counted
+    rather than compared — the whole-tree pass over a 510k-line consumer takes
+    0.3 s.
+  - Self-hosting: the check found `containsWord` spelled identically in
+    `panic-budget` and `spec-quality` under two parameter names, now reconciled
+    into `text.zig`. Guardian's own `[twin_drift] ignore` names the four
+    check-plugin protocol functions (`run`, `analyzeContent`, `analyzeFile`,
+    `fileVisit`), one implementation per check by construction, and six sibling
+    pairs carry `// twin-drift-ok:` annotations naming what deliberately
+    differs.
 - Group ROI triage by stable subject (Guardian digest + check + finding key),
   so recurring commit-specific observation IDs no longer inflate the pending
   backlog or usefulness totals. `guardian-roi pending` now defaults to the

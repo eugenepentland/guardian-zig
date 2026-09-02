@@ -263,6 +263,10 @@ fn sitesFor(over_budget: bool, sites: []const reporter.Violation) []const report
     return if (over_budget) sites else &.{};
 }
 
+// twin-drift-ok: the two snapshot-budget checks share one lifecycle (scan the
+// tree, load or create the snapshot, compare) and differ in the Counts record
+// each carries, so the shared half is a comptime-generic budget over
+// snapshot_helper rather than a call either could make.
 fn scanTotals(ctx_param: *registry.RunCtx, sites: *SiteList) registry.RunError!Counts {
     const allocator = ctx_param.allocator;
     var totals: Counts = .{};
@@ -277,6 +281,8 @@ fn scanTotals(ctx_param: *registry.RunCtx, sites: *SiteList) registry.RunError!C
 /// Loads the budget snapshot. Returns the parsed budget, or null when the
 /// snapshot was just (re)written — meaning the caller should report success
 /// and stop.
+// twin-drift-ok: panic-budget's copy of the same lifecycle step — see the
+// note on scanTotals above.
 fn loadBudget(
     ctx: *registry.RunCtx,
     snap_path: []const u8,
@@ -297,6 +303,8 @@ fn loadBudget(
     return linesToCounts(old.lines);
 }
 
+// twin-drift-ok: panic-budget's copy of the same lifecycle step — see the
+// note on scanTotals above.
 fn handleReadError(
     allocator: std.mem.Allocator,
     e: snapshot.ReadError,

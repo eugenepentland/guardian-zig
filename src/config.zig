@@ -236,6 +236,31 @@ pub const TwinReferentCfg = struct {
     ignore: []const []const u8 = &.{},
 };
 
+/// Per-check config for twin-drift, the same-named-function drift scan.
+pub const TwinDriftCfg = struct {
+    /// Normalised body lines a function needs before it is compared at all.
+    /// Below this a body is scaffolding — a guard, a delegation, a two-line
+    /// accessor — and two files agreeing on it means nothing. Must be >= 2.
+    min_statements: u32 = 8,
+    /// How much of two bodies must overlap for the pair to be a drifted twin,
+    /// as `2·|LCS| / (|A| + |B|)`. Must be in (0, 1) — 1.0 is an identical
+    /// pair, which is `report_identical`'s subject, not this floor's. The
+    /// motivating eda pair measures 0.82, so the 0.6 default catches it with
+    /// margin while a shared-scaffolding-only pair stays below.
+    min_similarity: f64 = 0.6,
+    /// Report pairs whose normalised bodies are EQUAL. Off by default:
+    /// identical copies are duplication debt, and listing them buries the pair
+    /// that is actively wrong under the ones that are merely repeated.
+    report_identical: bool = false,
+    /// Bare function names never paired — the ones a project implements once
+    /// per file as an interface rather than copying (`run`, `deinit`).
+    ignore: []const []const u8 = &.{},
+    /// Longest body the quadratic comparison will read. A pair where either
+    /// side is longer is counted and skipped rather than silently costing
+    /// seconds on a whole-tree pass.
+    max_lines: u32 = 400,
+};
+
 /// One project-defined command that participates in Guardian's `all` gate.
 /// `command` is an argv array (no shell interpolation); `inputs` are exact or
 /// `*`-globbed project-relative files mixed into the green-run cache digest so
@@ -831,6 +856,7 @@ pub const Config = struct {
     divergent_const: DivergentConstCfg = .{},
     shadowed_const: ShadowedConstCfg = .{},
     twin_referent: TwinReferentCfg = .{},
+    twin_drift: TwinDriftCfg = .{},
     measurement: MeasurementCfg = .{},
     policy: PolicyCfg = .{},
     doctor: DoctorCfg = .{},
