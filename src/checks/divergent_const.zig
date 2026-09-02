@@ -44,7 +44,6 @@ const ast_index = @import("../ast/index.zig");
 const ast_decls = @import("../ast/decls.zig");
 const config = @import("../config.zig");
 const const_fold = @import("const_fold.zig");
-const LineCursor = @import("../text.zig").LineCursor;
 
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
@@ -90,26 +89,24 @@ const Decl = struct {
 /// namespaced by that container, so two structs holding the same name with
 /// different values is normal, and a const inside a function body is local by
 /// construction — which is exactly where harmless one-off numbers live.
+// twin-drift-ok: `shadowed-const`'s collector reads the same population, and
+// the part that could drift — which decls count and how their values fold — now
+// lives once in `const_fold.rootConsts`, which both call. What is left on each
+// side is its own record type: this one carries the `mirror` referent parsed
+// out of the doc comment, which the other check has no field for.
 fn collectFile(
     allocator: Allocator,
     entry: *const ast_index.Entry,
     out: *std.ArrayList(Decl),
 ) Allocator.Error!void {
     const tree = &entry.tree;
-    // rootDecls are in source order, so one forward-only cursor covers the file
-    // instead of re-counting newlines from byte 0 per declaration.
-    var cursor: LineCursor = .{};
-    for (tree.rootDecls()) |node| {
-        const var_decl = tree.fullVarDecl(node) orelse continue;
-        if (tree.tokenTag(var_decl.ast.mut_token) != .keyword_const) continue;
-        const init_node = var_decl.ast.init_node.unwrap() orelse continue;
-        const value = foldNode(tree, init_node, 0) orelse continue;
-        const doc = try ast_decls.precedingDocText(allocator, tree, node);
+    for (try const_fold.rootConsts(allocator, tree, entry.content)) |c| {
+        const doc = try ast_decls.precedingDocText(allocator, tree, c.node);
         try out.append(allocator, .{
             .file = entry.rel_path,
-            .name = tree.tokenSlice(var_decl.ast.mut_token + 1),
-            .line = cursor.at(entry.content, tree.tokenStart(var_decl.ast.mut_token)),
-            .value = value,
+            .name = c.name,
+            .line = c.line,
+            .value = c.value,
             .mirror = if (doc) |text| mirrorReferent(text) else null,
         });
     }

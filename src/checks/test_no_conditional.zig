@@ -20,6 +20,11 @@ const ScanCtx = struct {
 /// Structured entry: the violation records, carrying the stable identity the
 /// baseline keys on. `analyzeContent` renders these to the same lines it always
 /// returned, so the golden harness and the string-shaped callers are unaffected.
+// twin-drift-ok: this is the check-plugin protocol under a name the
+// `[twin_drift] ignore` list cannot spell. Every scanning check builds its own
+// ScanCtx, calls its own `scan`, and returns; `bool-ops-per-condition`'s
+// `analyzeContentWithLimit` is that shape too. The three lines they share are
+// the protocol; the ctx and the scan behind it are each check's own.
 pub fn analyzeRecords(
     allocator: Allocator,
     rel_path: []const u8,

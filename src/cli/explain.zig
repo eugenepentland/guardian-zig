@@ -783,22 +783,35 @@ const entries = [_]Entry{
     \\for a name a project implements once per file as an INTERFACE rather than
     \\copying, `[[allow]] check = "twin-drift"` for a path, or the `disabled`
     \\list.
-    \\Limits: pairing is by NAME (v1) — two functions in different files sharing
-    \\one, member fns by their bare name — so a copy that was renamed is
-    \\invisible. Similarity is 2*|LCS| / (|A| + |B|) over normalised body lines
-    \\(comments and blanks dropped, internal whitespace collapsed, one entry per
-    \\source line), reported as "share N% of their body". IDENTICAL bodies are
-    \\NOT reported: that is duplication debt, and listing it would bury the pair
-    \\that is actively wrong — `[twin_drift] report_identical = true` asks for
-    \\the inventory. Bodies under `min_statements` (default 8) are scaffolding
-    \\and never compared; a body over `max_lines` (default 400) is counted and
+    \\Pairing (v2): names are not consulted. Each body is re-tokenised with
+    \\Zig's own tokenizer — every string and char literal collapsed to one
+    \\`$str`, every number to `$num`, everything else kept as its text — and
+    \\becomes the multiset of its 3-gram token shingles. Every shingle gets an
+    \\idf across the run's candidate bodies, every body a tf*idf vector, and a
+    \\pair is PROPOSED when the cosine reaches `[twin_drift] pair_similarity`
+    \\(default 0.5). An inverted index accumulates that sparsely, through
+    \\shingles held by at most 96 bodies, so two functions overlapping only in
+    \\boilerplate are never compared. v1 paired by NAME and could see neither a
+    \\renamed copy nor the difference between a shared rule and a shared name.
+    \\Limits: the cosine only PROPOSES. Judgement is unchanged: similarity is
+    \\2*|LCS| / (|A| + |B|) over normalised body lines (comments and blanks
+    \\dropped, internal whitespace collapsed, one entry per source line),
+    \\reported as "share N% of their body". IDENTICAL bodies are NOT reported:
+    \\that is duplication debt, and listing it would bury the pair that is
+    \\actively wrong — `[twin_drift] report_identical = true` asks for the
+    \\inventory. Bodies under `min_statements` (default 8) are scaffolding and
+    \\never compared; a body over `max_lines` (default 400) is counted and
     \\skipped rather than paid for. A fn inside a `test` block, and a private fn
     \\reachable only from `test` blocks in its own file, are both skipped — a
-    \\per-file fixture written to the same shape is not a twin.
-    \\Baseline: one violation per pair, keyed `<name>|<fileA>|<fileB>` with the
-    \\two paths ordered, so editing either copy further moves the percentage
-    \\without re-keying the row. The differing lines ride the advisory channel,
-    \\which no baseline records.
+    \\per-file fixture written to the same shape is not a twin. Pairing by body
+    \\is not pairing by protocol: one interface implemented once per file still
+    \\looks alike whatever the implementations are called, so `ignore` still
+    \\earns its keep.
+    \\Baseline: one violation per pair, keyed `<nameA>|<fileA>|<nameB>|<fileB>`
+    \\with the two sides ordered by path, so editing either copy further moves
+    \\the percentage without re-keying the row. Renaming a copy DOES re-key it —
+    \\after a rename it is a different pair of functions. The differing lines
+    \\ride the advisory channel, which no baseline records.
     },
     .{ .name = "duplicate-json-key", .text =
     \\Why: one function writes the same JSON key twice into the same object, so

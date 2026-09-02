@@ -83,7 +83,7 @@ pub fn canonicalCheckName(name: []const u8) []const u8 {
 /// list would silently drop a check from the refresh set — the public entry
 /// points below turn OOM into the fail-closed "no refresh" default rather than
 /// a partial list.
-fn splitNames(allocator: Allocator, csv: []const u8) Allocator.Error![]const []const u8 {
+pub fn splitNames(allocator: Allocator, csv: []const u8) Allocator.Error![]const []const u8 {
     var list: std.ArrayList([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, csv, ',');
     while (it.next()) |part| {
@@ -471,6 +471,12 @@ test "classifyValue and refreshIncludes select only the named checks" {
     try testing.expect(refreshIncludes(r, "pub-api-surface"));
     try testing.expect(refreshIncludes(r, "spec"));
     try testing.expect(!refreshIncludes(r, "panic-budget"));
+    // The same split serves `--only` / `--skip`, which is why it is `pub`:
+    // blanks vanish, segments are trimmed, and the leaf alias resolves.
+    const parts = try splitNames(a, " pub-api ,, spec ");
+    try testing.expectEqual(@as(usize, 2), parts.len);
+    try testing.expectEqualStrings("pub-api-surface", parts[0]);
+    try testing.expectEqualStrings("spec", parts[1]);
 }
 
 // spec: Pub Api Surface - Accepts the pub-api snapshot leaf name as an alias for the check name

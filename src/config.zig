@@ -236,7 +236,7 @@ pub const TwinReferentCfg = struct {
     ignore: []const []const u8 = &.{},
 };
 
-/// Per-check config for twin-drift, the same-named-function drift scan.
+/// Per-check config for twin-drift, the copied-function-body drift scan.
 pub const TwinDriftCfg = struct {
     /// Normalised body lines a function needs before it is compared at all.
     /// Below this a body is scaffolding — a guard, a delegation, a two-line
@@ -248,6 +248,15 @@ pub const TwinDriftCfg = struct {
     /// motivating eda pair measures 0.82, so the 0.6 default catches it with
     /// margin while a shared-scaffolding-only pair stays below.
     min_similarity: f64 = 0.6,
+    /// How close two bodies must be for the pair to be PROPOSED at all, as the
+    /// tf-idf cosine over their 3-gram token shingles. Must be in (0, 1). This
+    /// is the pairing key — v1's was a shared function name — so it decides
+    /// which pairs the `min_similarity` judgement above ever sees. Measured on
+    /// eda: the motivating `buildNetClassOverrides` pair scores 0.74 and the
+    /// tightest renamed copy 0.55, while the two scaffolding-only pairs v1
+    /// misreported (`padNets`/`topologyTerminals`, `placement`) score 0.09 and
+    /// 0.04 — 0.5 sits in that gap with room on both sides.
+    pair_similarity: f64 = 0.5,
     /// Report pairs whose normalised bodies are EQUAL. Off by default:
     /// identical copies are duplication debt, and listing them buries the pair
     /// that is actively wrong under the ones that are merely repeated.

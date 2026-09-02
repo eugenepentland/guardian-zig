@@ -33,6 +33,12 @@ const CollectCtx = struct {
     decls: *std.ArrayList(Decl),
 };
 
+// twin-drift-ok: `pub-api-surface`'s visitor is the walker's callback protocol
+// under another name — unpack the ctx, read the file's pub fns and pub consts,
+// append. The two agree on the population BECAUSE they call the same
+// `ast.pubFns` / `ast.pubConsts`; what differs is what each records (a name for
+// the reachability map, a rendered prototype line for the snapshot) and this
+// one's three-name skip list, which is dead-pub's rule and nothing else's.
 fn collectVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     const ctx: *CollectCtx = @ptrCast(@alignCast(raw_ctx));
     const a = ctx.allocator;

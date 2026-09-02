@@ -9,6 +9,7 @@
 //! callers keep ownership of the buffers they pass in.
 
 const std = @import("std");
+const owned_map = @import("owned_map.zig");
 
 /// In-memory environment for tests: a `name -> value` map that owns its copies.
 pub const FakeEnv = struct {
@@ -24,32 +25,13 @@ pub const FakeEnv = struct {
 
     /// Frees every stored name and value, then the map itself.
     pub fn deinit(self: *FakeEnv) void {
-        var it = self.vars.iterator();
-        while (it.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
-            self.allocator.free(entry.value_ptr.*);
-        }
-        self.vars.deinit(self.allocator);
+        owned_map.deinit(&self.vars, self.allocator);
     }
 
     /// Sets `key` to `value`, replacing any current value. Both are copied,
     /// so the caller keeps ownership of the buffers it passes in.
     pub fn set(self: *FakeEnv, key: []const u8, value: []const u8) std.mem.Allocator.Error!void {
-        const value_copy = try self.allocator.dupe(u8, value);
-        if (self.vars.getPtr(key)) |slot| {
-            self.allocator.free(slot.*);
-            slot.* = value_copy;
-            return;
-        }
-        const key_copy = self.allocator.dupe(u8, key) catch |err| {
-            self.allocator.free(value_copy);
-            return err;
-        };
-        self.vars.put(self.allocator, key_copy, value_copy) catch |err| {
-            self.allocator.free(key_copy);
-            self.allocator.free(value_copy);
-            return err;
-        };
+        try owned_map.put(&self.vars, self.allocator, key, value);
     }
 
     /// Returns the value set for `key`, or null when it is unset. The slice is

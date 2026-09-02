@@ -104,6 +104,11 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 /// Records the explicit successful acceptance action without classifying any
 /// finding. Selecting metadata to refresh is evidence of an intentional action,
 /// not evidence that the underlying diagnostic was useful or false.
+// twin-drift-ok: `commit.recordCommitEvent` fills the same `check_roi.Event`
+// literal, which is why the two look alike — the shared part is the event
+// SCHEMA, and it already lives in one place (`check_roi.zig`), so a field added
+// there is added for both. What each function decides is its own: the operation
+// id joined from the refresh set here, the gate/test split there.
 fn recordAcceptEvent(ctx: *types.RunCtx, duration_ms: u64) void {
     if (!ctx.cfg.dora.enabled) return;
     const operation: ?[]const u8 = std.mem.join(ctx.allocator, ",", ctx.refresh) catch null;

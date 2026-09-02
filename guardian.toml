@@ -123,12 +123,22 @@ paths = ["src/dora*", "src/cli/bench*", "src/budget_runner.zig", "src/test_runne
 # `analyzeFile` core, and the walker-backed ones implement a `fileVisit`
 # callback. One implementation per check is what the interface REQUIRES, so
 # their bodies are meant to look alike and a drift between two of them is not a
-# finding — 51 of the 57 rows this check first reported were exactly that.
-# Everything else stays live: the six remaining pairs carry their own
-# `// twin-drift-ok:` annotation naming what deliberately differs, and the one
-# genuine duplicate it found (`containsWord`, spelled identically in
-# panic-budget and spec-quality under two parameter names) was reconciled into
-# text.zig instead of exempted.
+# finding.
+#
+# v2 pairs by BODY rather than by name, which does NOT retire this list —
+# pairing by body is not pairing by protocol, and an interface implemented once
+# per file looks alike whatever the implementations are called. Measured
+# 2026-09: 8 findings with these four names ignored, 70 without, and the extra
+# 62 are the same protocol under more spellings (`analyzeTree`,
+# `analyzeContentWithLimit`, `analyzeRecords`).
+#
+# Everything else stays live. Of the 8, three were real duplication and were
+# reconciled rather than exempted (`check.splitCsv` now calls
+# `snapshot_helper.splitNames`; `divergent-const` and `shadowed-const` share
+# `const_fold.rootConsts`; the two fakes' owned-map insert moved to
+# `fakes/owned_map.zig`), joining the earlier `containsWord` reconciliation into
+# `text.zig`. The remaining five carry their own `// twin-drift-ok:` annotation
+# naming what deliberately differs.
 [twin_drift]
 ignore = ["run", "analyzeContent", "analyzeFile", "fileVisit"]
 

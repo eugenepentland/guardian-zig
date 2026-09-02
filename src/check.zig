@@ -388,16 +388,12 @@ fn onlySkipConflict(parsed: ParsedArgs) bool {
 /// ("a,,b" -> {a,b}); empty slice when null (no filter active).
 fn splitCsv(allocator: std.mem.Allocator, csv: ?[]const u8) std.mem.Allocator.Error![]const []const u8 {
     const s = csv orelse return &.{};
-    var list: std.ArrayList([]const u8) = .empty;
-    var it = std.mem.splitScalar(u8, s, ',');
-    while (it.next()) |part| {
-        const trimmed = std.mem.trim(u8, part, &std.ascii.whitespace);
-        if (trimmed.len == 0) continue;
-        // Propagate OOM: a truncated --only/--skip list would silently narrow
-        // the suite, skipping checks the user asked to run (fail-open).
-        try list.append(allocator, snapshot_helper.canonicalCheckName(trimmed));
-    }
-    return list.toOwnedSlice(allocator);
+    // The same split `GUARDIAN_UPDATE_SNAPSHOT` gets, called rather than copied:
+    // the two lists name the same checks under the same aliases, and a rule
+    // added to one spelling and not the other is precisely the drift this
+    // delegation removes. OOM propagates — a truncated --only/--skip list would
+    // silently narrow the suite, skipping checks the user asked to run.
+    return snapshot_helper.splitNames(allocator, s);
 }
 
 /// Reads an env var; null when unset (arena-owned when present).
@@ -730,6 +726,7 @@ test {
     _ = @import("fakes/random.zig");
     _ = @import("fakes/fs.zig");
     _ = @import("fakes/env.zig");
+    _ = @import("fakes/owned_map.zig");
 
     // Checks — keep in sync with src/checks/*.zig (test-reachability blocks any
     // file whose tests no test root reaches)

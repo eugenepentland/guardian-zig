@@ -170,18 +170,12 @@ fn collectNamed(
     entry: *const ast_index.Entry,
     out: *std.ArrayList(Named),
 ) Allocator.Error!void {
-    const tree = &entry.tree;
-    var cursor: LineCursor = .{};
-    for (tree.rootDecls()) |node| {
-        const var_decl = tree.fullVarDecl(node) orelse continue;
-        if (tree.tokenTag(var_decl.ast.mut_token) != .keyword_const) continue;
-        const init_node = var_decl.ast.init_node.unwrap() orelse continue;
-        const value = foldNode(tree, init_node, 0) orelse continue;
+    for (try const_fold.rootConsts(allocator, &entry.tree, entry.content)) |c| {
         try out.append(allocator, .{
             .file = entry.rel_path,
-            .name = tree.tokenSlice(var_decl.ast.mut_token + 1),
-            .line = cursor.at(entry.content, tree.tokenStart(var_decl.ast.mut_token)),
-            .value = value,
+            .name = c.name,
+            .line = c.line,
+            .value = c.value,
         });
     }
 }

@@ -34,7 +34,7 @@ sibling checkout.
   the literal never re-keys a consumer baseline.
 
 - New `twin-drift` check with a `[twin_drift]` config table: two functions in
-  DIFFERENT files sharing a name whose copied bodies have stopped agreeing.
+  DIFFERENT files whose copied bodies have stopped agreeing.
   Measured in eda (an audit of 155 fix commits, 2026-09), "two hand-written
   copies of one rule drifted" is the cause behind 25 of them. The live case is
   `buildNetClassOverrides`, duplicated in `drc_session.zig` and `wasm_drc.zig`:
@@ -64,13 +64,10 @@ sibling checkout.
     and the other does not, preferring new content over a line the other copy
     merely re-wrapped, so the motivating pair reports its four missing rule
     fields rather than a moved brace. It rides `reporter.warn`, which no
-    baseline records; the violation itself is keyed `<name>|<fileA>|<fileB>`,
-    so editing either copy further moves the percentage without re-keying the
-    row.
-  - Cost: candidates are grouped by name, a bag-of-lines upper bound rejects
-    most pairs in O(n+m), and a body over `max_lines` (default 400) is counted
-    rather than compared — the whole-tree pass over a 510k-line consumer takes
-    0.3 s.
+    baseline records.
+  - Cost: a body over `max_lines` (default 400) is counted rather than
+    compared, and a bag-of-lines upper bound rejects a proposed pair in O(n+m)
+    before the LCS runs.
   - Self-hosting: the check found `containsWord` spelled identically in
     `panic-budget` and `spec-quality` under two parameter names, now reconciled
     into `text.zig`. Guardian's own `[twin_drift] ignore` names the four
@@ -78,6 +75,45 @@ sibling checkout.
     `fileVisit`), one implementation per check by construction, and six sibling
     pairs carry `// twin-drift-ok:` annotations naming what deliberately
     differs.
+  - **Pairing is name-agnostic (v2), and the baseline key changes with it.**
+    v1 proposed a pair only when the two functions shared a NAME. That misses a
+    copy that was renamed, and a shared name is not evidence of a shared rule,
+    so two functions overlapping only in scaffolding were proposed and then
+    judged on that scaffolding. v2 proposes from the BODIES: each is
+    re-tokenised with Zig's own tokenizer (every string and char literal
+    collapsed to one `$str` token, every number to `$num`, keywords, operators
+    and identifiers kept as their text) and becomes the multiset of its 3-gram
+    token shingles; over all candidate bodies of the run each shingle gets an
+    idf, each body a `tf*idf` vector, and a pair is proposed when the cosine
+    reaches the new `[twin_drift] pair_similarity` (default 0.5). An inverted
+    index accumulates those dot products sparsely and only through shingles held
+    by at most 96 bodies, so two bodies sharing nothing rare are never compared.
+    Judgement is untouched — the same line-level LCS against `min_similarity`
+    decides, `report_identical`, the exemptions and the detail lines are all
+    unchanged — so v2 changed which pairs are *proposed*, not how a proposed
+    pair is judged.
+    - **Consumer baselines for `twin-drift` re-key.** The identity is now
+      `<nameA>|<fileA>|<nameB>|<fileB>` with the sides ordered by path, since a
+      pair no longer has one shared name to be keyed by. Guardian is the only
+      consumer of this check so far, which is why the re-key lands now.
+    - Measured on eda (526 files, ~510k lines): v1 0.26 s / 69 pairs, v2 0.49 s
+      / 126 pairs over 5,734 candidate bodies and 263,536 distinct shingles.
+      The motivating `buildNetClassOverrides` pair scores 0.68 against the 0.5
+      floor; the two scaffolding-only pairs v1 misreported score 0.44 and 0.33.
+      56 of v1's 69 stay, 13 drop, and all 70 new pairs are copies under a
+      different name — `shapeOfPoly`/`shapeFromWorldPoly`,
+      `isSafeLibName`/`isSafeFootprint`, `writeXml`/`writeHtmlEscaped` — the
+      population v1 could not see.
+    - `[twin_drift] ignore` stays, and Guardian still needs it: pairing by body
+      is not pairing by protocol, so one interface implemented once per file
+      still looks alike whatever the implementations are called (Guardian's own
+      tree: 8 findings with the list, 70 without). Two of the eight were real
+      duplication and were reconciled rather than annotated — `check.splitCsv`
+      now calls `snapshot_helper.splitNames`, and `divergent-const` and
+      `shadowed-const` now read one `const_fold.rootConsts` population instead
+      of two hand-written copies of the same loop. A third, the copied
+      owned-string-map insert behind `FakeEnv.set` and `FakeFs.writeFile`, moved
+      to `fakes/owned_map.zig`.
 - Group ROI triage by stable subject (Guardian digest + check + finding key),
   so recurring commit-specific observation IDs no longer inflate the pending
   backlog or usefulness totals. `guardian-roi pending` now defaults to the
