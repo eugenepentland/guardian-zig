@@ -11257,3 +11257,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-02 · codex · eda — fabrication-ID release-count correction
 - **good:** Correction to the immediately preceding entry: the eight release shards passed 4,673 tests (174 + 485 + 526 + 721 + 745 + 848 + 647 + 527), not 4,672; the release result itself was fully green.
+
+## 2026-09-02 · codex · eda — target-free PCB heatsink footprint coupling
+- **good:** `type-size` and `pub-api-surface` immediately exposed that the first implementation added redundant attachment-mode fields to two already-large public structs; inferring board contact from the existing contact rectangle, physical face, and empty target produced the same behavior with no snapshot acceptance or schema growth, and the final whole-tree run passed all 72 checks.
+- **friction:** The exact-commit release gate's unrelated `pcb_editor_perf` Canvas zoom sample measured 51.7 ms against a 45 ms cap after Guardian, all tests, and the ReleaseSafe build passed. The unchanged retry passed, but cost another 189-second release run. This is another concrete case for a bounded automatic retry of one marginal browser-timing breach before discarding an otherwise verified candidate.
