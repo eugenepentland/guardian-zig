@@ -281,6 +281,8 @@ src/checks/orphan_files.zig::findOrphans | fn findOrphans( allocator: Allocator,
 src/checks/orphan_files.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/policy_drift.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/projection_completeness.zig::check_name value
+src/checks/projection_completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
@@ -453,6 +455,7 @@ src/config.zig::OrphanFilesCfg struct_
 src/config.zig::PolicyCfg struct_
 src/config.zig::PolicyMode enum_
 src/config.zig::PolicyProfile enum_
+src/config.zig::ProjectionRule struct_
 src/config.zig::ScriptStringSafetyCfg struct_
 src/config.zig::ShadowRule struct_
 src/config.zig::ShadowedConstCfg struct_
@@ -464,6 +467,7 @@ src/config.zig::TestReachabilityCfg struct_
 src/config.zig::TwinReferentCfg struct_
 src/config.zig::TwinRule struct_
 src/config.zig::TypeSizeCfg struct_
+src/config.zig::default_anonymous_min_fields value
 src/config.zig::default_files value
 src/config.zig::default_shadow_ignore_values value
 src/config.zig::extraAllowed | fn extraAllowed(self: *const Config, check_name: []const u8) []const []const u8

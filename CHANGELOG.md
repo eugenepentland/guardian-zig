@@ -6,6 +6,32 @@ sibling checkout.
 
 ## 0.2.0 - Unreleased
 
+- New `projection-completeness` check with `[[projection]]` config rules: a
+  struct literal that rebuilds a declared bundle out of the parts a caller
+  happens to hold, while omitting part of the bundle. Nothing in the compiler
+  can see it, because every field of such a struct DEFAULTS — an omitted field
+  is not an error, it is a silent empty. Measured from eda's own fix commits
+  (2026-09): `pour.Copper` gained a defaulted `arcs` field in 30c8b52c and five
+  literals projecting a Copper from a routed result kept spelling the old
+  bundle, so the connectivity oracle they feed read a net joined only by an arc
+  as an OPEN; ten sites were repaired by hand across 60275963 and 04af9ace and
+  two were still wrong afterwards (`placement/fine_accept.zig`,
+  `placement/congestion.zig`) — both of which this check reports. A rule names
+  the `type` and the `fields` that must travel together; a literal setting SOME
+  but not ALL of them is the finding, and one setting NONE of them is not a
+  projection of that bundle. `type` matches the TAIL of a literal's type path at
+  a segment boundary, so `Copper` covers `pour.Copper{` while
+  `routed_copper.Copper` covers only that one — the narrowing a repo with four
+  distinct `Copper` types needs. An anonymous `.{ … }` literal is judged only
+  when it sets `anonymous_min_fields` (default 2) of the declared set AND sets
+  nothing outside `fields` + `optional`; on eda that half reported 98 literals
+  to the typed half's 4, most of them unrelated structs whose vocabulary is a
+  subset, so `anonymous_min_fields = 0` turns it off. `test` blocks are skipped,
+  and `// projection-ok: <why>` beside the literal, above it, or on the
+  enclosing statement is the in-source exemption, so a deliberate partial
+  projection carries a reason rather than a baseline row. Keyed
+  `<name>|<file>|<fn>|<sorted fields set>`, so rewording the message or moving
+  the literal never re-keys a consumer baseline.
 - Group ROI triage by stable subject (Guardian digest + check + finding key),
   so recurring commit-specific observation IDs no longer inflate the pending
   backlog or usefulness totals. `guardian-roi pending` now defaults to the

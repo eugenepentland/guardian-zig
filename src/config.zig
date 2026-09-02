@@ -678,6 +678,45 @@ pub const DeadModelFieldRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// One `[[projection]]` entry — a bundle of fields that must travel together
+/// whenever a struct literal rebuilds the type out of parts, enforced by the
+/// `projection-completeness` check.
+///
+/// `name` is the kebab-case rule identity that leads every finding and its
+/// baseline key; `type_name` is the struct's type name, matched against the TAIL
+/// of a literal's explicit type path at a segment boundary — a bare `Copper`
+/// covers `Copper{`, `pour.Copper{` and `routed_copper.Copper{`, while the
+/// qualified `routed_copper.Copper` covers only the last, which is what a repo
+/// holding several same-named types needs; `fields` (2+) are the fields that
+/// must be set together; `optional` completes the type's vocabulary with the
+/// fields a projection may legitimately omit (it never causes a violation, but
+/// it does narrow anonymous matching — see below); `anonymous_min_fields` is how
+/// many declared fields an anonymous `.{ … }` literal must set before it counts
+/// as this projection, 0 disabling anonymous matching entirely; `allow` exempts
+/// walker-relative path globs; `reason` closes every violation.
+///
+/// An anonymous literal is judged only when it ALSO sets nothing outside
+/// `fields` + `optional`, so a same-named field on an unrelated struct does not
+/// enrol it. List every field of the type across the two keys: a field named in
+/// neither makes a genuine literal of the type look foreign.
+///
+/// A literal setting SOME of `fields` but not ALL of them is the drift this rule
+/// exists for: every field defaults, so the compiler cannot see the omission.
+pub const ProjectionRule = struct {
+    name: []const u8,
+    type_name: []const u8,
+    fields: []const []const u8 = &.{},
+    optional: []const []const u8 = &.{},
+    anonymous_min_fields: u32 = default_anonymous_min_fields,
+    allow: []const []const u8 = &.{},
+    reason: []const u8 = "",
+};
+
+/// Declared fields an anonymous literal must set before a `[[projection]]` rule
+/// claims it. Two is the floor the parser also enforces: one shared field name
+/// is a coincidence, two is a projection.
+pub const default_anonymous_min_fields: u32 = 2;
+
 /// Per-check config for fuzz-presence. Each path in `modules` must contain at
 /// least one `std.testing.fuzz` call. Opt-in by construction: an empty list (the
 /// default) is a no-op, so the check does nothing until a project names the
@@ -823,6 +862,10 @@ pub const Config = struct {
     /// surfaced-but-unenforced fields the `dead-model-field` check flags. Empty
     /// (the default) makes that check a trivial pass.
     dead_model_field_rules: []const DeadModelFieldRule = &.{},
+    /// [[projection]] entries: field bundles that must travel together whenever
+    /// a struct literal rebuilds the type (see ProjectionRule). Empty (the
+    /// default) makes the `projection-completeness` check a trivial pass.
+    projection_rules: []const ProjectionRule = &.{},
 
     /// Extra allowed-path globs configured for `check_name` via [[allow]]
     /// (empty when none). Checks merge these with their compiled defaults.
