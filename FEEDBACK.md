@@ -11254,3 +11254,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-02 · codex · eda — keep fabrication ID on masked silkscreen
 - **good:** The `spec` check caught a newly tagged perimeter-mask regression before commit because its requirement had not yet been added to `SPEC.md`; linking the placement and deferred-editor contracts made the next whole-tree run pass all 72 checks, followed by a clean 4,672-test exact-commit release.
+
+## 2026-09-02 · codex · eda — fabrication-ID release-count correction
+- **good:** Correction to the immediately preceding entry: the eight release shards passed 4,673 tests (174 + 485 + 526 + 721 + 745 + 848 + 647 + 527), not 4,672; the release result itself was fully green.
