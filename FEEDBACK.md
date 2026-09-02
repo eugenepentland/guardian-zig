@@ -11239,3 +11239,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-02 · codex · eda — close CAM cuts at filleted RF path junctions
 - **friction:** The exact-commit release gate's unrelated `pcb_editor_perf` Canvas zoom sample measured 47.3 ms against a 45 ms cap after all 72 Guardian checks, 647 tests, and the ReleaseSafe build passed. Rerunning the exact stripped candidate measured 39.6 ms and passed, but the release wrapper then had to repeat its roughly three-minute pipeline to record the candidate. A bounded automatic retry for a single marginal browser-timing breach would preserve the fail-closed gate while avoiding a full manual release retry on host jitter.
 - **good:** `pub-api-surface` exposed exactly the intended `JunctionCap` and `junctionCaps` additions, and the spec/test trace accepted the Black Canyon geometry regression without unrelated snapshot churn.
+
+## 2026-09-02 · codex · eda — default solder-mask openings to 1:1
+- **good:** The exact-commit release gate caught two stale Gerber aperture expectations outside the focused 80-test solder-mask selection; after correcting them, all 72 Guardian checks and the full 4,668-test suite passed, preventing the new zero-margin default from shipping with incomplete regression coverage.
