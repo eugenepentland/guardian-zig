@@ -830,7 +830,8 @@ const entries = [_]Entry{
     \\than degrading in silence; `--list` prints its coverage and its frozen N
     \\against the live one. `merge-file` cannot line-merge it — the rows are one
     \\measurement of one corpus — so a conflict keeps OURS whole and marks the
-    \\file for regeneration.
+    \\file for regeneration; such a table is one branch's real freeze and is
+    \\still used, but every run says so once until an accept re-measures it.
     \\ (2) What BLOCKS is narrowed — the more important of the two, because a
     \\freeze removes drift caused by Guardian's own scoring and nothing else,
     \\never a pair that crosses because someone edited a third file, and every

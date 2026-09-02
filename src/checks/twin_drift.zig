@@ -900,12 +900,53 @@ fn decodeDfKey(text: []const u8) ?u64 {
 /// with nothing on the console to explain why.
 fn loadFrozenDf(allocator: Allocator, project_dir: []const u8) Allocator.Error!?FrozenDf {
     const path = try dfPath(allocator, project_dir);
-    const snap = snapshot.read(allocator, path, df_version) catch |e| switch (e) {
-        error.Missing => return null,
+    // The BYTES rather than `snapshot.read`, because the merge driver's
+    // regenerate marker is a comment and every parser here drops comments — so
+    // a table that a merge resolved instead of measuring would otherwise be
+    // indistinguishable from one an accept had just written.
+    const content = fs.cwd().readFileAlloc(allocator, path, max_df_bytes) catch |e| switch (e) {
+        error.FileNotFound => return null,
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return warnUnusableDf(allocator, path, "it could not be read"),
+    };
+    const snap = snapshot.parse(allocator, content, df_version) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return warnUnusableDf(allocator, path, describeDfError(e)),
     };
-    return parseFrozenDf(allocator, path, snap.lines);
+    const table = try parseFrozenDf(allocator, path, snap.lines) orelse return null;
+    if (snapshot.hasRegenMarker(content)) try warnMergedDf(allocator, path);
+    return table;
+}
+
+/// Upper bound on a frozen table this check will read — the same ceiling every
+/// other `.guardian/` reader uses. eda's is 2.5 MB, so the headroom is real.
+const max_df_bytes = 16 * 1024 * 1024;
+
+/// The one line a merge-resolved table earns.
+///
+/// `merge-file` cannot combine two frozen corpora, so it keeps OURS whole and
+/// stamps `snapshot.regen_marker`. That result is a VALID freeze — it is one
+/// branch's real measurement — so the table is still used and nothing fails.
+/// But it describes the tree as that branch left it, not the merged tree in
+/// front of the check, and the marker is a comment: `snapshot.parse` drops it
+/// and every scoring decision below would read the stale table in silence. The
+/// `merge-state` check does report the marker, but only on an `all` pass; a
+/// direct `guardian-check twin-drift .` never sees it. So this says so once, on
+/// the alert tier, where `--summary` cannot collapse it and `--list` replays it
+/// above the listing.
+fn warnMergedDf(allocator: Allocator, path: []const u8) Allocator.Error!void {
+    reporter.warn(.{
+        .check = check_name,
+        .alert = true,
+        .file = path,
+        .message = try std.fmt.allocPrint(
+            allocator,
+            "{s}: the frozen df table {s} was resolved by a merge rather than measured (`{s}`) " ++
+                "\u{2014} scoring uses it as it stands; `guardian-check accept {s} .` re-measures " ++
+                "it on this tree",
+            .{ check_name, df_leaf, snapshot.regen_marker, check_name },
+        ),
+    });
 }
 
 /// Why a stored table could not be read, in one clause.
@@ -954,9 +995,9 @@ fn warnUnusableDf(allocator: Allocator, path: []const u8, why: []const u8) Alloc
         .file = path,
         .message = try std.fmt.allocPrint(
             allocator,
-            "{s}: ignoring {s} \u{2014} {s}; scoring falls back to live document frequency " ++
-                "(`guardian-check accept {s} .` rewrites the table)",
-            .{ check_name, path, why, check_name },
+            "{s}: ignoring the frozen df table {s} \u{2014} {s}; scoring falls back to live " ++
+                "document frequency (`guardian-check accept {s} .` rewrites it)",
+            .{ check_name, df_leaf, why, check_name },
         ),
     });
     return null;
@@ -2840,4 +2881,82 @@ test "twin-drift: the list header names the table's coverage and both counts" {
         .{ found.corpus.hashes.len, found.corpus.hashes.len },
     );
     try testing.expect(std.mem.indexOf(u8, covered, both) != null);
+}
+
+// spec: Twin Drift - Says so once when the frozen table was merge-resolved rather than measured
+
+test "twin-drift: a merge-resolved table is still used and says so once" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-df-merged";
+    defer fs.cwd().deleteTree(dir) catch {};
+
+    // Exactly what `merge-file` leaves behind for this format: OURS whole,
+    // under the regenerate marker it stamps on a result it did not measure.
+    const merged = "# guardian-snapshot v4\n" ++ snapshot.regen_marker ++
+        " (GUARDIAN_UPDATE_SNAPSHOT=twin-drift)\ndocs 12\n0000000a 3\n0000000b\n";
+    var cap: reporter.Capture = .{ .allocator = a };
+    const table = try loadTableFrom(a, dir, merged, &cap);
+
+    // Still USED — one branch's real measurement is a valid freeze, and the
+    // marker is not a reason to fall back to a live idf.
+    try testing.expectEqual(@as(usize, 12), table.?.docs);
+    try testing.expectEqual(@as(u32, 3), table.?.df.get(decodeDfKey("0000000a").?).?);
+    // …and said out loud exactly once, on the tier `--summary` cannot collapse.
+    try testing.expectEqual(@as(usize, 1), cap.warnings.items.len);
+    try testing.expect(cap.warnings.items[0].alert);
+    const message = cap.warnings.items[0].message;
+    try testing.expect(std.mem.indexOf(u8, message, df_leaf) != null);
+    try testing.expect(std.mem.indexOf(u8, message, snapshot.regen_marker) != null);
+    try testing.expect(std.mem.indexOf(u8, message, "accept twin-drift .") != null);
+
+    // The same file without the marker is read in silence, so the line is about
+    // the merge and not about having a table at all.
+    var quiet: reporter.Capture = .{ .allocator = a };
+    _ = try loadTableFrom(a, dir, "# guardian-snapshot v4\ndocs 12\n0000000a 3\n0000000b\n", &quiet);
+    try testing.expectEqual(@as(usize, 0), quiet.warnings.items.len);
+}
+
+// spec: Twin Drift - Drops a merge-resolve marker when an accept re-measures the table
+
+test "twin-drift: an accept rewrites a merge-resolved table without its marker" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-twin-drift-df-remeasure";
+    defer fs.cwd().deleteTree(dir) catch {};
+    try unrecordedProject(a, dir);
+    const path = try std.fmt.allocPrint(a, "{s}/.guardian/{s}", .{ dir, df_leaf });
+
+    // A table a merge resolved, sitting in the project when the accept runs.
+    try fs.cwd().writeFile(.{
+        .sub_path = path,
+        .data = "# guardian-snapshot v4\n" ++ snapshot.regen_marker ++
+            " (GUARDIAN_UPDATE_SNAPSHOT=twin-drift)\ndocs 12\n0000000a 3\n",
+    });
+    var accepting: registry.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &baseline_on,
+        .quiet = true,
+        .refresh = &.{check_name},
+    };
+    var cap: reporter.Capture = .{ .allocator = a };
+    try captureOver(&accepting, &cap, touched_both);
+
+    // The write is a full replacement, so the marker is gone and the count is
+    // this tree's — the merge's placeholder cannot survive its own remedy.
+    const after = try fs.cwd().readFileAlloc(a, path, max_df_bytes);
+    try testing.expect(!snapshot.hasRegenMarker(after));
+    try testing.expect(std.mem.indexOf(u8, after, "docs 12\n") == null);
+
+    // And a run over the rewritten table is silent again.
+    var quiet: reporter.Capture = .{ .allocator = a };
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &quiet;
+    _ = try loadFrozenDf(a, dir);
+    reporter.default.capture = prior;
+    try testing.expectEqual(@as(usize, 0), quiet.warnings.items.len);
 }

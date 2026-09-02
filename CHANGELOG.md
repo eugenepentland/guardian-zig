@@ -233,6 +233,14 @@ sibling checkout.
       `install-merge-driver`'s `.guardian/**` attribute already covers it, and
       `twin-drift-df` joins `pub-api` as a metadata leaf whose basename resolves
       to its check — so a named refresh keeps the table through a red sibling.
+    - **A merge-resolved table is used, and says so.** The regenerate marker is
+      a comment, so `snapshot.parse` drops it and the stale-but-valid table
+      would otherwise be scored against in silence (`merge-state` reports the
+      marker, but only on an `all` pass — a direct `guardian-check twin-drift .`
+      never sees it). The table is still used, because one branch's freeze is a
+      real measurement; the check just prints one `alert` line naming the file,
+      the marker and `guardian-check accept twin-drift .`, and the accept that
+      re-measures it replaces the file whole, marker included.
     - Freezing removes drift caused by Guardian's OWN scoring and nothing else.
       It does not touch a pair that genuinely crosses because someone edited a
       third file, and every refresh is a fresh chance for such a pair to appear

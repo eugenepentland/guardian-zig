@@ -1323,6 +1323,8 @@ without an explained `--force`.
 - Warns once and scores live when the frozen table cannot be read
 - Writes the frozen table only on an accept that names this check
 - Reports the frozen table's coverage on a list run
+- Says so once when the frozen table was merge-resolved rather than measured
+- Drops a merge-resolve marker when an accept re-measures the table
 - Parses the twin-drift thresholds and defaults them
 - Hard-fails a similarity outside zero to one and an unknown key
 

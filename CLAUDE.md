@@ -563,7 +563,9 @@ before the file existed. Only an accept naming twin-drift writes it
 `-Dguardian-checks=twin-drift`); no ordinary run, `--gate`, `--dry-run` or
 `--list` ever creates one, though `--dry-run`/`--list` do READ one. It is not a
 baseline — `deny_growth` and hysteresis do not apply — and `merge-file` keeps
-OURS whole on a conflict and marks the file for regeneration. An unreadable
+OURS whole on a conflict and marks the file for regeneration; a table carrying
+that marker is still used, but warns once per run until an accept re-measures
+it (the marker is a comment, so nothing else would see it). An unreadable
 table warns once and scores live; `twin-drift . --list` heads its output with
 the table's coverage and its frozen N against the live one. The whole vocabulary
 is stored (eda: 264,931 rows / 2.5 MB), because a df>=2-only table re-admitted
