@@ -11090,3 +11090,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **friction:** `scripts/guardian-roi summary <eda> --markdown` reports 651 pending subjects and 0 labels, so the ROI table cannot rank a single check; no eda session is doing the labeling step, which leaves the summary decorative.
 - **wish:** a `guardian-roi suggest` that proposes labels from git evidence (a subject's file later touched by a `fix:` commit → candidate `defect`; a subject that vanished in an `accept` commit → candidate `intentional-change`) so a human only confirms or rejects.
 - **wish:** on a green eda run `.guardian/cache/last-run.jsonl` held 327 rows, every one a `repeated-string-literal` or `line-length` report-only finding; a `demoted` flag on those rows (or a sink-side `--summary`) would let the log be read as signal rather than filtered by hand.
+
+## 2026-09-02 · codex · eda — clickable open-net DRC summary
+- **good:** The diff-scoped `spec` check caught the new browser-contract test's missing exact SPEC linkage on the first focused run; after linking it, the commit and release gates passed all 70 checks, full Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and the new Chromium click-through invariant with its negative self-test.
