@@ -224,6 +224,12 @@ pub const Visitor = struct {
 /// what keeps a `*.css` rule from opening the repository's binaries. A glob
 /// matching nothing is silence, not an error: a project may declare a rule
 /// before the canonical home or the drifting asset exists.
+// twin-drift-ok: `walk.walkRecursive` is the other directory walk and the two
+// policies are deliberately opposite. That one filters by extension and READS
+// each file for the Zig checks; this one yields every extension and reads
+// nothing, which is what keeps a `*.css` rule from opening the repository's
+// binaries. Merging them would mean one walker carrying both policies as flags,
+// and the flag that matters here is the one a caller would get wrong.
 pub fn walkFiles(
     allocator: Allocator,
     dir: fs.Dir,

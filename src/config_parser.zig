@@ -127,6 +127,7 @@ const min_float_digits_key = "min_float_digits";
 const min_int_digits_key = "min_int_digits";
 const min_statements_key = "min_statements";
 const min_similarity_key = "min_similarity";
+const pair_similarity_key = "pair_similarity";
 const report_identical_key = "report_identical";
 /// Floor on `[twin_drift] min_statements`. A one-line body two files agree on
 /// is not evidence of anything, so a floor below this would make the check's
@@ -1278,11 +1279,13 @@ fn shadowedConstValueKind(key: []const u8) ValueKind {
     return if (key[0] == 'm') .unsigned else .string_array;
 }
 
-/// The value shape of one `[twin_drift]` key. `min_similarity` is the only
-/// fractional setting in the whole config, and it shares its `m` prefix with
-/// two counts, so it is matched whole before the prefix branch can claim it.
+/// The value shape of one `[twin_drift]` key. Its two similarity floors are
+/// the only fractional settings in the whole config; `min_similarity` shares
+/// its `m` prefix with two counts, so both are matched whole before the prefix
+/// branch can claim them.
 fn twinDriftValueKind(key: []const u8) ValueKind {
     if (std.mem.eql(u8, key, min_similarity_key)) return .float;
+    if (std.mem.eql(u8, key, pair_similarity_key)) return .float;
     return switch (key[0]) {
         'm' => .unsigned,
         'r' => .boolean,
@@ -1514,11 +1517,11 @@ fn validateHysteresis(
     }
 }
 
-/// Rejects a `[twin_drift]` setting the check could not honor: a
-/// `min_similarity` outside the open interval (0, 1) — 0 pairs every function
-/// with every same-named one and 1.0 asks for identical bodies, which is
+/// Rejects a `[twin_drift]` setting the check could not honor: either
+/// similarity floor outside the open interval (0, 1) — 0 proposes or judges
+/// every pair in the tree and 1.0 asks for identical bodies, which is
 /// `report_identical`'s job — or a `min_statements` under 2, which would pair
-/// one-line bodies where agreement means nothing. Both fail closed at parse
+/// one-line bodies where agreement means nothing. All fail closed at parse
 /// time, because a threshold that silently means something else is worse than
 /// no threshold.
 fn validateTwinDrift(
@@ -1527,15 +1530,17 @@ fn validateTwinDrift(
     line_no: u32,
     diag: *Diagnostic,
 ) ParseError!void {
-    if (std.mem.eql(u8, kv.key, min_similarity_key)) {
+    const similarity = std.mem.eql(u8, kv.key, min_similarity_key) or
+        std.mem.eql(u8, kv.key, pair_similarity_key);
+    if (similarity) {
         const share = std.fmt.parseFloat(f64, kv.val) catch return;
         if (share > 0 and share < 1) return;
         try setDiag(
             allocator,
             diag,
             line_no,
-            "twin_drift min_similarity must be between 0 and 1 exclusive (got '{s}')",
-            .{kv.val},
+            "twin_drift {s} must be between 0 and 1 exclusive (got '{s}')",
+            .{ kv.key, kv.val },
         );
         return error.InvalidValue;
     }
@@ -1822,8 +1827,8 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .shadowed_const => &.{ mode_key, ignore_values_key, min_float_digits_key, min_int_digits_key },
         .twin_referent => &.{"ignore"},
         .twin_drift => &.{
-            min_statements_key, min_similarity_key, report_identical_key,
-            "ignore",           max_lines_key,
+            min_statements_key,   min_similarity_key, pair_similarity_key,
+            report_identical_key, "ignore",           max_lines_key,
         },
         .measurement => &.{"paths"},
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
@@ -2234,6 +2239,8 @@ fn applyTwinDriftKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
         g.min_statements = std.fmt.parseInt(u32, kv.val, 10) catch g.min_statements;
     } else if (std.mem.eql(u8, kv.key, min_similarity_key)) {
         g.min_similarity = std.fmt.parseFloat(f64, kv.val) catch g.min_similarity;
+    } else if (std.mem.eql(u8, kv.key, pair_similarity_key)) {
+        g.pair_similarity = std.fmt.parseFloat(f64, kv.val) catch g.pair_similarity;
     } else if (std.mem.eql(u8, kv.key, max_lines_key)) {
         g.max_lines = std.fmt.parseInt(u32, kv.val, 10) catch g.max_lines;
     } else if (std.mem.eql(u8, kv.key, report_identical_key)) {
@@ -3995,18 +4002,22 @@ test "parse twin_drift keys and default the thresholds" {
     const default_cfg = try parse(a, "");
     try std.testing.expectEqual(@as(u32, 8), default_cfg.twin_drift.min_statements);
     try std.testing.expectEqual(@as(f64, 0.6), default_cfg.twin_drift.min_similarity);
+    try std.testing.expectEqual(@as(f64, 0.5), default_cfg.twin_drift.pair_similarity);
     try std.testing.expectEqual(@as(u32, 400), default_cfg.twin_drift.max_lines);
     try std.testing.expect(!default_cfg.twin_drift.report_identical);
     const cfg = try parse(a,
         \\[twin_drift]
         \\min_statements = 12
         \\min_similarity = 0.75
+        \\pair_similarity = 0.4
         \\report_identical = true
         \\max_lines = 250
         \\ignore = ["run", "deinit"]
     );
     try std.testing.expectEqual(@as(u32, 12), cfg.twin_drift.min_statements);
     try std.testing.expectEqual(@as(f64, 0.75), cfg.twin_drift.min_similarity);
+    // The two floors are independent: one proposes a pair, the other judges it.
+    try std.testing.expectEqual(@as(f64, 0.4), cfg.twin_drift.pair_similarity);
     try std.testing.expectEqual(@as(u32, 250), cfg.twin_drift.max_lines);
     try std.testing.expect(cfg.twin_drift.report_identical);
     try std.testing.expectEqualStrings("deinit", cfg.twin_drift.ignore[1]);
@@ -4028,6 +4039,13 @@ test "parse rejects an out-of-range twin_drift threshold and an unknown key" {
     // 1.0 is `report_identical`'s subject and 0 pairs everything, so both ends
     // are closed; the interior and the statement floor are open.
     try std.testing.expectError(error.InvalidValue, parse(a, "[twin_drift]\nmin_similarity = 0\n"));
+    // The pairing floor is bounded by the same rule, and says which key failed.
+    try std.testing.expectError(
+        error.InvalidValue,
+        parseInto(a, "[twin_drift]\npair_similarity = 1.0\n", &diag),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "pair_similarity must be") != null);
+    try std.testing.expectError(error.InvalidValue, parse(a, "[twin_drift]\npair_similarity = 0\n"));
     try std.testing.expectError(error.InvalidValue, parse(a, "[twin_drift]\nmin_statements = 1\n"));
     try std.testing.expectError(error.UnknownKey, parse(a, "[twin_drift]\nmin_overlap = 0.5\n"));
     _ = try parse(a, "[twin_drift]\nmin_similarity = 0.99\nmin_statements = 2\n");

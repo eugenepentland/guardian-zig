@@ -216,11 +216,13 @@ src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_
 src/checks/concept.zig::analyzeMirror | fn analyzeMirror( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rule: config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/concurrency_presence.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/const_fold.zig::RootConst struct_
 src/checks/const_fold.zig::Value union_
 src/checks/const_fold.zig::foldNode | fn foldNode(tree: *const Ast, node: Ast.Node.Index, depth: u8) ?Value
 src/checks/const_fold.zig::foldSpelled | fn foldSpelled(text: []const u8) ?Value
 src/checks/const_fold.zig::hasUnitSegment | fn hasUnitSegment(name: []const u8) bool
 src/checks/const_fold.zig::renderValue | fn renderValue(allocator: Allocator, v: Value) Allocator.Error![]const u8
+src/checks/const_fold.zig::rootConsts | fn rootConsts( allocator: Allocator, tree: *const Ast, content: []const u8, ) Allocator.Error![]const RootConst
 src/checks/const_fold.zig::valuesEqual | fn valuesEqual(a: Value, b: Value) bool
 src/checks/dead_model_field.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/dead_pub.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -551,6 +553,8 @@ src/fakes/fs.zig::init | fn init(allocator: std.mem.Allocator) FakeFs
 src/fakes/fs.zig::listPaths | fn listPaths( self: *const FakeFs, result_allocator: std.mem.Allocator, ) std.mem.Allocator.Error![]const []const u8
 src/fakes/fs.zig::readFile | fn readFile(self: *const FakeFs, result_allocator: std.mem.Allocator, path: []const u8) ReadError![]const u8
 src/fakes/fs.zig::writeFile | fn writeFile(self: *FakeFs, path: []const u8, bytes: []const u8) std.mem.Allocator.Error!void
+src/fakes/owned_map.zig::deinit | fn deinit(map: *std.StringHashMapUnmanaged([]const u8), allocator: std.mem.Allocator) void
+src/fakes/owned_map.zig::put | fn put( map: *std.StringHashMapUnmanaged([]const u8), allocator: std.mem.Allocator, key: []const u8, value: []const u8, ) std.mem.Allocator.Error!void
 src/fakes/random.zig::SeededRandom struct_
 src/fakes/random.zig::init | fn init(seed: u64) SeededRandom
 src/fakes/random.zig::random | fn random(self: *SeededRandom) std.Random
@@ -904,6 +908,7 @@ src/snapshot_helper.zig::shouldUpdate | fn shouldUpdate(allocator: Allocator) bo
 src/snapshot_helper.zig::shouldUpdateFor | fn shouldUpdateFor(allocator: Allocator, check_name: []const u8) bool
 src/snapshot_helper.zig::shouldUpdateForCtx | fn shouldUpdateForCtx(ctx: *const types.RunCtx, check_name: []const u8) bool
 src/snapshot_helper.zig::snapshotPath | fn snapshotPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) Allocator.Error![]const u8
+src/snapshot_helper.zig::splitNames | fn splitNames(allocator: Allocator, csv: []const u8) Allocator.Error![]const []const u8
 src/snapshot_helper.zig::update_env value
 src/snapshot_helper.zig::usesLegacyBroadToken | fn usesLegacyBroadToken(allocator: Allocator) bool
 src/source_digest.zig::Error value

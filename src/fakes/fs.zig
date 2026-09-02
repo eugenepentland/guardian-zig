@@ -12,6 +12,7 @@
 //! buffers they pass in.
 
 const std = @import("std");
+const owned_map = @import("owned_map.zig");
 
 /// Errors returned by `FakeFs.readFile`: a missing key, or an allocation
 /// failure while copying the stored bytes out to the caller's allocator.
@@ -31,32 +32,13 @@ pub const FakeFs = struct {
 
     /// Frees every stored path and its contents, then the map itself.
     pub fn deinit(self: *FakeFs) void {
-        var it = self.files.iterator();
-        while (it.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
-            self.allocator.free(entry.value_ptr.*);
-        }
-        self.files.deinit(self.allocator);
+        owned_map.deinit(&self.files, self.allocator);
     }
 
     /// Stores `bytes` at `path`, replacing any existing contents. Both the
     /// path and the bytes are copied, so the caller's buffers can be reused.
     pub fn writeFile(self: *FakeFs, path: []const u8, bytes: []const u8) std.mem.Allocator.Error!void {
-        const value_copy = try self.allocator.dupe(u8, bytes);
-        if (self.files.getPtr(path)) |slot| {
-            self.allocator.free(slot.*);
-            slot.* = value_copy;
-            return;
-        }
-        const key_copy = self.allocator.dupe(u8, path) catch |err| {
-            self.allocator.free(value_copy);
-            return err;
-        };
-        self.files.put(self.allocator, key_copy, value_copy) catch |err| {
-            self.allocator.free(key_copy);
-            self.allocator.free(value_copy);
-            return err;
-        };
+        try owned_map.put(&self.files, self.allocator, path, bytes);
     }
 
     /// Returns a fresh `result_allocator`-owned copy of the bytes at `path`,

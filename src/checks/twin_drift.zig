@@ -18,19 +18,51 @@
 //! — so a pair whose normalised bodies are EQUAL is silent unless
 //! `[twin_drift] report_identical = true` asks for the inventory.
 //!
-//! The rule, then: two functions in DIFFERENT files sharing a name, whose
-//! normalised bodies overlap by at least `min_similarity` but are not equal.
-//! Similarity is `2·|LCS| / (|A| + |B|)` over normalised body lines (comments
-//! and blanks dropped, internal whitespace collapsed), which reads directly as
-//! "share N% of their body". The motivating pair measures 81% — one copy has
-//! grown four lines the other never got.
+//! The rule, then: two functions in DIFFERENT files whose normalised bodies
+//! overlap by at least `min_similarity` but are not equal. Similarity is
+//! `2·|LCS| / (|A| + |B|)` over normalised body lines (comments and blanks
+//! dropped, internal whitespace collapsed), which reads directly as "share N%
+//! of their body". The motivating pair measures 81% — one copy has grown four
+//! lines the other never got.
 //!
-//! **Same-name is the v1 pairing key** — cheap, and the shape every motivating
-//! case had (a copy keeps the original's name). It cannot see a copy that was
-//! renamed. The documented v2 seam is body-similarity pairing (bag-of-statements
-//! Jaccard over the whole tree, then LCS on the survivors); `sharedUpperBound`
-//! below is already that bag comparison, used here only as a per-pair prefilter,
-//! so v2 changes which pairs are *proposed*, not how a proposed pair is judged.
+//! **Pairing is name-agnostic (v2).** v1 proposed a pair only when the two
+//! functions shared a NAME. That is cheap and it is the shape every motivating
+//! case had, and it is wrong twice over: it cannot see a copy that was renamed,
+//! and a shared name is not evidence of a shared rule, so two functions that
+//! overlap only in scaffolding got proposed and then judged on that scaffolding.
+//!
+//! v2 proposes pairs from the BODIES. Each body is re-tokenised with Zig's own
+//! tokenizer — every string and char literal collapsed to one `$str` token,
+//! every number to `$num`, keywords, operators and identifiers kept as their
+//! text — and its document is the multiset of 3-gram token shingles. Across all
+//! candidate bodies of the run each shingle gets an `idf`, each body a `tf·idf`
+//! vector, L2-normalised; a pair is PROPOSED when the cosine reaches
+//! `pair_similarity`. An inverted index accumulates those dot products sparsely
+//! and only through shingles held by at most `max_df` bodies, so two bodies
+//! sharing nothing rare are never compared at all. Judgement is untouched: the
+//! LCS above still decides, so v2 changed which pairs are *proposed*, not how a
+//! proposed pair is judged — the seam v1's own doc promised.
+//!
+//! Measured on eda (526 files, ~510k lines, 2026-09), `pair_similarity = 0.5`:
+//!
+//!   * v1 0.26 s / 69 pairs; v2 0.49 s / 126 pairs over 5,734 candidate bodies
+//!     and 263,536 distinct shingles. The whole-tree pass stays sub-second
+//!     because the index proposes 1,026 pairs for the LCS out of the 16.4M two
+//!     bodies could form.
+//!   * The motivating `buildNetClassOverrides` pair scores 0.68 against the 0.5
+//!     floor. The two scaffolding-only pairs v1 misreported score 0.44
+//!     (`padNets`, two maps built from one loop under different value types) and
+//!     0.33 (`placement`, two unrelated helpers sharing a name) — out, with
+//!     room.
+//!   * 56 of v1's 69 stay, 13 drop and 70 are new; every one of the 70 is a copy
+//!     under a different name, which is exactly the population v1 could not see
+//!     (`shapeOfPoly`/`shapeFromWorldPoly`, `isSafeLibName`/`isSafeFootprint`,
+//!     `writeXml`/`writeHtmlEscaped`).
+//!
+//! Pairing by body is not pairing by protocol: one interface implemented once
+//! per file still looks alike whatever the implementations are called, so a
+//! project whose checks all spell `run` still wants them in `[twin_drift]
+//! ignore` (Guardian's own tree: 8 findings with that list, 70 without).
 //!
 //! Two populations are excluded because they are noise by construction:
 //!
@@ -85,6 +117,35 @@ const mirror_phrases = [_][]const u8{
 
 /// How many differing lines the advisory detail names before it elides.
 const max_detail_lines = 4;
+
+/// Tokens per shingle. Three is the smallest window that carries SHAPE rather
+/// than vocabulary: `for ( x` says something about the code, `for` on its own
+/// says only that the language has loops.
+const shingle_tokens = 3;
+
+/// A shingle held by more than this many bodies never proposes a pair. That cut
+/// does two jobs, and the second is why the number is tuned rather than picked.
+///
+/// It bounds the cost: the accumulator below visits `sum(df²)` postings, so an
+/// uncapped `df` is the quadratic pass back again (on eda, 946 shingles sit over
+/// this line out of 263,536).
+///
+/// And it is the SIGNAL. A 3-gram written in a hundred unrelated functions is
+/// boilerplate, and dropping it from the numerator — while every norm still
+/// holds it — is what pulls a scaffolding-only pair away from a copied rule.
+/// Measured on eda at the 0.5 floor, as this constant moves (pairs / seconds):
+///
+///   *  32 — 61 / 0.45. Loses the whole JSON-escaper family and a third of
+///           everything else with it.
+///   *  64 — 92 / 0.47. Still loses that family, including the pair where one
+///           copy escapes `<` and the other does not: 95% of their lines, and
+///           the archetypal finding for this check.
+///   *  96 — 126 / 0.49. The family is back; the nearest scaffolding-only pair
+///           (`padNets`) sits at 0.44 and the nearest real one at 0.55.
+///   * 128 — 144 / 0.50. `padNets` reaches 0.4949, one thousandth under.
+///   * 256 — 165 / 0.56. `padNets` 0.64 and `placement` 0.57: both of v1's
+///           false positives are back, which is the cut this line exists for.
+const max_df = 96;
 
 const fix_hint = "reconcile the two copies, or lift the shared part into one fn both call. " ++
     "If the divergence is deliberate, say so above either copy: `// twin-drift-ok: <why>`.";
@@ -403,9 +464,9 @@ fn lcsLength(allocator: Allocator, a: []const u64, b: []const u64) Allocator.Err
 
 /// How many lines two bodies could share at most, comparing them as BAGS —
 /// order ignored, so it can only over-count what an LCS finds. Running this
-/// first turns most same-name pairs into an O(n+m) rejection instead of an
-/// O(n·m) one, and it is the same measurement a future body-similarity pairing
-/// would use to propose pairs in the first place.
+/// first turns a proposed pair the index was optimistic about into an O(n+m)
+/// rejection instead of an O(n·m) one. It measures LINES, where the index
+/// measures token shingles, so it still rejects pairs the cosine proposed.
 fn sharedUpperBound(allocator: Allocator, a: []const u64, b: []const u64) Allocator.Error!u32 {
     var counts: std.AutoHashMapUnmanaged(u64, u32) = .empty;
     defer counts.deinit(allocator);
@@ -441,8 +502,9 @@ fn sharePercent(shared: u32, la: usize, lb: usize) u32 {
     return @intCast((200 * shared + total / 2) / total);
 }
 
-/// One drifted twin: two same-named functions in different files, ordered by
-/// path, with the overlap measured between their normalised bodies.
+/// One drifted twin: two functions in different files, ordered by path, with
+/// the overlap measured between their normalised bodies. Their names may
+/// differ — the index proposed the pair from the bodies alone.
 const Twin = struct {
     a: Candidate,
     b: Candidate,
@@ -484,6 +546,238 @@ fn measure(
     };
 }
 
+// ── Proposing pairs: tf-idf over token shingles ─────────────────────────
+
+/// Every string and character literal hashes to this, and every number literal
+/// to `num_token`. A copy that reworded a message or moved a constant is still
+/// the same rule; leaving the text in would also make two unrelated bodies that
+/// merely both say `"error"` look related. Identifiers are NOT collapsed — idf
+/// discounts the common ones on its own, and resolving what an identifier means
+/// would need scope analysis this check deliberately does not do.
+const str_token: u64 = 0x5f2a_7b31_c4d8_e601;
+const num_token: u64 = 0x9c1e_43a7_02bd_f58a;
+
+/// The 3-gram token shingles of one normalised body, hashed, one entry per
+/// occurrence. The body is re-joined into one text and re-tokenised with Zig's
+/// own tokenizer, so `a+b` and `a + b` shingle identically and a renamed local
+/// changes only the shingles that touch it.
+fn bodyShingles(allocator: Allocator, body: []const []const u8) Allocator.Error![]const u64 {
+    var joined: std.ArrayList(u8) = .empty;
+    for (body, 0..) |line, i| {
+        if (i > 0) try joined.append(allocator, '\n');
+        try joined.appendSlice(allocator, line);
+    }
+    const text = try joined.toOwnedSliceSentinel(allocator, 0);
+    defer allocator.free(text);
+
+    var window: [shingle_tokens]u64 = undefined;
+    var filled: usize = 0;
+    var out: std.ArrayList(u64) = .empty;
+    var tz = std.zig.Tokenizer.init(text);
+    while (true) {
+        const t = tz.next();
+        if (t.tag == .eof) break;
+        const h: u64 = switch (t.tag) {
+            .string_literal, .char_literal, .multiline_string_literal_line => str_token,
+            .number_literal => num_token,
+            else => std.hash.Wyhash.hash(3, text[t.loc.start..t.loc.end]),
+        };
+        if (filled == shingle_tokens) {
+            std.mem.copyForwards(u64, window[0 .. shingle_tokens - 1], window[1..]);
+            window[shingle_tokens - 1] = h;
+        } else {
+            window[filled] = h;
+            filled += 1;
+        }
+        if (filled == shingle_tokens) {
+            try out.append(allocator, std.hash.Wyhash.hash(5, std.mem.sliceAsBytes(&window)));
+        }
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+/// One shingle of one body: its vocabulary id, how often the body holds it, and
+/// the L2-normalised `tf·idf` that weight becomes.
+const Term = struct { id: u32, tf: u32, weight: f64 };
+
+/// The whole run's tf-idf document set: one weighted term list per candidate,
+/// ascending by id, plus the document frequency of every shingle in the
+/// vocabulary.
+const Corpus = struct {
+    docs: []const []Term,
+    df: []const u32,
+};
+
+/// Orders a document's terms by vocabulary id, so the sparse accumulation below
+/// adds its products in one fixed order — two runs over the same tree must
+/// agree to the last bit, and float addition is not associative.
+fn lessById(_: void, a: Term, b: Term) bool {
+    return a.id < b.id;
+}
+
+/// Interns every candidate's shingles into one vocabulary and counts document
+/// frequencies. `tf` is the raw occurrence count: a body that repeats a line
+/// twice really does lean twice as hard on it.
+fn buildCorpus(allocator: Allocator, candidates: []const Candidate) Allocator.Error!Corpus {
+    var vocab: std.AutoHashMapUnmanaged(u64, u32) = .empty;
+    defer vocab.deinit(allocator);
+    var df: std.ArrayList(u32) = .empty;
+    var counts: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+    defer counts.deinit(allocator);
+
+    const docs = try allocator.alloc([]Term, candidates.len);
+    for (candidates, 0..) |c, i| {
+        const shingles = try bodyShingles(allocator, c.body);
+        defer allocator.free(shingles);
+        counts.clearRetainingCapacity();
+        for (shingles) |s| {
+            const slot = try vocab.getOrPut(allocator, s);
+            if (!slot.found_existing) {
+                slot.value_ptr.* = @intCast(df.items.len);
+                try df.append(allocator, 0);
+            }
+            const seen = try counts.getOrPut(allocator, slot.value_ptr.*);
+            if (seen.found_existing) {
+                seen.value_ptr.* += 1;
+            } else {
+                seen.value_ptr.* = 1;
+                df.items[slot.value_ptr.*] += 1;
+            }
+        }
+        const terms = try allocator.alloc(Term, counts.count());
+        var it = counts.iterator();
+        var k: usize = 0;
+        while (it.next()) |e| : (k += 1) {
+            terms[k] = .{ .id = e.key_ptr.*, .tf = e.value_ptr.*, .weight = 0 };
+        }
+        std.mem.sort(Term, terms, {}, lessById);
+        docs[i] = terms;
+    }
+    return .{ .docs = docs, .df = try df.toOwnedSlice(allocator) };
+}
+
+/// Inverse document frequency, smoothed: `ln((N+1)/(df+1)) + 1`. The textbook
+/// `ln(N/df)` is exactly 0 for a shingle every body holds, and in a corpus of
+/// two bodies EVERY shared shingle is one — an unsmoothed index would go blind
+/// on a two-file project (and on every unit test below). Smoothed, the ordering
+/// is unchanged and the discount is still steep: on eda a shingle held once is
+/// weighed 8.0 against 1.0 for one held by every body.
+fn idf(docs: usize, frequency: u32) f64 {
+    const n: f64 = @floatFromInt(docs);
+    const d: f64 = @floatFromInt(frequency);
+    return @log((n + 1) / (d + 1)) + 1;
+}
+
+/// Weighs every term `tf·idf` and L2-normalises each document, so the cosine
+/// between two of them is a plain dot product. A body whose weights are all
+/// zero cannot be normalised and simply pairs with nothing.
+fn weighDocs(corpus: Corpus) void {
+    for (corpus.docs) |terms| {
+        var sum: f64 = 0;
+        for (terms) |*t| {
+            t.weight = @as(f64, @floatFromInt(t.tf)) * idf(corpus.docs.len, corpus.df[t.id]);
+            sum += t.weight * t.weight;
+        }
+        if (sum == 0) continue;
+        const norm = @sqrt(sum);
+        for (terms) |*t| t.weight /= norm;
+    }
+}
+
+/// True when a shingle may propose a pair: held by at least two bodies (one is
+/// nothing to pair with) and by no more than `max_df` (above that it is
+/// scaffolding). Note what this does to the measurement — the cosine the
+/// accumulator computes omits those terms from the numerator while the norms
+/// still hold them, so it is a LOWER bound on the true cosine. It can therefore
+/// miss a pair, never invent one.
+fn proposes(frequency: u32) bool {
+    return frequency >= 2 and frequency <= max_df;
+}
+
+/// The inverted index in CSR form: `docs[starts[id]..starts[id+1]]` are the
+/// bodies holding shingle `id`, ascending, with their weights alongside. A
+/// shingle `proposes` rejects gets an empty range.
+const Postings = struct {
+    starts: []const u32,
+    docs: []const u32,
+    weights: []const f64,
+};
+
+/// Builds that index. Document frequency already IS each kept shingle's posting
+/// count, so the offsets need no counting pass, and filling in document order
+/// leaves every posting list ascending by document.
+fn buildPostings(allocator: Allocator, corpus: Corpus) Allocator.Error!Postings {
+    const starts = try allocator.alloc(u32, corpus.df.len + 1);
+    var total: u32 = 0;
+    for (corpus.df, 0..) |frequency, id| {
+        starts[id] = total;
+        if (proposes(frequency)) total += frequency;
+    }
+    starts[corpus.df.len] = total;
+
+    const docs = try allocator.alloc(u32, total);
+    const weights = try allocator.alloc(f64, total);
+    const cursor = try allocator.alloc(u32, corpus.df.len);
+    defer allocator.free(cursor);
+    @memcpy(cursor, starts[0..corpus.df.len]);
+    for (corpus.docs, 0..) |terms, i| {
+        for (terms) |t| {
+            if (!proposes(corpus.df[t.id])) continue;
+            docs[cursor[t.id]] = @intCast(i);
+            weights[cursor[t.id]] = t.weight;
+            cursor[t.id] += 1;
+        }
+    }
+    return .{ .starts = starts, .docs = docs, .weights = weights };
+}
+
+/// Every pair of documents whose truncated tf-idf cosine reaches `floor`, as
+/// `[i, j]` with `i < j`, ascending — the pairs v2 PROPOSES, before any of them
+/// is judged. One reused score row per document keeps this sparse: only the
+/// documents actually reached through a shared rare shingle are touched, so two
+/// bodies with nothing rare in common cost nothing at all.
+fn cosinePairs(
+    allocator: Allocator,
+    corpus: Corpus,
+    postings: Postings,
+    floor: f64,
+) Allocator.Error![]const [2]u32 {
+    const scores = try allocator.alloc(f64, corpus.docs.len);
+    defer allocator.free(scores);
+    // Which row a score belongs to, so `touched` needs no clearing pass and a
+    // stale score can never be read as a live one. `docs.len` is never a row
+    // index, so it is the "no row yet" stamp.
+    const stamp = try allocator.alloc(usize, corpus.docs.len);
+    defer allocator.free(stamp);
+    @memset(stamp, corpus.docs.len);
+    var touched: std.ArrayList(u32) = .empty;
+    defer touched.deinit(allocator);
+    var out: std.ArrayList([2]u32) = .empty;
+
+    for (corpus.docs, 0..) |terms, i| {
+        touched.clearRetainingCapacity();
+        for (terms) |t| {
+            if (!proposes(corpus.df[t.id])) continue;
+            const from = postings.starts[t.id];
+            const to = postings.starts[t.id + 1];
+            for (postings.docs[from..to], postings.weights[from..to]) |j, w| {
+                if (j <= i) continue;
+                if (stamp[j] != i) {
+                    stamp[j] = i;
+                    scores[j] = 0;
+                    try touched.append(allocator, j);
+                }
+                scores[j] += t.weight * w;
+            }
+        }
+        std.mem.sort(u32, touched.items, {}, std.sort.asc(u32));
+        for (touched.items) |j| {
+            if (scores[j] >= floor) try out.append(allocator, .{ @intCast(i), j });
+        }
+    }
+    return out.toOwnedSlice(allocator);
+}
+
 // ── The pairing pass ────────────────────────────────────────────────────
 
 /// What one whole-tree pass found: the drifted pairs in source order, plus how
@@ -493,9 +787,11 @@ const Analysis = struct {
     oversize: u32,
 };
 
-/// Every drifted twin across an already-parsed set of files. Candidates are
-/// grouped by name first, so the quadratic part of the work only ever runs
-/// inside one name's group — the whole reason a 510k-line tree stays cheap.
+/// Every drifted twin across an already-parsed set of files. The tf-idf index
+/// proposes the pairs — no name is consulted — and the LCS above judges the
+/// ones it proposes. The index is what keeps a 510k-line tree cheap: the
+/// quadratic comparison only ever runs on bodies that already share a rare
+/// shingle.
 fn analyzeIndex(
     allocator: Allocator,
     files: []const ast_index.Entry,
@@ -504,70 +800,50 @@ fn analyzeIndex(
     var candidates: std.ArrayList(Candidate) = .empty;
     for (files) |*entry| try collectFile(allocator, entry, cfg, &candidates);
 
-    var groups: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty;
-    defer groups.deinit(allocator);
-    for (candidates.items, 0..) |c, i| {
-        const gop = try groups.getOrPut(allocator, c.name);
-        if (!gop.found_existing) gop.value_ptr.* = .empty;
-        try gop.value_ptr.append(allocator, @intCast(i));
-    }
+    const corpus = try buildCorpus(allocator, candidates.items);
+    weighDocs(corpus);
+    const postings = try buildPostings(allocator, corpus);
+    const proposed = try cosinePairs(allocator, corpus, postings, cfg.pair_similarity);
 
     var out: std.ArrayList(Twin) = .empty;
     var oversize: u32 = 0;
-    var seen: std.StringHashMapUnmanaged(void) = .empty;
-    defer seen.deinit(allocator);
-    // Iterating the candidates rather than the map keeps the report in source
-    // order: hash-map iteration order is not stable across runs or builds.
-    for (candidates.items) |c| {
-        if ((try seen.getOrPut(allocator, c.name)).found_existing) continue;
-        const group = groups.get(c.name).?;
-        if (group.items.len < 2) continue;
-        oversize += try comparePairs(allocator, candidates.items, group.items, cfg, &out);
+    for (proposed) |pair| {
+        const a = candidates.items[pair[0]];
+        const b = candidates.items[pair[1]];
+        if (std.mem.eql(u8, a.file, b.file)) continue;
+        if (a.exempt or b.exempt) continue;
+        if (a.body.len > cfg.max_lines or b.body.len > cfg.max_lines) {
+            oversize += 1;
+            continue;
+        }
+        const twin = try measure(allocator, a, b, cfg) orelse continue;
+        try out.append(allocator, twin);
     }
     return .{ .twins = try out.toOwnedSlice(allocator), .oversize = oversize };
 }
 
-/// Compares every pair inside one name's group, appending the twins it finds
-/// and returning how many pairs were skipped as oversized.
-fn comparePairs(
-    allocator: Allocator,
-    candidates: []const Candidate,
-    group: []const u32,
-    cfg: config.TwinDriftCfg,
-    out: *std.ArrayList(Twin),
-) Allocator.Error!u32 {
-    var oversize: u32 = 0;
-    for (group, 0..) |ai, gi| {
-        for (group[gi + 1 ..]) |bi| {
-            const a = candidates[ai];
-            const b = candidates[bi];
-            if (std.mem.eql(u8, a.file, b.file)) continue;
-            if (a.exempt or b.exempt) continue;
-            if (a.body.len > cfg.max_lines or b.body.len > cfg.max_lines) {
-                oversize += 1;
-                continue;
-            }
-            const twin = try measure(allocator, a, b, cfg) orelse continue;
-            try out.append(allocator, twin);
-        }
-    }
-    return oversize;
-}
-
 // ── Reporting ───────────────────────────────────────────────────────────
 
-/// The blocking violation for one drifted pair. `identity` is the two paths
-/// under the shared name and carries no measurement, so editing either copy
-/// further — which moves the percentage and the line counts — leaves a
-/// consumer's baseline row exactly where it was.
+/// The blocking violation for one drifted pair. `identity` is both names under
+/// both paths, ordered by path, and carries no measurement — so editing either
+/// copy further, which moves the percentage and the line counts, leaves a
+/// consumer's baseline row exactly where it was. A renamed copy DOES re-key,
+/// which is right: after a rename it is a different pair of functions.
 fn violationFor(allocator: Allocator, t: Twin) Allocator.Error!reporter.Violation {
+    // The second name is named only when it differs — for the same-name pairs
+    // that were all v1 could see, the message reads exactly as it did.
+    const second = if (std.mem.eql(u8, t.a.name, t.b.name))
+        ""
+    else
+        try std.fmt.allocPrint(allocator, "fn {s} ", .{t.b.name});
     const message = try std.fmt.allocPrint(
         allocator,
-        "twin-drift: fn {s} ({d} lines) and {s}:{d} ({d} lines) share {d}% of their body " ++
+        "twin-drift: fn {s} ({d} lines) and {s}:{d} {s}({d} lines) share {d}% of their body " ++
             "and differ in {d} line(s){s} \u{2014} reconcile the two copies or lift the shared " ++
             "part into one fn (// twin-drift-ok: <why> if the divergence is deliberate)",
         .{
-            t.a.name,  t.a.body.len, t.b.file,                                             t.b.line, t.b.body.len,
+            t.a.name,  t.a.body.len, t.b.file,
+            t.b.line,  second,       t.b.body.len,
             t.percent, t.differing,  if (t.declaredMirror()) " (declared mirror)" else "",
         },
     );
@@ -577,7 +853,11 @@ fn violationFor(allocator: Allocator, t: Twin) Allocator.Error!reporter.Violatio
         .line = t.a.line,
         .message = message,
         .fix_hint = fix_hint,
-        .identity = try std.fmt.allocPrint(allocator, "{s}|{s}|{s}", .{ t.a.name, t.a.file, t.b.file }),
+        .identity = try std.fmt.allocPrint(
+            allocator,
+            "{s}|{s}|{s}|{s}",
+            .{ t.a.name, t.a.file, t.b.name, t.b.file },
+        ),
         .metric = t.percent,
     };
 }
@@ -738,7 +1018,7 @@ pub fn run(ctx: *registry.RunCtx) registry.RunError!void {
         ),
     });
     if (found.twins.len == 0) {
-        reporter.ok("twin-drift: no same-named function has drifted from its twin", .{});
+        reporter.ok("twin-drift: no copied function body has drifted from its twin", .{});
         return;
     }
     reporter.fail("twin-drift FAILED ({d} drifted pair(s))", .{found.twins.len});
@@ -764,6 +1044,35 @@ fn testEntry(a: Allocator, rel_path: []const u8, source: [:0]const u8) !ast_inde
 /// needs, with the one part under test spelled by the caller.
 fn ruleSource(a: Allocator, prefix: []const u8, lines: []const u8) ![:0]const u8 {
     return std.fmt.allocPrintSentinel(a, "{s}pub fn parseRule(v: u32) u32 {{\n{s}}}\n", .{ prefix, lines }, 0);
+}
+
+/// A body of pure scaffolding — the shape a tree writes over and over, which is
+/// what makes its shingles common and its agreement meaningless.
+const scaffold_body =
+    \\    var out: u32 = 0;
+    \\    const a0 = p0;
+    \\    const a1 = p1;
+    \\    const a2 = p2;
+    \\    const a3 = p3;
+    \\    const a4 = p4;
+    \\    const a5 = p5;
+    \\    const a6 = p6;
+    \\
+;
+
+/// Parses a list of `(path, source)` pairs into the index entries the pure core
+/// consumes.
+fn entriesOf(a: Allocator, sources: []const [2][]const u8) ![]const ast_index.Entry {
+    var files: std.ArrayList(ast_index.Entry) = .empty;
+    for (sources) |src| {
+        try files.append(a, try testEntry(a, src[0], try a.dupeSentinel(u8, src[1], 0)));
+    }
+    return files.toOwnedSlice(a);
+}
+
+/// The same shape under another function name, for the pairing v1 could not do.
+fn renamedSource(a: Allocator, name: []const u8, lines: []const u8) ![:0]const u8 {
+    return std.fmt.allocPrintSentinel(a, "pub fn {s}(v: u32) u32 {{\n{s}}}\n", .{ name, lines }, 0);
 }
 
 /// The eight-line body the min_statements floor admits, as a baseline both
@@ -890,7 +1199,7 @@ test "twin-drift: a drifted pair fires and a dissimilar pair does not" {
     try testing.expectEqual(@as(u32, 94), t.percent);
     try testing.expectEqual(@as(u32, 1), t.differing);
     const v = try violationFor(a, t);
-    try testing.expectEqualStrings("parseRule|src/a.zig|src/b.zig", v.identity.?);
+    try testing.expectEqualStrings("parseRule|src/a.zig|parseRule|src/b.zig", v.identity.?);
     try testing.expect(std.mem.indexOf(u8, v.message, "share 94% of their body") != null);
     const detail = (try detailFor(a, t)).?;
     try testing.expect(std.mem.indexOf(u8, detail.message, "out += 6;") != null);
@@ -990,9 +1299,9 @@ test "twin-drift: an ignored name is never paired" {
     try testing.expectEqual(@as(usize, 0), found.twins.len);
 }
 
-// spec: Twin Drift - Pairs a struct member with a top-level function of the same bare name
+// spec: Twin Drift - Reads a struct member function as a candidate like a top-level one
 
-test "twin-drift: a member fn pairs with a top-level fn by bare name" {
+test "twin-drift: a member fn is a candidate beside a top-level fn" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -1054,26 +1363,190 @@ test "twin-drift: a private helper reached only from tests is not a twin" {
     try testing.expectEqual(@as(usize, 0), found.twins.len);
 }
 
-// spec: Twin Drift - Keys a pair by the two paths under the shared name so a further edit does not re-key it
+// spec: Twin Drift - Keys a pair by both names under both paths ordered by path
 
-test "twin-drift: editing a body further keeps the pair's identity" {
+test "twin-drift: identity carries both names and both paths, ordered by path" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const left = try ruleSource(a, "", base_body ++ "    out += 9;\n");
-    const before = try analyzeSources(a, &.{
+    const renamed = try renamedSource(a, "readRule", base_body);
+    // The later path is stated FIRST, so ordering by path is what puts a.zig on
+    // the left of the key rather than the order the files happened to arrive in.
+    const found = try analyzeSources(a, &.{
+        .{ "src/b.zig", renamed },
         .{ "src/a.zig", left },
-        .{ "src/b.zig", try ruleSource(a, "", base_body) },
     }, .{});
+    try testing.expectEqual(@as(usize, 1), found.twins.len);
+    const v = try violationFor(a, found.twins[0]);
+    try testing.expectEqualStrings("parseRule|src/a.zig|readRule|src/b.zig", v.identity.?);
+
+    // Editing either body further moves the measurement, never the key.
     const after = try analyzeSources(a, &.{
         .{ "src/a.zig", left },
-        .{ "src/b.zig", try ruleSource(a, "", base_body ++ "    out += 4;\n") },
+        .{ "src/b.zig", try renamedSource(a, "readRule", base_body ++ "    out += 4;\n") },
     }, .{});
-    const first = try violationFor(a, before.twins[0]);
-    const second = try violationFor(a, after.twins[0]);
-    // The measurement moved; the baseline key did not.
-    try testing.expect(before.twins[0].percent != after.twins[0].percent);
-    try testing.expectEqualStrings(first.identity.?, second.identity.?);
+    try testing.expect(found.twins[0].percent != after.twins[0].percent);
+    try testing.expectEqualStrings(v.identity.?, (try violationFor(a, after.twins[0])).identity.?);
+}
+
+// spec: Twin Drift - Maps every string, character and number literal to one placeholder token
+
+test "twin-drift: shingles read past the literals a copy reworded" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const first = [_][]const u8{ "try w.writeAll(\"expected a net\");", "count += 12;", "if (c == 'x') return;" };
+    const second = [_][]const u8{ "try w.writeAll(\"no net here\");", "count += 9_000;", "if (c == 'q') return;" };
+    // Same code, every literal reworded: the shingles come out byte-identical.
+    try testing.expectEqualSlices(u64, try bodyShingles(a, &first), try bodyShingles(a, &second));
+    // An identifier is NOT collapsed, so renaming one really does move shingles.
+    const renamed = [_][]const u8{ "try w.writeAll(\"expected a net\");", "total += 12;", "if (c == 'x') return;" };
+    try testing.expect(!std.mem.eql(u64, try bodyShingles(a, &first), try bodyShingles(a, &renamed)));
+}
+
+// spec: Twin Drift - Weighs a shingle by inverse document frequency so a common one counts for less
+
+test "twin-drift: idf falls as a shingle spreads across more bodies" {
+    // Rare beats common, monotonically, and a shingle every body holds still
+    // carries a floor rather than 0 — an unsmoothed idf is exactly 0 there, and
+    // in a two-body corpus EVERY shared shingle is one, so nothing would pair.
+    try testing.expect(idf(100, 1) > idf(100, 10));
+    try testing.expect(idf(100, 10) > idf(100, 100));
+    try testing.expect(idf(100, 100) > 0);
+    try testing.expect(idf(2, 2) > 0);
+}
+
+// spec: Twin Drift - Refuses to pair two bodies whose only overlap is scaffolding the tree repeats
+
+test "twin-drift: a scaffolding-only overlap is under the pair floor" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var sources: std.ArrayList([2][]const u8) = .empty;
+    // Ten other files write the same scaffolding, which is what MAKES it
+    // scaffolding: idf discounts it and the pair loses its only common ground.
+    // Each filler carries twelve lines of its own as well, so no filler is
+    // itself a twin of anything — only the scaffolding's frequency is at issue.
+    for (0..10) |i| {
+        var body: std.ArrayList(u8) = .empty;
+        try body.appendSlice(a, scaffold_body);
+        for (0..12) |k| {
+            const line = try std.fmt.allocPrint(
+                a,
+                "    out = f{d}_{d}(v) + g{d}_{d}(v) * h{d}_{d}(v) - j{d}_{d}(v);\n",
+                .{ i, k, i, k, i, k, i, k },
+            );
+            try body.appendSlice(a, line);
+        }
+        const name = try std.fmt.allocPrint(a, "src/filler{d}.zig", .{i});
+        try sources.append(a, .{ name, try renamedSource(a, "sweep", body.items) });
+    }
+    try sources.append(a, .{
+        "src/left.zig",
+        try renamedSource(a, "collectLeft", scaffold_body ++
+            \\    out += widthOf(v);
+            \\    out += heightOf(v);
+            \\    out += depthOf(v);
+            \\
+        ),
+    });
+    try sources.append(a, .{
+        "src/right.zig",
+        try renamedSource(a, "collectRight", scaffold_body ++
+            \\    out -= angleOf(v);
+            \\    out -= radiusOf(v);
+            \\    out -= chordOf(v);
+            \\
+        ),
+    });
+    const found = try analyzeIndex(a, try entriesOf(a, sources.items), .{});
+    try testing.expectEqual(@as(usize, 0), found.twins.len);
+    // The LCS the judgement uses would have said yes — 8 of 11 lines are shared
+    // — so it is the pair floor, not the similarity floor, keeping this quiet.
+    const wide = try analyzeIndex(a, try entriesOf(a, sources.items), .{ .pair_similarity = 0.01 });
+    try testing.expect(wide.twins.len > 0);
+}
+
+// spec: Twin Drift - Pairs a copy that was renamed, function and parameter alike
+
+test "twin-drift: a renamed copy with a renamed parameter still pairs" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const original = try ruleSource(a, "", base_body ++ "    out += 9;\n");
+    // Another function name, another parameter spelling, and one line the copy
+    // never got. v1 saw nothing here at all.
+    const copy =
+        \\pub fn readRule(n: u32) u32 {
+        \\    var out: u32 = 0;
+        \\    out += n;
+        \\    out += 1;
+        \\    out += 2;
+        \\    out += 3;
+        \\    out += 4;
+        \\    out += 5;
+        \\    return out;
+        \\}
+        \\
+    ;
+    const found = try analyzeSources(a, &.{
+        .{ "src/a.zig", original },
+        .{ "src/b.zig", copy },
+    }, .{});
+    try testing.expectEqual(@as(usize, 1), found.twins.len);
+    const v = try violationFor(a, found.twins[0]);
+    // Both names are on the line, because neither one identifies the pair alone.
+    try testing.expect(std.mem.indexOf(u8, v.message, "fn parseRule") != null);
+    try testing.expect(std.mem.indexOf(u8, v.message, "src/b.zig:1 fn readRule") != null);
+}
+
+// spec: Twin Drift - Proposes no pair below the configured pair floor
+
+test "twin-drift: raising pair_similarity withdraws a pair the LCS would report" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const sources = [_][2][]const u8{
+        .{ "src/a.zig", try ruleSource(a, "", base_body ++ "    out += 9;\n") },
+        .{ "src/b.zig", try renamedSource(a, "readRule", base_body) },
+    };
+    try testing.expectEqual(@as(usize, 1), (try analyzeSources(a, &sources, .{})).twins.len);
+    // Nothing about the pair moved but the floor it has to clear.
+    const strict = try analyzeSources(a, &sources, .{ .pair_similarity = 0.999 });
+    try testing.expectEqual(@as(usize, 0), strict.twins.len);
+}
+
+// spec: Twin Drift - Never reaches a body that shares no shingle rare enough to propose a pair
+
+test "twin-drift: the index proposes only pairs that share a rare shingle" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const one: Candidate = .{
+        .file = "src/a.zig",
+        .name = "a",
+        .line = 1,
+        .body = &.{ "const seat = rowOf(v);", "return seat + 1;" },
+        .hashes = &.{},
+        .exempt = false,
+        .mirror = false,
+    };
+    var twin = one;
+    twin.file = "src/b.zig";
+    var alien = one;
+    alien.file = "src/c.zig";
+    alien.body = &.{ "while (n < cap) n *= 3;", "emit(n);" };
+    const candidates = [_]Candidate{ one, twin, alien };
+
+    const corpus = try buildCorpus(a, &candidates);
+    weighDocs(corpus);
+    const pairs = try cosinePairs(a, corpus, try buildPostings(a, corpus), 0.000_1);
+    // Floored at almost nothing, the third body is still never scored: it shares
+    // no shingle with either of the others, so the index never reaches it.
+    try testing.expectEqual(@as(usize, 1), pairs.len);
+    try testing.expectEqual(@as(u32, 0), pairs[0][0]);
+    try testing.expectEqual(@as(u32, 1), pairs[0][1]);
 }
 
 // spec: Twin Drift - Leaves a pair uncompared when a body exceeds max_lines

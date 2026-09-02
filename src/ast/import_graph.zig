@@ -88,6 +88,11 @@ fn resolveImport(
 
 /// How many `test` blocks `z` declares. Token-based, so a `test` inside a
 /// string literal, a comment, or a doc comment never counts.
+// twin-drift-ok: `debt.countAssertCalls` is the same tokenizer loop counting a
+// different thing. What the two share is `std.zig.Tokenizer`'s own drive loop —
+// init, next until .eof — which is the API's shape, not a rule either file
+// owns; the only line that decides anything differs, and lifting the loop
+// behind a per-token callback would cost more than the six lines it saves.
 fn countTestBlocks(z: [:0]const u8) u32 {
     var tok = std.zig.Tokenizer.init(z);
     var count: u32 = 0;

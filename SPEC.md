@@ -1060,6 +1060,7 @@ without an explained `--force`.
 - FakeEnv get returns a set value
 - FakeEnv get returns null for an unset key
 - FakeEnv unset removes a variable
+- Stores an owned key and value once and replaces a value in place
 
 ## Ban Secrets
 
@@ -1237,6 +1238,7 @@ without an explained `--force`.
 
 - Folds one literal initializer expression to one comparable value
 - Folds a signed numeric spelling supplied by config
+- Collects the file-scope numeric consts both const checks read
 - Recognises a name whose trailing segment is a unit
 
 ## Shadowed Const
@@ -1289,10 +1291,16 @@ without an explained `--force`.
 - Names the lines one copy never got and passes over a re-wrapped one
 - Silences a pair annotated twin-drift-ok above either copy
 - Silences a function name the ignore list holds
-- Pairs a struct member with a top-level function of the same bare name
+- Reads a struct member function as a candidate like a top-level one
 - Names a declared mirror in the message without exempting it
 - Skips a private helper only test blocks reach
-- Keys a pair by the two paths under the shared name so a further edit does not re-key it
+- Maps every string, character and number literal to one placeholder token
+- Weighs a shingle by inverse document frequency so a common one counts for less
+- Refuses to pair two bodies whose only overlap is scaffolding the tree repeats
+- Pairs a copy that was renamed, function and parameter alike
+- Proposes no pair below the configured pair floor
+- Never reaches a body that shares no shingle rare enough to propose a pair
+- Keys a pair by both names under both paths ordered by path
 - Leaves a pair uncompared when a body exceeds max_lines
 - Parses the twin-drift thresholds and defaults them
 - Hard-fails a similarity outside zero to one and an unknown key

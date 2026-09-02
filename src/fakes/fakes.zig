@@ -19,6 +19,7 @@ const clock = @import("clock.zig");
 const random = @import("random.zig");
 const fs = @import("fs.zig");
 const env = @import("env.zig");
+const owned_map = @import("owned_map.zig");
 
 /// Deterministic, `std.time`-free clock double (see `fakes/clock.zig`).
 pub const FakeClock = clock.FakeClock;
@@ -43,4 +44,5 @@ test {
     _ = random;
     _ = fs;
     _ = env;
+    _ = owned_map;
 }

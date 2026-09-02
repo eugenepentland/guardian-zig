@@ -20,6 +20,8 @@
 
 const std = @import("std");
 
+const LineCursor = @import("../text.zig").LineCursor;
+
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
 
@@ -244,6 +246,52 @@ pub fn hasUnitSegment(name: []const u8) bool {
     return false;
 }
 
+// ── The population both checks read ─────────────────────────────────────
+
+/// One file-scope `const NAME = <foldable numeric expr>;`. `node` is kept so a
+/// caller that needs more of the declaration — `divergent-const` reads the doc
+/// comment above it — can ask the tree for it without walking the file again.
+pub const RootConst = struct {
+    node: Ast.Node.Index,
+    name: []const u8,
+    line: u32,
+    value: Value,
+};
+
+/// Every file-scope numeric const of one parsed file, in source order.
+///
+/// Only `rootDecls` are read: a const nested inside a container is namespaced
+/// by that container, so two structs holding the same name with different
+/// values is normal, and a const inside a function body is local by
+/// construction — which is exactly where harmless one-off numbers live. Both
+/// checks depend on that being the SAME population; measured by twin-drift, the
+/// two hand-written copies of this loop had already reached 93% similarity, and
+/// a filter added to one of them would have quietly given the two checks
+/// different populations to reason about.
+pub fn rootConsts(
+    allocator: Allocator,
+    tree: *const Ast,
+    content: []const u8,
+) Allocator.Error![]const RootConst {
+    var out: std.ArrayList(RootConst) = .empty;
+    // rootDecls are in source order, so one forward-only cursor covers the file
+    // instead of re-counting newlines from byte 0 per declaration.
+    var cursor: LineCursor = .{};
+    for (tree.rootDecls()) |node| {
+        const var_decl = tree.fullVarDecl(node) orelse continue;
+        if (tree.tokenTag(var_decl.ast.mut_token) != .keyword_const) continue;
+        const init_node = var_decl.ast.init_node.unwrap() orelse continue;
+        const value = foldNode(tree, init_node, 0) orelse continue;
+        try out.append(allocator, .{
+            .node = node,
+            .name = tree.tokenSlice(var_decl.ast.mut_token + 1),
+            .line = cursor.at(content, tree.tokenStart(var_decl.ast.mut_token)),
+            .value = value,
+        });
+    }
+    return out.toOwnedSlice(allocator);
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 const testing = std.testing;
@@ -286,6 +334,35 @@ test "foldSpelled reads a config-declared number including its sign" {
     try testing.expect(foldSpelled("half") == null);
     try testing.expect(foldSpelled("-") == null);
     try testing.expect(foldSpelled("") == null);
+}
+
+// spec: Const Folding - Collects the file-scope numeric consts both const checks read
+
+test "rootConsts yields every file-scope const that folds, and nothing else" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source =
+        \\const width_mm = 4 * 8;
+        \\var live: u32 = 3;
+        \\const label = "not a number";
+        \\const Box = struct {
+        \\    const inner_mm = 9;
+        \\};
+        \\pub fn f() void {
+        \\    const local_mm = 7;
+        \\    _ = local_mm;
+        \\}
+        \\
+    ;
+    var tree = try Ast.parse(a, source, .{});
+    // A `var`, a non-numeric initializer, a const inside a container and a const
+    // inside a function body are all out: only the first line is the population.
+    const found = try rootConsts(a, &tree, source);
+    try testing.expectEqual(@as(usize, 1), found.len);
+    try testing.expectEqualStrings("width_mm", found[0].name);
+    try testing.expectEqual(@as(u32, 1), found[0].line);
+    try testing.expect(valuesEqual(found[0].value, .{ .int = 32 }));
 }
 
 // spec: Const Folding - Recognises a name whose trailing segment is a unit
