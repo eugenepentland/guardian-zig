@@ -11081,3 +11081,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-01 · codex · eda — repair complete design archive downloads
 - **good:** `change-classification` required regressions for both the expanded release-trace contract and surfaced browser error text before the repair could commit; the linked tests then passed all 70 whole-tree checks, 4,510 Debug tests, ReleaseSafe build, deterministic Barracuda editor gate, and state-ownership invariants in one candidate cycle.
+
+## 2026-09-02 · codex · eda — searchable offline schematic export
+- **good:** `js-asset-gates` immediately rejected the new first-party offline browser bundle until it had its own `node --check` external, and `function-size` caught an unnecessary pair of nine-parameter renderer helpers; registering the asset and folding behavior into the existing function with an options struct produced a clean 70-check whole-tree run, full tests, ReleaseSafe build, deterministic editor gate, and state-ownership invariants.
