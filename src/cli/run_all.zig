@@ -21,6 +21,7 @@ const scope = @import("../scope.zig");
 const git = @import("../git.zig");
 const ratchet = @import("../ratchet.zig");
 const run_view = @import("run_view.zig");
+const selfcheck = @import("selfcheck.zig");
 const bench = @import("bench.zig");
 const measurement = @import("../measurement.zig");
 const writer_lock = @import("../writer_lock.zig");
@@ -765,30 +766,37 @@ fn failuresLookLikeRekey(failed_checks: []const []const u8) bool {
 
 /// Pure hint decision: warn about a stale binary only when the failures look
 /// like re-keying AND the running binary differs from the last green stamp's.
-fn binaryDriftHintApplies(rekey_failures: bool, binary_matches_stamp: bool) bool {
-    return rekey_failures and !binary_matches_stamp;
+fn binaryDriftHintApplies(rekey_failures: bool, binary_drifted: bool) bool {
+    return rekey_failures and binary_drifted;
 }
 
 /// Prints the stale-binary rebuild hint when a blocking failure's shape matches
-/// snapshot/ratchet re-keying and the running binary identity differs from the
+/// snapshot/ratchet re-keying and the running guardian build differs from the
 /// last green stamp's. Best-effort: any missing stamp or I/O failure skips it.
 fn binaryDriftHint(ctx: *types.RunCtx, failed_checks: []const []const u8) void {
     if (!failuresLookLikeRekey(failed_checks)) return;
-    const stored = (cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return) orelse return;
-    const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
-    if (!binaryDriftHintApplies(true, cache.eql(stored, current))) return;
+    const stamped = cache.readStampedBinary(ctx.allocator, ctx.project_dir) catch return;
+    const running = selfcheck.runningIdentity(ctx.allocator) catch return;
+    if (!binaryDriftHintApplies(true, cache.binaryDrifted(stamped, running))) return;
     reporter.detail(
         "  hint: guardian-check binary differs from the last green run — {s}\n",
-        .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx))},
+        .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx, stamped))},
     );
 }
 
-/// Which side of a binary-identity mismatch is newer: the binary running now,
-/// or the green stamp that recorded the last gating binary. The stamp file's
-/// mtime IS the moment that green was recorded, so no extra state is stored —
-/// naming the direction is what turns "they differ" into an action.
-fn binaryAgeVsStamp(ctx: *types.RunCtx) run_view.BinaryAge {
-    return run_view.binaryAge(cache.currentBinaryMtime(ctx.allocator), cache.stampMtime(ctx.project_dir));
+/// Which side of a guardian-build mismatch is newer: the binary running now, or
+/// the one that stamped this tree green.
+///
+/// The comparison is binary-mtime against binary-mtime. The stamp FILE's mtime
+/// is only a fallback for a stamp written before the gating binary's own mtime
+/// was recorded, because that file is dated when the gate ran, not when its
+/// binary was built — so a binary built after the stamping one, but before that
+/// run, was told it was "OLDER than the one that last gated the tree".
+fn binaryAgeVsStamp(ctx: *types.RunCtx, stamped: cache.StampedBinary) run_view.BinaryAge {
+    return run_view.binaryAge(
+        cache.currentBinaryMtime(ctx.allocator),
+        stamped.mtime orelse cache.stampMtime(ctx.project_dir),
+    );
 }
 
 /// True when this run may WRITE `.guardian/` metadata and therefore needs the
@@ -803,27 +811,22 @@ fn writesMetadata(ctx: *types.RunCtx) bool {
 }
 
 /// Prints a one-line stale-binary warning when a green stamp records a guardian
-/// binary identity that differs from the running binary's — before any check
-/// runs, so a re-key red reads as "rebuild first". The identity is content-based
-/// (cache.selfBinaryId), so a mismatch is a genuinely different build, not the
-/// same build reached by another path. Best-effort: a missing stamp or any I/O
-/// error skips it silently.
+/// build that differs from the running one — before any check runs, so a re-key
+/// red reads as "rebuild first". The identity compared is the SOURCE digest the
+/// binary was built from (`cache.binaryDrifted`), so a binary that would pass
+/// `selfcheck` against the stamped source can never be accused: six eda
+/// worktrees, each freshly gated behind a passing selfcheck, were all told
+/// their binary was older than the one that had just gated the same tree.
+/// Best-effort: a missing stamp or any I/O error skips it silently.
 fn warnStaleBinary(ctx: *types.RunCtx) void {
-    const stored = cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return;
-    const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
-    if (!staleBinaryWarnable(stored, current)) return;
+    const stamped = cache.readStampedBinary(ctx.allocator, ctx.project_dir) catch return;
+    const running = selfcheck.runningIdentity(ctx.allocator) catch return;
+    if (!cache.binaryDrifted(stamped, running)) return;
     reporter.detail(
         reporter.prefix ++ "warning: this guardian-check binary is a different build from the one that " ++
             "last gated this tree — {s}; snapshot/ratchet drift below may come from that, not the tree\n",
-        .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx))},
+        .{run_view.binaryAgeNote(binaryAgeVsStamp(ctx, stamped))},
     );
-}
-
-/// Pure decision for warnStaleBinary: warn only when a green stamp recorded a
-/// binary identity (present) that differs from the running binary's.
-fn staleBinaryWarnable(stored: ?cache.Digest, current: cache.Digest) bool {
-    const s = stored orelse return false;
-    return !cache.eql(s, current);
 }
 
 /// Pure decision for the cold-cache marker: a run is "cold" (the first gate on
@@ -1060,9 +1063,9 @@ fn digestMatchesStored(ctx: *types.RunCtx) bool {
 fn stampGreen(ctx: *types.RunCtx) void {
     if (!ctx.cfg.cache_enabled) return;
     const d = cache.inputDigest(ctx.allocator, ctx.project_dir, ctx.cfg.spec_file, ctx.cfg.external_gates) catch return;
-    // Record the running binary's identity alongside the digest so a later
+    // Record the running guardian build alongside the digest so a later
     // blocking failure can distinguish a stale-binary re-key from real drift.
-    const bin = cache.currentBinaryIdHash(ctx.allocator) catch {
+    const bin = selfcheck.runningIdentity(ctx.allocator) catch {
         cache.writeStored(ctx.allocator, ctx.project_dir, d);
         return;
     };
@@ -1955,10 +1958,10 @@ test "binary drift hint fires only on re-keying failures after a binary change" 
     try std.testing.expect(failuresLookLikeRekey(&.{ "naming", "pub-api-surface" }));
     // A purely content failure never triggers the hint.
     try std.testing.expect(!failuresLookLikeRekey(&.{ "naming", "boundaries" }));
-    // The hint fires only when the shape matches AND the binary changed.
-    try std.testing.expect(binaryDriftHintApplies(true, false));
-    try std.testing.expect(!binaryDriftHintApplies(true, true));
-    try std.testing.expect(!binaryDriftHintApplies(false, false));
+    // The hint fires only when the shape matches AND the binary drifted.
+    try std.testing.expect(binaryDriftHintApplies(true, true));
+    try std.testing.expect(!binaryDriftHintApplies(true, false));
+    try std.testing.expect(!binaryDriftHintApplies(false, true));
 }
 
 // spec: Run All - Names a check that runs past the heartbeat threshold
@@ -1974,17 +1977,33 @@ test "isSlowCheck fires at or beyond the heartbeat threshold" {
 
 // spec: Run All - Warns before the run when the binary differs from the last green stamp
 
-test "staleBinaryWarnable fires only on a present, differing stamp" {
+test "the pre-run warning clears a binary built from the stamped source" {
     var a: cache.Digest = undefined;
     std.crypto.hash.sha2.Sha256.hash("binary-A", &a, .{});
     var b: cache.Digest = undefined;
     std.crypto.hash.sha2.Sha256.hash("binary-B", &b, .{});
+    var source: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("guardian-source", &source, .{});
+    var other_source: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("older-guardian-source", &other_source, .{});
+
     // No stamp yet (first run): nothing to compare against, so no warning.
-    try std.testing.expect(!staleBinaryWarnable(null, a));
-    // Same binary as the last green run: not stale.
-    try std.testing.expect(!staleBinaryWarnable(a, a));
-    // A different binary than the one that last gated: warn.
-    try std.testing.expect(staleBinaryWarnable(a, b));
+    try std.testing.expect(!cache.binaryDrifted(.{}, .{ .id = a, .source = source }));
+    // Same guardian source, different executable bytes — a second dep root's
+    // own build of the very source `selfcheck` just proved. Never a warning.
+    try std.testing.expect(!cache.binaryDrifted(
+        .{ .id = a, .source = source },
+        .{ .id = b, .source = source },
+    ));
+    // A genuinely different guardian source: still warned about.
+    try std.testing.expect(cache.binaryDrifted(
+        .{ .id = a, .source = other_source },
+        .{ .id = a, .source = source },
+    ));
+    // And the direction names the binaries, not the moment the stamp was
+    // written: a binary newer than the stamping one reads as newer even when
+    // the stamp file itself was touched later by that older build's run.
+    try std.testing.expectEqual(run_view.BinaryAge.running_newer, run_view.binaryAge(200, 100));
 }
 
 // spec: Run All - Marks the first gate on a tree that has no prior green stamp

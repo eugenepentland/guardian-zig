@@ -61,8 +61,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
 fn collectTags(allocator: std.mem.Allocator, project_dir: []const u8) types.RunError![]const matcher.SpecTag {
     var out: std.ArrayList(matcher.SpecTag) = .empty;
     for ([_][]const u8{ "test", "src" }) |leaf| {
-        const dir = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, leaf });
-        const scan = try matcher.scanDir(allocator, dir);
+        const scan = try matcher.scanDir(allocator, project_dir, leaf);
         try out.appendSlice(allocator, scan.tags);
     }
     return out.toOwnedSlice(allocator);

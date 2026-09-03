@@ -143,15 +143,14 @@ fn printMissingSpec(allocator: std.mem.Allocator, project_dir: []const u8, spec_
 }
 
 /// Scans the project's test/ and src/ dirs for spec tags and near-misses.
+/// Every tag's file comes back project-relative (`src/…`), never joined with
+/// the directory argument this run was invoked with — see `spec_matcher.scanDir`.
 fn collectTags(allocator: std.mem.Allocator, project_dir: []const u8) !TagScan {
-    const test_dir = try std.fmt.allocPrint(allocator, "{s}/test", .{project_dir});
-    const src_dir = try std.fmt.allocPrint(allocator, "{s}/src", .{project_dir});
-
     var all_tags: std.ArrayList(spec_matcher.SpecTag) = .empty;
     var malformed: std.ArrayList(spec_matcher.MalformedTag) = .empty;
     var unattached: std.ArrayList(spec_matcher.MalformedTag) = .empty;
-    for ([_][]const u8{ test_dir, src_dir }) |dir| {
-        const scan = try spec_matcher.scanDir(allocator, dir);
+    for ([_][]const u8{ "test", "src" }) |dir| {
+        const scan = try spec_matcher.scanDir(allocator, project_dir, dir);
         for (scan.tags) |t| try all_tags.append(allocator, t);
         for (scan.malformed) |m| try malformed.append(allocator, m);
         for (scan.unattached) |u| try unattached.append(allocator, u);

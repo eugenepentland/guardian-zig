@@ -377,8 +377,10 @@ fn registerMutateSteps(w: Wiring) void {
 /// The counting test runner, as it is spelled from the package root.
 const test_runner_rel_path = "src/test_runner.zig";
 
-/// Default step name for the compile-only whole-suite probe.
-const compile_probe_step = "test-compile";
+/// Default step name for the compile-only whole-suite probe. Public because
+/// the commit advisory reads it back out of a consumer's build.zig to decide
+/// whether that project already exposes this tier.
+pub const compile_probe_step = "test-compile";
 
 const compile_probe_desc = "Compile the whole test suite without running it";
 

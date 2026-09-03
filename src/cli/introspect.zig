@@ -108,7 +108,15 @@ fn listIdentity(
 ) types.RunError!void {
     const keyed = try baseline.keyedViolations(a, check_name, capture.buf.items, capture.records.items);
     const stored = try readStored(a, path);
-    const parts = try baseline.splitAgainst(a, stored.keys, try rowsFor(a, keyed, stored.match));
+    const rows = try rowsFor(a, keyed, stored.match);
+    // Stored rows still carrying a directory argument inside a rendered path
+    // adopt today's spelling first, exactly as the gate does — a listing that
+    // called 95 frozen rows NEW while the gate passed would read as the gate
+    // being wrong. In memory only: a listing never writes.
+    const stored_rows = (try baseline.rekeyPathVariants(a, stored.keys, rows)).lines;
+    const parts = try baseline.splitAgainst(a, stored_rows, rows);
+    // Surfaced rows come from advisory records that carry their own tier-1
+    // identity, never from stored text, so they need no re-key.
     const surfaced = try surfacedRows(a, check_name, stored.match, capture);
     reporter.ok("{s}: {s}", .{ check_name, try storedHeader(a, path, stored) });
     printRows("NEW", "firing and unrecorded — this is what would block", parts.added);

@@ -16,6 +16,7 @@ const snapshot = @import("../snapshot.zig");
 const ratchet_mod = @import("../ratchet.zig");
 const dora = @import("../dora.zig");
 const retired_checks = @import("retired.zig");
+const selfcheck = @import("selfcheck.zig");
 
 const max_metadata_bytes = 16 * 1024 * 1024;
 /// Characters of a commit hash a report prints to identify it.
@@ -347,20 +348,13 @@ fn dirSize(allocator: std.mem.Allocator, path: []const u8) std.mem.Allocator.Err
 /// snapshot/ratchet drift a fresh dep-built gate does not). Best-effort: a
 /// missing stamp / I/O error is simply not reported.
 fn inspectBinaryIdentity(ctx: *types.RunCtx, findings: *Findings) void {
-    const stored = cache.readStoredBinaryId(ctx.allocator, ctx.project_dir) catch return;
-    const current = cache.currentBinaryIdHash(ctx.allocator) catch return;
-    if (staleGatingBinary(stored, current)) advisory(
+    const stamped = cache.readStampedBinary(ctx.allocator, ctx.project_dir) catch return;
+    const running = selfcheck.runningIdentity(ctx.allocator) catch return;
+    if (cache.binaryDrifted(stamped, running)) advisory(
         findings,
         "the last green run was gated by a different guardian-check binary; rebuild (zig build) before trusting any snapshot/ratchet drift",
         .{},
     );
-}
-
-/// Pure decision behind `inspectBinaryIdentity`: stale only when a green stamp
-/// recorded a binary identity (present) that differs from the running binary's.
-fn staleGatingBinary(stored: ?cache.Digest, current: cache.Digest) bool {
-    const s = stored orelse return false;
-    return !cache.eql(s, current);
 }
 
 fn knownCheck(name: []const u8) bool {
@@ -398,17 +392,27 @@ test "path integration detector ignores the package paths field" {
 
 // spec: Maintenance - Doctor reports a stale gating binary
 
-test "staleGatingBinary flags only a present, differing stamp" {
+test "the doctor flags only a stamp from a different guardian source" {
     var a: cache.Digest = undefined;
     std.crypto.hash.sha2.Sha256.hash("binary-A", &a, .{});
     var b: cache.Digest = undefined;
     std.crypto.hash.sha2.Sha256.hash("binary-B", &b, .{});
+    var source: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("guardian-source", &source, .{});
+    var older: cache.Digest = undefined;
+    std.crypto.hash.sha2.Sha256.hash("older-guardian-source", &older, .{});
+    const running: cache.StampedBinary = .{ .id = a, .source = source };
+
     // No stamp recorded yet: nothing to compare, so no finding.
-    try std.testing.expect(!staleGatingBinary(null, a));
+    try std.testing.expect(!cache.binaryDrifted(.{}, running));
     // The same binary that last gated the tree: healthy.
-    try std.testing.expect(!staleGatingBinary(a, a));
-    // A different binary than the last green run's: stale, worth a warning.
-    try std.testing.expect(staleGatingBinary(a, b));
+    try std.testing.expect(!cache.binaryDrifted(.{ .id = a, .source = source }, running));
+    // Different bytes, same Guardian source (a second dep root's own build of
+    // the source selfcheck verifies): also healthy — this is what used to be
+    // reported as a stale gating binary on a freshly built worktree.
+    try std.testing.expect(!cache.binaryDrifted(.{ .id = b, .source = source }, running));
+    // A different Guardian source than the last green run's: worth a warning.
+    try std.testing.expect(cache.binaryDrifted(.{ .id = a, .source = older }, running));
 }
 
 // spec: Maintenance - Doctor ages every pending accept and warns about an expired one

@@ -269,8 +269,19 @@ pub fn lifecycle(
         .existing => |snap| snap,
     };
 
-    const d = try diffKeys(arena, old, current);
-    const outcome = classify(d, old.lines.len, current.len);
+    // Stored rows that differ from a live violation only by the directory
+    // argument baked into a rendered path adopt today's spelling before the
+    // diff, so a baseline written by `guardian-check all .` still matches when
+    // the same tree is gated by path from its parent.
+    const rekeyed = try rekeyPathVariants(arena, old.lines, current);
+    const d = try diffKeys(arena, .{ .version = old.version, .lines = rekeyed.lines }, current);
+    const outcome = classify(d, rekeyed.lines.len, current.len);
+    // Persist the re-key on a metadata-writable run, exactly as the v1→v3
+    // migration defers its rewrite: an ordinary run matches in memory and
+    // leaves a source-only diff clean. Only a pure re-key is written — under
+    // any other outcome the file is the growth/shrink path's to decide.
+    if (rekeyed.moved > 0 and write_allowed and outcome == .matched)
+        try writeKeys(arena, baseline_path, current);
     // Auto-prune: a pure shrink (violations resolved, none added) rewrites the
     // baseline with the current smaller set — but only on a metadata-writable
     // run. An ordinary run reports the shrink and leaves the file in place, so a
@@ -281,6 +292,67 @@ pub fn lifecycle(
         else => {},
     }
     return outcome;
+}
+
+/// A stored baseline with its directory-prefixed rows re-spelled to the current
+/// rendering, and how many rows moved (0 = the file was already current).
+const Rekeyed = struct { lines: []const []const u8, moved: usize };
+
+/// Re-keys stored rows that differ from a live violation ONLY by a directory
+/// prefix inside a rendered path (`in ./src/x.zig` → `in src/x.zig`).
+///
+/// The `spec` check rendered each tag's file joined with the directory argument
+/// exactly as typed, and a spec violation is keyed by its rendered text
+/// (`violation_key` tier 3). So one tree produced two different baselines:
+/// `guardian-check all .` from inside a project, and the same gate given that
+/// project's path from its parent, disagreed on every row — all ~95 of eda's
+/// frozen spec rows reported as NEW from the outside. The renderer is fixed;
+/// this keeps the baselines it already wrote matching, with no accept.
+///
+/// It is a **substitution, never an edit**: a stored row is replaced by a
+/// CURRENT row it is a prefix variant of, one for one, each current row claimed
+/// at most once, and exact matches claim theirs first so a re-key can never
+/// steal a row that already matched. The v1→v3 guarantees therefore hold by
+/// construction rather than by counting — no row is dropped (the count is
+/// unchanged) and none is adopted (a replacement fires in this run AND was
+/// already baselined under its old spelling).
+pub fn rekeyPathVariants(
+    arena: Allocator,
+    stored: []const []const u8,
+    current: []const Keyed,
+) Allocator.Error!Rekeyed {
+    // Pass 1, hashed: consume the exact matches, which is every row on a
+    // healthy baseline — so the quadratic pass below runs over nothing.
+    var unclaimed: std.StringHashMapUnmanaged(usize) = .empty;
+    for (current) |k| try bump(arena, &unclaimed, k.key);
+    var pending: std.ArrayList(usize) = .empty;
+    for (stored, 0..) |line, i| {
+        const left = unclaimed.getPtr(line);
+        if (left != null and left.?.* > 0) {
+            left.?.* -= 1;
+            continue;
+        }
+        try pending.append(arena, i);
+    }
+    if (pending.items.len == 0) return .{ .lines = stored, .moved = 0 };
+
+    // Pass 2: each leftover stored row looks for an unclaimed current row it is
+    // the directory-prefixed spelling of.
+    const out = try arena.dupe([]const u8, stored);
+    var moved: usize = 0;
+    for (pending.items) |i| {
+        for (current) |k| {
+            const left = unclaimed.getPtr(k.key) orelse continue;
+            if (left.* == 0) continue;
+            if (!violation_key.prefixedPathVariant(stored[i], k.key)) continue;
+            left.* -= 1;
+            out[i] = k.key;
+            moved += 1;
+            break;
+        }
+    }
+    if (moved == 0) return .{ .lines = stored, .moved = 0 };
+    return .{ .lines = out, .moved = moved };
 }
 
 /// Result of loading (and possibly initializing) a baseline before diffing.
@@ -3009,6 +3081,71 @@ test "lifecycle returns matched on identical run" {
     _ = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false, true);
     const out = try lifecycle(a, path, try keyedLines(a, "demo", &.{ "alpha", "beta" }), false, true);
     try std.testing.expect(out == .matched);
+}
+
+// spec: Baseline Mode - Re-keys a baselined row whose path still carries the directory argument
+
+test "a baseline written from inside a project matches when gated by path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const path = "zig-cache/test-baseline-rekey.txt";
+    deleteIfExists(path);
+    defer deleteIfExists(path);
+
+    // The committed baseline as `guardian-check all .` wrote it: the spec check
+    // rendered each tag's file joined with the directory argument as typed.
+    const inside = try keyedLines(a, "spec", &.{
+        "unlinked tag: Web Server - A saved layout round-trips in ./src/serve/page.zig",
+        "unlinked tag: Web Server - A pour keeps its priority in ./src/serve/pour.zig",
+    });
+    _ = try lifecycle(a, path, inside, false, true);
+
+    // The same tree, same two violations, gated by path from a parent
+    // directory. Every row used to read as NEW; the rows are the same
+    // violations, so the gate must be green either way.
+    const outside = try keyedLines(a, "spec", &.{
+        "unlinked tag: Web Server - A saved layout round-trips in src/serve/page.zig",
+        "unlinked tag: Web Server - A pour keeps its priority in src/serve/pour.zig",
+    });
+    const matched = try lifecycle(a, path, outside, false, false);
+    try std.testing.expect(matched == .matched);
+    try std.testing.expectEqual(@as(usize, 2), matched.matched);
+    // A read-only run re-keys in memory only, exactly like the v1→v3 migration.
+    const on_disk = try fs.cwd().readFileAlloc(a, path, 4096);
+    try std.testing.expect(std.mem.indexOf(u8, on_disk, "./src/serve/page.zig") != null);
+
+    // A metadata-writable run persists the new spelling, and the row count is
+    // unchanged by the re-key: two rows in, two rows out.
+    try std.testing.expect((try lifecycle(a, path, outside, false, true)) == .matched);
+    const rewritten = try fs.cwd().readFileAlloc(a, path, 4096);
+    try std.testing.expect(std.mem.indexOf(u8, rewritten, "./src/serve/page.zig") == null);
+    try std.testing.expect(std.mem.indexOf(u8, rewritten, " in src/serve/page.zig") != null);
+    try std.testing.expectEqual(@as(usize, 2), (try snapshot.read(a, path, version)).lines.len);
+
+    // Under the diff, the substitution itself: two rows moved, none dropped,
+    // and a row already in today's spelling is left exactly as it was.
+    const stored_keys = [_][]const u8{ inside[0].key, inside[1].key };
+    const moved = try rekeyPathVariants(a, &stored_keys, outside);
+    try std.testing.expectEqual(@as(usize, 2), moved.moved);
+    try std.testing.expectEqual(stored_keys.len, moved.lines.len);
+    try std.testing.expectEqualStrings(outside[0].key, moved.lines[0]);
+    const already = try rekeyPathVariants(a, &.{ outside[0].key, outside[1].key }, outside);
+    try std.testing.expectEqual(@as(usize, 0), already.moved);
+
+    // And the re-key adopts nothing: a genuinely new violation alongside the
+    // two re-keyed ones still fails.
+    const grown = try keyedLines(a, "spec", &.{
+        "unlinked tag: Web Server - A saved layout round-trips in src/serve/page.zig",
+        "unlinked tag: Web Server - A pour keeps its priority in src/serve/pour.zig",
+        "unlinked tag: Web Server - A brand new behavior in src/serve/new.zig",
+    });
+    deleteIfExists(path);
+    _ = try lifecycle(a, path, inside, false, true);
+    const out = try lifecycle(a, path, grown, false, false);
+    try std.testing.expect(out == .grown);
+    try std.testing.expectEqual(@as(usize, 1), out.grown.new_lines.len);
 }
 
 test "lifecycle returns grown when new violations appear" {

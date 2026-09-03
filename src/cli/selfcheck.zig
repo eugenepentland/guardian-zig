@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const fs = @import("../fs.zig");
+const cache = @import("../cache.zig");
 const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const source_digest = @import("../source_digest.zig");
@@ -89,6 +90,23 @@ fn reportUnreadable(root: []const u8) types.RunError!void {
     return error.CheckFailed;
 }
 
+/// The identity of the guardian build running right now, in the shape the green
+/// stamp records: the executable's content fingerprint, the digest of the source
+/// it was compiled from, and its own modification time.
+///
+/// It lives here because this file already owns the answer to "which Guardian
+/// source IS this binary" — the same `embedded_digest` selfcheck proves. The
+/// stale-binary notices compare this against `cache.readStampedBinary`, and the
+/// source digest is what keeps a byte-different build of identical source from
+/// reading as a stale one.
+pub fn runningIdentity(arena: std.mem.Allocator) cache.Error!cache.StampedBinary {
+    return .{
+        .id = try cache.currentBinaryIdHash(arena),
+        .source = cache.digestFromHex(embedded_digest),
+        .mtime = cache.currentBinaryMtime(arena),
+    };
+}
+
 /// Builds the remediation line. Kept as one rendered string so a test can hold
 /// the whole contract — both remedies, and the root to run them in.
 fn remedy(arena: std.mem.Allocator, root: []const u8) std.mem.Allocator.Error![]const u8 {
@@ -122,6 +140,23 @@ test "the stale report names the rebuild root and the opt-out" {
     try testing.expect(std.mem.indexOf(u8, line, "zig build") != null);
     try testing.expect(std.mem.indexOf(u8, line, "../guardian-zig") != null);
     try testing.expect(std.mem.indexOf(u8, line, "GUARDIAN_PREBUILT=off") != null);
+}
+
+// spec: Prebuilt Binary - Reports the running build's source digest as its gating identity
+
+test "runningIdentity carries the source digest selfcheck verifies" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const running = try runningIdentity(arena.allocator());
+    // The identity the green stamp records must be the SAME digest selfcheck
+    // proves a prebuilt binary against, or a verified binary can still be
+    // reported stale against the tree it just gated.
+    const embedded = cache.digestFromHex(embedded_digest) orelse return error.TestExpectedDigest;
+    try testing.expect(cache.eql(embedded, running.source orelse return error.TestExpectedDigest));
+    // The fingerprint and build time come along for the legacy comparison and
+    // the direction note; both resolve for any running executable.
+    try testing.expect(running.id != null);
+    try testing.expect(running.mtime != null);
 }
 
 // spec: Prebuilt Binary - Fails when the named Guardian source root cannot be opened

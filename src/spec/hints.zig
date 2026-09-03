@@ -217,8 +217,16 @@ pub fn frozenKeyFor(arena: Allocator, tag: []const u8, file: []const u8) Allocat
 
 /// True when `key` is already grandfathered. A miss only costs an extra
 /// (correct) hint, never a missed violation — the hints are advisory.
+///
+/// A record frozen before this check rendered paths project-relative still
+/// carries the directory argument its run was invoked with (`in ./src/x.zig`),
+/// and it names this very tag: matching it too keeps a not-yet-re-keyed
+/// baseline from hinting its whole grandfathered backlog on every run.
 pub fn isFrozen(frozen: []const FrozenTag, key: []const u8) bool {
-    for (frozen) |f| if (std.mem.eql(u8, f.key, key)) return true;
+    for (frozen) |f| {
+        if (std.mem.eql(u8, f.key, key)) return true;
+        if (violation_key.prefixedPathVariant(f.key, key)) return true;
+    }
     return false;
 }
 
@@ -234,7 +242,9 @@ pub fn frozenCountFor(
     const key = try violation_key.skeleton(arena, file);
     var n: usize = 0;
     for (frozen) |f| {
-        if (std.mem.eql(u8, f.file, key)) n += 1;
+        // Same two spellings `isFrozen` accepts: `./src/x.zig` recorded before
+        // paths were project-relative still counts as this file's frozen debt.
+        if (std.mem.eql(u8, f.file, key) or violation_key.prefixedPathVariant(f.file, key)) n += 1;
     }
     return n;
 }
@@ -342,4 +352,17 @@ test "frozenUnlinked parses baseline records and counts them per file" {
     try testing.expect(isFrozen(frozen, old));
     const new = try frozenKeyFor(a, "commands - deletes designs", "src/commands.zig");
     try testing.expect(!isFrozen(frozen, new));
+
+    // Records written before paths were rendered project-relative carry the
+    // directory argument their run was invoked with. They are the same tags, so
+    // an un-re-keyed baseline must not hint its whole backlog on every run.
+    const prefixed = [_][]const u8{
+        "spec|unlinked tag: commands - lists designs in ./src/commands.zig",
+        "spec|unlinked tag: erc - warns on floating input in /home/e/eda/src/erc.zig",
+    };
+    const old_spelling = try frozenUnlinked(a, &prefixed);
+    try testing.expect(isFrozen(old_spelling, old));
+    try testing.expect(!isFrozen(old_spelling, new));
+    try testing.expectEqual(@as(usize, 1), try frozenCountFor(a, old_spelling, "src/commands.zig"));
+    try testing.expectEqual(@as(usize, 1), try frozenCountFor(a, old_spelling, "src/erc.zig"));
 }

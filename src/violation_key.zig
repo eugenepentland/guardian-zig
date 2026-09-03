@@ -158,6 +158,36 @@ fn looksLikePath(text: []const u8) bool {
     return std.mem.endsWith(u8, text, ".zig");
 }
 
+/// True when `stored` is `current` with one extra directory prefix inserted
+/// into a path it renders — `… in ./src/x.zig` or `… in /abs/proj/src/x.zig`
+/// against today's `… in src/x.zig`.
+///
+/// This is the one re-key a tier-3 key cannot absorb on its own. A check that
+/// joined a file with the caller's directory argument before rendering it made
+/// its baseline keys depend on how the gate was INVOKED (`.` from inside a
+/// project vs the same tree by path from its parent), so a consumer's frozen
+/// rows all read as new violations from one directory and matched from another.
+/// The renderers are project-relative now; this is what lets the baselines they
+/// already wrote keep matching.
+///
+/// The insertion point is searched rather than inferred from a common prefix,
+/// so a prefix that happens to start with the same bytes as the path it
+/// precedes is still recognized. The removed span must end at a `/`, which is
+/// what makes this "a directory prefix" and not any old substring: `in x.zig`
+/// and `in prefix-x.zig` are different violations and stay that way.
+pub fn prefixedPathVariant(stored: []const u8, current: []const u8) bool {
+    if (stored.len <= current.len) return false;
+    const removed = stored.len - current.len;
+    var at: usize = 0;
+    // `at + removed <= stored.len` also bounds `at` by `current.len`.
+    while (at + removed <= stored.len) : (at += 1) {
+        if (stored[at + removed - 1] != '/') continue;
+        if (!std.mem.eql(u8, stored[0..at], current[0..at])) continue;
+        if (std.mem.eql(u8, stored[at + removed ..], current[at..])) return true;
+    }
+    return false;
+}
+
 /// Assembles `<check>|<file>|<discriminator>`, or `<check>|<discriminator>`
 /// when there is no file to qualify by — which is the tier-1/tier-2 case, where
 /// the identity is already a whole discriminator (and typically embeds its own
@@ -281,6 +311,34 @@ test "splitLocation only treats a leading segment as the file" {
             "src/review.zig, src/serve/schematic_page.zig",
         try fromLine(a, "repeated-switch-on-enum", cross_file_v1),
     );
+}
+
+// spec: Violation Identity - Recognizes a stored key that differs from a live one by a directory prefix
+
+test "prefixedPathVariant spots the directory argument baked into a stored key" {
+    const current = "spec|unlinked tag: Web Server - A saved layout round-trips in src/serve/page.zig";
+    // The two spellings one tree produced: `guardian-check all .` from inside,
+    // and the same gate handed that project's path from its parent.
+    try testing.expect(prefixedPathVariant(
+        "spec|unlinked tag: Web Server - A saved layout round-trips in ./src/serve/page.zig",
+        current,
+    ));
+    try testing.expect(prefixedPathVariant(
+        "spec|unlinked tag: Web Server - A saved layout round-trips in /home/e/ai/eda/src/serve/page.zig",
+        current,
+    ));
+    // A prefix starting with the same bytes as the path it precedes is still a
+    // prefix: the insertion point is searched, not guessed from a common head.
+    try testing.expect(prefixedPathVariant("in ssrc/src/x.zig", "in src/x.zig"));
+
+    // What it must NOT absorb. A different file is a different violation...
+    try testing.expect(!prefixedPathVariant("in src/serve/other.zig", current));
+    // ...a removed span that doesn't end at a path separator is not a directory
+    // prefix (`prefix-x.zig` is its own file)...
+    try testing.expect(!prefixedPathVariant("in prefix-x.zig", "in x.zig"));
+    // ...and equal or shorter stored text is never a prefixed spelling.
+    try testing.expect(!prefixedPathVariant(current, current));
+    try testing.expect(!prefixedPathVariant("in src/x.zig", "in ./src/x.zig"));
 }
 
 // spec: Violation Identity - Reports the file a rendered violation line names

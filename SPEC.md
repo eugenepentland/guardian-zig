@@ -178,6 +178,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Includes files referenced by project-local embedFile calls
 - Invalidates a green stamp when the Git HEAD changes
 - Records the guardian binary identity in the green stamp for a drift hint
+- Judges a gating-binary mismatch by source digest rather than executable bytes
 - Identifies the guardian binary by content so two copies of one build share an identity
 - Reads the stamp and binary timestamps behind the stale-binary direction hint
 
@@ -283,6 +284,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Leaves an already-staged deletion out of the git add path list
 - Commits an already-staged deletion when no path needs staging
 - Advises when the configured test command is not the whole default suite
+- Drops the compile-probe wiring instruction when build.zig already registers the step
 
 ## Merge
 
@@ -557,6 +559,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 - Captures each check's current violations on first run and only fails on additions
 - Defers first-record and prune writes to a metadata-writable run
+- Re-keys a baselined row whose path still carries the directory argument
 - Wraps a single check run with capture, diff, and outcome reporting
 - Propagates a check that fails without naming a finding instead of reconstructing it as an empty, matching baseline
 - Prunes the baseline file when resolved violations shrink it
@@ -599,6 +602,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports the file a rendered violation line names
 - Identifies a banned symbol hit by its file and symbol rather than its wording
 - Ignores a path inside a message when locating the violation's file
+- Recognizes a stored key that differs from a live one by a directory prefix
 
 ## Per-Item Ratchets
 
@@ -803,6 +807,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Refuses to digest a source root that is missing its build files
 - Judges the binary current only when the recomputed digest equals the embedded one
 - Names both the rebuild and the opt-out when the binary is stale
+- Reports the running build's source digest as its gating identity
 - Fails when the named Guardian source root cannot be opened
 - Embeds a full-width hex source digest that the version command prints
 - Abbreviates a digest for the report line

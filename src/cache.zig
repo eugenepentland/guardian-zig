@@ -343,13 +343,21 @@ fn parseHexDigest(hex: []const u8) ?Digest {
 }
 
 /// True when raw green-stamp bytes carry a valid input digest and, when
-/// present, a valid binary-identity digest. Legacy one-line stamps remain valid.
+/// present, valid binary-identity and source-digest lines. Shorter stamps
+/// remain valid: a v1 one-liner, and the two-line form written before the
+/// source digest was recorded, both parse.
 pub fn validStoredBytes(raw: []const u8) bool {
     const first = lineAt(raw, 0) orelse return false;
     if (parseHexDigest(first) == null) return false;
-    const second = lineAt(raw, 1) orelse return true;
-    if (second.len == 0) return true;
-    return parseHexDigest(second) != null;
+    for ([_]usize{ 1, 2 }) |idx| {
+        const line = lineAt(raw, idx) orelse return true;
+        if (line.len == 0) return true;
+        if (parseHexDigest(line) == null) return false;
+    }
+    const mtime = lineAt(raw, 3) orelse return true;
+    if (mtime.len == 0) return true;
+    _ = std.fmt.parseInt(i128, mtime, 10) catch return false;
+    return true;
 }
 
 /// Raw stamp-file bytes, or null when absent/unreadable (a first-run cache miss).
@@ -381,19 +389,78 @@ pub fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Di
     return parseHexDigest(line);
 }
 
-/// Guardian binary-identity hash recorded on line 2 of the last green stamp, or
-/// null when the stamp is absent, single-line (legacy), or malformed. Consumed
-/// only by the stale-binary hint, never by the skip decision.
-pub fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest {
-    const raw = (try readStampFile(arena, project_dir)) orelse return null;
-    const line = lineAt(raw, 1) orelse return null;
-    return parseHexDigest(line);
+/// The guardian build a green stamp recorded — what actually gated this tree
+/// last, as the three facts the stale-binary notices need.
+///
+/// `source` is the authoritative one: the digest of the Guardian SOURCE the
+/// stamping binary was compiled from, which is exactly what `selfcheck` proves
+/// a prebuilt binary against. `id` is the executable's own content fingerprint,
+/// which is NOT an identity for "same guardian" — two dep roots that each link
+/// their own copy of one source produce two byte-different executables — so it
+/// survives only to keep pre-source-digest stamps comparable. `mtime` is the
+/// stamping BINARY's modification time, not the stamp file's: ordering a
+/// binary's build time against the moment some later gate ran is what let a
+/// freshly built binary be told it was the older one.
+pub const StampedBinary = struct {
+    id: ?Digest = null,
+    source: ?Digest = null,
+    mtime: ?i128 = null,
+};
+
+/// The guardian build recorded by the last green stamp (lines 1..3), with every
+/// field null when the stamp is absent, older/shorter, or malformed. Consumed
+/// only by the stale-binary notices, never by the skip decision.
+pub fn readStampedBinary(arena: Allocator, project_dir: []const u8) Allocator.Error!StampedBinary {
+    const raw = (try readStampFile(arena, project_dir)) orelse return .{};
+    return .{
+        .id = digestAt(raw, 1),
+        .source = digestAt(raw, 2),
+        .mtime = intAt(raw, 3),
+    };
+}
+
+/// The digest on stamp line `idx`, or null when the line is absent or not hex.
+fn digestAt(raw: []const u8, idx: usize) ?Digest {
+    return parseHexDigest(lineAt(raw, idx) orelse return null);
+}
+
+/// The decimal integer on stamp line `idx`, or null when absent/unparseable.
+fn intAt(raw: []const u8, idx: usize) ?i128 {
+    const line = lineAt(raw, idx) orelse return null;
+    return std.fmt.parseInt(i128, line, 10) catch null;
+}
+
+/// True when the guardian build that stamped this tree green is a different
+/// build from the one asking — the precondition of every stale-binary notice.
+///
+/// The SOURCE digest decides whenever the stamp carries one, because that is
+/// the identity `selfcheck` verifies: a consumer whose prebuilt binary provably
+/// matches the Guardian source it gates must never be told that binary is
+/// stale, however its bytes were linked. Only a stamp written before the source
+/// digest was recorded falls back to the executable fingerprint, which cannot
+/// tell a rebuild from a second copy of one build.
+pub fn binaryDrifted(stamped: StampedBinary, running: StampedBinary) bool {
+    if (stamped.source) |s| {
+        const r = running.source orelse return false;
+        return !eql(s, r);
+    }
+    const id = stamped.id orelse return false;
+    const running_id = running.id orelse return false;
+    return !eql(id, running_id);
+}
+
+/// Parses a 64-character lowercase hex digest (e.g. the source digest embedded
+/// in the binary at build time) into a `Digest`, or null when it is not one.
+pub fn digestFromHex(hex: []const u8) ?Digest {
+    return parseHexDigest(hex);
 }
 
 /// Creates the cache dir and writes the stamp: line 0 is the input `digest`,
-/// line 1 (optional) the guardian `binary_id` hash. Any failure propagates to
-/// the best-effort callers, which swallow it.
-fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: ?Digest) !void {
+/// then the gating binary's fingerprint, source digest and mtime, each written
+/// only while the one before it is present (a reader keys on line position, so
+/// a hole would shift every field after it). Any failure propagates to the
+/// best-effort callers, which swallow it.
+fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest, binary: StampedBinary) !void {
     const dir = try std.fmt.allocPrint(arena, "{s}/.guardian/cache", .{project_dir});
     try fs.cwd().makePath(dir);
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, cache_leaf });
@@ -403,27 +470,37 @@ fn writeStoredInner(arena: Allocator, project_dir: []const u8, digest: Digest, b
     const writer = &atomic.file_writer.interface;
     const dhex = std.fmt.bytesToHex(digest, .lower);
     try writer.writeAll(&dhex);
-    if (binary_id) |b| {
-        const bhex = std.fmt.bytesToHex(b, .lower);
-        try writer.writeByte('\n');
-        try writer.writeAll(&bhex);
+    write_lines: {
+        const id = binary.id orelse break :write_lines;
+        try writeHexLine(writer, id);
+        const source = binary.source orelse break :write_lines;
+        try writeHexLine(writer, source);
+        const mtime = binary.mtime orelse break :write_lines;
+        try writer.print("\n{d}", .{mtime});
     }
     try writer.writeByte('\n');
     try atomic.finish();
+}
+
+/// Appends one newline-separated hex digest line to the stamp being written.
+fn writeHexLine(writer: anytype, digest: Digest) !void {
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    try writer.writeByte('\n');
+    try writer.writeAll(&hex);
 }
 
 /// Records `digest` as the last all-green input state (single-line stamp).
 /// Best-effort: write failures are swallowed so the cache can never fail the
 /// build.
 pub fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void {
-    writeStoredInner(arena, project_dir, digest, null) catch return;
+    writeStoredInner(arena, project_dir, digest, .{}) catch return;
 }
 
-/// Records both the green input `digest` and the running guardian `binary_id`
-/// hash, so a later blocking failure can tell a stale-binary re-key from real
-/// drift. Best-effort, like `writeStored`.
-pub fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void {
-    writeStoredInner(arena, project_dir, digest, binary_id) catch return;
+/// Records the green input `digest` alongside the running guardian build, so a
+/// later blocking failure can tell a stale-binary re-key from real drift.
+/// Best-effort, like `writeStored`.
+pub fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary: StampedBinary) void {
+    writeStoredInner(arena, project_dir, digest, binary) catch return;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -569,28 +646,77 @@ test "writeGreenStamp round-trips the digest and the binary identity" {
     Sha256.hash("green-inputs", &digest, .{});
     var binary: Digest = undefined;
     Sha256.hash("guardian-binary-A", &binary, .{});
+    var source: Digest = undefined;
+    Sha256.hash("guardian-source-X", &source, .{});
 
-    writeGreenStamp(a, dir, digest, binary);
-    // The input digest reads back from line 0, the binary identity from line 1.
+    writeGreenStamp(a, dir, digest, .{ .id = binary, .source = source, .mtime = 1234 });
+    // The input digest reads back from line 0, the gating build from lines 1..3.
     try std.testing.expect(eql(digest, (try readStored(a, dir)) orelse return error.TestExpectedStored));
-    try std.testing.expect(eql(binary, (try readStoredBinaryId(a, dir)) orelse return error.TestExpectedStored));
+    const stamped = try readStampedBinary(a, dir);
+    try std.testing.expect(eql(binary, stamped.id orelse return error.TestExpectedStored));
+    // The SOURCE digest is what makes a mismatch meaningful, so it must survive
+    // the round trip: without it the notice falls back to comparing bytes.
+    try std.testing.expect(eql(source, stamped.source orelse return error.TestExpectedStored));
+    try std.testing.expectEqual(@as(?i128, 1234), stamped.mtime);
 
-    // A legacy single-line stamp still yields the digest but no binary identity,
-    // so the drift hint simply doesn't fire for a pre-upgrade stamp.
+    // A legacy single-line stamp still yields the digest but no gating build,
+    // so the drift notices simply don't fire for a pre-upgrade stamp.
     writeStored(a, dir, digest);
     try std.testing.expect(eql(digest, (try readStored(a, dir)) orelse return error.TestExpectedStored));
-    try std.testing.expect((try readStoredBinaryId(a, dir)) == null);
+    const legacy = try readStampedBinary(a, dir);
+    try std.testing.expect(legacy.id == null and legacy.source == null and legacy.mtime == null);
 
     // currentBinaryIdHash is stable for the running binary within a process.
     _ = &currentBinaryIdHash;
+}
+
+// spec: Skip Cache - Judges a gating-binary mismatch by source digest rather than executable bytes
+
+test "binaryDrifted clears a binary whose source digest matches the stamp" {
+    var same_source: Digest = undefined;
+    Sha256.hash("guardian-source-X", &same_source, .{});
+    var other_source: Digest = undefined;
+    Sha256.hash("guardian-source-Y", &other_source, .{});
+    var bytes_a: Digest = undefined;
+    Sha256.hash("guardian-binary-A", &bytes_a, .{});
+    var bytes_b: Digest = undefined;
+    Sha256.hash("guardian-binary-B", &bytes_b, .{});
+
+    // The reported bug: a consumer's prebuilt binary passes selfcheck against
+    // the very source in the stamp, yet its bytes differ (a second dep root
+    // linked its own copy). That is the same guardian and must never warn.
+    try std.testing.expect(!binaryDrifted(
+        .{ .id = bytes_a, .source = same_source },
+        .{ .id = bytes_b, .source = same_source },
+    ));
+    // Genuinely different source still drifts, whatever the bytes say.
+    try std.testing.expect(binaryDrifted(
+        .{ .id = bytes_a, .source = same_source },
+        .{ .id = bytes_a, .source = other_source },
+    ));
+    // A stamp written before source digests existed falls back to the bytes.
+    try std.testing.expect(binaryDrifted(.{ .id = bytes_a }, .{ .id = bytes_b, .source = same_source }));
+    try std.testing.expect(!binaryDrifted(.{ .id = bytes_a }, .{ .id = bytes_a, .source = same_source }));
+    // Nothing recorded, or nothing to compare against: no claim either way.
+    try std.testing.expect(!binaryDrifted(.{}, .{ .id = bytes_a, .source = same_source }));
+    try std.testing.expect(!binaryDrifted(.{ .id = bytes_a, .source = same_source }, .{ .id = bytes_b }));
+
+    // The running binary's source digest arrives as the hex string build.zig
+    // embedded, so parsing it back must round-trip exactly.
+    const hex = std.fmt.bytesToHex(same_source, .lower);
+    try std.testing.expect(eql(same_source, digestFromHex(&hex) orelse return error.TestExpectedDigest));
+    try std.testing.expect(digestFromHex("not-a-digest") == null);
 }
 
 test "validStoredBytes distinguishes a complete stamp from truncated state" {
     const one = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
     try std.testing.expect(validStoredBytes(one));
     try std.testing.expect(validStoredBytes(one ++ one));
+    try std.testing.expect(validStoredBytes(one ++ one ++ one ++ "1700000000000000000\n"));
     try std.testing.expect(!validStoredBytes("0123\n"));
     try std.testing.expect(!validStoredBytes(one ++ "not-a-digest\n"));
+    try std.testing.expect(!validStoredBytes(one ++ one ++ "not-a-digest\n"));
+    try std.testing.expect(!validStoredBytes(one ++ one ++ one ++ "not-a-time\n"));
 }
 
 // spec: Skip Cache - Identifies the guardian binary by content so two copies of one build share an identity

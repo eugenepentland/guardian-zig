@@ -82,13 +82,27 @@ fn scanVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) !void {
     try extractTags(ctx, entry.rel_path, entry.content);
 }
 
-/// Recursively scans a directory for spec tags (and near-miss/unattached).
-pub fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult {
+/// Recursively scans `<project_dir>/<dir>` for spec tags (and near-miss /
+/// unattached ones), reporting every file as `<dir>/…`.
+///
+/// The join and the reported spelling are taken together on purpose: the scan
+/// root is built from the caller's directory argument, but what a tag NAMES is
+/// project-relative, exactly like every other check's walk (`display_root =
+/// "src"`). A `spec` violation is baselined by its rendered text
+/// (`violation_key` tier 3), so echoing the caller's own `.` or
+/// `/abs/path/to/project` back into `unlinked tag: … in <file>` made the
+/// baseline key depend on HOW the gate was invoked — all ~95 of eda's frozen
+/// spec rows read as NEW when the same tree was gated by path from its parent
+/// instead of as `.` from inside. It also cost the never-compiled-tag split its
+/// only join: the reachability graph names files project-relative, so no tag's
+/// file ever matched a dead node.
+pub fn scanDir(allocator: Allocator, project_dir: []const u8, dir: []const u8) ScanError!ScanResult {
+    const dir_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_dir, dir });
     var tags: std.ArrayList(SpecTag) = .empty;
     var malformed: std.ArrayList(MalformedTag) = .empty;
     var unattached: std.ArrayList(MalformedTag) = .empty;
     var ctx: ScanCtx = .{ .allocator = allocator, .tags = &tags, .malformed = &malformed, .unattached = &unattached };
-    try walk.walkZigFiles(allocator, dir_path, .{ .display_root = dir_path }, .{ .ctx = &ctx, .visit = scanVisit });
+    try walk.walkZigFiles(allocator, dir_path, .{ .display_root = dir }, .{ .ctx = &ctx, .visit = scanVisit });
     return .{
         .tags = try tags.toOwnedSlice(allocator),
         .malformed = try malformed.toOwnedSlice(allocator),

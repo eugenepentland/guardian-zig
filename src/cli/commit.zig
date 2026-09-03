@@ -40,6 +40,7 @@ const test_count = @import("../test_count.zig");
 const journal = @import("../mutation/journal.zig");
 const fs = @import("../fs.zig");
 const source_digest = @import("../source_digest.zig");
+const build_helper = @import("../build_helper.zig");
 const build_options = @import("build_options");
 
 const Allocator = std.mem.Allocator;
@@ -265,7 +266,7 @@ fn runTests(ctx: *types.RunCtx) types.RunError!void {
         return error.CheckFailed;
     }
     reporter.ok("commit: running tests (`{s}`) before committing ...", .{ctx.cfg.gate.test_command});
-    adviseTestTier(ctx.cfg.gate.test_command);
+    try adviseTestTier(ctx);
     const outcome = spawnTests(a, ctx.project_dir, argv) catch |e| {
         reporter.fail("commit: could not run tests ({s}) — nothing committed", .{@errorName(e)});
         return error.CheckFailed;
@@ -363,7 +364,8 @@ fn tokensEqual(a_cmd: []const u8, b_cmd: []const u8) bool {
 /// Zig hands `--test-filter` to the *compiler* — the tests it skipped are never
 /// analyzed. Two commits once landed on top of an uncompilable suite this way.
 /// Routed through the always-visible detail channel so `--quiet` can't eat it.
-fn adviseTestTier(cmd: []const u8) void {
+fn adviseTestTier(ctx: *types.RunCtx) Allocator.Error!void {
+    const cmd = ctx.cfg.gate.test_command;
     const why = switch (testTier(cmd)) {
         .whole_suite => return,
         .filtered => "a narrowed tier",
@@ -375,12 +377,58 @@ fn adviseTestTier(cmd: []const u8) void {
             "so skipped tests are never analyzed).\n",
         .{ cmd, why },
     );
-    reporter.detail(
-        "  fix: wire the whole-suite compile tier — `_ = guardian.addTestCompileProbe(b, .{{ .root_module = " ++
-            "test_mod }});` in build.zig registers `zig build test-compile`, which type-checks every test " ++
-            "(no filter, -fno-emit-bin) and runs none. Then make test_command run it too.\n",
-        .{},
-    );
+    const wired = try testCompileProbeWired(ctx.allocator, ctx.project_dir);
+    reporter.detail("  {s}\n", .{compileProbeFix(wired)});
+}
+
+/// The step name the whole-suite compile tier registers, taken from the helper
+/// that registers it so the advisory can never name a step Guardian no longer
+/// wires, and the name of that helper call as a consumer's build.zig spells it.
+const compile_probe_step = build_helper.compile_probe_step;
+const compile_probe_helper = "addTestCompileProbe";
+
+/// Read ceiling for a project's build.zig. Generous: this is one hand-written
+/// build script, and a truncated read could only make the advisory wrong.
+const max_build_zig_bytes = 1024 * 1024;
+
+/// The remedy under the tier advisory, split on whether the project already
+/// exposes `zig build test-compile`.
+///
+/// Telling a project to wire a step it has ALREADY wired — and had just run
+/// green — is the shape that gets an advisory ignored wholesale: six eda
+/// commits printed the wiring instruction at a build.zig that registers the
+/// probe. What is still true there is only the second half, so that is all it
+/// says.
+fn compileProbeFix(wired: bool) []const u8 {
+    if (wired) return "fix: build.zig already registers `zig build " ++ compile_probe_step ++
+        "` — make [gate] test_command run it too, so the gate type-checks every test as well.";
+    return "fix: wire the whole-suite compile tier — `_ = guardian." ++ compile_probe_helper ++
+        "(b, .{ .root_module = test_mod });` in build.zig registers `zig build " ++ compile_probe_step ++
+        "`, which type-checks every test (no filter, -fno-emit-bin) and runs none. " ++
+        "Then make test_command run it too.";
+}
+
+/// True when the project's own build.zig already registers the compile-only
+/// whole-suite tier. Read off the file rather than by asking `zig build --help`
+/// for its steps: this advisory sits in front of the test phase of every
+/// commit, and it must not spawn a configure of the project's build graph to
+/// decide whether to print one sentence. An absent or unreadable build.zig keeps
+/// the wiring instruction, which is the harmless direction; OOM propagates
+/// rather than posing as "not wired".
+fn testCompileProbeWired(a: Allocator, project_dir: []const u8) Allocator.Error!bool {
+    const path = try std.fmt.allocPrint(a, "{s}/build.zig", .{project_dir});
+    const src = fs.cwd().readFileAlloc(a, path, max_build_zig_bytes) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return false,
+    };
+    return declaresCompileProbe(src);
+}
+
+/// Pure core of `testCompileProbeWired`: does this build.zig text register the
+/// compile probe, through the helper or by declaring the step by hand?
+fn declaresCompileProbe(build_src: []const u8) bool {
+    if (std.mem.indexOf(u8, build_src, compile_probe_helper) != null) return true;
+    return std.mem.indexOf(u8, build_src, "\"" ++ compile_probe_step ++ "\"") != null;
 }
 
 /// The argv the commit gate runs: exactly the configured `[gate] test_command`.
@@ -1216,18 +1264,72 @@ test "testTier classifies the default suite, filtered tiers, and custom commands
     try testing.expectEqual(TestTier.custom, testTier("env -u HOME zig build test"));
     try testing.expectEqual(TestTier.custom, testTier("env"));
     // The advisory names the command and the probe that closes the gap.
-    var cap: reporter.Capture = .{ .allocator = arena.allocator() };
+    const a = arena.allocator();
+    const dir = "zig-cache/test-commit-tier";
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().writeFile(.{ .sub_path = dir ++ "/build.zig", .data = "pub fn build(b: *std.Build) void {}\n" });
+
+    var cap: reporter.Capture = .{ .allocator = a };
     defer cap.deinit();
     const prior = reporter.default.capture;
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
-    adviseTestTier("zig build test-fast");
+
+    const narrowed: config.Config = .{ .gate = .{ .test_command = "zig build test-fast" } };
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &narrowed, .quiet = true };
+    try adviseTestTier(&ctx);
     try testing.expect(std.mem.indexOf(u8, cap.buf.items, "test-fast") != null);
-    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "addTestCompileProbe") != null);
-    cap.buf.clearRetainingCapacity();
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, compile_probe_helper) != null);
+
     // The default tier says nothing at all.
-    adviseTestTier("zig build test");
+    cap.buf.clearRetainingCapacity();
+    const whole: config.Config = .{};
+    ctx.cfg = &whole;
+    try adviseTestTier(&ctx);
     try testing.expectEqual(@as(usize, 0), cap.buf.items.len);
+}
+
+// spec: Commit Hygiene - Drops the compile-probe wiring instruction when build.zig already registers the step
+
+test "the tier advisory stops telling a wired project to wire the probe" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dir = "zig-cache/test-commit-probe-wired";
+    fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+    defer fs.cwd().deleteTree(dir) catch {};
+    // The reported case: six commits in a worktree whose `zig build
+    // test-compile` was wired AND had just passed were told to wire it.
+    try fs.cwd().writeFile(.{
+        .sub_path = dir ++ "/build.zig",
+        .data = "    _ = guardian.addTestCompileProbe(b, .{ .root_module = test_mod });\n",
+    });
+
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+
+    const narrowed: config.Config = .{ .gate = .{ .test_command = "zig build test-fast" } };
+    var ctx: types.RunCtx = .{ .allocator = a, .project_dir = dir, .cfg = &narrowed, .quiet = true };
+    try adviseTestTier(&ctx);
+    // The note is still true — this tier does not prove the suite compiles —
+    // so only the half that is false about this project is dropped.
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "test-fast") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, "already registers") != null);
+    try testing.expect(std.mem.indexOf(u8, cap.buf.items, compile_probe_helper) == null);
+
+    // A hand-declared step counts as wired; a build.zig that names neither does
+    // not, and an unreadable one keeps the wiring instruction (the harmless
+    // direction: advice a project may not need, never advice withheld).
+    try testing.expect(declaresCompileProbe("const s = b.step(\"test-compile\", \"compile every test\");"));
+    try testing.expect(!declaresCompileProbe("const s = b.step(\"test\", \"run tests\");"));
+    try testing.expect(!try testCompileProbeWired(a, "zig-cache/no-such-project"));
+    try testing.expect(std.mem.indexOf(u8, compileProbeFix(false), compile_probe_helper) != null);
 }
 
 // spec: Commit - Reports a gate and test timing split

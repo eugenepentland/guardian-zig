@@ -79,6 +79,7 @@ src/baseline.zig::keyedViolations | fn keyedViolations( arena: Allocator, check_
 src/baseline.zig::legacy_version value
 src/baseline.zig::lifecycle | fn lifecycle( arena: Allocator, baseline_path: []const u8, current: []const Keyed, force_refresh: bool, write_allowed: bool, ) (snapshot.WriteError || snapshot.ReadError)!Outcome
 src/baseline.zig::pathFor | fn pathFor(arena: Allocator, project_dir: []const u8, check_name: []const u8) Allocator.Error![]const u8
+src/baseline.zig::rekeyPathVariants | fn rekeyPathVariants( arena: Allocator, stored: []const []const u8, current: []const Keyed, ) Allocator.Error!Rekeyed
 src/baseline.zig::runWithBaseline | fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!void
 src/baseline.zig::splitAgainst | fn splitAgainst(arena: Allocator, stored: []const []const u8, current: []const Keyed) Allocator.Error!Split
 src/baseline.zig::version value
@@ -119,20 +120,24 @@ src/build_helper.zig::addFinalTestVerdict | fn addFinalTestVerdict(b: *std.Build
 src/build_helper.zig::addTestCompileProbe | fn addTestCompileProbe(b: *std.Build, opts: CompileProbeOptions) *std.Build.Step
 src/build_helper.zig::all_check_names value
 src/build_helper.zig::announceFilters | fn announceFilters(run: *std.Build.Step.Run, filters: []const []const u8) void
+src/build_helper.zig::compile_probe_step value
 src/build_helper.zig::enableTestDiagnostics | fn enableTestDiagnostics(test_module: *std.Build.Module) void
 src/build_helper.zig::testRunner | fn testRunner(dep: *std.Build.Dependency) std.Build.Step.Compile.TestRunner
 src/cache.zig::Digest value
 src/cache.zig::Error value
+src/cache.zig::StampedBinary struct_
+src/cache.zig::binaryDrifted | fn binaryDrifted(stamped: StampedBinary, running: StampedBinary) bool
 src/cache.zig::currentBinaryIdHash | fn currentBinaryIdHash(arena: Allocator) Error!Digest
 src/cache.zig::currentBinaryMtime | fn currentBinaryMtime(arena: Allocator) ?i128
+src/cache.zig::digestFromHex | fn digestFromHex(hex: []const u8) ?Digest
 src/cache.zig::eql | fn eql(a: Digest, b: Digest) bool
 src/cache.zig::inputDigest | fn inputDigest( arena: Allocator, project_dir: []const u8, spec_file: []const u8, external_gates: []const config.ExternalGate, ) Error!Digest
+src/cache.zig::readStampedBinary | fn readStampedBinary(arena: Allocator, project_dir: []const u8) Allocator.Error!StampedBinary
 src/cache.zig::readStored | fn readStored(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
-src/cache.zig::readStoredBinaryId | fn readStoredBinaryId(arena: Allocator, project_dir: []const u8) Allocator.Error!?Digest
 src/cache.zig::stampMtime | fn stampMtime(project_dir: []const u8) ?i128
 src/cache.zig::suiteDigest | fn suiteDigest(arena: Allocator, project_dir: []const u8) Error!Digest
 src/cache.zig::validStoredBytes | fn validStoredBytes(raw: []const u8) bool
-src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary_id: Digest) void
+src/cache.zig::writeGreenStamp | fn writeGreenStamp(arena: Allocator, project_dir: []const u8, digest: Digest, binary: StampedBinary) void
 src/cache.zig::writeStored | fn writeStored(arena: Allocator, project_dir: []const u8, digest: Digest) void
 src/check.zig::main | fn main(process_init: std.process.Init) !void
 src/check_roi.zig::CheckCounts struct_
@@ -402,6 +407,7 @@ src/cli/run_view.zig::verdict_prefix value
 src/cli/selfcheck.zig::command_name value
 src/cli/selfcheck.zig::embedded_digest value
 src/cli/selfcheck.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/selfcheck.zig::runningIdentity | fn runningIdentity(arena: std.mem.Allocator) cache.Error!cache.StampedBinary
 src/cli/size.zig::command_name value
 src/cli/size.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
@@ -942,7 +948,7 @@ src/spec/matcher.zig::ScanResult struct_
 src/spec/matcher.zig::SpecTag struct_
 src/spec/matcher.zig::TagKind enum_
 src/spec/matcher.zig::analyze | fn analyze( allocator: Allocator, sections: []const parser.Section, tags: []const SpecTag, ) std.mem.Allocator.Error!CoverageResult
-src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, dir_path: []const u8) ScanError!ScanResult
+src/spec/matcher.zig::scanDir | fn scanDir(allocator: Allocator, project_dir: []const u8, dir: []const u8) ScanError!ScanResult
 src/spec/parser.zig::Behavior struct_
 src/spec/parser.zig::ParseError value
 src/spec/parser.zig::Section struct_
@@ -1020,6 +1026,7 @@ src/violation_key.zig::fileOf | fn fileOf(line: []const u8) []const u8
 src/violation_key.zig::fromLine | fn fromLine(arena: Allocator, check: []const u8, line: []const u8) Allocator.Error![]const u8
 src/violation_key.zig::fromRecord | fn fromRecord(arena: Allocator, check: []const u8, v: reporter.Violation) Allocator.Error![]const u8
 src/violation_key.zig::no_file value
+src/violation_key.zig::prefixedPathVariant | fn prefixedPathVariant(stored: []const u8, current: []const u8) bool
 src/violation_key.zig::separator value
 src/violation_key.zig::skeleton | fn skeleton(arena: Allocator, message: []const u8) Allocator.Error![]const u8
 src/walk.zig::FileEntry struct_
