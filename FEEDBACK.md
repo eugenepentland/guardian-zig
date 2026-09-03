@@ -11314,3 +11314,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — export the whole routed bundle in the MATLAB RF crop
 - **good:** The explicit against-parent whole-tree gate accepted the new exact MATLAB RF export contract and its linked taper regression while confirming the obsolete projection-completeness waiver was removed; all 72 checks passed with zero blocking findings.
+
+## 2026-09-03 · codex · eda — board-wide stitching grid in the RF finish action
+- **good:** `type-size`, `pub-api-surface`, and `change-classification` kept the new grid result compact, made its two intended public additions explicit, and required the post-failure spacing fix to extend a spec-tagged regression; the exact-commit release then passed all 72 checks and 4,681 tests.
