@@ -11317,3 +11317,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — board-wide stitching grid in the RF finish action
 - **good:** `type-size`, `pub-api-surface`, and `change-classification` kept the new grid result compact, made its two intended public additions explicit, and required the post-failure spacing fix to extend a spec-tagged regression; the exact-commit release then passed all 72 checks and 4,681 tests.
+
+## 2026-09-03 · codex · eda — report every power-width DRC finding in one pass
+- **good:** The `spec` and change-classification gates accepted the exact one-pass multi-finding contract and its three-segment regression, while the JS asset gate also parsed the updated DRC help text; the exact-commit release passed all 72 Guardian checks, the full tests, ReleaseSafe build, browser performance gate, and editor invariants without a retry.
