@@ -11330,3 +11330,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-03 · codex · eda — repair adaptive PCB trace widths from authoritative DRC
 - **good:** The full exact-commit test gate caught a stale `serve.drc_rules` asset assertion after the scoped DRC helper gained an optional fence-via policy; updating that contract made the focused rerun and all 4,681 tests pass.
 - **friction:** The exact-commit `pcb_editor_perf` stage discarded an otherwise-green candidate because one Canvas zoom-in p95 measured 45.4 ms against a 45.0 ms cap; an unchanged retry passed, but repeated the full release workflow and cost about three extra minutes. A bounded automatic retry for a lone sub-millisecond browser-timing miss would keep the gate fail-closed without discarding test/build-green candidates.
+
+## 2026-09-03 · codex · eda — internal PCB cutout profiles
+- **good:** `pub-api-surface` and `type-size` isolated exactly the intended outline/placement model growth for named acceptance, while `bool-ops-per-condition` prompted two validation predicates to be split before the 72-check whole-tree run passed.
+- **good:** The exact-commit full test gate caught a stale `serve.static_assets` marker after outer-outline handles were separated from cutout handles; the focused contract fix brought all 4,688 tests, the ReleaseSafe build, editor performance gate, and browser invariants green on the rerun.
+- **friction:** Guardian source advanced during the task, so the next ordinary EDA build stopped at selfcheck until `zig build` refreshed Guardian's prebuilt checker; the diagnostic was exact, but it added one cross-repository build cycle before feature verification could continue.
