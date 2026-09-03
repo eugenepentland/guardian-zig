@@ -11304,3 +11304,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — retain cooling visibility through lazy 3D initialization
 - **good:** The focused and whole-tree runs passed all 72 Guardian checks, including JS parsing and the existing exact thermal-page spec link, and the exact-commit release completed its full tests, ReleaseSafe build, browser performance gate, and editor invariants without a retry.
+
+## 2026-09-03 · codex · eda — make the thermal parent authoritative for 3D cooling visibility
+- **good:** The exact thermal-page spec link and JS parsing gates accepted the bidirectional ready/synchronization contract, and every whole-tree run passed all 72 Guardian checks.
+- **friction:** The exact-commit `pcb_editor_perf` release stage again discarded two test/build-green candidates: one overlapped an unrelated Zig build using roughly three CPU cores, and the next had isolated 45.3 ms and 62.7 ms Canvas frames while all GPU metrics passed. Waiting for host load to fall from 13.6 to 4.0 made the third unchanged release pass, costing about six extra minutes and again demonstrating the value of an automatic bounded idle retry.
