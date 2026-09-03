@@ -11353,3 +11353,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — Assembly Gerber ruler release follow-up
 - **friction:** Three unchanged exact-commit releases each passed all 72 Guardian checks, the full tests, and ReleaseSafe compilation, then were discarded by `pcb_editor_perf` as unrelated workers repeatedly surged during the browser stage. The third, relatively quiet run had every GPU metric green but missed four Canvas limits narrowly (31.4/30 ms median, 61/55 ms max, and 45.3/45 ms zoom-out p95); after roughly 25 minutes of queuing and retries the feature branch had to remain unmerged. A benchmark idle preflight plus one bounded retry would preserve the gate while avoiding this recurring failure mode.
+
+## 2026-09-03 · codex · eda — export PCB holes as analytic STEP geometry
+- **good:** Guardian's focused and whole-tree runs passed all 72 checks without metadata churn, and the exact-commit release completed the full tests, ReleaseSafe build, PCB editor performance gate, and state-ownership invariants on the first attempt.
