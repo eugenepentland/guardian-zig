@@ -11311,3 +11311,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — promote undersized power copper to a DRC error
 - **good:** The `spec` check immediately caught three renamed/new power-width test contracts that had not yet been mirrored in `SPEC.md`; after linking them, all 72 Guardian checks and the exact-commit release passed, including the full tests and browser gates.
+
+## 2026-09-03 · codex · eda — export the whole routed bundle in the MATLAB RF crop
+- **good:** The explicit against-parent whole-tree gate accepted the new exact MATLAB RF export contract and its linked taper regression while confirming the obsolete projection-completeness waiver was removed; all 72 checks passed with zero blocking findings.
