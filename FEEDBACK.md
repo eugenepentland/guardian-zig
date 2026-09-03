@@ -11359,3 +11359,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — deploy the Assembly Gerber ruler
 - **friction:** The unchanged Assembly ruler commit needed three more exact-commit release attempts after rebasing: every run passed all 72 Guardian checks, the full tests, and ReleaseSafe compilation, but two were discarded by unrelated PCB-editor timing spikes before the third passed. The post-merge validation then suffered the same timing-only failure once before the newer `main` retry passed and restarted production, adding roughly 35 minutes of queueing and repeated builds; an idle-load preflight plus bounded automatic browser retry would prevent this recurring release bottleneck.
+
+## 2026-09-03 · codex · eda — analytic STEP hole deployment follow-up
+- **friction:** After the feature's exact commit passed release on the first attempt, moving `main` forced combined-head validation: one run discarded otherwise-green tests/builds on a 182.6 ms GPU zoom-out frame, and a later unrelated enclosure merge discarded another on 69 ms Canvas zoom-in. The unchanged intermediate head passed its automatic retry and deployed the STEP fix, but repeated browser-only outliers added roughly eight minutes; an idle preflight plus one bounded retry would avoid rebuilding code-green candidates.
