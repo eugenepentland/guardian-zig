@@ -11294,3 +11294,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-03 · codex · eda — thermal simulation 3D setup view
 - **good:** `bool-ops-per-condition` pinpointed the one new four-operation model-payload guard during the first focused run; naming the combined sprite/3D requirement reduced it below the cap and made the intent clearer, and the final whole-tree run passed all 72 checks.
 - **friction:** The exact-commit release discarded an otherwise-green candidate after the unrelated `pcb_editor_perf` Canvas zoom sample reached 56.5 ms against its 55 ms max while host load was 10.6; an isolated rerun under continued load also failed, while the unchanged rebased implementation passed once load fell to 4.0. This cost one discarded candidate and roughly four extra minutes, reinforcing the need for a bounded uncontended retry before throwing away a test/build-green candidate.
+
+## 2026-09-03 · codex · eda — independent fan and heatsink simulation toggles
+- **good:** The `spec` check caught that the new thermal-page regression tag had only explanatory prose and no exact behavior bullet; adding the one-to-one bullet made the next focused run pass all 72 checks, and the exact-commit release completed cleanly.
