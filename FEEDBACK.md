@@ -11297,3 +11297,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-03 · codex · eda — independent fan and heatsink simulation toggles
 - **good:** The `spec` check caught that the new thermal-page regression tag had only explanatory prose and no exact behavior bullet; adding the one-to-one bullet made the next focused run pass all 72 checks, and the exact-commit release completed cleanly.
+
+## 2026-09-03 · codex · eda — connect 3D cooling controls to thermal scenarios
+- **good:** The whole-tree Guardian gate passed all 72 checks on the exact commit, and the JS asset gate parsed all three changed browser assets before release.
+- **friction:** The exact-commit `pcb_editor_perf` release stage discarded two otherwise-green candidates after all tests and the ReleaseSafe build passed: the first run overlapped several unrelated CPU-saturating Guardian/test processes and produced a 379.1 ms GPU outlier, while the uncontended retry missed the Canvas p95 cap by only 0.5 ms (45.5 ms versus 45 ms). A third unchanged run passed, costing roughly six extra minutes; a bounded automatic retry for isolated browser-timing failures would preserve the gate while avoiding repeated full release preparation.
