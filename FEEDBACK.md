@@ -11301,3 +11301,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-03 · codex · eda — connect 3D cooling controls to thermal scenarios
 - **good:** The whole-tree Guardian gate passed all 72 checks on the exact commit, and the JS asset gate parsed all three changed browser assets before release.
 - **friction:** The exact-commit `pcb_editor_perf` release stage discarded two otherwise-green candidates after all tests and the ReleaseSafe build passed: the first run overlapped several unrelated CPU-saturating Guardian/test processes and produced a 379.1 ms GPU outlier, while the uncontended retry missed the Canvas p95 cap by only 0.5 ms (45.5 ms versus 45 ms). A third unchanged run passed, costing roughly six extra minutes; a bounded automatic retry for isolated browser-timing failures would preserve the gate while avoiding repeated full release preparation.
+
+## 2026-09-03 · codex · eda — retain cooling visibility through lazy 3D initialization
+- **good:** The focused and whole-tree runs passed all 72 Guardian checks, including JS parsing and the existing exact thermal-page spec link, and the exact-commit release completed its full tests, ReleaseSafe build, browser performance gate, and editor invariants without a retry.
