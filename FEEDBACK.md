@@ -11432,3 +11432,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — export JLCPCB BOM and CPL templates
 - **good:** Guardian's `spec` check caught three revised exporter contracts that were not yet mirrored in `SPEC.md`, and `canonical-idiom` caught a hand-rolled hierarchy-leaf split; linking the exact contracts and reusing `net_name.leaf` made the serialization change traceable and consistent.
 - **friction:** Two exact-commit preparations passed all 72 checks, the full tests, and ReleaseSafe compilation but discarded the CSV-only candidate on unrelated Barracuda Canvas/GPU timing outliers. A bounded browser-only retry against the preserved candidate would have avoided about seven minutes of repeated green build/test work.
+
+## 2026-09-04 · codex · eda — panelize Gerber exports
+- **good:** Guardian's file-size and import-layering checks pushed the panel-query adapter out of the 9,700-line PCB page and prevented the serve layer from depending directly on the placement solver; the full shard-coverage invariant then caught the new `panelize.zig` tests missing from `test_shards.zig` before release. After registering them, the complete test suite, ReleaseSafe build, browser performance gate, and editor ownership invariants passed on the exact commit.
