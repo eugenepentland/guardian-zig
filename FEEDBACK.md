@@ -11417,3 +11417,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — merge fabrication CSV improvements
 - **good:** After two browser-only timing failures, the unchanged rebased feature tip passed all 72 Guardian checks, 4,750 tests, ReleaseSafe compilation, editor performance, and state-ownership invariants, enabling a policy-compliant merge.
 - **friction:** Because `main` advanced during that successful feature gate, the combined merge commit required another full release. Its automatic deployment and one manual retry both passed every code gate but failed `pcb_editor_perf` on inconsistent isolated Canvas/GPU spikes (52.6/229.2 ms, then 48.6/253.9 ms), so the code is merged but production remains on the prior verified binary. Reusing a green candidate's build/test evidence and retrying only the browser benchmark would eliminate repeated full-suite work while retaining the deployment hold.
+
+## 2026-09-04 · codex · eda — sketch dimension shortcut and direct extrusion
+- **good:** Guardian's JavaScript asset, exact-spec, focused CAD, commit-time, and whole-tree gates all passed cleanly; the exact commit also completed full tests, ReleaseSafe compilation, the Barracuda editor performance gate, and ownership invariants before a successful production deployment.
