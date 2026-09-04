@@ -11448,3 +11448,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — add per-side panel rails and rail features
 - **good:** Guardian's public-API preview isolated exactly the four intended panel feature types, and the full shard-coverage invariant caught the new panel-query test missing from both the import bridge and shard manifest before commit. After registering it, all 4,779 tests, 72 whole-tree checks, ReleaseSafe compilation, editor performance, and state-ownership invariants passed on the exact commit.
+
+## 2026-09-04 · codex · eda — add live panel outline preview
+- **good:** Guardian linked the new live SVG preview to its exact Web Server specification and accepted the browser asset syntax and contract tests; all 4,783 sharded tests, 72 whole-tree checks, ReleaseSafe compilation, editor performance, and state-ownership invariants then passed on the exact commit.
