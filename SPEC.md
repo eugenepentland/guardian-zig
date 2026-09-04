@@ -27,6 +27,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the module_doc_header min_lines threshold
 - Parses the mutation section score and budget settings
 - Parses the mutation section timeout floor and multiplier
+- Parses the mutation section commit tier switch and disk floor
 - Parses the change classification toggle and against ref
 - Parses the change classification last-commit gate toggle
 - Defaults completeness off and parses its enabled and exempt_sections settings
