@@ -11441,3 +11441,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — add panel-specific BOM and centroid files
 - **good:** Guardian's public-API preview isolated exactly the new panel assembly descriptor and two CSV writers before the surgical snapshot acceptance; the linked writer and package regressions then passed all 4,776 sharded tests, the whole-tree checks, ReleaseSafe build, browser performance gate, and editor ownership invariants on the exact commit.
+
+## 2026-09-04 · codex · eda — add movable system fans
+- **good:** Guardian's exact `spec` check caught the revised system-CAD contract before commit; after updating its linked tag, all 72 whole-tree checks, the full sharded tests, ReleaseSafe build, browser performance gate, and editor ownership invariants passed on the exact commit and production health checks stayed green.
+- **friction:** `shadowed-const` treated a new `0.000001` fan-flow validation literal as shadowing an unrelated existing `eps` constant with the same value, costing one focused-gate retry; naming the fan threshold resolved it, but the diagnostic would be clearer if it explained that the collision is value-based rather than lexical.
