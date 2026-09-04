@@ -11488,3 +11488,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — standardize primary navigation across pages
 - **good:** Guardian's `pub-api-surface` check previewed exactly the new shared navbar module's three public declarations before surgical acceptance, and every subsequent whole-tree run completed all 72 checks with no blocking findings.
+
+## 2026-09-04 · codex · eda — add paired panel rail corner features
+- **good:** Guardian's exact-spec and browser asset gates covered the paired tooling-hole/fiducial geometry, per-side labels, and live preview totals; the exact commit passed all 72 checks, all 4,786 tests, ReleaseSafe compilation, editor performance, and state-ownership invariants before healthy deployment.
+- **friction:** The first exact-commit preparation passed Guardian, all tests, and ReleaseSafe compilation but discarded the candidate on unrelated Canvas and software-WebGPU timing spikes; the unchanged retry waited 420 seconds in the shared queue and then passed. Preserving code-green candidates for one browser-only retry would avoid repeating validation and the long queue wait.
