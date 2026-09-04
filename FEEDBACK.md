@@ -11398,3 +11398,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — exact autorouter RF taper copper
 - **good:** Guardian's exact-spec and public-API checks isolated the new swept-taper output seam, while the full shard invariants caught both the missing `rf_taper_paths.zig` test-root import and an initially redundant shard filter before all 4,752 tests passed.
+
+## 2026-09-04 · codex · eda — principal-plane mechanical sketch editor
+- **good:** Guardian's exact-spec, JavaScript asset, focused test, and whole-tree commit gates remained green through a conflict-heavy rebase with the new 2D thermal workspace; the exact rebased commit then passed full tests, ReleaseSafe compilation, the Barracuda editor performance gate, and state-ownership invariants on its first release preparation.
