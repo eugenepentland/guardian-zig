@@ -664,6 +664,17 @@ pub const MutationCfg = struct {
     timeout_secs: u32 = 300,
     /// Number of exact suite-digest mutation caches retained for reuse.
     retained_cache_suites: u32 = 3,
+    /// Opt the FAST tier into the `commit` gate: after `[gate] test_command`
+    /// passes and before the commit is created, mutate the lines the candidate
+    /// tree changed against its base and refuse the commit on a failing
+    /// verdict. Off by default — the tier rebuilds and re-tests the project per
+    /// mutant, so its latency is a project-by-project decision, not a default.
+    on_commit: bool = false,
+    /// Free-disk floor (GiB) the commit tier requires before it materialises
+    /// its scratch worktree. A mutation campaign writes a whole checkout plus a
+    /// campaign-local Zig cache; starting one on a nearly-full filesystem is
+    /// how a run ends in `NoSpaceLeft` half way through.
+    min_free_gib: u32 = 5,
 };
 
 /// Per-check config for the test-coverage check (per-pub-fn).

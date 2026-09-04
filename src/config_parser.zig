@@ -79,6 +79,8 @@ const timeout_floor_secs_key = "timeout_floor_secs";
 const timeout_multiplier_key = "timeout_multiplier";
 const timeout_retry_multiplier_key = "timeout_retry_multiplier";
 const timeout_secs_key = "timeout_secs";
+const on_commit_key = "on_commit";
+const min_free_gib_key = "min_free_gib";
 const max_file_lines_key = "max_file_lines";
 const hard_max_file_lines_key = "hard_max_file_lines";
 const max_lines_key = "max_lines";
@@ -1815,6 +1817,8 @@ fn validSectionKeys(section: Section) []const []const u8 {
             timeout_retry_multiplier_key,
             timeout_secs_key,
             "retained_cache_suites",
+            on_commit_key,
+            min_free_gib_key,
         },
         .benchmark => &.{"gate"},
         .completeness => &.{ "enabled", "exempt_sections" },
@@ -2132,6 +2136,10 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
         g.timeout_secs = parseU32(kv.val, g.timeout_secs);
     } else if (std.mem.eql(u8, kv.key, "retained_cache_suites")) {
         g.retained_cache_suites = parseU32(kv.val, g.retained_cache_suites);
+    } else if (std.mem.eql(u8, kv.key, on_commit_key)) {
+        g.on_commit = parseBool(kv.val) orelse g.on_commit;
+    } else if (std.mem.eql(u8, kv.key, min_free_gib_key)) {
+        g.min_free_gib = parseU32(kv.val, g.min_free_gib);
     }
 }
 

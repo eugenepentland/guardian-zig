@@ -286,6 +286,14 @@ blocking correctness checks and advisory maintainability guidance.
 - Advises when the configured test command is not the whole default suite
 - Drops the compile-probe wiring instruction when build.zig already registers the step
 
+## Commit Mutation Tier
+
+- Leaves the commit mutation tier off until on_commit enables it
+- Refuses to start when free disk is below the configured floor
+- Runs the fast diff tier against the resolved base ref
+- Refuses the commit on a failing verdict and propagates other errors
+- Mutates a scratch worktree and removes it even when the tier fails
+
 ## Merge
 
 - Takes the three merge inputs in git's base, ours, theirs order

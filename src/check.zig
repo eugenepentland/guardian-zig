@@ -680,6 +680,7 @@ test {
     _ = @import("cli/accept.zig");
     _ = @import("cli/nightly.zig");
     _ = @import("cli/commit.zig");
+    _ = @import("cli/commit_mutate.zig");
     _ = @import("cli/migrate.zig");
     _ = @import("cli/install_hook.zig");
     _ = @import("cli/merge_file.zig");

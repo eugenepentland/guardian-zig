@@ -31,6 +31,7 @@ const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const run_all = @import("run_all.zig");
 const install_hook = @import("install_hook.zig");
+const commit_mutate = @import("commit_mutate.zig");
 const git = @import("../git.zig");
 const dora = @import("../dora.zig");
 const check_roi = @import("../check_roi.zig");
@@ -134,6 +135,20 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     }
     const tests_ms = tests_sw.elapsedMs();
     reporter.ok("commit: timing — {s}", .{try formatTimingSplit(ctx.allocator, gate_ms, tests_ms)});
+
+    // Opt-in extra tier between tests and history (`[mutation] on_commit`):
+    // the suite passing proves the tests RAN, not that any of them would have
+    // noticed the changed lines being wrong. It runs after the suite because a
+    // red suite is the cheaper, clearer answer, and it never touches the
+    // working tree — see cli/commit_mutate.zig.
+    var mutate_sw = dora.startStopwatch();
+    commit_mutate.run(ctx) catch |err| {
+        recordCommitEvent(ctx, "red", "mutate", operation_sw.elapsedMs(), gate_ms, tests_ms);
+        return err;
+    };
+    if (commit_mutate.enabled(ctx.cfg)) {
+        reporter.ok("commit: mutation tier took {d}ms", .{mutate_sw.elapsedMs()});
+    }
 
     // A raw `git commit` must not be able to bypass the gate now that a dev
     // build only reports, so ensure a blocking pre-commit hook exists (best
