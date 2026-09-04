@@ -11420,3 +11420,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — sketch dimension shortcut and direct extrusion
 - **good:** Guardian's JavaScript asset, exact-spec, focused CAD, commit-time, and whole-tree gates all passed cleanly; the exact commit also completed full tests, ReleaseSafe compilation, the Barracuda editor performance gate, and ownership invariants before a successful production deployment.
+
+## 2026-09-04 · codex · eda — preserve every legal autorouter RF taper
+- **good:** The full shard-coverage invariant caught the new late-route RF taper regression test missing from `src/test_shards.zig`; registering it restored explicit coverage and all 4,754 tests passed before release.
+- **friction:** Two unchanged exact-commit preparations passed all 72 Guardian checks, 4,754 tests, and ReleaseSafe compilation but discarded their candidates on isolated Canvas p95 spikes of 65.5 ms and 52.7 ms. The deployed `main` binary and the exact feature binary then passed isolated A/B runs at 38.0 ms and 40.4 ms respectively, and a third full preparation passed unchanged; retaining code-green candidates for one bounded browser-only retry would have saved roughly six minutes.
