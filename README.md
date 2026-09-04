@@ -61,7 +61,10 @@ dead-pub and test-coverage reference maps, orphan-file and test reachability, th
 SPEC↔tag map, and every tree-wide snapshot/budget (`pub-api-surface`,
 `panic-budget`, `int-from-float-budget`, `unsafe-ops-budget`). The capability
 is a `scope` field on each registry entry with **no default**, so a newly added
-check has to classify itself.
+check has to classify itself. A second no-default field, `subject`, says what
+the check's verdict is *about* — the tree's accumulated state (`.tree`) or the
+change under review (`.change`, today `change-classification` and `mutate`) —
+which is what decides whether the baseline layer may ever adopt its findings.
 
 Every scoped run says so, naming the base and how much of the tree it read, and
 a scoped run counts as *partial*: it never stamps the green skip-cache (so a

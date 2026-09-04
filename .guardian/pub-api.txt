@@ -414,6 +414,7 @@ src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/test_filter.zig::command_name value
 src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::CheckScope enum_
+src/cli/types.zig::CheckSubject enum_
 src/cli/types.zig::Command struct_
 src/cli/types.zig::MergeInputs struct_
 src/cli/types.zig::NeedsAst enum_

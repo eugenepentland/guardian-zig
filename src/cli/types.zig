@@ -227,6 +227,19 @@ pub const NeedsAst = enum { no, yes };
 /// it becomes unsound.
 pub const CheckScope = enum { per_file, whole_tree };
 
+/// What a check's verdict is ABOUT: the tree's accumulated state, or the change
+/// under review.
+///
+/// The two want opposite treatment from the baseline layer. A `.tree` check
+/// reports standing debt, and `accept` recording its first findings as a
+/// starting set is exactly right — that is what a baseline IS. A `.change`
+/// check's subject is the diff itself, so there is no standing set to freeze:
+/// a row accepted from one diff describes a change that no longer exists, and
+/// adopting it would swallow the defect the change is introducing on the one
+/// run where the finding was about something just written. `.change` therefore
+/// never adopts, on any run — not even an `accept`.
+pub const CheckSubject = enum { tree, change };
+
 /// The changed-file view handed to `per_file` checks on a diff-scoped run
 /// (see scope.zig). Absent on a whole-tree run, which is the only kind
 /// `commit` and CI ever perform.
@@ -255,6 +268,12 @@ pub const Command = struct {
     /// itself, so scoping can never silently widen to a check it is unsound
     /// for as the registry grows.
     scope: CheckScope,
+    /// Whether this check's verdict is about the tree or about the change under
+    /// review. Deliberately has NO default, for the same reason `scope` has
+    /// none: the classification decides whether the baseline layer may ever
+    /// adopt the check's findings, and a wrong silent default is a green gate
+    /// over a defect. A newly registered check must say which it is.
+    subject: CheckSubject,
     run: *const fn (ctx: *RunCtx) RunError!void,
 };
 

@@ -84,6 +84,10 @@ const check_merge_state = @import("../checks/merge_state.zig");
 const cmd_mutate = @import("mutate.zig");
 const cmd_debt = @import("debt.zig");
 
+/// Spelled once: the registry entry, the whole-tree list and the change-subject
+/// list all name this check, and three copies of one string is how they drift.
+const change_classification_name = "change-classification";
+
 pub const RunCtx = types.RunCtx;
 pub const NeedsAst = types.NeedsAst;
 pub const Command = types.Command;
@@ -97,42 +101,49 @@ pub const all: []const Command = &.{
         .name = check_formatting.check_name,
         .summary = "Require every src file to match zig fmt output",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_formatting.run,
     },
     .{
         .name = "spec",
         .summary = "Verify SPEC.md \u{2194} // spec: tag coverage",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_spec.run,
     },
     .{
         .name = "spec-init",
         .summary = "Generate starter SPEC.md from pub fn signatures",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_spec_init.run,
     },
     .{
         .name = "mutate",
         .summary = "Mutation-test the suite (fast tier: changed lines; --full: whole tree)",
         .scope = .whole_tree,
+        .subject = .change,
         .run = cmd_mutate.run,
     },
     .{
         .name = "debt",
         .summary = "Report baseline/snapshot debt totals with deltas (non-gating)",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = cmd_debt.run,
     },
     .{
         .name = "file-size",
         .summary = "Warn on large files; block extreme ones",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_file_size.run,
     },
     .{
         .name = "boundaries",
         .summary = "Enforce @import boundary rules",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_boundaries.run,
     },
     .{
@@ -140,18 +151,21 @@ pub const all: []const Command = &.{
         .summary = "Reject deprecated 0.15 std spellings " ++
             "(ArrayListUnmanaged, managed hashmaps, usingnamespace, getStdOut)",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_deprecated_alias.run,
     },
     .{
         .name = "spec-quality",
         .summary = "Lint SPEC.md prose for vague phrases and stub behaviors",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_spec_quality.run,
     },
     .{
         .name = "completeness",
         .summary = "Require each SPEC.md feature section to address or waive 8 scenario categories (opt-in)",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_completeness.run,
     },
     .{
@@ -159,6 +173,7 @@ pub const all: []const Command = &.{
         .summary = "Enforce Zig naming conventions (PascalCase types, camelCase fns)",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_naming.run,
     },
     .{
@@ -166,6 +181,7 @@ pub const all: []const Command = &.{
         .summary = "Cap function parameter count",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_function_size.run,
     },
     .{
@@ -173,12 +189,14 @@ pub const all: []const Command = &.{
         .summary = "Require a real /// doc comment on every public fn/type (presence + quality)",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_doc_comments.run,
     },
     .{
         .name = "imports",
         .summary = "Detect cycles in the @import graph",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_imports.run,
     },
     .{
@@ -189,6 +207,7 @@ pub const all: []const Command = &.{
         // forbidden import as resolved because the file it points at went out
         // of view. The graph is only meaningful whole.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_import_layering.run,
     },
     .{
@@ -196,24 +215,28 @@ pub const all: []const Command = &.{
         .summary = "Snapshot every pub fn/type; diff fails build",
         .needs_ast = .yes,
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_pub_api_surface.run,
     },
     .{
         .name = "panic-budget",
         .summary = "Cap @panic / unreachable / TODO / FIXME counts via snapshot",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_panic_budget.run,
     },
     .{
         .name = "catch-discipline",
         .summary = "Reject catch unreachable/undefined and empty catch blocks",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_catch_discipline.run,
     },
     .{
         .name = "unwrap-discipline",
         .summary = "Reject orelse unreachable / orelse undefined (crash-on-null)",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_unwrap_discipline.run,
     },
     .{
@@ -221,18 +244,21 @@ pub const all: []const Command = &.{
         .summary = "Require explicit error sets on pub fn",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_error_discipline.run,
     },
     .{
         .name = "cognitive-complexity",
         .summary = "Cap per-function cognitive complexity score",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_cognitive_complexity.run,
     },
     .{
         .name = "anytype-budget",
         .summary = "Cap anytype parameter count per file",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_anytype_budget.run,
     },
     .{
@@ -240,24 +266,28 @@ pub const all: []const Command = &.{
         .summary = "Flag unused public declarations",
         .needs_ast = .yes,
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_dead_pub.run,
     },
     .{
         .name = "allocator-hygiene",
         .summary = "Reject hardcoded global allocators outside main/test",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_allocator_hygiene.run,
     },
     .{
         .name = "debug-print-ban",
         .summary = "Reject std.debug.print(...) calls outside main/test",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_debug_print_ban.run,
     },
     .{
         .name = "orphan-files",
         .summary = "Flag .zig files under src/ unreachable from any configured root",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_orphan_files.run,
     },
     .{
@@ -266,6 +296,7 @@ pub const all: []const Command = &.{
         // Reachability is a property of the whole import graph: a file's status
         // can flip because a file *outside* the diff dropped its import.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_test_reachability.run,
     },
     .{
@@ -274,18 +305,21 @@ pub const all: []const Command = &.{
             "(return undefined, placeholder panics, unreachable in value fns)",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_stub_body_ban.run,
     },
     .{
         .name = "int-from-float-budget",
         .summary = "Track @intFromFloat call count via snapshot (new sites need a guard review)",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_int_from_float_budget.run,
     },
     .{
         .name = "unsafe-ops-budget",
         .summary = "Track unsafe-cast builtin and undefined re-assignment counts via snapshot",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_unsafe_ops_budget.run,
     },
     .{
@@ -293,6 +327,7 @@ pub const all: []const Command = &.{
         .summary = "Cap fields per pub struct/enum/union/opaque",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_type_size.run,
     },
     .{
@@ -300,6 +335,7 @@ pub const all: []const Command = &.{
         .summary = "Warn on long functions; block extreme ones",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_function_length.run,
     },
     .{
@@ -307,6 +343,7 @@ pub const all: []const Command = &.{
         .summary = "Cap brace-nesting depth inside fn bodies",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_nesting_depth.run,
     },
     .{
@@ -314,6 +351,7 @@ pub const all: []const Command = &.{
         .summary = "Require every pub fn to be referenced from a test block (opt-in)",
         .needs_ast = .yes,
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_test_coverage.run,
     },
     .{
@@ -322,6 +360,7 @@ pub const all: []const Command = &.{
         // Per-file like every other ban: each rule's verdict is a property of
         // the file it matched in, so a diff-scoped run may narrow it.
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban.run,
     },
     .{
@@ -333,6 +372,7 @@ pub const all: []const Command = &.{
         // to — and narrowing only the source-set half would make the two halves
         // of one check disagree about how much they read.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_concept.run,
     },
     .{
@@ -343,6 +383,7 @@ pub const all: []const Command = &.{
         // hold at all (JS, CSS, TOML), so there is nothing for a diff-scoped run
         // to narrow the scan to.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_canonical_idiom.run,
     },
     .{
@@ -353,6 +394,7 @@ pub const all: []const Command = &.{
         // lives outside the diff as missing — the loudest possible false
         // positive on a one-file change.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_twin_parity.run,
     },
     .{
@@ -363,6 +405,7 @@ pub const all: []const Command = &.{
         // touched is half of every finding, and narrowing the scan would report
         // a divergence as resolved because its other side went out of view.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_divergent_const.run,
     },
     .{
@@ -374,6 +417,7 @@ pub const all: []const Command = &.{
         // dangling), and the shadow itself is a relation between two files, so
         // narrowing to the changed one would report a live shadow as resolved.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_shadowed_const.run,
     },
     .{
@@ -383,6 +427,7 @@ pub const all: []const Command = &.{
         // Resolution reads the whole tree's files and declared identifiers, so a
         // narrowed index would report every referent outside the diff as dangling.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_twin_referent.run,
     },
     .{
@@ -394,6 +439,7 @@ pub const all: []const Command = &.{
         // in the first place — so a narrowed index would report a live twin as
         // resolved the moment only one copy was edited.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_twin_drift.run,
     },
     .{
@@ -403,54 +449,63 @@ pub const all: []const Command = &.{
         // Each verdict is a property of the one function that wrote both keys,
         // so a diff-scoped run may narrow it like any other per-file check.
         .scope = .per_file,
+        .subject = .tree,
         .run = check_duplicate_json_key.run,
     },
     .{
         .name = "ban-time",
         .summary = "Reject std.time wall-clock reads outside infra/clock",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_time.run,
     },
     .{
         .name = "ban-rng",
         .summary = "Reject RNG construction outside infra/random",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_rng.run,
     },
     .{
         .name = "ban-fs",
         .summary = "Reject std.fs I/O calls outside infra/fs",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_fs.run,
     },
     .{
         .name = "ban-net",
         .summary = "Reject std.net / std.http use outside adapters/http or infra/net",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_net.run,
     },
     .{
         .name = "ban-env",
         .summary = "Reject env-var reads outside config or main",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_env.run,
     },
     .{
         .name = "ban-sleep",
         .summary = "Reject sleep calls outside test infrastructure",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_sleep.run,
     },
     .{
         .name = "ban-globals",
         .summary = "Reject mutable pub var globals outside wiring/main",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_globals.run,
     },
     .{
         .name = "ban-hardcoded-paths",
         .summary = "Reject hardcoded absolute paths and URLs in string literals",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_hardcoded_paths.run,
     },
     .{
@@ -458,12 +513,14 @@ pub const all: []const Command = &.{
         .summary = "Reject hardcoded credentials " ++
             "(known token formats + entropy-gated secret assignments)",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_ban_secrets.run,
     },
     .{
         .name = "init-deinit-symmetry",
         .summary = "Require pub deinit on structs that own an allocator field",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_init_deinit_symmetry.run,
     },
     .{
@@ -471,48 +528,56 @@ pub const all: []const Command = &.{
         .summary = "Require errdefer between multiple try calls inside init",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_errdefer_in_init.run,
     },
     .{
         .name = "test-has-assertion",
         .summary = "Require every test block to contain at least one expect* call",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_test_has_assertion.run,
     },
     .{
         .name = "test-no-conditional",
         .summary = "Reject if/while/switch and extra for loops at the top level of a test body",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_test_no_conditional.run,
     },
     .{
         .name = "test-skip-ban",
         .summary = "Reject tests that are empty or unconditionally return error.SkipZigTest",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_test_skip_ban.run,
     },
     .{
         .name = "prod-imports-no-test",
         .summary = "Reject production code @import-ing test files",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_prod_imports_no_test.run,
     },
     .{
         .name = "bool-ops-per-condition",
         .summary = "Cap boolean operators per condition",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_bool_ops_per_condition.run,
     },
     .{
         .name = "line-length",
         .summary = "Warn on long lines; block extreme ones",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_line_length.run,
     },
     .{
         .name = "repeated-string-literal",
         .summary = "Reject 3+ repeats of a literal in a file and duplicate consts across files",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_repeated_string_literal.run,
     },
     .{
@@ -520,6 +585,7 @@ pub const all: []const Command = &.{
         .summary = "Reject returning the address of a stack local (dangling pointer)",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_stack_escape.run,
     },
     .{
@@ -527,19 +593,22 @@ pub const all: []const Command = &.{
         .summary = "Require a body assert() in any fn whose doc claims an Asserts precondition",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_assert_doc_consistency.run,
     },
     .{
         .name = "fatal-exit",
         .summary = "Reject a hand-rolled std.process.exit(nonzero) outside the entry/fatal path",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_fatal_exit.run,
     },
     .{
-        .name = "change-classification",
+        .name = change_classification_name,
         .summary = "Require a test or spec change alongside behavioral src changes (vs git ref)",
         .needs_ast = .yes,
         .scope = .whole_tree,
+        .subject = .change,
         .run = check_change_classification.run,
     },
     .{
@@ -547,12 +616,14 @@ pub const all: []const Command = &.{
         .summary = "Flag allocation errors conflated with domain absence (opt-in)",
         .needs_ast = .yes,
         .scope = .per_file,
+        .subject = .tree,
         .run = check_oom_discipline.run,
     },
     .{
         .name = "fuzz-presence",
         .summary = "Require a std.testing.fuzz call in each configured module (opt-in)",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_fuzz_presence.run,
     },
     .{
@@ -562,6 +633,7 @@ pub const all: []const Command = &.{
         // path list, read from disk rather than from the parsed index, so a
         // diff-scoped run has nothing to narrow it to.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_concurrency_presence.run,
     },
     .{
@@ -572,6 +644,7 @@ pub const all: []const Command = &.{
         // and the scan reads them from disk, so there is nothing for a
         // diff-scoped run to narrow it to.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_script_string_safety.run,
     },
     .{
@@ -582,6 +655,7 @@ pub const all: []const Command = &.{
         // — its enforcing read can live in a file the diff never touched, so a
         // narrowed view would report a live field as dead.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_dead_model_field.run,
     },
     .{
@@ -593,24 +667,28 @@ pub const all: []const Command = &.{
         // verdict for every file it holds. Nothing about the type's declaration
         // site or any other file changes the answer.
         .scope = .per_file,
+        .subject = .tree,
         .run = check_projection_completeness.run,
     },
     .{
         .name = "module-doc-header",
         .summary = "Require a //! module doc header on src files over [module_doc_header] min_lines (default 200)",
         .scope = .per_file,
+        .subject = .tree,
         .run = check_module_doc_header.run,
     },
     .{
         .name = "external-gates",
         .summary = "Run project-defined non-Zig argv gates from [[external]] entries",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_external_gates.run,
     },
     .{
         .name = "policy-drift",
         .summary = "Protect guardian.toml and accepted-debt files in trusted CI",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_policy_drift.run,
     },
     .{
@@ -620,6 +698,7 @@ pub const all: []const Command = &.{
         // diff-scoped run must still read all of it: a conflicted baseline is
         // exactly as dangerous when the diff touches nothing near it.
         .scope = .whole_tree,
+        .subject = .tree,
         .run = check_merge_state.run,
     },
 };
@@ -692,13 +771,33 @@ const inherently_whole_tree = [_][]const u8{
     "imports",                   "pub-api-surface", "panic-budget",
     "dead-pub",                  "orphan-files",    "int-from-float-budget",
     "unsafe-ops-budget",         "test-coverage",   "repeated-string-literal",
-    "change-classification",     "fuzz-presence",   "external-gates",
+    change_classification_name,  "fuzz-presence",   "external-gates",
     "concurrency-test-presence", "policy-drift",    "test-reachability",
     "merge-state",               "concept",         "canonical-idiom",
     "divergent-const",           "shadowed-const",  "twin-referent",
     "import-layering",           "twin-parity",     "script-string-safety",
     "dead-model-field",          "twin-drift",
 };
+
+/// Checks whose subject is the CHANGE UNDER REVIEW rather than the tree's
+/// accumulated state: they read the diff against a base ref and judge what it
+/// added. The baseline layer must never adopt their findings as a starting set
+/// — that would freeze the defect the diff is introducing (see
+/// `types.CheckSubject` and `baseline.refuseAdoption`). Asserted against the
+/// registry below, exactly as `inherently_whole_tree` is, so a future edit
+/// cannot quietly reclassify one. (Exhaustiveness the other way is a
+/// compile-time property: `Command.subject` has no default.)
+const change_subject = [_][]const u8{ "mutate", change_classification_name };
+
+/// True when every name in `change_subject` resolves to a registered check
+/// classified `.change`.
+fn changeSubjectClassificationHolds() bool {
+    for (change_subject) |name| {
+        const cmd = find(name) orelse return false;
+        if (cmd.subject != .change) return false;
+    }
+    return true;
+}
 
 /// True when every name in `inherently_whole_tree` resolves to a registered
 /// check classified `.whole_tree`. Factored out of the test so the loop isn't
@@ -720,4 +819,15 @@ test "the inherently whole-tree checks stay classified whole_tree" {
     try std.testing.expect(find("line-length").?.scope == .per_file);
     try std.testing.expect(find("naming").?.scope == .per_file);
     try std.testing.expect(find("cognitive-complexity").?.scope == .per_file);
+}
+
+// spec: Diff Scoping - Classifies every diff-time check's subject as the change under review
+
+test "the diff-time checks stay classified as change-subject" {
+    try std.testing.expect(changeSubjectClassificationHolds());
+    // The counterpart: a standing-debt check is `.tree`, so `accept` can still
+    // record its findings as a starting set — that is what a baseline is for.
+    try std.testing.expect(find("function-size").?.subject == .tree);
+    try std.testing.expect(find("twin-drift").?.subject == .tree);
+    try std.testing.expect(find("spec").?.subject == .tree);
 }

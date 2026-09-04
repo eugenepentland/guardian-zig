@@ -745,6 +745,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports whether a changed-file plan covers a given path
 - Narrows the shared parsed-source index to the changed files
 - Classifies every cross-file and tree-wide check as whole-tree
+- Classifies every diff-time check's subject as the change under review
 - Hands the narrowed index only to per-file checks
 - Treats a diff-scoped run as partial so it never stamps the green cache
 - Reports a partial view's baseline shrink as a match instead of resolved work

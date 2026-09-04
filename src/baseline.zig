@@ -2035,6 +2035,7 @@ test "a check that fails while naming nothing is not turned green by the baselin
         .name = "something-check",
         .summary = "test",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = failsWithoutNamingAnything,
     }));
     // And it says WHICH check, because the defect is in the check's reporting
@@ -2049,6 +2050,7 @@ test "a check that fails while naming nothing is not turned green by the baselin
         .name = "something-check",
         .summary = "test",
         .scope = .whole_tree,
+        .subject = .tree,
         .run = failsNamingOne,
     });
     try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "without naming a single finding") == null);
@@ -2080,6 +2082,7 @@ test "runWithBaseline replays warnings without ratcheting them" {
         .name = "file-size",
         .summary = "test",
         .scope = .per_file,
+        .subject = .tree,
         .run = warningOnly,
     });
     try std.testing.expectEqual(@as(usize, 1), outer.warnings.items.len);
@@ -2153,6 +2156,7 @@ test "a regressed file-size key reaches the JSONL sink with its file, metric and
         .name = "file-size",
         .summary = "test",
         .scope = .per_file,
+        .subject = .tree,
         .run = fileSizeOverHardLimit,
     }));
 
@@ -2577,6 +2581,7 @@ test "an extracted item passes the gate and re-keys its entry, reporting the mov
         .name = "type-size",
         .summary = "test",
         .scope = .per_file,
+        .subject = .tree,
         .run = typeSizeAtNewHome,
     });
     try std.testing.expect(std.mem.indexOf(
@@ -2698,6 +2703,7 @@ test "a new violation above the baseline reaches the sink structured, not as pro
         .name = "catch-discipline",
         .summary = "test",
         .scope = .per_file,
+        .subject = .tree,
         .run = proseViolation,
     }));
 
