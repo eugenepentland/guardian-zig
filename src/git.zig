@@ -18,6 +18,9 @@ const max_git_output_bytes: usize = 64 * 1024 * 1024;
 /// `git rev-parse` subcommand — shared so the several rev-parse call sites don't
 /// each repeat the literal (repeated-string-literal).
 const rev_parse = "rev-parse";
+/// `git worktree` subcommand — shared so the add/remove/prune call sites do not
+/// each repeat the literal (repeated-string-literal).
+const worktree_cmd = "worktree";
 
 /// Flags every diff invocation here shares, hoisted so the several call sites
 /// don't each repeat the literal (repeated-string-literal): raw (unquoted)
@@ -439,6 +442,59 @@ pub fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
     const argv = [_][]const u8{ "git", rev_parse, "HEAD" };
     const out = runGit(allocator, project_dir, &argv) orelse return null;
     return std.mem.trim(u8, out, &std.ascii.whitespace);
+}
+
+/// Resolves `ref` (a branch, tag, or `HEAD`) to its commit hash, or null when
+/// it names nothing — an empty repository has no `HEAD`, and a typo'd base ref
+/// resolves to nothing at all. Best-effort like the rest of the commit-path
+/// helpers: the caller decides whether an unresolvable base is a skip or a stop.
+pub fn resolveRef(allocator: Allocator, project_dir: []const u8, ref: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", rev_parse, "--verify", "--quiet", ref };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const sha = std.mem.trim(u8, out, &std.ascii.whitespace);
+    return if (sha.len == 0) null else sha;
+}
+
+/// Records the working tree as a dangling commit WITHOUT touching the working
+/// tree, the index, or the stash reflog (`git stash create`), and returns its
+/// hash. Null when there is nothing to record — a clean tree, or no git — in
+/// which case the candidate tree IS `HEAD` and the caller uses that instead.
+///
+/// This is how a candidate tree becomes checkoutable somewhere else: only
+/// TRACKED modifications and deletions are captured, so a caller that needs the
+/// brand-new files too must copy `untrackedFiles` in after the checkout.
+pub fn stashCreate(allocator: Allocator, project_dir: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ "git", "stash", "create" };
+    const out = runGit(allocator, project_dir, &argv) orelse return null;
+    const sha = std.mem.trim(u8, out, &std.ascii.whitespace);
+    return if (sha.len == 0) null else sha;
+}
+
+/// Checks `commitish` out into a new detached linked worktree at `path` (which
+/// must not already exist); true on success. The worktree shares this
+/// repository's object store, so a commit only reachable from a dangling
+/// `stashCreate` hash resolves there normally.
+pub fn worktreeAdd(
+    allocator: Allocator,
+    project_dir: []const u8,
+    path: []const u8,
+    commitish: []const u8,
+) bool {
+    const argv = [_][]const u8{ "git", worktree_cmd, "add", "--detach", path, commitish };
+    return runGit(allocator, project_dir, &argv) != null;
+}
+
+/// Removes the linked worktree at `path` and prunes its administrative record.
+/// `--force` because a mutation campaign leaves modified and untracked files
+/// behind and the scratch tree is disposable by construction; the prune runs
+/// unconditionally so a worktree whose directory is already gone still stops
+/// being registered. True when git removed the directory.
+pub fn worktreeRemove(allocator: Allocator, project_dir: []const u8, path: []const u8) bool {
+    const remove = [_][]const u8{ "git", worktree_cmd, "remove", "--force", path };
+    const removed = runGit(allocator, project_dir, &remove) != null;
+    const prune = [_][]const u8{ "git", worktree_cmd, "prune" };
+    _ = runGit(allocator, project_dir, &prune);
+    return removed;
 }
 
 /// How far back `rev` sits from HEAD: 0 when it IS HEAD, N when it is an

@@ -242,7 +242,7 @@ The `guardian-check` binary also runs directly:
 ```bash
 guardian-check all . --gate          # BLOCK mode: fail on any violation (what the pre-commit hook runs)
 guardian-check nightly .             # full suite + whole-tree mutation ratchet (CI/cron tier; always blocks)
-guardian-check commit --intent "..." .  # block-gate, run tests, auto-commit + install hook on green
+guardian-check commit --intent "..." .  # block-gate, run tests, opt-in mutation tier, auto-commit + install hook on green
 guardian-check install-hook .        # write .git/hooks/pre-commit that runs the blocking gate
 guardian-check install-merge-driver . # local git attributes + driver so .guardian/ conflicts auto-resolve
 guardian-check merge-file %O %A %B --path %P  # the driver itself (base, ours, theirs; result lands in ours)
@@ -333,6 +333,10 @@ required_inputs = ["src/generated/*.zig"] # codegen must produce at least one ma
 on_build = "report"          # "report" (default: dev builds report, exit 0) | "block"
 test_command = "zig build test"   # commit runs this (must pass) before committing
 install_hook = true          # commit auto-installs the blocking pre-commit hook
+
+[mutation]
+on_commit = false            # opt the FAST mutation tier into `commit` (default off)
+min_free_gib = 5             # free-disk floor the commit tier needs before it starts
 
 [[boundary]]
 module = "src/core/*"
@@ -498,6 +502,24 @@ so it never appears in the registry). `all` also accepts `--only a,b` /
 `--skip a,b` (mutually exclusive; unknown names hard-fail; a filtered run
 never writes the green skip-cache stamp); `explain <check>` prints a check's
 rationale/fix/exemption; `version` (or `--version`) prints the version.
+
+**The fast mutation tier can gate `commit`, opt-in** (`[mutation] on_commit`,
+default false). When on, `commit` runs it after `[gate] test_command` passes and
+before creating the commit, and a failing verdict refuses the commit —
+`min_score_pct` / `min_mutants` unchanged. It never splices the working tree:
+`git stash create` records the tracked changes as a dangling commit without
+touching the tree, the index or the stash reflog, `git worktree add --detach
+.guardian/cache/commit-mutate` checks that out, the untracked non-ignored files
+are copied in (a candidate tree missing a brand-new module does not compile, and
+a tree that does not compile scores every mutant *unviable* — a vacuous 100%
+green), every splice lands there, and the worktree is removed on every exit path
+with a leftover from a killed run cleared before the next tier starts. It diffs
+the same base ref `commit` already resolves for change-classification, and
+copies `last-mutate.jsonl` back out before deleting the scratch tree (the
+per-mutant result cache goes with it). It refuses to start below `[mutation]
+min_free_gib` (default 5) and fails closed there; a filesystem it cannot measure
+is not a refusal. Off by default because the tier rebuilds and re-tests the
+project once per mutant — see the eda measurement in FEEDBACK.md.
 
 Some checks were folded into a related one to cut overlap
 (spec-drift→pub-api-surface, comptime-quota→panic-budget,

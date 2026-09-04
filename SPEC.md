@@ -27,6 +27,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses the module_doc_header min_lines threshold
 - Parses the mutation section score and budget settings
 - Parses the mutation section timeout floor and multiplier
+- Parses the mutation section commit tier switch and disk floor
 - Parses the change classification toggle and against ref
 - Parses the change classification last-commit gate toggle
 - Defaults completeness off and parses its enabled and exempt_sections settings
@@ -285,6 +286,14 @@ blocking correctness checks and advisory maintainability guidance.
 - Commits an already-staged deletion when no path needs staging
 - Advises when the configured test command is not the whole default suite
 - Drops the compile-probe wiring instruction when build.zig already registers the step
+
+## Commit Mutation Tier
+
+- Leaves the commit mutation tier off until on_commit enables it
+- Refuses to start when free disk is below the configured floor
+- Runs the fast diff tier against the resolved base ref
+- Refuses the commit on a failing verdict and propagates other errors
+- Mutates a scratch worktree and removes it even when the tier fails
 
 ## Merge
 

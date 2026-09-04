@@ -507,6 +507,40 @@ During mutant runs guardian sets `GUARDIAN_MUTATION_RUN=1` on child builds, and
 every guardian command no-ops under it — so the deliberately-broken tree isn't
 gated against itself.
 
+### The commit tier (`[mutation] on_commit`, default off)
+
+`mutate` is normally an explicit step, never a gate. `[mutation] on_commit =
+true` puts the **fast** tier into `guardian-check commit`: it runs after
+`[gate] test_command` passes (a red suite is the cheaper, clearer answer) and
+before the commit is created, and a failing verdict refuses the commit —
+`min_score_pct` and `min_mutants` mean exactly what they mean everywhere else.
+It is **off by default**: the tier rebuilds and re-tests the project once per
+mutant, so nobody inherits that latency by upgrading Guardian.
+
+It never mutates your working tree. `mutate` splices each mutant into the source
+file in place; at commit time the working tree holds uncommitted work, and a
+failed restore (`NoSpaceLeft` has been seen) would destroy it. So the candidate
+tree is materialised somewhere else first: `git stash create` records the tracked
+changes as a dangling commit **without touching the tree, the index, or the
+stash reflog**, `git worktree add --detach .guardian/cache/commit-mutate` checks
+it out, and the untracked (non-ignored) files are copied in — because a
+candidate tree missing a brand-new module would not compile, and a tree that
+does not compile scores every mutant *unviable*, which is a vacuous 100% green
+rather than a smaller sample. Every splice lands in that throwaway checkout, and
+it is removed on every exit path (success, refusal, or error) with a leftover
+from a killed run cleared before the next tier starts. The tier diffs against
+the same base ref `commit` already resolves for change-classification, so both
+gates judge one diff, and `.guardian/cache/last-mutate.jsonl` is copied back out
+of the scratch tree so the survivor report outlives it. The per-mutant result
+cache is not: it lives in the scratch worktree and goes with it.
+
+Before starting, the tier refuses when free disk is under `[mutation]
+min_free_gib` (default 5) — a campaign writes a whole checkout plus a
+campaign-local Zig cache. It fails **closed**: a commit gate that could not run
+its tier has not verified the commit. A filesystem it cannot measure at all is
+not a refusal (the scratch tree is disposable — the floor is a courtesy, and the
+worktree is the safety property).
+
 ### Per-mutant timeout (process-group kill)
 
 A mutant that turns a loop condition into an infinite loop makes the spawned
@@ -1492,6 +1526,8 @@ timeout_multiplier = 5    # per-mutant timeout = max(floor, this x clean-suite b
 timeout_retry_multiplier = 2 # expand the deadline for the timeout retry
 timeout_secs = 300        # baseline-measurement cap + fallback when no baseline
 retained_cache_suites = 3 # exact historical suite caches retained for reuse
+on_commit = false         # opt the fast tier into `commit` (default off)
+min_free_gib = 5          # free-disk floor the commit tier requires before starting
 
 # Opt-in: every `## ` SPEC.md feature section must address or waive the 8
 # scenario categories. Exempt non-feature sections (Overview, Changelog) by name.
@@ -1749,7 +1785,7 @@ inline table is a single-line value.
 | `[oom_discipline]` | `enabled` |
 | `[dead_pub]` | `ignore_test_refs` |
 | `[change_classification]` | `enabled`, `against`, `gate_last_commit` |
-| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `fast_max_mutants`, `smoke_step`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_retry_multiplier`, `timeout_secs`, `retained_cache_suites` |
+| `[mutation]` | `min_score_pct`, `min_mutants`, `max_mutants`, `fast_max_mutants`, `smoke_step`, `timeout_floor_secs`, `timeout_multiplier`, `timeout_retry_multiplier`, `timeout_secs`, `retained_cache_suites`, `on_commit`, `min_free_gib` |
 | `[completeness]` | `enabled`, `exempt_sections` |
 | `[dora]` | `enabled`, `sink_path` |
 | `[benchmark]` | `gate` (metric names opted into the ledger ratchet) |

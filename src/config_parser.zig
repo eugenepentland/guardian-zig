@@ -79,6 +79,8 @@ const timeout_floor_secs_key = "timeout_floor_secs";
 const timeout_multiplier_key = "timeout_multiplier";
 const timeout_retry_multiplier_key = "timeout_retry_multiplier";
 const timeout_secs_key = "timeout_secs";
+const on_commit_key = "on_commit";
+const min_free_gib_key = "min_free_gib";
 const max_file_lines_key = "max_file_lines";
 const hard_max_file_lines_key = "hard_max_file_lines";
 const max_lines_key = "max_lines";
@@ -1335,7 +1337,7 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .retired_check, .oom_discipline, .dead_pub => .boolean,
         .module_doc_header => .unsigned,
         .change_classification => if (key[0] == 'a') .string else .boolean,
-        .mutation => if (key[0] == 's') .string else .unsigned,
+        .mutation => if (key[0] == 's') .string else if (std.mem.eql(u8, key, on_commit_key)) .boolean else .unsigned,
         .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
         .fuzz_presence, .concurrency_presence, .script_string_safety => .string_array,
@@ -1815,6 +1817,8 @@ fn validSectionKeys(section: Section) []const []const u8 {
             timeout_retry_multiplier_key,
             timeout_secs_key,
             "retained_cache_suites",
+            on_commit_key,
+            min_free_gib_key,
         },
         .benchmark => &.{"gate"},
         .completeness => &.{ "enabled", "exempt_sections" },
@@ -2132,6 +2136,10 @@ fn applyMutationKey(ctx: ApplyCtx, kv: KeyVal) void {
         g.timeout_secs = parseU32(kv.val, g.timeout_secs);
     } else if (std.mem.eql(u8, kv.key, "retained_cache_suites")) {
         g.retained_cache_suites = parseU32(kv.val, g.retained_cache_suites);
+    } else if (std.mem.eql(u8, kv.key, on_commit_key)) {
+        g.on_commit = parseBool(kv.val) orelse g.on_commit;
+    } else if (std.mem.eql(u8, kv.key, min_free_gib_key)) {
+        g.min_free_gib = parseU32(kv.val, g.min_free_gib);
     }
 }
 
@@ -3299,6 +3307,37 @@ test "parse [dora] defaults on and reads enabled + sink_path" {
     );
     try std.testing.expect(!cfg.dora.enabled);
     try std.testing.expectEqualStrings("metrics/runs.jsonl", cfg.dora.sink_path);
+}
+
+// spec: Configuration - Parses the mutation section commit tier switch and disk floor
+
+test "parse reads [mutation] on_commit and min_free_gib through the value validator" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Defaults: the commit tier is opt-in and the disk floor is 5 GiB.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(!defaults.mutation.on_commit);
+    try std.testing.expectEqual(@as(u32, 5), defaults.mutation.min_free_gib);
+    // The real entry point: `validateValue` classifies every [mutation] key by
+    // section, and `on_commit` is the section's one boolean — a value-kind of
+    // `.unsigned` rejected `true` before `applyMutationKey` ever saw it.
+    const cfg = try parse(arena.allocator(),
+        \\[gate]
+        \\test_command = "zig build test"
+        \\
+        \\[mutation]
+        \\on_commit = true
+        \\min_free_gib = 2
+        \\min_mutants = 1
+        \\min_score_pct = 100
+    );
+    try std.testing.expect(cfg.mutation.on_commit);
+    try std.testing.expectEqual(@as(u32, 2), cfg.mutation.min_free_gib);
+    try std.testing.expectEqual(@as(u32, 1), cfg.mutation.min_mutants);
+    // A non-boolean is still refused, with the line named.
+    var diag: Diagnostic = .{};
+    try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), "[mutation]\non_commit = 7", &diag));
+    try std.testing.expectEqual(@as(u32, 2), diag.line);
 }
 
 // spec: Configuration - Parses the fuzz_presence modules list
