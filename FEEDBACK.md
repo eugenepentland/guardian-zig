@@ -11377,3 +11377,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — RDS3 system thermal workspace
 - **good:** The whole-tree gate passed all 72 Guardian checks and the full release suite exercised the new strict assembly-sidecar parser plus its Node thermal-model contract before the verified candidate was merged and deployed.
 - **friction:** The first exact-commit release discarded a test/build-green candidate after unrelated `pcb_editor_perf` spikes (70.2 ms Canvas and 225 ms GPU maxima); an isolated retry still had one 175.9 ms GPU frame, and even the unchanged deployed `main` binary missed the same gate by 0.3–5.6 ms under the same host conditions. A second full preparation passed unchanged, but cost about six extra minutes; preserve the test/build-green staged candidate and perform a bounded isolated browser retry before discarding it.
+
+## 2026-09-04 · codex · eda — bound RDS3 viewer wheel momentum
+- **good:** The `spec` check immediately caught that the revised wheel-input behavior no longer exactly matched its existing system-review tag; updating the linked contract made all 72 checks and the focused 33-test system-CAD run pass.
+- **friction:** Two exact-commit release attempts discarded fully test/build-green candidates on unrelated `pcb_editor_perf` Canvas outliers (first 58–69 ms, then a lone 46.4 ms p95 against 45 ms) before the third unchanged run passed. This added roughly six minutes and reinforces the prior request for a bounded retry against the preserved stripped candidate.
