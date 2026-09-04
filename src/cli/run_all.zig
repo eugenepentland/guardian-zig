@@ -2185,6 +2185,7 @@ test "report policy preserves a finding without failing the captured check" {
         .name = "line-length",
         .summary = "test",
         .scope = .per_file,
+        .subject = .tree,
         .run = expectedPolicyFinding,
     });
     try std.testing.expect(result.reported);

@@ -408,7 +408,7 @@ test "run lists a check's rows and leaves the project metadata untouched" {
     defer reporter.default = prior;
     reporter.default = .{ .capture = &cap };
 
-    try run(&ctx, .{ .name = "demo", .summary = "", .scope = .per_file, .run = twoFindings });
+    try run(&ctx, .{ .name = "demo", .summary = "", .scope = .per_file, .subject = .tree, .run = twoFindings });
 
     // With no baseline file every row is NEW — the state a brand-new rule is
     // in, and the run that used to read as "2 violation(s) grandfathered".

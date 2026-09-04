@@ -578,6 +578,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Skips findings whose file is missing and gitignored instead of counting them
 - Forwards a newly reported violation to the sink with its location and fix hint
 - Hands a check its own recorded keys and answers with none when it has no baseline
+- Reports a first record a run cannot write instead of adopting it as a starting set
+- Reports a first ratchet a run cannot write instead of freezing its ceilings
+- Refuses to adopt a diff-time check's findings as a baseline on any run
+- Forwards an unadopted first record to the sink with its check name and fix hint
 
 ## Baseline Introspection
 
@@ -745,6 +749,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Reports whether a changed-file plan covers a given path
 - Narrows the shared parsed-source index to the changed files
 - Classifies every cross-file and tree-wide check as whole-tree
+- Classifies every diff-time check's subject as the change under review
 - Hands the narrowed index only to per-file checks
 - Treats a diff-scoped run as partial so it never stamps the green cache
 - Reports a partial view's baseline shrink as a match instead of resolved work

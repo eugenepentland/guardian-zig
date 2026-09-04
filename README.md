@@ -61,7 +61,10 @@ dead-pub and test-coverage reference maps, orphan-file and test reachability, th
 SPEC↔tag map, and every tree-wide snapshot/budget (`pub-api-surface`,
 `panic-budget`, `int-from-float-budget`, `unsafe-ops-budget`). The capability
 is a `scope` field on each registry entry with **no default**, so a newly added
-check has to classify itself.
+check has to classify itself. A second no-default field, `subject`, says what
+the check's verdict is *about* — the tree's accumulated state (`.tree`) or the
+change under review (`.change`, today `change-classification` and `mutate`) —
+which is what decides whether the baseline layer may ever adopt its findings.
 
 Every scoped run says so, naming the base and how much of the tree it read, and
 a scoped run counts as *partial*: it never stamps the green skip-cache (so a
@@ -1036,7 +1039,7 @@ that does **not** propagate to consumers.
 
 ## Adopting Guardian on an existing codebase
 
-Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — every check records its current violations on the first run and only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.
+Installing 50+ hard-block checks on a project with existing violations would mean "fix everything before you can build." That's not realistic. Instead, turn on **baseline mode** — you record each check's current violations once, with `accept`, and it only fails when *new* ones appear. Existing violations become a frozen ratchet that you can shrink over time.
 
 The key move is to keep blocking thresholds meaningful. For most threshold
 checks, baseline mode grandfathers each existing offender individually. File
@@ -1051,7 +1054,32 @@ In `guardian.toml`:
 enabled = true
 ```
 
-Then run `zig build`. On the first build, `.guardian/baselines/<check>.txt` is written for each check that found violations, and the build passes.
+Then record the starting set. Only `accept` and `migrate` may write `.guardian/`
+metadata, so an ordinary build does **not** create the baselines — it reports
+every check that has none:
+
+```
+concept: no baseline exists — 12 finding(s) are unrecorded debt, and this run
+cannot record them, so they are reported rather than adopted
+  accept: guardian-check accept concept .   # raw CLI, always works
+          zig build guardian-accept -Dguardian-checks=concept   # if your build wires guardian-accept
+```
+
+Run that accept (comma-separated for several checks) and commit `.guardian/`.
+The build passes from then on, and only new violations fail it.
+
+This is deliberate, and it is guiding principle 8 ("missing SPEC.md = error —
+clear message, don't create files magically") one layer down. A missing baseline
+used to be adopted silently and *greenly* on every run — but the run could not
+write the file, so the same findings were re-adopted, still green, on the next
+run and on every run after it. A check with no baseline file could never block.
+Nothing is created behind your back; the command that would create it is named
+instead.
+
+The one check family this never offers is the **diff-time** one
+(`change-classification`, `mutate`): their subject is the change under review,
+not the tree, so there is no standing set to freeze and no accept is offered.
+A row accepted from one diff describes a change that no longer exists.
 
 ### Two baseline flavors
 
@@ -1156,7 +1184,9 @@ into mechanical bisection.
 
 What does **not** change: a subject with no entry is untouched, however close to
 the cap it sits — hysteresis binds only what crossed. First-record adoption
-still grandfathers every over-cap subject (born tripped, green immediately).
+still grandfathers every over-cap subject (born tripped, green immediately) —
+on the `accept` that records it; an ordinary run has no ratchet to grandfather
+into and reports the keys instead.
 Relocations still transfer, so a `git mv` of a tripped file carries its entry
 rather than re-charging it as an unacceptable crossing. A diff-scoped run never
 clears a trip it could not see, and a same-session accept note never covers one.

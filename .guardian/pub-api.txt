@@ -69,6 +69,7 @@ src/ast/test_reach.zig::resolveRoots | fn resolveRoots( allocator: Allocator, co
 src/ast/test_reach.zig::scanDead | fn scanDead( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error!?[]const import_graph.Node
 src/ast/test_reach.zig::testBearingCount | fn testBearingCount(nodes: []const import_graph.Node) usize
 src/ast/test_refs.zig::referenced | fn referenced(arena: Allocator, source: []const u8) Allocator.Error![]const []const u8
+src/baseline.zig::Adoption enum_
 src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
 src/baseline.zig::Split struct_
@@ -414,6 +415,7 @@ src/cli/spec_sync.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/test_filter.zig::command_name value
 src/cli/test_filter.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/types.zig::CheckScope enum_
+src/cli/types.zig::CheckSubject enum_
 src/cli/types.zig::Command struct_
 src/cli/types.zig::MergeInputs struct_
 src/cli/types.zig::NeedsAst enum_
