@@ -11458,3 +11458,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — group panel rails into opposite-side toggles
 - **good:** Guardian's exact-spec and browser asset gates covered the paired rail controls, effective exported widths, and retained per-side settings; all 4,784 tests, 72 whole-tree checks, ReleaseSafe compilation, editor performance, and state-ownership invariants passed on the final rebased commit.
+
+## 2026-09-04 · codex · eda — persistent editable CAD sketch dimensions
+- **good:** Guardian's exact `spec` check rejected an accidental rewrite of an already-linked system-CAD contract before commit; restoring the canonical tag left the new popover, persistent annotation, page-contract, and JavaScript tests covered, and the exact rebased commit passed all 72 checks, full tests, ReleaseSafe compilation, editor performance, and state-ownership invariants.
+- **friction:** Two unrelated `main` updates landed across the feature's release windows, requiring two exact-commit preparations plus a third combined-merge deployment gate; the serialized lock waits were 338s and 174s, and one queue diagnostic dumped roughly 9,000 tokens of full child-process command lines. A compact holder/worktree summary would preserve the useful queue signal without flooding logs.
