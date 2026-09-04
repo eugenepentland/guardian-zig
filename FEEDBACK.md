@@ -11373,3 +11373,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — persisted enclosure bosses and wall cutouts
 - **good:** The exact-commit test gate caught both a new `mechanical.cad_document` test module missing from the explicit shard/import bridge and an annular-boss assertion that compared a 24-sided mesh against ideal circular volume; registering the module and testing the exact polygonal volume brought all 4,744 tests, the ReleaseSafe build, Barracuda performance gate, and editor invariants green before merge.
+
+## 2026-09-04 · codex · eda — RDS3 system thermal workspace
+- **good:** The whole-tree gate passed all 72 Guardian checks and the full release suite exercised the new strict assembly-sidecar parser plus its Node thermal-model contract before the verified candidate was merged and deployed.
+- **friction:** The first exact-commit release discarded a test/build-green candidate after unrelated `pcb_editor_perf` spikes (70.2 ms Canvas and 225 ms GPU maxima); an isolated retry still had one 175.9 ms GPU frame, and even the unchanged deployed `main` binary missed the same gate by 0.3–5.6 ms under the same host conditions. A second full preparation passed unchanged, but cost about six extra minutes; preserve the test/build-green staged candidate and perform a bounded isolated browser retry before discarding it.
