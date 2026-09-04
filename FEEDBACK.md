@@ -11455,3 +11455,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — snap Gerber ruler to artwork edges
 - **good:** Guardian's exact-spec and JavaScript external checks accepted the linked Assembly behavior, parsed the changed browser asset, and ran the new analytic Gerber snap harness; repeated focused, commit-time, and whole-tree runs all completed with 72 checks and no blocking findings.
 - **friction:** Three exact-commit preparations repeated the green Guardian gate, all 4,782 tests, and ReleaseSafe compilation because the downstream `pcb_editor_perf` stage discarded each candidate on unrelated timing variance (one miss was only 45.8 ms against 45 ms). Preserving the code-green candidate for a bounded browser-only retry would avoid roughly ten minutes of repeated validation without weakening Guardian.
+
+## 2026-09-04 · codex · eda — group panel rails into opposite-side toggles
+- **good:** Guardian's exact-spec and browser asset gates covered the paired rail controls, effective exported widths, and retained per-side settings; all 4,784 tests, 72 whole-tree checks, ReleaseSafe compilation, editor performance, and state-ownership invariants passed on the final rebased commit.
