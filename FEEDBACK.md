@@ -11392,3 +11392,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — blank sketch-and-extrude system CAD
 - **good:** The public-API and exact-spec gates cleanly isolated the intentional removal of automatic enclosure lowering and linked the new blank-workspace contract to its mesh regression; all 72 checks and the 1,202-test release suite passed before merge.
 - **friction:** Two unchanged exact-commit preparations discarded test/build-green candidates when unrelated concurrent Zig suites pushed `pcb_editor_perf` to 203–393 ms GPU maxima, even though the same stripped binary passed an isolated serialized run at 125–135 ms. A third full preparation passed after those workers exited, adding about eight minutes; an idle-load preflight plus a bounded retry against the preserved candidate would avoid this repeated cost.
+
+## 2026-09-04 · codex · eda — deploy rebased 2D system thermal workspace
+- **good:** After resolving overlap with the newly merged sketch-and-extrude workspace, the focused 33-test gate, all 72 Guardian checks, full tests, ReleaseSafe build, real-browser 2D/3D interaction probe, editor performance gate, and state-ownership invariants passed; the verified tree was then adopted for the merge commit and production health checks passed.
