@@ -11401,3 +11401,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — principal-plane mechanical sketch editor
 - **good:** Guardian's exact-spec, JavaScript asset, focused test, and whole-tree commit gates remained green through a conflict-heavy rebase with the new 2D thermal workspace; the exact rebased commit then passed full tests, ReleaseSafe compilation, the Barracuda editor performance gate, and state-ownership invariants on its first release preparation.
+
+## 2026-09-04 · codex · eda — group fabrication BOM rows by MPN
+- **good:** Guardian's focused, commit-time, and full whole-tree runs all passed 72 checks, and the exact-commit release suite confirmed all 1,202 Zig tests plus ReleaseSafe compilation were green for the BOM serializer change.
+- **friction:** After 216 seconds in the shared release queue, `prepare-release.sh` discarded that code-green candidate because one unrelated Barracuda GPU zoom-in sample reached 235.6 ms against 150 ms p95 / 160 ms maximum limits. A bounded browser-only retry against the preserved candidate would avoid stranding completed, functionally verified branches on host-timing outliers.
