@@ -11435,3 +11435,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — panelize Gerber exports
 - **good:** Guardian's file-size and import-layering checks pushed the panel-query adapter out of the 9,700-line PCB page and prevented the serve layer from depending directly on the placement solver; the full shard-coverage invariant then caught the new `panelize.zig` tests missing from `test_shards.zig` before release. After registering them, the complete test suite, ReleaseSafe build, browser performance gate, and editor ownership invariants passed on the exact commit.
+
+## 2026-09-04 · codex · eda — preserve rounded corners in routed panels
+- **good:** Guardian's focused run caught both a one-point cognitive-complexity regression in the panel planner and a conditional test assertion before commit; extracting the validation and arc-count helpers resolved both cleanly, after which all 4,774 sharded tests, the whole-tree checks, ReleaseSafe build, browser performance gate, and editor ownership invariants passed on the exact commit.
