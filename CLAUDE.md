@@ -520,6 +520,21 @@ with `cache_enabled = false`. Turn off individual checks with a top-level
 
 Baseline mode (`[baseline] enabled = true`) auto-prunes: when violations
 resolve, the baseline file is rewritten smaller in place (no refresh env var).
+**A check with no baseline file adopts nothing — it fails.** Only
+`accept`/`migrate` may write metadata, so a first record on any other run wrote
+nothing and reported "N violation(s) would be recorded as the starting set",
+green — and, because nothing was written, green again on the next run and every
+run after it, forever. A check whose baseline file is missing therefore could
+not block at all. It now reports those findings as growth against the baseline
+that does not exist, naming `guardian-check accept <check> .` (and the
+`zig build guardian-accept -Dguardian-checks=<check>` form) — guiding principle
+8 one layer down: missing metadata is an error with a clear message, never a
+file created magically. A first record with nothing in it is still green, and
+`accept` still records a starting set. The `subject: .tree | .change` field on
+each `cli/registry.zig` entry (no default, like `scope`) carves out the one
+exception: `change-classification` and `mutate` judge the CHANGE UNDER REVIEW,
+so they never adopt on any run, `accept` included — a row frozen from one diff
+describes a change that no longer exists.
 The eight threshold checks (function-length, nesting-depth, cognitive-complexity,
 function-size, type-size, file-size, bool-ops-per-condition, line-length) use
 **per-item ratchets** (baseline v2):

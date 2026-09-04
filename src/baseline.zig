@@ -539,14 +539,11 @@ pub fn runWithBaseline(ctx: *types.RunCtx, cmd: types.Command) types.RunError!vo
 
     if (check_failed) try requireNamedFindings(ctx, cmd.name, &capture);
 
-    return processOutcome(
-        ctx,
-        cmd.name,
-        capture.buf.items,
-        capture.records.items,
-        capture.warnings.items,
-        force_refresh,
-    );
+    return processOutcome(ctx, cmd.name, .{
+        .text = capture.buf.items,
+        .records = capture.records.items,
+        .warnings = capture.warnings.items,
+    }, force_refresh, cmd.subject);
 }
 
 /// A check that fails while naming NOTHING must not be turned green here.
@@ -622,14 +619,25 @@ pub fn keyedViolations(
     return out;
 }
 
+/// One check's captured output, as the baseline layer consumes it: the prose it
+/// printed plus the structured records and advisory warnings it emitted.
+/// Bundled so `processOutcome` takes a subject rather than a parameter list.
+const Captured = struct {
+    text: []const u8 = "",
+    records: []const reporter.Violation = &.{},
+    warnings: []const reporter.Violation = &.{},
+};
+
 fn processOutcome(
     ctx: *types.RunCtx,
     check_name: []const u8,
-    captured: []const u8,
-    records: []const reporter.Violation,
-    warnings: []const reporter.Violation,
+    cap: Captured,
     force_refresh: bool,
+    subject: types.CheckSubject,
 ) types.RunError!void {
+    const captured = cap.text;
+    const records = cap.records;
+    const warnings = cap.warnings;
     // write_allowed rides on the context — accept/migrate flip it; an
     // ordinary run leaves it false and every lifecycle write below is deferred.
     // A check that only read the changed files never writes, whatever the
@@ -656,13 +664,23 @@ fn processOutcome(
     // other check keeps the v3 identity-diff lifecycle below. Selection is by
     // check name (not the presence of records), so a metric check with zero
     // current violations still ratchets — it prunes its whole baseline.
+    // A `.change` check never has a baseline written FROM this run's findings —
+    // an `accept` included, because a row frozen from one diff describes a
+    // change that no longer exists. Both writes that would do it (the refresh
+    // branch and the first record) happen INSIDE the lifecycle on the way to
+    // returning an outcome, so they are held back here rather than undone after.
+    // Pruning and re-keying an existing file stay allowed below: they only ever
+    // remove or relabel frozen rows.
+    const adopts = subject != .change;
+    const refresh = force_refresh and adopts;
     if (ratchet.metricMode(check_name) != null) {
         return processRatchet(a, ctx, check_name, .{
             .captured = captured,
             .records = records,
             .warnings = warnings,
-            .force_refresh = force_refresh,
+            .force_refresh = refresh,
             .write_allowed = write_allowed,
+            .subject = subject,
         });
     }
 
@@ -680,16 +698,25 @@ fn processOutcome(
     // deny_growth: a refresh (global or selective) may only rewrite this
     // check's baseline if it doesn't grow. Guards the flagship 1:1 spec map —
     // today's fastest-growing frozen debt — from being ratified upward.
-    try denyGrowthGuard(a, ctx, check_name, path, violations, force_refresh);
+    // …and with no file there is nothing to prune or re-key either, so an
+    // unadoptable check holds every write until one exists.
+    const writes = may_write and (adopts or baselineViolationCount(a, path) != null);
 
-    const outcome = lifecycle(a, path, violations, force_refresh and may_write, may_write) catch |e| {
+    try denyGrowthGuard(a, ctx, check_name, path, violations, refresh);
+
+    const outcome = lifecycle(a, path, violations, refresh and writes, writes) catch |e| {
         reporter.fail("{s}: cannot read or update baseline {s}: {s} — resolve conflict markers or repair/remove the corrupt file, then rerun", .{
             check_name, path, @errorName(e),
         });
         return error.CheckFailed;
     };
 
-    const shown = underPartialView(view, outcome);
+    const refused = try refuseAdoption(a, .{
+        .subject = subject,
+        .may_write = writes,
+        .outcome = underPartialView(view, outcome),
+    }, violations);
+    const shown = refused.outcome;
     // The findings this run REPORTED go to the machine-readable sink as the
     // check's own structured records. Without this the sink only ever saw the
     // prose printed below, because the check's records were consumed by the
@@ -699,8 +726,116 @@ fn processOutcome(
         .keyed = violations,
         .captured = captured,
     }, shown);
-    return reportOutcome(check_name, shown, may_write);
+    return reportOutcome(check_name, shown, writes, refused.why);
 }
+
+/// Why this run refused to adopt a check's findings as its starting set.
+///
+/// `.created` is the lifecycle's first-run outcome, and it used to be GREEN on
+/// every ordinary run: `write_allowed` is false outside `accept`/`migrate`, so
+/// the branch printed "N violation(s) would be recorded as the starting set"
+/// and wrote nothing. Nothing being written is the whole problem — the same
+/// findings are re-adopted, still green, on the next run and on every run after
+/// it, so a check with no `.guardian/baselines/<check>.txt` could never block
+/// until somebody happened to run an accept. Guardian's eighth guiding
+/// principle ("missing SPEC.md = error — clear message, don't create files
+/// magically") is the same rule one layer down: missing metadata is an error
+/// with a named command, never an implicit, silent adoption.
+pub const Adoption = enum {
+    /// Nothing was refused: a baseline exists, or this run may record one.
+    allowed,
+    /// This run may not write metadata, so adopting would record nothing.
+    unwritable,
+    /// A diff-time check's subject is the change under review, so there is no
+    /// standing set to freeze — it never adopts, `accept` included.
+    change_subject,
+};
+
+/// What `refuseAdoption` decides on: the check's subject, whether this run may
+/// persist metadata, and the outcome the lifecycle produced.
+const AdoptionInput = struct {
+    subject: types.CheckSubject,
+    may_write: bool,
+    outcome: Outcome,
+};
+
+/// The outcome after the adoption rule, plus why it was rewritten (`.allowed`
+/// when it was not). Callers key their wording off `why`, so a genuine `grown`
+/// can never be mistaken for a refused first record.
+const Refused = struct { outcome: Outcome, why: Adoption };
+
+/// Which refusal, if any, applies to a first record.
+fn refusalFor(subject: types.CheckSubject, may_write: bool) Adoption {
+    if (subject == .change) return .change_subject;
+    return if (may_write) .allowed else .unwritable;
+}
+
+/// Fails a `.created` outcome this run cannot honestly adopt, by reporting it
+/// as `grown` against an empty baseline: the same findings, reported instead of
+/// swallowed, and carrying the `accept` command that WOULD record them.
+///
+/// `.created` with nothing to record stays green — there is no file, no
+/// finding, and nothing to say. An `accept`/`migrate` pass still records a
+/// starting set for a `.tree` check, which is the one place a human is
+/// deliberately freezing standing debt.
+fn refuseAdoption(arena: Allocator, in: AdoptionInput, violations: []const Keyed) Allocator.Error!Refused {
+    const kept: Refused = .{ .outcome = in.outcome, .why = .allowed };
+    const created = switch (in.outcome) {
+        .created => |n| n,
+        // A `.change` check's growth over an existing baseline is reported the
+        // same way. The rows are still diffed — a consumer that recorded some
+        // before this rule keeps them — but the ordinary "accept to freeze the
+        // rest" guidance would be a dead end now that no run may write the file.
+        .grown => return if (in.subject == .change) .{ .outcome = in.outcome, .why = .change_subject } else kept,
+        else => return kept,
+    };
+    if (created == 0) return kept;
+    const why = refusalFor(in.subject, in.may_write);
+    if (why == .allowed) return kept;
+    const lines = try arena.alloc([]const u8, violations.len);
+    for (violations, 0..) |v, i| lines[i] = v.line;
+    return .{ .outcome = .{ .grown = .{ .new_lines = lines, .baseline_size = 0 } }, .why = why };
+}
+
+/// The ratchet twin of `refuseAdoption` (baseline v2). A per-item ratchet's
+/// `.created` is the same silent hole: every offender the run found becomes its
+/// own frozen ceiling, on a run that writes nothing, so the ceilings are
+/// re-invented and re-accepted forever. Refused, they are reported as
+/// `regressed` with every entry a new offender — the shape a ratchet already
+/// has for "keys nothing has frozen yet".
+///
+/// A ratchet with nothing to record (`.created = 0`) still stays green: a
+/// metric check reaches this path by NAME, so a clean tree classifies as a
+/// first record of the empty set, which says nothing and blocks nothing.
+fn refuseRatchetAdoption(
+    arena: Allocator,
+    in: RatchetAdoptionInput,
+    entries: []const ratchet.Entry,
+) Allocator.Error!RefusedRatchet {
+    const kept: RefusedRatchet = .{ .outcome = in.outcome, .why = .allowed };
+    const created = switch (in.outcome) {
+        .created => |n| n,
+        else => return kept,
+    };
+    if (created == 0) return kept;
+    const why = refusalFor(in.subject, in.may_write);
+    if (why == .allowed) return kept;
+    return .{ .outcome = .{ .regressed = .{
+        .grown = &.{},
+        .new_offenders = try arena.dupe(ratchet.Entry, entries),
+        .remaining = entries.len,
+    } }, .why = why };
+}
+
+/// `AdoptionInput` for the ratchet lifecycle's outcome type.
+const RatchetAdoptionInput = struct {
+    subject: types.CheckSubject,
+    may_write: bool,
+    outcome: ratchet.Outcome,
+};
+
+/// `Refused` for the ratchet lifecycle's outcome type.
+const RefusedRatchet = struct { outcome: ratchet.Outcome, why: Adoption };
 
 /// Where a reported line's structured detail comes from: the check's own
 /// records (index-aligned with `keyed`, which was rendered from them) plus its
@@ -903,6 +1038,9 @@ const RatchetInput = struct {
     /// Gates the auto-lower / first-record / migrate writes: false on an
     /// ordinary run (report-only), true on accept/migrate.
     write_allowed: bool,
+    /// What the check's verdict is about — the tree, or the change under
+    /// review. Decides whether a first record may be adopted at all.
+    subject: types.CheckSubject,
 };
 
 /// The hysteresis standing of one check's run: the policy in force (null when
@@ -984,7 +1122,12 @@ fn processRatchet(
         });
         trip.session_note = true;
     }
-    const shown = ratchetUnderPartialView(viewFor(ctx), outcome);
+    const refused = try refuseRatchetAdoption(a, .{
+        .subject = input.subject,
+        .may_write = input.write_allowed,
+        .outcome = ratchetUnderPartialView(viewFor(ctx), outcome),
+    }, entries);
+    const shown = refused.outcome;
     // A hysteresis report cites recovery-zone keys, which were reported as
     // WARNINGS — their file, line and metric exist in no blocking record.
     const cited = if (trip.policy == null)
@@ -995,7 +1138,11 @@ fn processRatchet(
     // is what the sink must carry: the check's own record for each offending
     // key (file, line, metric) plus the ceiling it broke. Scraping the report
     // below instead is what left `last-run.jsonl` with no usable file-size row.
-    if (shown == .regressed) try sinkRegressed(ctx.allocator, check_name, shown.regressed, cited, trip.policy);
+    // A refused FIRST record is not a hard-cap trip: hysteresis grandfathers an
+    // over-cap subject the first time it is recorded ("born tripped"), so the
+    // remedy here is the accept, not the recover line a policy hint would name.
+    const hinted_policy = if (refused.why == .allowed) trip.policy else null;
+    if (shown == .regressed) try sinkRegressed(ctx.allocator, check_name, shown.regressed, cited, hinted_policy);
     return reportRatchet(check_name, shown, .{
         .allocator = a,
         .fix_hint = firstFixHint(input.captured),
@@ -1003,6 +1150,7 @@ fn processRatchet(
         .write_allowed = input.write_allowed,
         .reloc = reloc,
         .trip = trip,
+        .refusal = refused.why,
     });
 }
 
@@ -1331,6 +1479,9 @@ const RatchetReport = struct {
     reloc: relocation.Plan = .{},
     /// What hysteresis made of this run (no policy = plain ratchet wording).
     trip: Trip = .{},
+    /// Whether the `regressed` below is a refused first record rather than debt
+    /// measured against a stored ratchet (see `Adoption`).
+    refusal: Adoption = .allowed,
 };
 
 /// Reports a ratchet outcome, then every entry it re-keyed or un-tripped. Both
@@ -1367,15 +1518,13 @@ fn reportVerdict(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
     // On a read-only run the create/migrate/improve outcomes were classified but
     // not persisted — word them as pending, all green.
     if (!write_allowed) switch (outcome) {
-        // "no ratchet exists" rather than "grandfathered": a first run says in
-        // words that it is RECORDING a starting set, so a deliberate probe of a
-        // new rule cannot read as an established, matched ratchet.
+        // Only the EMPTY first record reaches this branch: a metric check is
+        // selected by name, so a clean tree classifies as `created = 0`, which
+        // records nothing and blocks nothing. A first record that actually
+        // holds offenders is refused by `refuseRatchetAdoption` and arrives
+        // below as `regressed`.
         .created => |n| {
-            reporter.ok(
-                "ok: {s}: no ratchet exists — {d} key(s) would be recorded as the starting set " ++
-                    "(`--list` to see them; `guardian-check accept {s} .` to record)",
-                .{ check_name, n, check_name },
-            );
+            reporter.ok("ok: {s}: no ratchet exists and nothing to record ({d} key(s))", .{ check_name, n });
             return;
         },
         .migrated => |n| {
@@ -1400,8 +1549,34 @@ fn reportVerdict(check_name: []const u8, outcome: ratchet.Outcome, rep: RatchetR
             .{ check_name, imp.lowered, imp.pruned, imp.remaining },
         ),
         .refreshed => |n| reporter.ok("{s}: ratchet refreshed ({d} key(s))", .{ check_name, n }),
-        .regressed => |reg| return reportRegressed(check_name, reg, rep),
+        .regressed => |reg| {
+            if (rep.refusal != .allowed) return reportUnadoptedRatchet(check_name, reg, rep);
+            return reportRegressed(check_name, reg, rep);
+        },
     }
+}
+
+/// The failing report for a ratchet this run refused to adopt. Worded as what
+/// it is — there is no stored ceiling for any of these keys — rather than as
+/// growth past a ceiling that was never recorded.
+fn reportUnadoptedRatchet(
+    check_name: []const u8,
+    reg: ratchet.Regression,
+    rep: RatchetReport,
+) types.RunError!void {
+    reporter.fail(
+        "{s}: no ratchet exists — {d} key(s) are unrecorded debt, and this run " ++
+            "cannot record them, so they are reported rather than adopted",
+        .{ check_name, reg.new_offenders.len },
+    );
+    const unit = ratchet.unitLabel(check_name);
+    for (reg.new_offenders) |o| reporter.detail(
+        "  {s}: {s} — {d} {s}, over the cap with no recorded ceiling\n",
+        .{ check_name, o.key, o.value, unit },
+    );
+    if (rep.fix_hint) |h| reporter.detail("  {s}\n", .{h});
+    reportAcceptCommand(check_name, .plain);
+    return error.CheckFailed;
 }
 
 /// The read-only wording for an improvement: classified, not written. A
@@ -1825,26 +2000,19 @@ fn nameInList(list: []const []const u8, name: []const u8) bool {
     return false;
 }
 
-fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) types.RunError!void {
+fn reportOutcome(
+    check_name: []const u8,
+    outcome: Outcome,
+    write_allowed: bool,
+    refusal: Adoption,
+) types.RunError!void {
     // On a read-only run the create/prune/re-key outcomes were classified but
     // NOT persisted, so word them as pending rather than as done — an honest
     // "run accept to record it" instead of a "baselined/pruned/re-keyed" that
     // never touched disk. All stay green.
+    // (`.created` is absent here on purpose: a first record this run cannot
+    // write is refused by `refuseAdoption` and arrives below as `grown`.)
     if (!write_allowed) switch (outcome) {
-        // A CREATION must not read like a match. `grandfathered` said only that
-        // the findings were accepted, so a deliberate probe of a brand-new
-        // [[ban]] / [[concept]] rule — the run where "did my rule fire?" is the
-        // whole question — was indistinguishable from an established baseline
-        // holding steady. Say instead that there is no baseline yet and that
-        // these N findings are what would be frozen.
-        .created => |n| {
-            reporter.ok(
-                "ok: {s}: no baseline exists — {d} violation(s) would be recorded as the starting set " ++
-                    "(`--list` to see them; `guardian-check accept {s} .` to record)",
-                .{ check_name, n, check_name },
-            );
-            return;
-        },
         .shrunk => |s| {
             reporter.ok("ok: {s}: {d} resolved (run `guardian-check accept {s} .` to prune the baseline)", .{ check_name, s.removed, check_name });
             return;
@@ -1886,6 +2054,7 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
             return error.CheckFailed;
         },
         .grown => |g| {
+            if (refusal != .allowed) return reportUnadopted(check_name, refusal, g.new_lines);
             reporter.fail(
                 "{s}: {d} new violation(s) above baseline of {d}",
                 .{ check_name, g.new_lines.len, g.baseline_size },
@@ -1895,6 +2064,43 @@ fn reportOutcome(check_name: []const u8, outcome: Outcome, write_allowed: bool) 
             return error.CheckFailed;
         },
     }
+}
+
+/// The failing report for findings this run refused to adopt. It differs from
+/// an ordinary `grown` in the headline only: there is no baseline to be "above",
+/// so the number that matters is that the file does not exist yet.
+///
+/// A `.change` check gets no accept command, because none would help: freezing
+/// a diff-time verdict records one particular change, and the next change makes
+/// the row meaningless while the finding it swallowed stays swallowed.
+fn reportUnadopted(
+    check_name: []const u8,
+    refusal: Adoption,
+    lines: []const []const u8,
+) types.RunError!void {
+    switch (refusal) {
+        .change_subject => reporter.fail(
+            "{s}: {d} finding(s) about the change under review — a diff-time check " ++
+                "does not adopt its findings as a baseline",
+            .{ check_name, lines.len },
+        ),
+        else => reporter.fail(
+            "{s}: no baseline exists — {d} finding(s) are unrecorded debt, and this run " ++
+                "cannot record them, so they are reported rather than adopted",
+            .{ check_name, lines.len },
+        ),
+    }
+    for (lines) |line| reporter.detail("  {s}\n", .{line});
+    if (refusal == .change_subject) {
+        reporter.detail(
+            "  fix: resolve the findings — a verdict about one diff cannot be frozen, " ++
+                "so there is no accept for this check.\n",
+            .{},
+        );
+        return error.CheckFailed;
+    }
+    reportAcceptCommand(check_name, .plain);
+    return error.CheckFailed;
 }
 
 /// Prints both accept forms after a baseline/ratchet failure (C4). Raw CLI
@@ -2019,8 +2225,13 @@ test "a check that fails while naming nothing is not turned green by the baselin
     try fs.cwd().makePath(dir);
 
     const cfg: @import("config.zig").Config = .{ .baseline = .{ .enabled = true } };
+    // An arena stands in for the run allocator: the second half below reports a
+    // first record, and a reported finding is forwarded to the sink with memory
+    // that outlives the check, exactly as it is under `all`.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
     var ctx: types.RunCtx = .{
-        .allocator = std.testing.allocator,
+        .allocator = arena.allocator(),
         .project_dir = dir,
         .cfg = &cfg,
         .quiet = true,
@@ -2044,16 +2255,19 @@ test "a check that fails while naming nothing is not turned green by the baselin
     try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "without naming a single finding") != null);
 
     // The other direction: a check that names its finding goes down the normal
-    // baseline path and is NOT caught by the guard.
+    // baseline path and is NOT caught by the guard. It still fails — this
+    // project has no baseline for the check and no run here may write one, so
+    // the finding is reported rather than adopted — but for its own reason.
     outer.buf.clearRetainingCapacity();
-    try runWithBaseline(&ctx, .{
+    try std.testing.expectError(error.CheckFailed, runWithBaseline(&ctx, .{
         .name = "something-check",
         .summary = "test",
         .scope = .whole_tree,
         .subject = .tree,
         .run = failsNamingOne,
-    });
+    }));
     try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "without naming a single finding") == null);
+    try std.testing.expect(std.mem.indexOf(u8, outer.buf.items, "no baseline exists") != null);
 }
 
 test "runWithBaseline replays warnings without ratcheting them" {
@@ -2220,7 +2434,7 @@ fn stepRatchet(
     advisory: []const reporter.Violation,
     force_refresh: bool,
 ) types.RunError!void {
-    return processOutcome(ctx, size_check, "", blocking, advisory, force_refresh);
+    return processOutcome(ctx, size_check, .{ .records = blocking, .warnings = advisory }, force_refresh, .tree);
 }
 
 /// The context every hysteresis test runs through: baseline mode on, the
@@ -3622,16 +3836,15 @@ test "a created baseline or ratchet says so instead of reporting a grandfathered
     defer reporter.default.capture = prior;
     reporter.default.capture = &cap;
 
-    // Recorded (a metadata-writable run) and pending (an ordinary one) both say
-    // there was no baseline. "grandfathered" alone read as an established
-    // baseline holding steady, which is the opposite of what a first probe of a
-    // new [[ban]]/[[concept]] rule needs to hear.
-    try reportOutcome("ban", .{ .created = 2 }, true);
+    // A metadata-writable run says there was no baseline and that it is
+    // RECORDING one. "grandfathered" alone read as an established baseline
+    // holding steady, which is the opposite of what a first probe of a new
+    // [[ban]]/[[concept]] rule needs to hear. (The read-only half of this used
+    // to be a green "would be recorded" line; it is now a refusal — see
+    // `reportUnadopted`.)
+    try reportOutcome("ban", .{ .created = 2 }, true, .allowed);
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ban: no baseline existed — recording 2") != null);
     cap.buf.clearRetainingCapacity();
-    try reportOutcome("ban", .{ .created = 2 }, false);
-    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "no baseline exists") != null);
-    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "starting set") != null);
     // The ratchet half of the same lifecycle carries the same wording.
     cap.buf.clearRetainingCapacity();
     try reportRatchet("file-size", .{ .created = 3 }, .{
@@ -3745,7 +3958,7 @@ test "matching ratchet and baseline reports carry an ok pass marker" {
     var matched = testReport(std.testing.allocator, null, &.{});
     matched.write_allowed = true;
     try reportRatchet("file-size", .{ .matched = 3 }, matched);
-    try reportOutcome("naming", .{ .matched = 2 }, true);
+    try reportOutcome("naming", .{ .matched = 2 }, true, .allowed);
     // The captured (uncolored) pass lines carry an explicit "ok:" marker so the
     // last line above a run summary can't be misread as the failing check.
     try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: file-size: ratchet matches") != null);
@@ -3807,4 +4020,247 @@ test "viewFor marks a scoped run partial so its metadata stays read-only" {
     ctx.scoped = .{ .base = "abc123", .file_count = 1, .index = &narrow };
     try std.testing.expect(viewFor(&ctx) == .partial);
     try std.testing.expect(!(ctx.metadata_writable and viewFor(&ctx) == .whole_tree));
+}
+
+// spec: Baseline Mode - Reports a first record a run cannot write instead of adopting it as a starting set
+
+test "a first record on a run that cannot write it is reported, not adopted" {
+    var arena_inst = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_inst.deinit();
+    const a = arena_inst.allocator();
+    const keyed = [_]Keyed{
+        .{ .key = "c|src/a.zig|one", .line = "src/a.zig: one" },
+        .{ .key = "c|src/a.zig|two", .line = "src/a.zig: two" },
+    };
+    // An ordinary gate run writes no metadata, so "adopting" these would record
+    // nothing and repeat, green, on every run after it. They are reported
+    // instead — as growth against the baseline that does not exist.
+    const refused = try refuseAdoption(a, .{
+        .subject = .tree,
+        .may_write = false,
+        .outcome = .{ .created = 2 },
+    }, &keyed);
+    try std.testing.expect(refused.why == .unwritable);
+    try std.testing.expect(refused.outcome == .grown);
+    try std.testing.expectEqual(@as(usize, 2), refused.outcome.grown.new_lines.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.outcome.grown.baseline_size);
+
+    // An accept/migrate pass records the starting set exactly as before: that is
+    // the one place a human is deliberately freezing standing debt.
+    const adopted = try refuseAdoption(a, .{
+        .subject = .tree,
+        .may_write = true,
+        .outcome = .{ .created = 2 },
+    }, &keyed);
+    try std.testing.expect(adopted.outcome == .created);
+    try std.testing.expect(adopted.why == .allowed);
+
+    // Nothing to record stays green — no file, no finding, nothing to say.
+    const empty = try refuseAdoption(a, .{
+        .subject = .tree,
+        .may_write = false,
+        .outcome = .{ .created = 0 },
+    }, &.{});
+    try std.testing.expect(empty.outcome == .created);
+    try std.testing.expect(empty.why == .allowed);
+
+    // Every other outcome is untouched: this rule is only about adoption.
+    const matched = try refuseAdoption(a, .{
+        .subject = .tree,
+        .may_write = false,
+        .outcome = .{ .matched = 3 },
+    }, &keyed);
+    try std.testing.expect(matched.outcome == .matched);
+
+    // And the report names the command that WOULD record them, both spellings.
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportOutcome("concept", refused.outcome, false, refused.why),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "concept: no baseline exists") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "reported rather than adopted") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian-check accept concept .") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "-Dguardian-checks=concept") != null);
+    // The old wording promised a recording that never happened.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "would be recorded") == null);
+}
+
+// spec: Baseline Mode - Reports a first ratchet a run cannot write instead of freezing its ceilings
+
+test "a first ratchet on a run that cannot write it is reported, not frozen" {
+    var arena_inst = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_inst.deinit();
+    const a = arena_inst.allocator();
+    const entries = [_]ratchet.Entry{.{ .key = trip_subject, .value = 10 }};
+
+    const refused = try refuseRatchetAdoption(a, .{
+        .subject = .tree,
+        .may_write = false,
+        .outcome = .{ .created = 1 },
+    }, &entries);
+    try std.testing.expect(refused.why == .unwritable);
+    try std.testing.expect(refused.outcome == .regressed);
+    try std.testing.expectEqual(@as(usize, 1), refused.outcome.regressed.new_offenders.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.outcome.regressed.grown.len);
+
+    // A metric check is selected by NAME, so a clean tree still classifies as a
+    // first record — of the empty set, which blocks nothing.
+    const empty = try refuseRatchetAdoption(a, .{
+        .subject = .tree,
+        .may_write = false,
+        .outcome = .{ .created = 0 },
+    }, &.{});
+    try std.testing.expect(empty.outcome == .created);
+    // An accept records the starting ceilings as before.
+    const adopted = try refuseRatchetAdoption(a, .{
+        .subject = .tree,
+        .may_write = true,
+        .outcome = .{ .created = 1 },
+    }, &entries);
+    try std.testing.expect(adopted.outcome == .created);
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    try std.testing.expectError(error.CheckFailed, reportRatchet(size_check, refused.outcome, .{
+        .allocator = a,
+        .fix_hint = null,
+        .records = &.{},
+        .write_allowed = false,
+        .refusal = refused.why,
+    }));
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "file-size: no ratchet exists") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, trip_subject) != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian-check accept file-size .") != null);
+    // The empty first record keeps its green line.
+    cap.buf.clearRetainingCapacity();
+    try reportRatchet(size_check, empty.outcome, .{
+        .allocator = a,
+        .fix_hint = null,
+        .records = &.{},
+        .write_allowed = false,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "ok: file-size: no ratchet exists and nothing to record") != null);
+}
+
+// spec: Baseline Mode - Refuses to adopt a diff-time check's findings as a baseline on any run
+
+test "a change-subject check never adopts its findings, accept included" {
+    var arena_inst = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_inst.deinit();
+    const a = arena_inst.allocator();
+    const keyed = [_]Keyed{.{ .key = "cc|src/a.zig|behavioral", .line = "src/a.zig: behavioral change with no test" }};
+
+    // Unlike a `.tree` check, the refusal holds on a metadata-writable run too:
+    // a row frozen from one diff describes a change that no longer exists, so
+    // there is nothing an accept could usefully record.
+    for ([_]bool{ false, true }) |may_write| {
+        const refused = try refuseAdoption(a, .{
+            .subject = .change,
+            .may_write = may_write,
+            .outcome = .{ .created = 1 },
+        }, &keyed);
+        try std.testing.expect(refused.why == .change_subject);
+        try std.testing.expect(refused.outcome == .grown);
+        try std.testing.expectEqual(@as(usize, 0), refused.outcome.grown.baseline_size);
+    }
+
+    // Growth over a baseline a consumer recorded before this rule is reported
+    // the same way, and carries no accept either — no run writes the file now.
+    const lines = [_][]const u8{"src/a.zig: behavioral change with no test"};
+    const grew: Outcome = .{ .grown = .{ .new_lines = &lines, .baseline_size = 4 } };
+    const over = try refuseAdoption(a, .{
+        .subject = .change,
+        .may_write = true,
+        .outcome = grew,
+    }, &keyed);
+    try std.testing.expect(over.why == .change_subject);
+    // A `.tree` check's growth is untouched: it keeps its accept guidance.
+    const tree_grew = try refuseAdoption(a, .{
+        .subject = .tree,
+        .may_write = false,
+        .outcome = grew,
+    }, &keyed);
+    try std.testing.expect(tree_grew.why == .allowed);
+
+    var cap: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    try std.testing.expectError(
+        error.CheckFailed,
+        reportOutcome("change-classification", over.outcome, true, over.why),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "about the change under review") != null);
+    // No accept is offered, because none would help.
+    try std.testing.expect(std.mem.indexOf(u8, cap.buf.items, "guardian-check accept") == null);
+}
+
+/// A check with one structured finding and a trailing `fix:` line, standing in
+/// for a check whose project has never recorded a baseline for it.
+fn unbaselinedViolation(_: *types.RunCtx) types.RunError!void {
+    reporter.fail("concept FAILED (1 occurrence(s))", .{});
+    reporter.emit(.{
+        .check = "concept",
+        .file = "src/x.zig",
+        .line = 42,
+        .message = "hand-copied spelling of an owned concept",
+    });
+    reporter.detail("  fix: call the owning module instead of re-spelling it.\n", .{});
+    return error.CheckFailed;
+}
+
+// spec: Baseline Mode - Forwards an unadopted first record to the sink with its check name and fix hint
+
+test "an unadopted first record reaches the JSONL sink like any new violation" {
+    const dir = "zig-cache/test-baseline-unadopted-sink";
+    fs.cwd().deleteTree(dir) catch {};
+    defer fs.cwd().deleteTree(dir) catch {};
+    try fs.cwd().makePath(dir);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Deliberately NO baseline file for `concept`: this is the first record.
+    const cfg: config_mod.Config = .{ .baseline = .{ .enabled = true } };
+    var ctx: types.RunCtx = .{
+        .allocator = a,
+        .project_dir = dir,
+        .cfg = &cfg,
+        .quiet = true,
+    };
+    var outer: reporter.Capture = .{ .allocator = std.testing.allocator };
+    defer outer.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &outer;
+
+    try std.testing.expectError(error.CheckFailed, runWithBaseline(&ctx, .{
+        .name = "concept",
+        .summary = "test",
+        .scope = .per_file,
+        .subject = .tree,
+        .run = unbaselinedViolation,
+    }));
+
+    try std.testing.expectEqual(@as(usize, 1), outer.records.items.len);
+    const row = outer.records.items[0];
+    try std.testing.expectEqualStrings("concept", row.check);
+    try std.testing.expectEqualStrings("src/x.zig", row.file.?);
+    try std.testing.expectEqual(@as(u32, 42), row.line.?);
+    try std.testing.expectEqualStrings(
+        "call the owning module instead of re-spelling it.",
+        row.fix_hint.?,
+    );
+    // And nothing was written: the refusal is a report, never a silent capture.
+    const path = try pathFor(a, dir, "concept");
+    try std.testing.expectError(error.FileNotFound, fs.cwd().access(path, .{}));
 }

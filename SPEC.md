@@ -578,6 +578,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Skips findings whose file is missing and gitignored instead of counting them
 - Forwards a newly reported violation to the sink with its location and fix hint
 - Hands a check its own recorded keys and answers with none when it has no baseline
+- Reports a first record a run cannot write instead of adopting it as a starting set
+- Reports a first ratchet a run cannot write instead of freezing its ceilings
+- Refuses to adopt a diff-time check's findings as a baseline on any run
+- Forwards an unadopted first record to the sink with its check name and fix hint
 
 ## Baseline Introspection
 
