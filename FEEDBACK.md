@@ -11388,3 +11388,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — diagnose Black Canyon final-net routing
 - **good:** The focused spec-linked router gate immediately caught that the new regression expected the full 0.5 mm keepout instead of the actual 0.3 mm surplus over ordinary clearance; correcting the expectation made both targeted routing tests pass before the experimental implementation was evaluated on the board and discarded as unnecessary.
+
+## 2026-09-04 · codex · eda — blank sketch-and-extrude system CAD
+- **good:** The public-API and exact-spec gates cleanly isolated the intentional removal of automatic enclosure lowering and linked the new blank-workspace contract to its mesh regression; all 72 checks and the 1,202-test release suite passed before merge.
+- **friction:** Two unchanged exact-commit preparations discarded test/build-green candidates when unrelated concurrent Zig suites pushed `pcb_editor_perf` to 203–393 ms GPU maxima, even though the same stripped binary passed an isolated serialized run at 125–135 ms. A third full preparation passed after those workers exited, adding about eight minutes; an idle-load preflight plus a bounded retry against the preserved candidate would avoid this repeated cost.
