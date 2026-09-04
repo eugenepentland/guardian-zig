@@ -11370,3 +11370,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-03 · codex · eda — preserve autorouter RF tapers and exact PNG copper
 - **good:** Guardian's full 4,684-test commit gate caught a stale exact JavaScript source marker in `serve.pcb_layout_page` after the RF retrofit gained its autorouter-source guard; updating the contract prevented the new preservation behavior from shipping with an obsolete server-page assertion.
 - **friction:** The first exact-commit release passed all 72 Guardian checks, 4,684 tests, and ReleaseSafe compilation but discarded the candidate when the Barracuda Canvas zoom p95 spiked to 66–68 ms; the identical unchanged commit passed the retry, adding about three minutes. A bounded automatic retry for browser-only timing failures would preserve the gate while avoiding a full manual rerun.
+
+## 2026-09-04 · codex · eda — persisted enclosure bosses and wall cutouts
+- **good:** The exact-commit test gate caught both a new `mechanical.cad_document` test module missing from the explicit shard/import bridge and an annular-boss assertion that compared a 24-sided mesh against ideal circular volume; registering the module and testing the exact polygonal volume brought all 4,744 tests, the ReleaseSafe build, Barracuda performance gate, and editor invariants green before merge.
