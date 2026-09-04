@@ -11438,3 +11438,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — preserve rounded corners in routed panels
 - **good:** Guardian's focused run caught both a one-point cognitive-complexity regression in the panel planner and a conditional test assertion before commit; extracting the validation and arc-count helpers resolved both cleanly, after which all 4,774 sharded tests, the whole-tree checks, ReleaseSafe build, browser performance gate, and editor ownership invariants passed on the exact commit.
+
+## 2026-09-04 · codex · eda — add panel-specific BOM and centroid files
+- **good:** Guardian's public-API preview isolated exactly the new panel assembly descriptor and two CSV writers before the surgical snapshot acceptance; the linked writer and package regressions then passed all 4,776 sharded tests, the whole-tree checks, ReleaseSafe build, browser performance gate, and editor ownership invariants on the exact commit.
