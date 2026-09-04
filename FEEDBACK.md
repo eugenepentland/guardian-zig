@@ -11395,3 +11395,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — deploy rebased 2D system thermal workspace
 - **good:** After resolving overlap with the newly merged sketch-and-extrude workspace, the focused 33-test gate, all 72 Guardian checks, full tests, ReleaseSafe build, real-browser 2D/3D interaction probe, editor performance gate, and state-ownership invariants passed; the verified tree was then adopted for the merge commit and production health checks passed.
+
+## 2026-09-04 · codex · eda — exact autorouter RF taper copper
+- **good:** Guardian's exact-spec and public-API checks isolated the new swept-taper output seam, while the full shard invariants caught both the missing `rf_taper_paths.zig` test-root import and an initially redundant shard filter before all 4,752 tests passed.
