@@ -11428,3 +11428,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — carry autorouter RF tapers through bends
 - **good:** Guardian's runtime-parameter cap caught a seven-argument taper helper during the focused run and prompted a cohesive context struct; the exact-spec checks and all 4,758 sharded tests then passed for the pad-face and arclength regressions.
 - **friction:** The first exact-commit preparation passed all 72 Guardian checks, 4,758 tests, and ReleaseSafe compilation but discarded the candidate on a lone 66 ms Canvas zoom-out sample; the unchanged retry passed, repeating roughly four minutes of release work. Preserving the code-green candidate for one bounded browser-only retry would remove this recurring cost without weakening the gate.
+
+## 2026-09-04 · codex · eda — export JLCPCB BOM and CPL templates
+- **good:** Guardian's `spec` check caught three revised exporter contracts that were not yet mirrored in `SPEC.md`, and `canonical-idiom` caught a hand-rolled hierarchy-leaf split; linking the exact contracts and reusing `net_name.leaf` made the serialization change traceable and consistent.
+- **friction:** Two exact-commit preparations passed all 72 checks, the full tests, and ReleaseSafe compilation but discarded the CSV-only candidate on unrelated Barracuda Canvas/GPU timing outliers. A bounded browser-only retry against the preserved candidate would have avoided about seven minutes of repeated green build/test work.
