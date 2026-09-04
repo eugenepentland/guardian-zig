@@ -11405,3 +11405,7 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 ## 2026-09-04 · codex · eda — group fabrication BOM rows by MPN
 - **good:** Guardian's focused, commit-time, and full whole-tree runs all passed 72 checks, and the exact-commit release suite confirmed all 1,202 Zig tests plus ReleaseSafe compilation were green for the BOM serializer change.
 - **friction:** After 216 seconds in the shared release queue, `prepare-release.sh` discarded that code-green candidate because one unrelated Barracuda GPU zoom-in sample reached 235.6 ms against 150 ms p95 / 160 ms maximum limits. A bounded browser-only retry against the preserved candidate would avoid stranding completed, functionally verified branches on host-timing outliers.
+
+## 2026-09-04 · codex · eda — label centroid coordinate units in headers
+- **good:** Guardian's focused and commit-time gates linked the changed centroid behavior to its exact `export_fab` specification, and the rebased exact-commit run passed all 72 checks, 4,750 Zig tests, and ReleaseSafe compilation.
+- **friction:** The prior BOM-grouping feedback understated its test count as 1,202 by reading only the final two of eight shard summaries. The expanded release was then discarded on a different unrelated browser outlier—a 70.2 ms Canvas zoom-in frame against 45 ms p95 / 55 ms maximum limits while all GPU metrics passed—after 192 seconds queued and about three minutes of green code gates. Preserve the candidate and retry only the browser benchmark once when it is the sole failure.
