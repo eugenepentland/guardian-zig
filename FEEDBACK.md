@@ -11629,3 +11629,48 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   before any write was the single most useful line of the task. It let me confirm
   the fix count without a write-allowed run, and the read-only guarantee meant I
   could check it repeatedly while iterating.
+
+## 2026-09-05 · Claude · eda — clear frozen pub-exposes-private rows (part 2: land the enabling defect fix)
+- **good:** `change-classification` refusing a visibility-only diff was the whole
+  value of this task. The previous session read the refusal as friction (entry
+  above) and stopped; the honest answer turned out to exist — making
+  `serve/upload.ComponentWrite` public was only worth doing because
+  `upload_package.zig:198` discarded `writeComponentFile`'s result with `_ =`,
+  `.write_failed` included, so a failed component write answered HTTP 200 with a
+  "Created …" body while the artifact the whole upload exists to produce was
+  never written. The check demanded a test/spec change; supplying one meant
+  finding and fixing that. A check that says "this change carries no evidence"
+  did exactly what it should, and a per-diff waiver would have buried a shipped
+  correctness bug behind a green gate.
+- **good:** `pub-exposes-private --list` (`0 new, 32 live, 19 resolved`) was again
+  the line that made the work auditable. It let me confirm before and after the
+  commit that the 32 deliberately-left rows were untouched, with no write-allowed
+  run in between.
+- **good:** `pub-api-surface`'s grouped delta (`13 new, 0 changed, 3 removed, 0
+  moved`) plus the removed entries printed with their full old signatures made
+  the accept a 60-second review: 13 additions = 13 types marked `pub`, 3 removals
+  = 3 fns demoted. `changed:` and `moved:` being separately counted is what let me
+  assert nothing else drifted under cover of the accept.
+- **friction:** the `concept` check fired on a *test fixture*. My new test needed a
+  synthetic `.kicad_mod` blob, and `(layer F.Cu)` + `(layers F.Cu F.Mask F.Paste)`
+  in a Zig multiline literal tripped `layer-names` and `kicad-tech-layer-names`
+  ("a respelling here is a second table that can disagree with the router's").
+  Those bytes are converter *input*, never a layer table, so the rationale cannot
+  apply; the only non-config escape was to delete the layer forms from the fixture
+  and note why in a comment. Cost: one extra whole-tree gate cycle (~5 min).
+  A concept rule that skipped literals inside a test fixture — or at least inside
+  a `const` only reachable from `test` blocks — would not have fired here.
+- **wish:** a project onboarding a test into a *new* file pays a three-file tax
+  that no check names up front. eda shards its suite, so the new test in
+  `src/serve/upload_package.zig` also needed an import-bridge line in
+  `src/test_root.zig` and a filter row in `src/test_shards.zig`; the enforcing
+  tests are eda's own and they do report clearly, but only after a full compile.
+  Guardian has the tree map to notice "this file declares tests and nothing
+  imports it into the test root" much earlier than the suite does.
+- **wish:** verifying "the test count did not fall" is harder than it should be.
+  Zig caches the Run step, so a second `zig build test` on an unchanged tree
+  prints nothing at all — no `guardian/test: PASS — N passed`, no verdict line,
+  which reads exactly like a run that did not happen. I had to `rm
+  .zig-cache/h/*.txt` to make the eight shards re-report (4821 passed, 8/8 green,
+  +1 for the new test). The runner already owns a verdict line for "every exit
+  path"; a cached exit path currently has none.
