@@ -11541,3 +11541,6 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-04 · codex · eda — make dirty Gerber release inputs waivable
 - **good:** Guardian's exact `spec` check caught the stale early-refusal contract as soon as dirty projects became waivable, and `pub-api-surface` previewed exactly the two shared release-policy helpers before surgical acceptance. The exact commit then passed all 72 checks, the full suite, ReleaseSafe compilation, editor performance, and PCB state-ownership invariants.
+
+## 2026-09-05 · codex · eda — acknowledged prototype Gerber export
+- **good:** Guardian's diff gate immediately rejected a four-boolean request condition and a seven-runtime-parameter test helper in the first prototype-export draft; simplifying both avoided adding ratchet exceptions, and the final exact commit passed all 72 whole-tree checks with zero blocking findings.
