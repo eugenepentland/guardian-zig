@@ -268,7 +268,8 @@ pub fn without(arena: Allocator, records: []const Record, name: []const u8) Allo
         if (std.mem.eql(u8, existing.name, name)) continue;
         try out.append(arena, existing);
     }
-    return try out.toOwnedSlice(arena);
+    const kept = try out.toOwnedSlice(arena);
+    return kept;
 }
 
 /// True when re-recording `new_value` over `old_value` is a REGRESSION under

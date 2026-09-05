@@ -241,7 +241,8 @@ fn changedSince(
     var out: std.ArrayList([]const u8) = .empty;
     try out.appendSlice(allocator, diffed);
     try out.appendSlice(allocator, untracked);
-    return try out.toOwnedSlice(allocator);
+    const changed_paths = try out.toOwnedSlice(allocator);
+    return changed_paths;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────

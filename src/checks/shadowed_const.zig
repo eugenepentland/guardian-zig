@@ -430,7 +430,8 @@ fn isSignificant(allocator: Allocator, v: Value, cfg: config.ShadowedConstCfg) A
         .int => cfg.min_int_digits,
         .float => cfg.min_float_digits,
     };
-    return try digitWidth(allocator, v) >= floor;
+    const width = try digitWidth(allocator, v);
+    return width >= floor;
 }
 
 /// The auto-mode targets: one per distinct value held by a unit-suffixed

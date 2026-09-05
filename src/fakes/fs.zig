@@ -45,7 +45,8 @@ pub const FakeFs = struct {
     /// or `error.FileNotFound` when nothing was written there.
     pub fn readFile(self: *const FakeFs, result_allocator: std.mem.Allocator, path: []const u8) ReadError![]const u8 {
         const stored = self.files.get(path) orelse return error.FileNotFound;
-        return try result_allocator.dupe(u8, stored);
+        const copy = try result_allocator.dupe(u8, stored);
+        return copy;
     }
 
     /// Reports whether a file was written at `path`.

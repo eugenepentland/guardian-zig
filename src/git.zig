@@ -413,7 +413,8 @@ pub const ChangedPath = struct {
 pub fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath {
     const argv = [_][]const u8{ "git", "status", "--porcelain", "-z" };
     const out = runGit(allocator, project_dir, &argv) orelse return null;
-    return try parsePorcelainZ(allocator, out);
+    const changed = try parsePorcelainZ(allocator, out);
+    return changed;
 }
 
 /// Parses `git status --porcelain -z` output into its changed/untracked path

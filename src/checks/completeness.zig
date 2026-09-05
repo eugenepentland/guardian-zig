@@ -352,7 +352,8 @@ pub fn readFeatureSections(
 ) Allocator.Error!?[]const FeatureSection {
     const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ project_dir, spec_file });
     const content = fs.cwd().readFileAlloc(arena, path, max_spec_bytes) catch return null;
-    return try parseFeatureSections(arena, content);
+    const sections = try parseFeatureSections(arena, content);
+    return sections;
 }
 
 /// Entry point for the completeness check. Opt-in: a no-op ok report unless

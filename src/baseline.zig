@@ -454,7 +454,8 @@ fn migrationGrowth(
         try gained.append(arena, k.line);
     }
     if (gained.items.len == 0) return null;
-    return try gained.toOwnedSlice(arena);
+    const grown = try gained.toOwnedSlice(arena);
+    return grown;
 }
 
 /// Increments `map`'s counter for `key`.
@@ -1275,7 +1276,8 @@ fn readRecorded(a: Allocator, path: []const u8) snapshot.ReadError!?[]const ratc
         error.Missing, error.VersionMismatch => return null,
         else => return e,
     };
-    return try ratchet.decodeLines(a, snap.lines);
+    const entries = try ratchet.decodeLines(a, snap.lines);
+    return entries;
 }
 
 test "a corrupt ratchet is never treated as absent during a deny-growth refresh" {

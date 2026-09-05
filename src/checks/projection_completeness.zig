@@ -171,7 +171,8 @@ fn pathText(allocator: Allocator, tree: *const Ast, type_expr: Ast.Node.Index) A
             else => return null,
         }
     }
-    return try out.toOwnedSlice(allocator);
+    const dotted = try out.toOwnedSlice(allocator);
+    return dotted;
 }
 
 /// The field names a struct literal sets. A field initializer is preceded by

@@ -157,7 +157,8 @@ fn collectCandidates(ctx: *types.RunCtx, idx: *const ast_index.Index) types.RunE
         reporter.ok("mutate: skipped — {s}", .{res.unavailable});
         return null;
     }
-    return try diffCandidates(ctx, idx, res.ok);
+    const candidates = try diffCandidates(ctx, idx, res.ok);
+    return candidates;
 }
 
 /// Fast-tier candidates: mutants on added lines of diffed files, plus every

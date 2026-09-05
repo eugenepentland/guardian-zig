@@ -27,7 +27,8 @@ pub fn parseString(val: []const u8) ?[]const u8 {
 /// Parses one strict quoted string and resolves its escapes.
 pub fn parseStringAlloc(allocator: Allocator, val: []const u8) Allocator.Error!?[]const u8 {
     const raw = parseString(val) orelse return null;
-    return try unescape(allocator, raw);
+    const resolved = try unescape(allocator, raw);
+    return resolved;
 }
 
 /// Resolves the TOML basic-string escapes inside one already-validated string
@@ -182,7 +183,10 @@ pub fn parseInlineTable(allocator: Allocator, val: []const u8) Allocator.Error!?
     const raw_body = inlineTableBody(val) orelse return null;
     const body = std.mem.trim(u8, raw_body, &std.ascii.whitespace);
     var pairs: std.ArrayList(InlinePair) = .empty;
-    if (body.len == 0) return try pairs.toOwnedSlice(allocator);
+    if (body.len == 0) {
+        const empty = try pairs.toOwnedSlice(allocator);
+        return empty;
+    }
     var iter = InlineSplitter{ .text = body };
     while (iter.next()) |piece| {
         const trimmed = std.mem.trim(u8, piece, &std.ascii.whitespace);
@@ -193,7 +197,8 @@ pub fn parseInlineTable(allocator: Allocator, val: []const u8) Allocator.Error!?
         if (key.len == 0 or item.len == 0) return null;
         try pairs.append(allocator, .{ .key = key, .val = item });
     }
-    return try pairs.toOwnedSlice(allocator);
+    const table = try pairs.toOwnedSlice(allocator);
+    return table;
 }
 
 /// The bytes between an inline table's braces, or null when `val` is not a

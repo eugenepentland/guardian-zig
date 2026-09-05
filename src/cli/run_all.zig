@@ -572,7 +572,8 @@ fn failureGroupLine(arena: std.mem.Allocator, check: []const u8, findings: usize
 /// Tail following the sampled findings in a concise failure group.
 fn omittedLine(arena: std.mem.Allocator, total: usize, shown: usize) std.mem.Allocator.Error!?[]const u8 {
     if (shown >= total) return null;
-    return try std.fmt.allocPrint(arena, "+{d} more — use --verbose for full detail", .{total - shown});
+    const tail = try std.fmt.allocPrint(arena, "+{d} more — use --verbose for full detail", .{total - shown});
+    return tail;
 }
 
 /// Prints blocking failures as compact per-check groups. At most three findings

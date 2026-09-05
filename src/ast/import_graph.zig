@@ -83,7 +83,8 @@ fn resolveImport(
     if (std.mem.eql(u8, imp_path, "root")) return null;
     const slash = std.mem.lastIndexOfScalar(u8, rel_path, '/') orelse return imp_path;
     const joined = try std.fmt.allocPrint(a, "{s}/{s}", .{ rel_path[0..slash], imp_path });
-    return try walk.normalizePath(a, joined);
+    const normalized = try walk.normalizePath(a, joined);
+    return normalized;
 }
 
 /// How many `test` blocks `z` declares. Token-based, so a `test` inside a
@@ -230,7 +231,8 @@ pub fn findCycle(allocator: Allocator, nodes: []const Node) Allocator.Error!?[]c
         if (finder.cycle != null) break;
     }
     const indices = finder.cycle orelse return null;
-    return try indicesToPaths(allocator, nodes, indices);
+    const cycle_paths = try indicesToPaths(allocator, nodes, indices);
+    return cycle_paths;
 }
 
 // Filesystem walkers do not promise directory-entry order. Sort DFS roots by

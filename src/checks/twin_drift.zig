@@ -1384,7 +1384,8 @@ fn driftSample(allocator: Allocator, t: Twin) Allocator.Error!?[]const u8 {
     const shown = shown_a + try appendSide(allocator, &buf, t.b.file, only_b, max_detail_lines - shown_a);
     const total = only_a.len + only_b.len;
     if (total > shown) try appendFmt(allocator, &buf, " (+{d} more)", .{total - shown});
-    return try buf.toOwnedSlice(allocator);
+    const sample = try buf.toOwnedSlice(allocator);
+    return sample;
 }
 
 /// The remedy the JSONL sink carries for one pair, which is where the second

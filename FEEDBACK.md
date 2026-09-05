@@ -11568,3 +11568,10 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   advisory tier left 95 committed eda baseline rows inert but still present and still
   counted by `debt`. `debt` cannot currently distinguish "frozen and filtering" from
   "frozen and ignored"; a policy-aware column would.
+- **good:** `change-classification` blocked the try-in-return cleanup — 121 behavioral
+  src lines of pure refactor with no test or spec change. The right answer was not the
+  waiver: the 11-arm `config_semantics.validate` rewrite turned 14 hand-written message
+  strings into 4 format shapes, and that substitution IS the refactor's whole risk
+  surface. One test pinning the exact rendered text for each shape cleared the gate and
+  is real coverage. A diff-time gate asking "where is the test" produced the test that
+  the change actually needed.

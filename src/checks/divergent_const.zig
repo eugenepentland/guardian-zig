@@ -310,23 +310,29 @@ fn mirrorViolation(
 /// is always verified.
 fn mirrorFailure(allocator: Allocator, d: Decl, decls: []const Decl) Allocator.Error!?[]const u8 {
     const referent = d.mirror.?;
-    const parts = splitReferent(referent) orelse
-        return try allocator.dupe(u8, "that is not spelled <path>.zig.<name>");
-    const target = findReferent(decls, parts[0], parts[1]) orelse return try std.fmt.allocPrint(
-        allocator,
-        "no file-scope numeric const {s} was found in {s}",
-        .{ parts[1], parts[0] },
-    );
+    const parts = splitReferent(referent) orelse {
+        const unparsed = try allocator.dupe(u8, "that is not spelled <path>.zig.<name>");
+        return unparsed;
+    };
+    const target = findReferent(decls, parts[0], parts[1]) orelse {
+        const missing = try std.fmt.allocPrint(
+            allocator,
+            "no file-scope numeric const {s} was found in {s}",
+            .{ parts[1], parts[0] },
+        );
+        return missing;
+    };
     if (valuesEqual(d.value, target.value)) return null;
     const mine = try renderValue(allocator, d.value);
     defer allocator.free(mine);
     const theirs = try renderValue(allocator, target.value);
     defer allocator.free(theirs);
-    return try std.fmt.allocPrint(
+    const drifted = try std.fmt.allocPrint(
         allocator,
         "the documented mirror has drifted: {s} here, {s} at {s}:{d}",
         .{ mine, theirs, target.file, target.line },
     );
+    return drifted;
 }
 
 /// Appends one violation per annotated declaration whose claim does not hold.
