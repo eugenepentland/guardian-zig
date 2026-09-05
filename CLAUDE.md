@@ -403,13 +403,16 @@ readable only in `src/checks/completeness.zig`.
 
 ## What Guardian Checks
 
-72 checks gate the build (most hard-block; completeness/test-coverage/
-oom-discipline/fuzz-presence are opt-in and default off). Formatting is one of them:
+83 checks gate the build (most hard-block; completeness/test-coverage/
+oom-discipline/fuzz-presence/undefined-init/measure-vocabulary are opt-in and
+default off, and the style class — naming, doc-comments, module-doc-header,
+line-length, repeated-string-literal, try-in-return — reports rather than blocks
+under the default `[policy] profile = "agent"`). Formatting is one of them:
 the `formatting` check runs FIRST in every `all` pass and prints immediately
 (cheapest gate, one-command fix), so a consumer no longer needs its own
-`zig fmt --check` build step. Three more registry entries are
+`zig fmt --check` build step. Four more registry entries are
 non-gating steps, never part of `all`: the `spec-init` generator, the `mutate`
-command and the `debt` report (75 registry
+command, the `optimize-divergence` runner and the `debt` report (87 registry
 entries total; `all`/`nightly`/`commit`/`explain`/`version`
 are dispatched specially and aren't registry entries). Full table in README.md;
 the categories are: spec workflow, git-aware process gates, structural,
@@ -458,8 +461,8 @@ exactly one `run-all:` line, on the always-visible channel — so `grep run-all`
 never comes up empty and can never be confused with "the pattern was wrong":
 
 ```
-run-all: 72 check(s) passed                                  # green
-run-all: 72 checks — 0 blocking, N report-only               # green, demoted findings
+run-all: 83 check(s) passed                                  # green
+run-all: 83 checks — 0 blocking, N report-only               # green, demoted findings
 run-all: 2/76 failed (type-size, …) — 3 report-only          # blocking
 run-all: cached — 0 blocking (inputs unchanged since last green run)
 ```
