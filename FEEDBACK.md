@@ -11707,3 +11707,8 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   cycles. Tarjan over the tree finds one strongly-connected component of 312 files.
   Breaking one edge surfaces the next, which is not baselined, taking the gate red. A
   cycle count plus the SCC size would have said that in one line.
+
+## 2026-09-05 · codex · eda — operation contracts and baseline-independent audit
+- **good:** The new `contract-audit` command reports 40 policy violations and 3 advisory items across 29 EDA functions without changing EDA configuration or baselines. `int-from-float-budget --list` separately exposed 16 still-live accepted entries, including the KiCad project-rule conversion; keeping these counts separate prevents calling existing debt a new discovery.
+- **good:** Contract regression fixtures caught inferred `!void` being confused with plain `void`. Tests now cover imported and external function aliases, recursive write effects, parenthesized calls, missing selectors, approved owners, error-alias uncertainty and identity evidence. All 1,390 Zig tests and the 88-check gate passed; CLI integration also checks real redirected JSON, exit statuses and an unchanged target tree.
+- **bug:** Calling `reporter.machine(payload)` and then `reporter.machine("\n")` corrupted JSON redirected to a regular file: the second fresh stdout writer overwrote the first two bytes. The contract command now calls `machine` only once (it already appends a newline), and the integration test uses a regular output file so this cannot regress unnoticed. The helper's behavior across multiple calls remains a general API footgun.
