@@ -11595,3 +11595,37 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 - **wish:** adding a check to a live consumer costs a whole-tree accept before the gate
   can pass again, and there is no way to preview the write. `debt` shows what IS frozen;
   nothing shows what WOULD be frozen by an accept that has not run.
+
+## 2026-09-05 · claude · eda — clearing the pub-exposes-private baseline
+- **good:** `type-size` caught the lazy branch of `pub-exposes-private` mid-task,
+  which is exactly what a reviewer would have had to do by hand. I had made 18
+  private types `pub` to clear 48 rows; the next build failed with five NEW
+  type-size offenders — `router.Ctx` at 86 fields (cap 7), `PcbDataOpts` 34,
+  `RoutedSummary` 22, `ShownView` 13, `RipSnapshot` 11. Because type-size only
+  measures `pub` types, the two checks compose into a real answer: a type too
+  big to be public API cannot be the fix for pub-exposes-private, so those rows
+  are a refactor and not a visibility edit. Neither check alone says that. I
+  reverted those five and kept the 13 that stayed under the cap.
+- **bug/friction:** `pub-exposes-private` cannot be cleared without a
+  `pub-api-surface` accept, and nothing says so. BOTH documented fixes change the
+  public surface by construction — marking the type `pub` adds an entry, dropping
+  `pub` from the fn removes one — so every honest fix to this check fails the
+  snapshot. My 19 resolved rows produced `delta: 13 new, 0 changed, 3 removed`,
+  and the pre-commit gate refused the commit. That is defensible policy (the
+  surface delta IS the change under review), but the check's own `fix:` line
+  reads "mark the type `pub`, or take/return a public type instead / Demoting the
+  fn to private also resolves it" with no hint that either path requires a
+  snapshot accept to land. A reviewer-facing note on `pub-exposes-private` —
+  "resolving this changes the public API surface; expect a pub-api-surface
+  accept" — would have set the expectation up front.
+- **friction:** `change-classification` fails a visibility-only diff with no way
+  to answer it honestly. 16 lines of `const X` → `pub const X` are "behavioral
+  src changes with no test or spec change". There is no behavior to test: the
+  edit is compile-time reachability. The check's own hint lists the two escapes
+  as a test/spec change or disabling the check project-wide, so the only truthful
+  option left is to not commit. A visibility-only classification (a diff whose
+  every changed line differs solely by a leading `pub `) would let this land.
+- **good:** `--list` reporting `0 new, 32 live, 19 resolved (baseline unchanged)`
+  before any write was the single most useful line of the task. It let me confirm
+  the fix count without a write-allowed run, and the read-only guarantee meant I
+  could check it repeatedly while iterating.
