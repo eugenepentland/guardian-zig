@@ -4,6 +4,21 @@
 
 const std = @import("std");
 
+/// A declared persistence or request boundary, interpreted by contract checks.
+/// Selectors use `src/file.zig::function` globs; operation selectors also accept
+/// `*.method` for external methods whose receiver type is not resolved.
+pub const ContractRule = struct {
+    name: []const u8 = "",
+    kind: []const u8 = "",
+    functions: []const []const u8 = &.{},
+    operations: []const []const u8 = &.{},
+    allow: []const []const u8 = &.{},
+    validators: []const []const u8 = &.{},
+    identity: []const []const u8 = &.{},
+    revision: []const []const u8 = &.{},
+    reason: []const u8 = "",
+};
+
 /// One [[boundary]] entry — a module glob and the import substrings forbidden inside it.
 pub const BoundaryRule = struct {
     module_pattern: []const u8,
@@ -964,6 +979,8 @@ pub const MeasurementCfg = struct {
 
 /// Aggregated guardian.toml configuration; defaults are sensible.
 pub const Config = struct {
+    /// Explicit operation contracts; empty means these checks are not adopted.
+    contracts: []const ContractRule = &.{},
     spec_file: []const u8 = "SPEC.md",
     /// Max lines per .zig file. Default 1000 (not 500): the low cap has no
     /// research basis and a real production codebase relaxed it.

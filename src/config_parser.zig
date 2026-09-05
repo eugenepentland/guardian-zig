@@ -257,10 +257,13 @@ const ArrayKind = enum {
     twin,
     dead_model_field,
     projection,
+    contract,
     external,
 };
 
 const ParseState = struct {
+    contract: config.ContractRule = .{},
+    contracts: std.ArrayList(config.ContractRule) = .empty,
     section: Section = .top,
     array_kind: ArrayKind = .none,
     cur_module: ?[]const u8 = null,
@@ -332,6 +335,35 @@ const ParseState = struct {
     idiom_files_set: bool = false,
     external_command_set: bool = false,
 
+    fn flushContract(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        if (@import("contracts/model.zig").invalidRule(self.contract)) |why| {
+            try setDiag(allocator, diag, self.array_line, "invalid [[contract]]: {s}", .{why});
+            return error.InvalidConfig;
+        }
+        for (self.contracts.items) |rule| {
+            if (!std.mem.eql(u8, rule.name, self.contract.name)) continue;
+            try setDiag(allocator, diag, self.array_line, "duplicate [[contract]] name '{s}'", .{rule.name});
+            return error.InvalidConfig;
+        }
+        try self.contracts.append(allocator, self.contract);
+    }
+
+    fn setContractKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        inline for (.{ "name", "kind", "reason" }) |key| {
+            if (std.mem.eql(u8, kv.key, key)) {
+                @field(self.contract, key) = try parseStringAlloc(allocator, kv.val) orelse "";
+                return;
+            }
+        }
+        inline for (.{ "functions", "operations", "allow", "validators", "identity", "revision" }) |key| {
+            if (std.mem.eql(u8, kv.key, key)) {
+                var list = try parseStringArray(allocator, kv.val);
+                @field(self.contract, key) = try list.toOwnedSlice(allocator);
+                return;
+            }
+        }
+    }
+
     fn flush(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
         switch (self.array_kind) {
             .boundary => {
@@ -395,6 +427,7 @@ const ParseState = struct {
             .twin => try self.flushTwin(allocator, diag),
             .dead_model_field => try self.flushDeadModelField(allocator, diag),
             .projection => try self.flushProjection(allocator, diag),
+            .contract => try self.flushContract(allocator, diag),
             .external => {
                 const name = self.cur_name orelse {
                     try setDiag(
@@ -888,6 +921,7 @@ const ParseState = struct {
         self.cur_dmf_fields = .empty;
         self.cur_dmf_output = .empty;
         self.cur_dmf_logic = .empty;
+        self.contract = .{};
         self.cur_projection_name = null;
         self.cur_projection_type = null;
         self.cur_projection_fields = .empty;
@@ -929,6 +963,7 @@ const ParseState = struct {
             .twin => try self.setTwinKey(allocator, kv),
             .dead_model_field => try self.setDeadModelFieldKey(allocator, kv),
             .projection => try self.setProjectionKey(allocator, kv),
+            .contract => try self.setContractKey(allocator, kv),
             .external => try self.setExternalKey(allocator, kv),
             .none => {},
         }
@@ -1122,6 +1157,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "layering")) return .layering;
     if (std.mem.eql(u8, name, "twin")) return .twin;
     if (std.mem.eql(u8, name, "dead_model_field")) return .dead_model_field;
+    if (std.mem.eql(u8, name, "contract")) return .contract;
     if (std.mem.eql(u8, name, "projection")) return .projection;
     if (std.mem.eql(u8, name, "external")) return .external;
     return .none;
@@ -1186,6 +1222,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.twin_rules = try st.twins.toOwnedSlice(allocator);
     cfg.dead_model_field_rules = try st.dead_model_fields.toOwnedSlice(allocator);
     cfg.projection_rules = try st.projections.toOwnedSlice(allocator);
+    cfg.contracts = try st.contracts.toOwnedSlice(allocator);
     cfg.external_gates = try st.external_gates.toOwnedSlice(allocator);
     return cfg;
 }
@@ -1308,6 +1345,7 @@ fn arrayValueKind(kind: ArrayKind, key: []const u8) ValueKind {
         else
             .string_array,
         .projection => projectionValueKind(key),
+        .contract => if (inList(&.{ "name", "kind", "reason" }, key)) .string else .string_array,
         .external => externalValueKind(key),
         .none => .string_array,
     };
@@ -1939,6 +1977,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         },
         .twin => &.{ "name", surfaces_key, parity_test_key },
         .dead_model_field => &.{ "struct", "owner", "fields", "output", "logic", "reason" },
+        .contract => &.{ "name", "kind", "functions", "operations", "allow", "validators", "identity", "revision", "reason" },
         .projection => &.{
             "name", "type", "fields", "optional", anonymous_min_fields_key, "allow", "reason",
         },

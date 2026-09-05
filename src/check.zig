@@ -119,10 +119,16 @@ pub fn main(process_init: std.process.Init) !void {
 
     // Fail closed on a broken guardian.toml: load prints a located diagnostic
     // and we exit non-zero rather than silently running on all-defaults.
-    const cfg = config_parser.load(allocator, parsed.project_dir) catch |e| switch (e) {
+    var cfg = config_parser.load(allocator, parsed.project_dir) catch |e| switch (e) {
         error.OutOfMemory => return e,
         else => std.process.exit(1),
     };
+    if (parsed.contracts_file) |profile| {
+        if (!std.mem.eql(u8, command, "contract-audit")) reporter.fatal("--contracts is read-only and only valid with contract-audit", .{});
+        const profile_text = try fs.cwd().readFileAlloc(allocator, profile, 1024 * 1024);
+        const overlay = try config_parser.parse(allocator, profile_text);
+        cfg.contracts = overlay.contracts;
+    }
     var ctx: registry.RunCtx = .{
         .allocator = allocator,
         .project_dir = parsed.project_dir,
@@ -199,6 +205,7 @@ const ParsedArgs = struct {
     dry_run: bool = false,
     /// `--args`: `test-filter` writes its derived argument string to stdout.
     args_only: bool = false,
+    contracts_file: ?[]const u8 = null,
     check_filter: ?[]const u8 = null,
     /// First positional after `size`: the file to measure.
     target_path: ?[]const u8 = null,
@@ -244,7 +251,11 @@ fn parseArgs(args: []const [:0]const u8) ParsedArgs {
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (takeToggle(&parsed, arg)) continue;
-        if (std.mem.eql(u8, arg, "--against")) {
+        if (std.mem.eql(u8, arg, "--contracts")) {
+            i += 1;
+            if (i >= args.len or std.mem.startsWith(u8, args[i], "--")) reporter.fatal("--contracts requires a profile path", .{});
+            parsed.contracts_file = args[i];
+        } else if (std.mem.eql(u8, arg, "--against")) {
             i += 1;
             if (i < args.len) parsed.against = args[i];
         } else if (std.mem.eql(u8, arg, "--only")) {
@@ -765,6 +776,10 @@ test {
     _ = @import("checks/shadowed_const.zig");
     _ = @import("checks/duplicate_json_key.zig");
     _ = @import("checks/twin_parity.zig");
+    _ = @import("checks/operation_contracts.zig");
+    _ = @import("contracts/tests.zig");
+    _ = @import("contracts/model.zig");
+    _ = @import("contracts/error_flow.zig");
     _ = @import("checks/twin_referent.zig");
     _ = @import("checks/twin_drift.zig");
     _ = @import("checks/doc_comments.zig");

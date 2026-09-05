@@ -26,7 +26,8 @@ exclude = ["reporter.zig", "testing/golden_runner.zig"]
 # finding, each read by a different consumer (terminal render, baseline v3 key,
 # ratchet v2 aggregation, JSONL sink) — the same flat-aggregation case again.
 [type_size]
-exclude = ["config.zig", "cli/types.zig", "reporter.zig"]
+# Contract Finding is also a flat interchange record with independent report fields.
+exclude = ["config.zig", "cli/types.zig", "reporter.zig", "contracts/model.zig"]
 
 # Guardian's test binary is rooted at src/check.zig (build.zig's
 # root_source_file), not the conventional src/main.zig or src/root.zig, so the

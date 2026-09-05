@@ -324,6 +324,13 @@ src/checks/no_test_imports_in_prod.zig::analyzeContent | fn analyzeContent( allo
 src/checks/no_test_imports_in_prod.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/oom_discipline.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/oom_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/operation_contracts.zig::Report struct_
+src/checks/operation_contracts.zig::audit | fn audit(ctx: *types.RunCtx) types.RunError!void
+src/checks/operation_contracts.zig::runDecoder | fn runDecoder(ctx: *types.RunCtx) types.RunError!void
+src/checks/operation_contracts.zig::runIdentity | fn runIdentity(ctx: *types.RunCtx) types.RunError!void
+src/checks/operation_contracts.zig::runMutation | fn runMutation(ctx: *types.RunCtx) types.RunError!void
+src/checks/operation_contracts.zig::runRead | fn runRead(ctx: *types.RunCtx) types.RunError!void
+src/checks/operation_contracts.zig::runWrite | fn runWrite(ctx: *types.RunCtx) types.RunError!void
 src/checks/orphan_files.zig::findOrphans | fn findOrphans( allocator: Allocator, nodes: []const import_graph.Node, roots: []const []const u8, ) Allocator.Error![]const []const u8
 src/checks/orphan_files.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/panic_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -507,6 +514,7 @@ src/config.zig::ComplexityCfg struct_
 src/config.zig::ConceptRule struct_
 src/config.zig::ConcurrencyPresenceCfg struct_
 src/config.zig::Config struct_
+src/config.zig::ContractRule struct_
 src/config.zig::DeadModelFieldRule struct_
 src/config.zig::DeadPubCfg struct_
 src/config.zig::DeprecatedRule struct_
@@ -591,6 +599,23 @@ src/config_value.zig::stripInlineComment | fn stripInlineComment(val: []const u8
 src/config_value.zig::tableName | fn tableName(line: []const u8) ?[]const u8
 src/config_value.zig::toStrings | fn toStrings(allocator: Allocator, val: []const u8) Allocator.Error![]const []const u8
 src/config_value.zig::unescape | fn unescape(allocator: Allocator, raw: []const u8) Allocator.Error![]const u8
+src/contracts/analyze.zig::run | fn run(a: A, graph: *const index.Graph, rules: []const config.ContractRule, only: ?model.Kind) A.Error![]const model.Finding
+src/contracts/error_flow.zig::Outcome enum_
+src/contracts/error_flow.zig::analyze | fn analyze(a: A, source: []const u8, capture: []const u8, allow_missing: bool) A.Error!Outcome
+src/contracts/error_flow.zig::hasIdentifier | fn hasIdentifier(a: A, source: []const u8, names: []const []const u8) A.Error!bool
+src/contracts/index.zig::Call struct_
+src/contracts/index.zig::Function struct_
+src/contracts/index.zig::Graph struct_
+src/contracts/index.zig::Handler struct_
+src/contracts/index.zig::build | fn build(a: A, source: *const source_index.Index) A.Error!Graph
+src/contracts/index.zig::effects | fn effects(self: *const Graph, a: A, operations: []const []const u8) A.Error![]bool
+src/contracts/index.zig::resolve | fn resolve(self: *const Graph, name: []const u8) ?usize
+src/contracts/model.zig::Confidence enum_
+src/contracts/model.zig::Finding struct_
+src/contracts/model.zig::Kind enum_
+src/contracts/model.zig::checkName | fn checkName(self: Kind) []const u8
+src/contracts/model.zig::invalidRule | fn invalidRule(rule: config.ContractRule) ?[]const u8
+src/contracts/model.zig::matches | fn matches(selectors: []const []const u8, value: []const u8) bool
 src/dora.zig::Outcome enum_
 src/dora.zig::RunRecord struct_
 src/dora.zig::Stopwatch struct_

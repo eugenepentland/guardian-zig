@@ -1,0 +1,39 @@
+# Read-only review profile. Copy reviewed contracts into EDA's guardian.toml
+# to enforce them during builds; --contracts never changes target policy.
+[[contract]]
+name = "layout-durability"
+kind = "durable_write"
+functions = ["src/layout_sidecar_store.zig::writeLayouts*"]
+operations = ["src/layout_sidecar_store.zig::writeFileAll", "src/layout_sidecar_store.zig::writeLayoutsFileJsonRev"]
+reason = "Return persistence failures through the save API; acknowledge the revision only after a successful durable write."
+
+[[contract]]
+name = "layout-read-integrity"
+kind = "persistent_read"
+functions = ["src/layout_sidecar_store.zig::readSidecarDoc"]
+operations = ["*.readFileAlloc", "*.parseFromSliceLeaky"]
+reason = "Only FileNotFound means absence. Preserve other read or parse errors so callers cannot overwrite saved layouts with an empty document."
+
+[[contract]]
+name = "source-transactions"
+kind = "transaction"
+functions = ["src/serve/edit.zig::*", "src/serve/notes.zig::*"]
+operations = ["*.writeFile", "*.createFile", "src/infra/atomic_write.zig::writeFile"]
+reason = "Route source mutations through a reviewed owner that holds the mutation lock, checks the input revision and commits atomically. Atomic replacement alone does not prevent lost updates."
+
+[[contract]]
+name = "typed-edit-requests"
+kind = "decoder"
+functions = ["src/serve/edit.zig::*"]
+operations = ["src/serve/edit.zig::parseJsonString"]
+reason = "Decode request JSON once with a typed decoder that handles escaping and rejects incorrect field types before changing source."
+
+[[contract]]
+name = "instance-target-identity"
+kind = "identity"
+functions = ["src/serve/edit.zig::findInstanceOpen"]
+operations = ["*.lastIndexOf", "*.indexOf", "*.indexOfPos"]
+validators = ["src/serve/edit_target.zig::resolve"]
+identity = ["ref_des"]
+revision = ["revision", "expected_revision"]
+reason = "Introduce a resolver that verifies stable instance identity and the source revision; an old source offset alone must not authorize an edit. The validator selector describes the proposed API."

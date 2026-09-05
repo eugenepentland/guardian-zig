@@ -38,6 +38,8 @@ pub const RunCtx = struct {
     /// to-run check declares `needs_ast = .yes`. Null for standalone
     /// single-check runs, which build a private index on demand.
     source_index: ?*const ast_index.Index = null,
+    /// Immutable call graph shared by operation contracts in a parallel gate.
+    contract_graph: ?*const @import("../contracts/index.zig").Graph = null,
     /// Git ref for diff-scoped checks (--against flag or GUARDIAN_AGAINST
     /// env var). Null falls back to config, then HEAD.
     against: ?[]const u8 = null,

@@ -819,7 +819,7 @@ structured findings instead of re-parsing terminal prose.
 ```
 
 - One `violation` record per finding, then a final `summary` record whose
-  `passed` + `failed` + `skipped` sum to the 87 registry entries — `skipped` is
+  `passed` + `failed` + `skipped` sum to the 93 registry entries — `skipped` is
   the 4 built-in non-gates (`spec-init` / `mutate` / `optimize-divergence` /
   `debt`) plus
   anything `disabled` or filtered out. A green run writes a summary-only log.
@@ -2177,3 +2177,11 @@ const r = rng.random(); // a std.Random — call r.int(u32), r.float(f64), …
 4. **Opinionated** — SPEC.md + `// spec:` tags are THE workflow
 5. **Invisible** — runs on every `zig build`
 6. **Self-hosting** — Guardian verifies itself
+
+### Operation contracts
+
+Five opt-in gates cover durable-write errors, persisted-read errors, mutation
+ownership, request decoder boundaries and edit identity evidence. The read-only
+`contract-audit` command separates policy violations from advisory review items.
+See [configuration, usage and analysis limits](docs/operation-contracts.md) and
+the [EDA audit profile](examples/eda-contracts.toml).

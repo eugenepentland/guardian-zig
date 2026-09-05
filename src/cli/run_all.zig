@@ -52,6 +52,7 @@ pub const command_name = "all";
 // long-standing `all` exclusion in build_helper — and guarantee they can never
 // be run as a check.)
 const non_gate_commands = [_][]const u8{
+    "contract-audit",
     "spec-init",
     "mutate",
     "optimize-divergence",
@@ -231,6 +232,14 @@ pub fn runCollecting(ctx: *types.RunCtx, out: ?*PassSummary) types.RunError!void
     defer ctx.scoped = null;
     defer ctx.renames = null;
     try prepareSources(ctx, &index_storage, &scoped_storage, writes);
+    defer ctx.contract_graph = null;
+    if (ctx.cfg.contracts.len > 0) {
+        if (ctx.source_index) |source| {
+            const graph = try ctx.allocator.create(@import("../contracts/index.zig").Graph);
+            graph.* = try @import("../contracts/index.zig").build(ctx.allocator, source);
+            ctx.contract_graph = graph;
+        }
+    }
     try prepareRenames(ctx);
     if (!filtered and ctx.scoped != null) roi_state.scope_mode = .diff;
     roi_state.scope_files = sourceFileCount(ctx);

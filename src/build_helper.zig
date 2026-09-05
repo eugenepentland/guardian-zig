@@ -64,6 +64,7 @@ pub const all_check_names: []const []const u8 = blk: {
         if (std.mem.eql(u8, cmd.name, mutate_name)) continue;
         if (std.mem.eql(u8, cmd.name, optimize_divergence_name)) continue;
         if (std.mem.eql(u8, cmd.name, debt_name)) continue;
+        if (std.mem.eql(u8, cmd.name, "contract-audit")) continue;
         if (std.mem.eql(u8, cmd.name, nightly_name)) continue;
         if (std.mem.eql(u8, cmd.name, commit_name)) continue;
         if (std.mem.eql(u8, cmd.name, run_all_name)) continue;

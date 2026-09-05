@@ -5,6 +5,7 @@
 //! dispatched outside the table to avoid an @import cycle with run_all.
 
 const std = @import("std");
+const contracts = @import("../checks/operation_contracts.zig");
 const types = @import("types.zig");
 
 const check_formatting = @import("../checks/formatting.zig");
@@ -116,6 +117,13 @@ pub const all: []const Command = &.{
         .subject = .tree,
         .run = check_formatting.run,
     },
+
+    .{ .name = "durable-write-errors", .summary = "Preserve errors from declared durable writes", .scope = .whole_tree, .needs_ast = .yes, .subject = .tree, .run = contracts.runWrite },
+    .{ .name = "persistent-read-errors", .summary = "Keep persistent read failures distinct from absence", .scope = .whole_tree, .needs_ast = .yes, .subject = .tree, .run = contracts.runRead },
+    .{ .name = "mutation-boundary", .summary = "Require raw mutations to stay inside declared owners", .scope = .whole_tree, .needs_ast = .yes, .subject = .tree, .run = contracts.runMutation },
+    .{ .name = "request-decoding", .summary = "Require raw request parsing to stay inside declared decoders", .scope = .whole_tree, .needs_ast = .yes, .subject = .tree, .run = contracts.runDecoder },
+    .{ .name = "edit-identity", .summary = "Report edits lacking verified identity and revision evidence", .scope = .whole_tree, .needs_ast = .yes, .subject = .tree, .run = contracts.runIdentity },
+    .{ .name = "contract-audit", .summary = "Report operation contracts read-only, with separate violation and review counts", .scope = .whole_tree, .needs_ast = .yes, .subject = .tree, .run = contracts.audit },
     .{
         .name = "spec",
         .summary = "Verify SPEC.md \u{2194} // spec: tag coverage",
@@ -885,18 +893,20 @@ pub fn printHelp() void {
 /// compile-time property: `Command.scope` has no default, so a newly
 /// registered check must classify itself.)
 const inherently_whole_tree = [_][]const u8{
-    "spec",                      "spec-init",       "mutate",
-    "debt",                      "spec-quality",    "completeness",
-    "imports",                   "pub-api-surface", "panic-budget",
-    "dead-pub",                  "orphan-files",    "int-from-float-budget",
-    "unsafe-ops-budget",         "test-coverage",   "repeated-string-literal",
-    change_classification_name,  "fuzz-presence",   "external-gates",
-    "concurrency-test-presence", "policy-drift",    "test-reachability",
-    "merge-state",               "concept",         "canonical-idiom",
-    "divergent-const",           "shadowed-const",  "twin-referent",
-    "import-layering",           "twin-parity",     "script-string-safety",
-    "dead-model-field",          "twin-drift",      "import-resolution",
-    "error-path-test",           "test-erosion",    "assert-density",
+    "durable-write-errors",      "persistent-read-errors", "mutation-boundary",
+    "request-decoding",          "edit-identity",          "contract-audit",
+    "spec",                      "spec-init",              "mutate",
+    "debt",                      "spec-quality",           "completeness",
+    "imports",                   "pub-api-surface",        "panic-budget",
+    "dead-pub",                  "orphan-files",           "int-from-float-budget",
+    "unsafe-ops-budget",         "test-coverage",          "repeated-string-literal",
+    change_classification_name,  "fuzz-presence",          "external-gates",
+    "concurrency-test-presence", "policy-drift",           "test-reachability",
+    "merge-state",               "concept",                "canonical-idiom",
+    "divergent-const",           "shadowed-const",         "twin-referent",
+    "import-layering",           "twin-parity",            "script-string-safety",
+    "dead-model-field",          "twin-drift",             "import-resolution",
+    "error-path-test",           "test-erosion",           "assert-density",
 };
 
 /// Checks whose subject is the CHANGE UNDER REVIEW rather than the tree's

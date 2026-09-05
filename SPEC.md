@@ -1503,3 +1503,15 @@ without an explained `--force`.
 
 - Counts lines forward across ascending offsets in one pass
 - Matches a word only at both its boundaries
+
+## Operation Contracts
+
+- Rejects incomplete contracts and whole-file exemptions
+- Distinguishes propagated errors from defaults and conditional handlers
+- Allows only explicit missing-file recovery in persistent readers
+- Follows imported aliases and recursive write effects
+- Parses scoped policies and rejects malformed contracts
+- Registers every gate and keeps the audit counts separate
+- Checks raw boundaries and keeps identity evidence advisory
+- Reports missing declarations instead of silently disabling policies
+- Traces recursive effects and aliases of external operations
