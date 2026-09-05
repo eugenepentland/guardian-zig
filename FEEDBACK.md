@@ -11575,3 +11575,23 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   surface. One test pinning the exact rendered text for each shape cleared the gate and
   is real coverage. A diff-time gate asking "where is the test" produced the test that
   the change actually needed.
+
+## 2026-09-05 · claude · eda — accepted baselines for 8 new checks
+- **good:** four of the eight new checks found NOTHING across 576 files —
+  `abi-layout`, `compound-assert`, `import-resolution`, `must-return-ref`. Worth
+  recording as a result rather than a null: `must-return-ref` is clean because its
+  `.field_access` conjunct removes the 13 builder-returns a signature-only rule would
+  have flagged, and a clean `import-resolution` means no fabricated `@import` path
+  anywhere in the tree.
+- **good:** the stale-binary hint fired on the correct side. The accept warned "this
+  binary is NEWER than the last green run, so the recorded green is the stale side" —
+  true: eda's stamp predated the guardian merge. It named which side was stale instead
+  of just reporting drift.
+- **friction:** `unsafe-ops-budget` re-accept silently dropped `@constCast 38 -> 37`,
+  the same stale-high phenomenon seen on guardian-zig's own tree (`@alignCast 74 -> 71`,
+  `@ptrCast 84 -> 81`). A budget only fails on GROWTH, so accumulated headroom never
+  surfaces until something unrelated forces a re-accept. A budget that reported
+  "N below budget" on an ordinary run would catch this without the accept.
+- **wish:** adding a check to a live consumer costs a whole-tree accept before the gate
+  can pass again, and there is no way to preview the write. `debt` shows what IS frozen;
+  nothing shows what WOULD be frozen by an accept that has not run.
