@@ -72,6 +72,7 @@ src/ast/test_refs.zig::referenced | fn referenced(arena: Allocator, source: []co
 src/baseline.zig::Adoption enum_
 src/baseline.zig::Keyed struct_
 src/baseline.zig::Outcome union_
+src/baseline.zig::Rekeyed struct_
 src/baseline.zig::Split struct_
 src/baseline.zig::extract | fn extract(arena: Allocator, output: []const u8) Allocator.Error![]const []const u8
 src/baseline.zig::firstFixHint | fn firstFixHint(captured: []const u8) ?[]const u8
@@ -160,8 +161,24 @@ src/check_roi.zig::ScopeMode enum_
 src/check_roi.zig::observationFromRecord | fn observationFromRecord( arena: Allocator, seed: ObservationSeed, violation: reporter.Violation, ) Allocator.Error!Observation
 src/check_roi.zig::recordEvent | fn recordEvent(arena: Allocator, project_dir: []const u8, rec: EventRecord) void
 src/check_roi.zig::recordRun | fn recordRun(arena: Allocator, project_dir: []const u8, rec: RunRecord) void
+src/checks/abi_layout.zig::Finding struct_
+src/checks/abi_layout.zig::Half enum_
+src/checks/abi_layout.zig::analyzeContent | fn analyzeContent( allocator: Allocator, content: [:0]const u8, ) Allocator.Error![]const Finding
+src/checks/abi_layout.zig::check_name value
+src/checks/abi_layout.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/allocator_hygiene.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/anytype_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/assert_density.zig::FileCounts struct_
+src/checks/assert_density.zig::FileMeasure struct_
+src/checks/assert_density.zig::ModuleStats struct_
+src/checks/assert_density.zig::Report struct_
+src/checks/assert_density.zig::centiPerKloc | fn centiPerKloc(asserts: u64, lines: u64) u64
+src/checks/assert_density.zig::check_name value
+src/checks/assert_density.zig::collect | fn collect( allocator: Allocator, project_dir: []const u8, index: ?*const ast_index.Index, ) registry.RunError!Report
+src/checks/assert_density.zig::measureFile | fn measureFile(allocator: Allocator, content: [:0]const u8) Allocator.Error!FileMeasure
+src/checks/assert_density.zig::moduleOf | fn moduleOf(rel_path: []const u8) []const u8
+src/checks/assert_density.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/assert_density.zig::sortByDensityAsc | fn sortByDensityAsc(rows: []ModuleStats) void
 src/checks/assert_doc_consistency.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/assert_doc_consistency.zig::check_name value
 src/checks/assert_doc_consistency.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -219,6 +236,8 @@ src/checks/completeness.zig::reportSection | fn reportSection( arena: Allocator,
 src/checks/completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/completeness.zig::satisfied | fn satisfied(self: SectionReport) usize
 src/checks/completeness.zig::waiver_prefix value
+src/checks/compound_assert.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
+src/checks/compound_assert.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/concept.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rules: []const config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::analyzeMirror | fn analyzeMirror( allocator: Allocator, rel_path: []const u8, content: []const u8, tree: ?*const Ast, rule: config.ConceptRule, ) Allocator.Error![]const reporter.Violation
 src/checks/concept.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -246,6 +265,15 @@ src/checks/duplicate_json_key.zig::run | fn run(ctx: *registry.RunCtx) registry.
 src/checks/errdefer_in_init.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/errdefer_in_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/error_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/error_path_testing.zig::Finding struct_
+src/checks/error_path_testing.zig::Kind enum_
+src/checks/error_path_testing.zig::TestRegion enum_
+src/checks/error_path_testing.zig::analyzeAdded | fn analyzeAdded( allocator: Allocator, content: [:0]const u8, spans: []const git.LineSpan, ) Allocator.Error![]const Finding
+src/checks/error_path_testing.zig::collectTestedNames | fn collectTestedNames( allocator: Allocator, content: [:0]const u8, region: TestRegion, out: *std.StringHashMapUnmanaged(void), ) Allocator.Error!void
+src/checks/error_path_testing.zig::label | fn label(self: Kind) []const u8
+src/checks/error_path_testing.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/error_path_testing.zig::subjectNoun | fn subjectNoun(self: Kind) []const u8
+src/checks/error_path_testing.zig::waiverFor | fn waiverFor(lines: []const []const u8, line: u32) ?[]const u8
 src/checks/external_gates.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/fatal_exit.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/fatal_exit.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -260,6 +288,11 @@ src/checks/function_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry
 src/checks/fuzz_presence.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/import_layering.zig::analyzeGraph | fn analyzeGraph( allocator: Allocator, nodes: []const import_graph.Node, rules: []const config.LayeringRule, ) Allocator.Error![]const reporter.Violation
 src/checks/import_layering.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/import_resolution.zig::Candidate struct_
+src/checks/import_resolution.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const Candidate
+src/checks/import_resolution.zig::pathShaped | fn pathShaped(spec: []const u8) bool
+src/checks/import_resolution.zig::resolveTarget | fn resolveTarget( allocator: Allocator, importer_rel: []const u8, spec: []const u8, ) Allocator.Error!?[]const u8
+src/checks/import_resolution.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/imports.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/init_deinit_symmetry.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/init_deinit_symmetry.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -275,10 +308,15 @@ src/checks/lexical_scan.zig::walkFiles | fn walkFiles( allocator: Allocator, dir
 src/checks/line_length.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: []const u8, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::analyzeContentWithLimit | fn analyzeContentWithLimit( allocator: Allocator, rel_path: []const u8, content: []const u8, max_len: u32, ) Allocator.Error![]const []const u8
 src/checks/line_length.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/measure_vocabulary.zig::check_name value
+src/checks/measure_vocabulary.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/merge_state.zig::check_name value
 src/checks/merge_state.zig::reportUnresolved | fn reportUnresolved(ctx: *types.RunCtx) void
 src/checks/merge_state.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/checks/module_doc_header.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/must_return_ref.zig::analyzeFile | fn analyzeFile( allocator: Allocator, rel_path: []const u8, tree: *const Ast, types: []const []const u8, ) Allocator.Error![]const reporter.Violation
+src/checks/must_return_ref.zig::check_name value
+src/checks/must_return_ref.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/naming.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/nesting_depth.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.NestingDepthCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/nesting_depth.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
@@ -293,6 +331,8 @@ src/checks/policy_drift.zig::run | fn run(ctx: *registry.RunCtx) registry.RunErr
 src/checks/projection_completeness.zig::check_name value
 src/checks/projection_completeness.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/pub_api_surface.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/pub_exposes_private.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
+src/checks/pub_exposes_private.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/repeated_string_literal.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/repeated_string_literal.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
 src/checks/repeated_string_literal.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
@@ -308,7 +348,18 @@ src/checks/stack_escape.zig::run | fn run(ctx_param: *registry.RunCtx) registry.
 src/checks/stub_body_ban.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: [:0]const u8, ) std.mem.Allocator.Error![]const []const u8
 src/checks/stub_body_ban.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_coverage.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/test_erosion.zig::Signals struct_
+src/checks/test_erosion.zig::TestDelta struct_
+src/checks/test_erosion.zig::Touched struct_
+src/checks/test_erosion.zig::countDeclarations | fn countDeclarations(content: []const u8) u32
+src/checks/test_erosion.zig::isTestDecl | fn isTestDecl(line: []const u8) bool
+src/checks/test_erosion.zig::measureDiff | fn measureDiff(allocator: Allocator, diff_text: []const u8) Allocator.Error!TestDelta
+src/checks/test_erosion.zig::netDeclarations | fn netDeclarations(self: TestDelta) i64
+src/checks/test_erosion.zig::quiet | fn quiet(self: Signals) bool
+src/checks/test_erosion.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/test_erosion.zig::signals | fn signals(delta: TestDelta, touched: Touched) Signals
 src/checks/test_has_assertion.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
+src/checks/test_has_assertion.zig::assertionCount | fn assertionCount(z: [:0]const u8) u32
 src/checks/test_has_assertion.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/test_no_conditional.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_no_conditional.zig::analyzeRecords | fn analyzeRecords( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const reporter.Violation
@@ -316,6 +367,8 @@ src/checks/test_no_conditional.zig::run | fn run(ctx: *registry.RunCtx) registry
 src/checks/test_reachability.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/test_skip_ban.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
 src/checks/test_skip_ban.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
+src/checks/try_in_return.zig::analyzeContent | fn analyzeContent( allocator: Allocator, rel_path: []const u8, content: [:0]const u8, ) Allocator.Error![]const []const u8
+src/checks/try_in_return.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/twin_drift.zig::check_name value
 src/checks/twin_drift.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/twin_parity.zig::analyze | fn analyze( allocator: Allocator, rules: []const config.TwinRule, test_names: []const []const u8, ) Allocator.Error![]const reporter.Violation
@@ -328,8 +381,12 @@ src/checks/twin_referent.zig::buildResolver | fn buildResolver( allocator: Alloc
 src/checks/twin_referent.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/type_size.zig::analyzeContent | fn analyzeContent( allocator: std.mem.Allocator, rel_path: []const u8, content: []const u8, cfg: config_mod.TypeSizeCfg, ) std.mem.Allocator.Error![]const []const u8
 src/checks/type_size.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/checks/undefined_init.zig::analyzeFile | fn analyzeFile( allocator: Allocator, entry: *const ast_index.Entry, ) Allocator.Error![]const reporter.Violation
+src/checks/undefined_init.zig::check_name value
+src/checks/undefined_init.zig::run | fn run(ctx: *registry.RunCtx) registry.RunError!void
 src/checks/unsafe_ops_budget.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
 src/checks/unwrap_discipline.zig::run | fn run(ctx_param: *registry.RunCtx) registry.RunError!void
+src/child_env.zig::skip_checks value
 src/cli/accept.zig::command_name value
 src/cli/accept.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/bench.zig::command_name value
@@ -378,6 +435,8 @@ src/cli/mutate.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/nightly.zig::command_name value
 src/cli/nightly.zig::mutateContext | fn mutateContext(ctx: *const types.RunCtx) types.RunCtx
 src/cli/nightly.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
+src/cli/optimize_divergence.zig::command_name value
+src/cli/optimize_divergence.zig::run | fn run(ctx: *types.RunCtx) types.RunError!void
 src/cli/registry.zig::Command value
 src/cli/registry.zig::MergeInputs value
 src/cli/registry.zig::NeedsAst value
@@ -434,6 +493,7 @@ src/cli/types.zig::hint | fn hint(self: MergeInputs) ?[]const u8
 src/cli/types.zig::refreshes | fn refreshes(self: RunCtx, check_name: []const u8) bool
 src/cli/types.zig::takePositional | fn takePositional(self: *MergeInputs, arg: []const u8) bool
 src/cli/types.zig::testReach | fn testReach(self: *RunCtx) walk.WalkError!*const test_reach_mod.Analysis
+src/config.zig::AbiLayoutCfg struct_
 src/config.zig::AllowRule struct_
 src/config.zig::AnytypeBudgetCfg struct_
 src/config.zig::BanRule struct_
@@ -449,6 +509,7 @@ src/config.zig::ConcurrencyPresenceCfg struct_
 src/config.zig::Config struct_
 src/config.zig::DeadModelFieldRule struct_
 src/config.zig::DeadPubCfg struct_
+src/config.zig::DeprecatedRule struct_
 src/config.zig::DivergentConstCfg struct_
 src/config.zig::DivergentConstMode enum_
 src/config.zig::DocQualityCfg struct_
@@ -466,11 +527,14 @@ src/config.zig::IntFromFloatCfg struct_
 src/config.zig::LayeringRule struct_
 src/config.zig::LineLengthCfg struct_
 src/config.zig::LiteralsFrom struct_
+src/config.zig::MeasureVocabularyCfg struct_
 src/config.zig::MeasurementCfg struct_
 src/config.zig::ModuleDocHeaderCfg struct_
+src/config.zig::MustReturnRefCfg struct_
 src/config.zig::MutationCfg struct_
 src/config.zig::NestingDepthCfg struct_
 src/config.zig::OomDisciplineCfg struct_
+src/config.zig::OptimizeDivergenceCfg struct_
 src/config.zig::OrphanFilesCfg struct_
 src/config.zig::PolicyCfg struct_
 src/config.zig::PolicyMode enum_
@@ -488,6 +552,7 @@ src/config.zig::TwinDriftCfg struct_
 src/config.zig::TwinReferentCfg struct_
 src/config.zig::TwinRule struct_
 src/config.zig::TypeSizeCfg struct_
+src/config.zig::UndefinedInitCfg struct_
 src/config.zig::default_anonymous_min_fields value
 src/config.zig::default_files value
 src/config.zig::default_shadow_ignore_values value
@@ -639,6 +704,7 @@ src/fs.zig::selfExePathAlloc | fn selfExePathAlloc(allocator: std.mem.Allocator)
 src/fs.zig::setLength | fn setLength(self: File, length: u64) SetLengthError!void
 src/fs.zig::stat | fn stat(self: File) StatError!Stat
 src/fs.zig::statFile | fn statFile(self: Dir, sub_path: []const u8) std.Io.Dir.StatFileError!Stat
+src/fs.zig::statFileNoFollow | fn statFileNoFollow(self: Dir, sub_path: []const u8) std.Io.Dir.StatFileError!Stat
 src/fs.zig::stderr | fn stderr() File
 src/fs.zig::stdin | fn stdin() File
 src/fs.zig::stdout | fn stdout() File
@@ -654,6 +720,7 @@ src/git.zig::GitError value
 src/git.zig::LineSpan struct_
 src/git.zig::PathDiffResult union_
 src/git.zig::Rename struct_
+src/git.zig::TextDiffResult union_
 src/git.zig::addPaths | fn addPaths(allocator: Allocator, project_dir: []const u8, paths: []const []const u8) Allocator.Error!bool
 src/git.zig::changedPaths | fn changedPaths(allocator: Allocator, project_dir: []const u8) Allocator.Error!?[]const ChangedPath
 src/git.zig::commit | fn commit(allocator: Allocator, project_dir: []const u8, message: []const u8) bool
@@ -663,6 +730,7 @@ src/git.zig::contains | fn contains(self: LineSpan, line: u32) bool
 src/git.zig::currentBranch | fn currentBranch(allocator: Allocator, project_dir: []const u8) ?[]const u8
 src/git.zig::diffAgainst | fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!DiffResult
 src/git.zig::diffPathNamesAgainst | fn diffPathNamesAgainst( allocator: Allocator, project_dir: []const u8, ref: []const u8, ) GitError!PathDiffResult
+src/git.zig::diffTextAgainst | fn diffTextAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!TextDiffResult
 src/git.zig::fileAtHead | fn fileAtHead(allocator: Allocator, project_dir: []const u8, rel_path: []const u8) Allocator.Error!?[]const u8
 src/git.zig::gitPath | fn gitPath(allocator: Allocator, project_dir: []const u8, leaf: []const u8) ?[]const u8
 src/git.zig::headHash | fn headHash(allocator: Allocator, project_dir: []const u8) ?[]const u8

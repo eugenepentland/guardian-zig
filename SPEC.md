@@ -25,6 +25,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Parses per-check allowed-path overrides via [[allow]] sections
 - Parses a top-level exclude list of path globs dropped from the scan
 - Parses the module_doc_header min_lines threshold
+- Parses the two independent abi_layout half switches
 - Parses the mutation section score and budget settings
 - Parses the mutation section timeout floor and multiplier
 - Parses the mutation section commit tier switch and disk floor
@@ -111,6 +112,10 @@ blocking correctness checks and advisory maintainability guidance.
 - Flags the pre-0.15 getStdOut and getStdErr writer idioms
 - Names the modern replacement for each flagged alias
 - Allows the unmanaged and 0.15 replacement spellings
+- Flags the array-list and array-hash-map aliases the pinned std marks deprecated
+- Ignores the bare builtin module that @import provides
+- Merges project-declared deprecated spellings with the compiled table
+- Parses project deprecated spellings via [[deprecated]] sections
 
 ## Spec Quality
 
@@ -229,7 +234,7 @@ blocking correctness checks and advisory maintainability guidance.
 
 ## Nightly
 
-- Fails when either the suite or the whole-tree mutation ratchet fails
+- Fails when any of its composed stages fails
 - Runs the whole-tree mutation tier by setting the full flag
 
 ## Migrate
@@ -502,6 +507,15 @@ blocking correctness checks and advisory maintainability guidance.
 - Excludes declaration-init undefined and test blocks from counts
 - Counts a doc-commented declaration init as a declaration
 - Reports the file and line of each undefined re-assignment
+- Counts the numeric-cast builtins alongside the pointer and bit casts
+
+## Assert Density
+
+- Counts assert call sites outside test blocks per top-level src module
+- Ignores a constant-foldable assertion so padding cannot raise the ratchet
+- Raises a floor on improvement and lowers one only for an accept naming the check
+- Reports a density regression as an advisory warning rather than a failure
+- Holds the recorded floor on a diff-scoped run
 
 ## Type Size
 
@@ -746,6 +760,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Distinguishes untracked entries from tracked ones in porcelain status
 - Marks an index-side deletion so no pathspec is built for it
 - Classifies a not-a-git-repository failure as a skip, not a hard error
+- Returns the unified diff as raw text for a check that reads removals
 - Hard-fails a diff-scoped git command that fails for any other reason
 - Resolves the merge base with a branch and reports null when it cannot
 - Ages a commit as its distance behind HEAD and reports null when it is not an ancestor
@@ -810,6 +825,7 @@ blocking correctness checks and advisory maintainability guidance.
 - Enables error-return tracing on optimized consumer test modules
 - Prints one final PASS only after every dependency of the test step succeeds
 - Registers the compile-only whole-suite probe under a stable step name
+- Keeps the twice-the-suite optimize-divergence step out of the gate list
 - Orders caller prerequisites before every gate invocation
 
 ## Prebuilt Binary
@@ -845,6 +861,29 @@ blocking correctness checks and advisory maintainability guidance.
 - Gates the last commit when the working tree is clean against HEAD
 - Skips the last-commit fallback at a merge or root commit
 - Uses the working tree when the base is overridden or the gate is disabled
+
+## Error Path Test
+
+- Flags a newly returned error whose identifier no test names
+- Ignores an error identifier that is only compared rather than returned
+- Flags each newly added member of an error set declaration
+- Reports a new catch block and errdefer against the enclosing function
+- Treats a catch without a captured block body as no new handler
+- Skips error paths inside test blocks and outside the added lines
+- Waives an added error path carrying a reasoned UNTESTED-ERROR comment
+- Counts an error named by a test in the same change as covered
+- Names the actions that clear an uncovered error path
+- Restricts the scan to source files the diff touched
+
+## Test Erosion
+
+- Reports a change that removes more test declarations than it adds
+- Ignores diff file headers when counting removed and added lines
+- Flags an in-place test body rewrite that adds no test and no assertion
+- Counts only a real test declaration line as a test declaration
+- Measures assertion movement over both sides of the diff
+- Reports every finding as advisory and never fails the build
+- Counts tests arriving in a brand-new untracked file as additions
 
 ## Mutation Testing
 
@@ -883,6 +922,18 @@ blocking correctness checks and advisory maintainability guidance.
 - Writes the survivor report under the git-ignored mutate cache dir
 - Persists the exact sampled mutation cohort
 - Uses and cleans a campaign-local Zig cache
+
+## Optimize Divergence
+
+- Spells the two optimize modes in Zig 0.17 lowercase form
+- Appends the optimize flag and an isolated cache to the configured command
+- Reads non-passing test names from build runner and Guardian runner output
+- Reports no divergence when both modes agree on every test
+- Fails a test that passes under one optimize mode and not the other
+- Exempts named tests whose divergence is legitimate
+- Fails when the two runs disagree with no test named
+- Refuses to call two unusable runs an agreement
+- Reads the per-test exemption list from guardian.toml
 
 ## Benchmark Ledger
 
@@ -926,6 +977,7 @@ without an explained `--force`.
 - Names a loop to hoist when every top-level loop asserts
 - Identifies a flagged construct by its test and keyword
 - Rejects production code @import-ing test files
+- Counts the assertions in a snippet by the same rule the gate uses
 
 ## Test Skip Ban
 
@@ -1057,6 +1109,26 @@ without an explained `--force`.
 - Hard-fails a second idiom entry reusing an existing name
 - Hard-fails an idiom name that is not kebab-case
 - Names an unknown key inside an idiom entry
+
+## Measure Vocabulary
+
+- Reports a declaration bound from a name of a different quantity kind
+- Stays silent when the initializer adjusts the value
+- Reports an assignment between two names of different quantity kinds
+- Reports a comparison between two names of one unit family on different units
+- Never reports a quantity-kind disagreement for a comparison
+- Reports an argument whose name disagrees with the callee's parameter name
+- Ignores a call whose callee this file does not declare
+- Reports an identifier carrying a banned term once per file
+- Reports nothing when a name falls outside the vocabulary
+- Resolves the rightmost segment that names a vocabulary term
+- Splits an identifier on underscores and camelCase boundaries
+- Matches a banned term against a contiguous run of word segments
+- Parses a vocabulary row into its family label and terms
+- Reports a malformed vocabulary row instead of treating it as a term
+- Decides a disagreement from the two names alone
+- Defaults the measure vocabulary off and parses its enabled kinds units and banned settings
+- Explains that the check only reports a naming disagreement and never blocks
 
 ## Lexical Scan
 
@@ -1361,6 +1433,71 @@ without an explained `--force`.
 - Keeps two functions' keys apart
 - Reports a repeatedly duplicated key once per function
 - Names a completed call between two literals as unreadable
+
+## Import Resolution
+
+- Treats a literal ending in .zig or beginning with a relative prefix as a path
+- Resolves a path-shaped import against the importing file's directory
+- Skips an import that resolves above the project root
+- Flags a path-shaped import with no file behind it
+- Reports a directory named by an import as unresolved
+
+## Undefined Init
+
+- Flags a non-array declaration initialized to undefined
+- Flags an assignment whose right-hand side is undefined
+- Flags a container field defaulting to undefined
+- Exempts a site justified by a preceding SAFETY comment
+- Exempts an array-typed variable declaration
+- Exempts undefined inside a test block
+- Exempts a deinit, destroy, or reset body
+- Ignores an identifier that only spells undefined
+- Keys a finding by file, owner, kind, and subject
+
+## Must Return Ref
+
+- Flags a capacity-owning field returned by value from its owner
+- Allows the same field returned by pointer
+- Requires the returned expression to be a field access
+- Ignores a field access whose object resolves to a type
+- Ignores a function whose return type is not a capacity-owning container
+- Sees a container through an error union and an optional return type
+- Honors an OWNERSHIP transferred comment on or above the return
+- Attributes a return to the innermost enclosing function
+- Matches a two-segment container spelling only on both segments
+- Extends the container set with project-declared types
+- Waives a whole subtree through an allow path glob
+
+## Pub Exposes Private
+
+- Flags a pub fn whose parameter type is not pub
+- Flags a pub fn whose return type is not pub
+- Flags a pub fn returning an error set that is not pub
+- Allows a pub type and a private alias to a type defined elsewhere
+- Ignores a pub fn nested inside a container that is not pub
+
+## Compound Assert
+
+- Flags a std.debug.assert whose condition is a conjunction
+- Flags a conjunction through a binding proven equal to std.debug.assert
+- Never flags a project-defined assert
+- Ignores an and nested below the argument's top level
+
+## Try In Return
+
+- Flags a try used directly in a return expression
+- Allows a tried value bound to a local before it is returned
+- Ignores a try nested deeper inside the returned expression
+
+## ABI Layout
+
+- Reports an extern or packed struct with no co-located size or offset assertion
+- Accepts a layout struct pinned by a sizeOf or offsetOf comparison
+- Ignores a sizeOf that is not part of a comparison
+- Flags an extern struct field whose packed type is backed wider than any C scalar and lacks align(1)
+- Accepts a wide packed field carrying an explicit alignment
+- Leaves a packed field whose backing width matches a C scalar alone
+- Infers a packed struct backing width from primitive field widths
 
 ## Text Helpers
 

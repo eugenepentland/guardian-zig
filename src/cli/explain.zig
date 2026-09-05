@@ -73,6 +73,31 @@ const entries = [_]Entry{
     \\per-mutant result cache; a snapshot refresh bypasses it. Run the fast tier
     \\(`zig build mutate`) on PRs and `mutate-full` in nightly.
     },
+    .{ .name = "optimize-divergence", .text =
+    \\Why: not a gate — Zig's safety-checked Illegal Behavior categories PANIC in
+    \\debug/safe but are UNDEFINED BEHAVIOR in fast/small, so a suite that is
+    \\green in one mode proves nothing about the other. Replicated on the pinned
+    \\0.17.0-dev.1683 toolchain: `var x: u32 = 300; _ = &x; const y: u8 =
+    \\@intCast(x);` panics with a stack trace and exit 134 under default safety
+    \\and SEGFAULTS with exit 139 under ReleaseFast. This command builds and runs
+    \\the whole suite under `-Doptimize=safe` and `-Doptimize=fast` (lowercase —
+    \\0.17 spellings) and fails when the two pass/fail sets disagree. It matters
+    \\here because Guardian ships its own binary built `safe` while its tests run
+    \\debug, and consumers like eda are float-heavy with a WASM target.
+    \\LIMIT: it catches only divergence the SUITE EXERCISES — a sampling
+    \\technique, not a proof, sharing mutation testing's cost profile (two whole
+    \\suite runs). That is why it is nightly-tier: never part of `all`, never a
+    \\dependency of `zig build` / `zig build test`, and not on `commit`.
+    \\Fix: make the behavior identical in both modes — an unchecked `@intCast` /
+    \\arithmetic overflow, a read of `undefined`, or a test asserting a value the
+    \\optimizer is free to change. `zig build test -Doptimize=fast` reproduces the
+    \\failing side directly.
+    \\Exempt: list the reported test name in `[optimize_divergence] exempt`
+    \\(`*` globs, else substring) for legitimate divergence — a test that asserts
+    \\panic behavior cannot panic under `fast`, and a timing-sensitive test can
+    \\flip on speed alone. `[optimize_divergence] test_command` picks the
+    \\whole-suite command; `enabled = false` turns the command into a no-op.
+    },
     .{ .name = "debt", .text =
     \\Why: not a gate — a report of accumulated ratchet debt (per-check baseline
     \\counts, snapshot totals, mutation score) so frozen debt growth is a visible
@@ -130,6 +155,26 @@ const entries = [_]Entry{
     \\`deinit(gpa)`) with an `= .empty` decl-literal init; drop usingnamespace for
     \\explicit re-exports (`pub const x = mod.x;`); getStdOut/getStdErr ->
     \\std.fs.File.stdout()/stderr() + a buffered writer with an explicit flush().
+    \\Honest limit: std churn is COMPILE-TIME detectable — a removed or renamed
+    \\API is a compiler error — so this table is not a safety net for the common
+    \\case. Its narrow value is the window between "deprecated" and "removed",
+    \\plus stopping an agent from writing 0.13-era std that still compiles. The
+    \\general lesson it argues for is toolchain pinning and a CI version matrix,
+    \\not a longer ban list. Every entry is therefore verified against the
+    \\PINNED toolchain's std source; candidates for spellings that are already
+    \\gone (`std.io.*`, `std.fifo.LinearFifo`, `std.RingBuffer`,
+    \\`std.BoundedArray`) are deliberately absent, and `std.os` is NOT banned —
+    \\it is the live home of `std.os.linux`, not a stale alias of `std.posix`.
+    \\Your own spellings: the compiled table only knows Guardian's pinned std. A
+    \\project on a different Zig, or retiring its own API, declares its renames:
+    \\  [[deprecated]]
+    \\  chain = ["legacy", "Widget"]      # one identifier per segment
+    \\  replacement = "widget.Widget"     # required — a deprecation without a
+    \\                                    # successor is unactionable
+    \\They merge in after the compiled rules, so a project entry can never
+    \\silently shadow a std one. `[[ban]]` is the neighbouring shape and stays
+    \\different on purpose: a ban is FORBIDDEN HERE with `paths`/`allow` scoping;
+    \\a deprecation is OBSOLETE EVERYWHERE and always names its successor.
     \\Exempt: add a `[[allow]] check = "deprecated-alias"` path glob in
     \\guardian.toml (the C-ABI/vendor escape hatch — e.g. a file that mirrors an
     \\old API on purpose), or drop the check via the top-level `disabled` list.
@@ -367,11 +412,42 @@ const entries = [_]Entry{
     \\after guard review, then commit the verified snapshot.
     },
     .{ .name = "unsafe-ops-budget", .text =
-    \\Why: new `@ptrCast`/`@bitCast`/`@ptrFromInt`/… or `undefined` re-assignments
-    \\are unsafe operations agents reach for to make types line up.
+    \\Why: new `@ptrCast`/`@bitCast`/`@ptrFromInt`/`@intCast`/`@truncate`/… or
+    \\`undefined` re-assignments are unsafe operations agents reach for to make
+    \\types line up. The Zig reference's Illegal Behavior chapter names each hazard
+    \\class (Cast Truncates Data, Integer Overflow, Incorrect Pointer Alignment).
+    \\Scope: this is a BUDGET, not an analysis. It names the call site; whether a
+    \\given cast is in range needs dataflow Guardian does not have, so a rising
+    \\count is a review prompt and not a defect report.
     \\Fix: prefer a safe conversion; if genuinely needed, isolate and comment it.
+    \\For `@intCast`, note that the range assertion is UNCHECKED in ReleaseFast and
+    \\ReleaseSmall — out of range segfaults there rather than panicking.
     \\Exempt: `zig build guardian-accept -Dguardian-checks=unsafe-ops-budget` to
     \\accept the new count and commit the verified snapshot.
+    },
+    .{ .name = "assert-density", .text =
+    \\Scope: this measures HOW MANY assertions a module has, never WHERE they are.
+    \\TIGER_STYLE's substance — assert arguments, return values, pre/postconditions,
+    \\invariants, and the paired assertion across two code paths — is placement,
+    \\and counting cannot verify placement. Read a number here as a prompt, not a
+    \\verdict.
+    \\Why: TigerBeetle's TIGER_STYLE states "the assertion density of the code must
+    \\average a minimum of two assertions per function"; the same rule is NASA/JPL
+    \\Power of Ten Rule 5. Code that states its invariants executably fails at the
+    \\first wrong step instead of some distance downstream.
+    \\Finding: a top-level src/ module whose assert-per-code-line density fell more
+    \\than 10% below the floor recorded in `.guardian/assert-density.txt`. Adding
+    \\code without adding assertions dilutes the ratio and is what this catches;
+    \\the floor itself is strict, only the REPORT has the band.
+    \\Blocking: NEVER. Every finding is an advisory warning, so no baseline, ratchet
+    \\or snapshot records it and no commit is refused by an assertion count.
+    \\Gaming: `assert(true)`, `assert(1 == 1)` and any other constant-foldable
+    \\argument is excluded and reported by itself — Power of Ten Rule 5 excludes an
+    \\assertion a static checker can decide. `assert(x == x)` still slips through.
+    \\Fix: assert a real precondition, postcondition or invariant in the module.
+    \\Exempt: `guardian-check accept assert-density .` records the current floors
+    \\(an accept is the only way a floor is ever LOWERED); a diff-scoped run holds
+    \\them untouched; `disabled = ["assert-density"]` turns it off entirely.
     },
     .{ .name = "type-size", .text =
     \\Why: a struct that keeps gaining fields is a god-object an agent grew
@@ -586,6 +662,83 @@ const entries = [_]Entry{
     \\cleanup campaign together. A baselined file is frozen as a whole and a NEW
     \\file fails; freeze the counts too with
     \\`[baseline] deny_growth = ["canonical-idiom"]`.
+    },
+    .{ .name = "measure-vocabulary", .text =
+    \\Scope: this is a NAMING-CONSISTENCY check, not an off-by-one detector.
+    \\General off-by-one detection is an open research problem and nothing here
+    \\attempts it. A finding says exactly one thing: two names in one expression
+    \\disagree about what they measure. That is a smell, not a bug, and every
+    \\message says so.
+    \\Why: TigerBeetle's TIGER_STYLE.md states a mechanical vocabulary — `index`
+    \\is 0-based and points AT an item, `count` is 1-based and is the NUMBER of
+    \\items, `size` is a count of BYTES (`size = @sizeOf(T) * count`), `offset`
+    \\is the bytewise counterpart of `index`, the positive invariant is
+    \\`index < count`, and `length` is BANNED as ambiguous — plus the suffix rule
+    \\this check depends on: "Add units or qualifiers to variable names, and put
+    \\the units or qualifiers last... `latency_ms_max` rather than
+    \\`max_latency_ms`."
+    \\Evidence, stated honestly: TIGER_STYLE is PRESCRIPTIVE doctrine, not an
+    \\empirical defect analysis. It calls these "the usual suspects for
+    \\off-by-one errors" from stated experience and attributes NO specific
+    \\production bug, so nobody should cite this check as a measured defect rate.
+    \\TigerBeetle's own 2026-02-16 post concedes "While we don't solve this
+    \\problem perfectly at TigerBeetle, I think we have a naming convention that
+    \\helps." The hazard is not Zig-exclusive either; only the
+    \\`size = @sizeOf(T) * count` spelling is.
+    \\Default: DISABLED, and ADVISORY-ONLY even when on. `run` returns no error
+    \\on any path, so the check cannot fail a build, a `--gate` run, or a commit.
+    \\Its false-positive rate on a tree that has not adopted the vocabulary is
+    \\expected to be HIGH; that is why it is opt-in and cannot block.
+    \\Turn it on and declare your own vocabulary:
+    \\  [measure_vocabulary]
+    \\  enabled = true
+    \\  # kinds: cross-FAMILY is the disagreement (an index is not a count).
+    \\  kinds = ["position: index, idx, offset", "cardinality: count", "bytes: size"]
+    \\  # units: same family, DIFFERENT term is the disagreement (ms is not us).
+    \\  units = ["duration: ns, us, ms, s"]
+    \\  # banned: ambiguous outright, matched as whole word segments.
+    \\  banned = ["length", "len_bytes"]
+    \\A domain project's table, eda-shaped (electronics design automation), where
+    \\a `units` family is any mutually exclusive set — physical units, and the
+    \\domain entities a coordinate or a count belongs to:
+    \\  [measure_vocabulary]
+    \\  enabled = true
+    \\  kinds = ["position: index, idx, offset", "cardinality: count", "bytes: size"]
+    \\  units = [
+    \\    "distance: nm, um, mm, mil, inch",
+    \\    "angle: deg, rad",
+    \\    "entity: net, pad, pin, footprint",
+    \\  ]
+    \\  banned = ["length", "len_bytes"]
+    \\That table reports `pad_count = net_count` and `clearance_mm = clearance_mil`
+    \\without a single line of eda-specific code in Guardian. Each list REPLACES
+    \\the default rather than extending it: a vocabulary is one coherent table,
+    \\so restate the rows you want to keep.
+    \\Fix: rename one side to the term it actually measures, or make the
+    \\conversion explicit (`index = count - 1`, `ms = us / 1000`) so the
+    \\adjustment is visible where a reader looks.
+    \\What it looks at: a declaration whose initializer is a BARE name
+    \\(`const row_index = row_count;`), an assignment or comparison of two bare
+    \\names, and a positional call argument matched against the callee's
+    \\PARAMETER NAME when that fn is declared in the SAME file. A name resolves
+    \\to a term by splitting it on `_` and on camelCase boundaries and taking the
+    \\RIGHTMOST segment that names a term — TIGER_STYLE puts the qualifier last,
+    \\so `latency_ms_max` is a duration and `count_index_max` is an index.
+    \\Limits: no name resolution, no types, no dataflow, nothing cross-file. Any
+    \\arithmetic on either side means the name is not the whole value, so the
+    \\pair is never reported — which is how the plus-or-minus-one carve-out is
+    \\obtained structurally instead of by grepping for `+ 1`. `index < count` is
+    \\the CORRECT invariant, so a quantity-kind disagreement is reported for
+    \\ASSIGNMENT only, never for a comparison; unit disagreements are reported
+    \\for both. A callee declared twice in one file is dropped as ambiguous, and
+    \\a callee from another module is not judged at all. Pairs come off the
+    \\parser's TOKEN stream, so a comment or a string literal can never supply
+    \\one.
+    \\Exempt: `[[allow]] check = "measure-vocabulary"` path globs, the top-level
+    \\`exclude` list, narrowing the tables, or `enabled = false` (the default).
+    \\Baseline: none, by design. Every finding rides the ADVISORY channel, which
+    \\baselines and ratchets exclude by construction — there is no debt ledger to
+    \\accept, because there is nothing to block.
     },
     .{ .name = "twin-parity", .text =
     \\Why: one capability reachable on several surfaces — a CLI subcommand, an
@@ -1054,6 +1207,163 @@ const entries = [_]Entry{
     \\file via `[[allow]] check = "fatal-exit"` (Guardian points it at
     \\`src/reporter.zig`).
     },
+    .{ .name = "import-resolution", .text =
+    \\Why: the Zig-native form of package/API hallucination. An agent writes
+    \\`@import("../util/strings.zig")` because that is where the helper OUGHT to
+    \\live, and nothing contradicts it: the compiler only analyzes files reachable
+    \\from the build graph, so an orphaned module, a test-only helper, or a file
+    \\whose only importer is itself orphaned carries a fabricated path and still
+    \\reports green. Guardian reads the tree off disk, not off the build graph.
+    \\Prior art: zlint's `no-unresolved` ships default-on at ERROR — its highest
+    \\severity, where nearly everything else defaults to warn — and runs in Bun's
+    \\CI.
+    \\Scope: only PATH-SHAPED literals — ends in `.zig`, or begins `./` or `../`.
+    \\`std`, `builtin`, `root` and every build.zig module name are not paths and
+    \\are never resolved; Guardian cannot see a consumer's module graph, and
+    \\guessing would flag every correct package import.
+    \\Symlinks are allowed and are NOT followed (`follow_symlinks = false`), so a
+    \\symlinked module resolves on the link itself and no path is canonicalized
+    \\out of the tree. An import that climbs above the project root is skipped
+    \\rather than clamped — that file is outside the tree Guardian was pointed at.
+    \\A stat that fails for an environmental reason warns instead of blocking.
+    \\Fix: create the file, or correct the path. A directory sitting at the path
+    \\counts as unresolved: `@import` needs a file.
+    \\Exempt: one residual shape needs it — a build.zig module whose NAME ends in
+    \\`.zig` is indistinguishable from a sibling-file import. Rename the module
+    \\(the name is yours to choose) or add `[[allow]] check = "import-resolution"`
+    \\with the importing file's path glob. The top-level `disabled` list drops the
+    \\check entirely.
+    },
+    .{ .name = "undefined-init", .text =
+    \\Why (opt-in): `undefined` is the one poison Zig never reports. A debug build
+    \\traps a read of it; an optimized build reads garbage silently, and nothing in
+    \\the source says the author knew. zlint ships the same rule as
+    \\`unsafe-undefined`. Scope: this is the PER-SITE justification check — the
+    \\aggregate count of `x = undefined` re-assignments belongs to
+    \\`unsafe-ops-budget`, which excludes declaration-init entirely and cannot
+    \\bless one line. A site justified here still counts there, on purpose.
+    \\Fix: give the value a real initializer, or write the invariant down as
+    \\`// SAFETY: <reason>` on the line DIRECTLY above the site (the marker is
+    \\matched case-insensitively; a trailing same-line comment does not count).
+    \\Exempt: off unless `[undefined_init] enabled = true` — `--dry-run` and
+    \\`--list` still measure, so a project can size the debt before enabling it.
+    \\Structurally exempt with no config: `test` blocks, `deinit`/`destroy`/`reset`
+    \\bodies (deliberate poisoning), and an array-typed VARIABLE declaration
+    \\(`var buf: [N]u8 = undefined;`) — but not an array-typed container FIELD
+    \\default, which every instance is born holding. Add paths via
+    \\`[[allow]] check = "undefined-init"`; adopt existing sites with
+    \\`guardian-check accept undefined-init .` once `[baseline] enabled = true`.
+    },
+    .{ .name = "must-return-ref", .text =
+    \\Why: Zig has no move semantics, so `return self.list;` from a fn declared
+    \\to return `std.array_list.Managed(u32)` (or ArrayList / HashMap /
+    \\AutoHashMap / StringHashMap / ArenaAllocator) hands the caller a COPY of
+    \\the capacity bookkeeping over a buffer the original still owns. The caller
+    \\appends into the copy, the owner's `defer deinit()` frees the buffer, and
+    \\the memory leaks — `var list = foo.getList(); try list.append(1);` is the
+    \\documented failure. Ported from zlint's `must-return-ref` (Suspicious,
+    \\default-on). Three conjuncts must all hold: container return type, returned
+    \\BY VALUE, and a returned expression whose node is a `.field_access` off
+    \\something that is not itself a type — so `ArenaAllocator.init(alloc)` and
+    \\`Registry.shared` never fire.
+    \\Fix: return `*T` and `&self.<field>`. If the caller genuinely needs its own
+    \\container, hand back `try self.list.clone()` instead so both sides own one.
+    \\Exempt: a deliberate ownership TRANSFER (a builder giving its list away and
+    \\never deiniting) takes an `// OWNERSHIP: transferred` comment on the return
+    \\line or the line directly above it. Whole subtrees go in `[[allow]] check =
+    \\"must-return-ref"`; project container types join the set via
+    \\`[must_return_ref] extra_types`; `disabled = ["must-return-ref"]` turns it
+    \\off. Findings are identity-keyed, so an existing tree can be baselined and
+    \\only new instances block.
+    },
+    .{ .name = "pub-exposes-private", .text =
+    \\Why: an agent adds a helper type next to the code that uses it, forgets the
+    \\`pub`, then threads that type through a public signature. The file still
+    \\compiles — definition and use share a file — but the API is unusable from
+    \\outside: a caller cannot declare a variable of that parameter type, store
+    \\the return value in a named field, or write a wrapper. The break stays
+    \\invisible until some consumer updates, which for an agent-authored change is
+    \\long after the commit. Covers non-pub type definitions (ziglint Z012) and
+    \\non-pub error sets (Z015).
+    \\Fix: mark the type `pub` if it really is part of the contract, change the
+    \\signature to take/return a public type, or drop `pub` from the function —
+    \\a private fn's signature is nobody's contract.
+    \\Scope: resolution is file-local and complete, because Zig already refuses
+    \\cross-file access to a non-pub declaration, so the only place a public
+    \\signature can name a private type is the file defining it. A private ALIAS
+    \\to a type defined elsewhere (`const Allocator = std.mem.Allocator;`,
+    \\`const Self = @This();`) is never flagged — that type is nameable under its
+    \\real name. Nor is a `pub fn` inside a container that is not itself pub.
+    \\Exempt: `[[allow]] check = "pub-exposes-private"` with path globs, or put
+    \\"pub-exposes-private" in the top-level `disabled` list.
+    },
+    .{ .name = "compound-assert", .text =
+    \\Why: `assert(a and b)` reports only that the condition was false. One
+    \\failure site, several independent claims — the panic names a line and
+    \\nothing else, and in a release-safe binary there is no expression text to
+    \\read. Split, each conjunct gets its own line and the failure identifies
+    \\itself. Splitting is semantics-preserving because `and` short-circuits and
+    \\the first assert aborts before the second is evaluated, so the
+    \\bounds-then-index idiom (`assert(i < len and buf[i] == 0)`) stays safe.
+    \\Fix: one assert per conjunct — `assert(a); assert(b);`.
+    \\Guard: a project-defined `assert` is NEVER flagged. It may log, count, or
+    \\return, so calling it twice is not the same program. Only the literal
+    \\`std.debug.assert(...)`, a binding proven equal to it (`const assert =
+    \\std.debug.assert;`, `@import("std").debug.assert`), and `<alias>.assert(...)`
+    \\where the alias is bound to `std.debug` are considered. `or` is never
+    \\flagged (it cannot be split), nor is an `and` nested below the argument's
+    \\top paren level.
+    \\Exempt: `[[allow]] check = "compound-assert"` with path globs, or the
+    \\top-level `disabled` list.
+    },
+    .{ .name = "try-in-return", .text =
+    \\Why: `return try f()` fuses two coercions into one unnamed step — `try`
+    \\re-raises f's error set into the enclosing function's, and `return` then
+    \\coerces the surviving payload into the enclosing return type. Nothing is
+    \\bound, so the compiler has nowhere to disagree about what the payload's
+    \\type is. The edit that bites is the ordinary one: `f` stops erroring (or an
+    \\agent "simplifies"), the `try` is dropped, and `return f();` still compiles
+    \\wherever the enclosing return type can absorb the whole `E!T` value rather
+    \\than the `T` that was meant. Binding first makes that edit a compile error,
+    \\and gives an errdefer, a log, or an assertion somewhere to attach.
+    \\Fix: `const v = try <expr>; return v;`.
+    \\Scope: only a `return` token immediately followed by `try`. A `try` deeper
+    \\inside the returned expression (`return if (c) try a() else b();`,
+    \\`return .{ .x = try a() };`) is not flagged — the payload already sits in a
+    \\larger expression whose type the compiler checks structurally.
+    \\Exempt: `[[allow]] check = "try-in-return"` with path globs, or the
+    \\top-level `disabled` list.
+    },
+    .{ .name = "abi-layout", .text =
+    \\Why: an `extern`/`packed struct` is a contract with something outside the
+    \\compiler, and Zig will silently give it a different size than the contract
+    \\needs. ziglang/zig#23564: swapping a `packed struct(u128)` EIdent in for
+    \\`e_ident: [EI_NIDENT]u8` in `lib/std/elf.zig` made `@sizeOf(Elf32_Ehdr)` 64
+    \\instead of the ABI-required 52 — the packed struct's backing integer brings
+    \\`u128` alignment, which pads its host. The issue was closed `not_planned`
+    \\("This behavior matches the C ABI"), so this is a PERMANENT hazard, never a
+    \\compiler diagnostic. The only thing that caught it was a hand-written
+    \\`assert(@sizeOf(Elf32_Ehdr) == 52)`; std treats generated size assertions as
+    \\the standard mitigation (`lib/std/elf.zig` carries seven in a row).
+    \\Two halves: (a) INVENTORY — a layout struct with no co-located
+    \\`@sizeOf`/`@offsetOf` pin, ADVISORY by default; (b) ALIGNMENT HAZARD — an
+    \\`extern struct` field whose type is a same-file packed struct backed by more
+    \\than 64 bits and carrying no explicit `align(...)`, which BLOCKS.
+    \\Why 64 and not 8: Zig already refuses every other backing ("only integers
+    \\with 0, 8, 16, 32, 64 and 128 bits are extern compatible"), and 8/16/32/64
+    \\have exactly `uintN_t`'s alignment, so they pad nothing the C field would
+    \\not. Over all of `lib/std` the "wider than u8" rule fired 36 times on
+    \\correct code (wasi's fdstat_t is 24 bytes *because* the C struct is);
+    \\"wider than 64" fires 0 times and still catches #23564.
+    \\Fix: (b) add `align(1)` to the field. (a) add a comptime assertion beside
+    \\the declaration: `comptime { assert(@sizeOf(T) == 52); }`. The satisfier is a
+    \\`@sizeOf`/`@offsetOf` on either side of `==`/`!=`, so
+    \\`expectEqual(52, @sizeOf(T))` does not count — write it as the comparison.
+    \\Exempt: `[abi_layout] alignment_hazard = false` turns (b) off;
+    \\`[abi_layout] require_assertions = true` promotes (a) to a blocking gate.
+    \\Per-path: `[[allow]] check = "abi-layout"` skips a file for both halves.
+    \\Not an accept: (b) has no snapshot to ratify — fix the alignment.
+    },
     .{ .name = "change-classification", .text =
     \\Why: agents ship a behavioral src change with no test — the "quick fix,
     \\no regression test" pattern that lets the same bug return.
@@ -1063,6 +1373,44 @@ const entries = [_]Entry{
     \\`guardian-check accept change-classification .` do not clear it.
     \\Exempt: `[change_classification] enabled = false`, or set the diff base via
     \\`--against` / `GUARDIAN_AGAINST`; skips silently outside a git repo.
+    },
+    .{ .name = "error-path-test", .text =
+    \\Why: error handling is the least-tested thing agents write. Measured over
+    \\4,882 agent PRs (arXiv:2607.18057, ICSME 2026), newly added Throw
+    \\statements go unexercised by the existing suite 67.5% of the time in Java
+    \\and 82.3% in Python, and Try-Catch bodies 86.0% / 81.0% — with the agent's
+    \\own test changes removed, so the number is the gap a test in the same
+    \\change closes. Zig helps here: `return error.OutOfRange` names its error in
+    \\the token stream, so the cross-reference is lexical rather than inferred.
+    \\Fix: add or extend a test that NAMES the error identifier —
+    \\`try testing.expectError(error.X, ...)` is enough — in this same change. A
+    \\`catch |e| { ... }` block and an `errdefer` name no error, so they are
+    \\reported against the enclosing function's name instead.
+    \\Not an accept: this check judges the CHANGE, so it has no baseline and no
+    \\snapshot. `guardian-check accept error-path-test .` and
+    \\`GUARDIAN_UPDATE_SNAPSHOT=error-path-test` do not clear it.
+    \\Exempt: `// UNTESTED-ERROR: <reason>` on the line, or in the comment block
+    \\directly above it — the reason is mandatory, a bare marker waives nothing.
+    \\Otherwise set the diff base with `--against` / `GUARDIAN_AGAINST`, demote it
+    \\with `[policy] report = ["error-path-test"]`, or put it in the top-level
+    \\`disabled` list. Skips silently outside a git repository.
+    },
+    .{ .name = "test-erosion", .text =
+    \\Why (advisory, never blocks): change-classification sees "no test change".
+    \\This sees a NEGATIVE one — a change that touches tests and still leaves the
+    \\suite weaker. In the same study, among Java PRs whose diff coverage did not
+    \\improve, 82 test methods were deleted against 31 added, with another 51.2%
+    \\editing only existing test bodies. Read that carefully: the sample is tiny
+    \\(~41 PRs) and Java-only, Python gets no comparable figure, and the paper
+    \\makes NO causal claim about why. All that is supported is the diff
+    \\signature, which is exactly what this reports.
+    \\Fix: nothing is required — it never fails a build. Ask the one question it
+    \\is prompting: after this change, is there still a test that would fail if
+    \\the behavior regressed?
+    \\Not an accept: no baseline, no ratchet, nothing to freeze — its subject is
+    \\the change, and a row from one diff would waive every later one.
+    \\Exempt: it cannot block, so there is nothing to exempt; silence it entirely
+    \\with the top-level `disabled` list. Skips outside a git repository.
     },
     .{ .name = "oom-discipline", .text =
     \\Why (opt-in): a swallowing `catch` on an allocating call conflates
@@ -1623,6 +1971,22 @@ test "explain canonical-idiom states why one fragment is not a rule" {
     try std.testing.expect(std.mem.indexOf(u8, text, "keyed `<name>|<file>`") != null);
     // And the glob trap: `src/**/*.zig` is not this engine's spelling.
     try std.testing.expect(std.mem.indexOf(u8, text, "src/**/*.zig") != null);
+}
+
+// spec: Measure Vocabulary - Explains that the check only reports a naming disagreement and never blocks
+
+test "explain measure-vocabulary disowns the off-by-one claim and states its default" {
+    const text = lookup("measure-vocabulary").?;
+    // The single most important line: a reader who takes this for an
+    // off-by-one detector will trust a finding far past what it says.
+    try std.testing.expect(std.mem.startsWith(u8, text, "Scope: this is a NAMING-CONSISTENCY check"));
+    try std.testing.expect(std.mem.indexOf(u8, text, "open research problem") != null);
+    // The evidence is doctrine; nobody may quote a defect rate off it.
+    try std.testing.expect(std.mem.indexOf(u8, text, "PRESCRIPTIVE doctrine") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "attributes NO specific") != null);
+    // Opt-in, advisory, and the eda-shaped table a domain project starts from.
+    try std.testing.expect(std.mem.indexOf(u8, text, "Default: DISABLED") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "entity: net, pad, pin, footprint") != null);
 }
 
 // spec: Import Layering - Separates declared import direction from the cycle check in both explanations

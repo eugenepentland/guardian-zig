@@ -28,6 +28,7 @@ const git = @import("../git.zig");
 const ratchet = @import("../ratchet.zig");
 const debt_current = @import("debt_current.zig");
 const file_size = @import("../checks/file_size.zig");
+const assert_density = @import("../checks/assert_density.zig");
 
 const Allocator = std.mem.Allocator;
 const print = reporter.detail;
@@ -42,8 +43,6 @@ const baselines_marker = "/baselines/";
 /// <key>` — the count still reads as one-per-line, and its worst offender
 /// (highest value) is reported as a note.
 const ratchet_header = "# guardian-snapshot v2";
-/// Lines per KLOC — the denominator scale for the assert-density metric.
-const lines_per_kloc: u64 = 1000;
 
 /// How one `.guardian/` file's debt total is derived from its contents.
 const Kind = enum {
@@ -184,7 +183,7 @@ const Classified = struct {
 /// JSON payload cannot describe different things.
 const Gathered = struct {
     rows: []const Row,
-    density: []const DensityRow,
+    density: []const assert_density.ModuleStats,
     current: debt_current.Report,
 };
 
@@ -218,7 +217,7 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
     sortByCountDesc(all_rows);
     const rows = try filterRows(ctx.allocator, all_rows, ctx.check_filter);
     const density = if (ctx.assert_density)
-        try collectDensityRows(ctx.allocator, ctx.project_dir)
+        (try assert_density.collect(ctx.allocator, ctx.project_dir, ctx.source_index)).modules
     else
         &.{};
     // `--current` measures the tree so every frozen ceiling can be printed with
@@ -313,7 +312,7 @@ fn reportFileSizes(ctx: *types.RunCtx) types.RunError!void {
 const JsonReport = struct {
     project_dir: []const u8,
     rows: []const Row,
-    assert_density: []const DensityRow,
+    assert_density: []const assert_density.ModuleStats,
     /// Present (non-empty) only under `--live`/`--current`: one entry per
     /// ratcheted key with no headroom left, each with its measured value and
     /// frozen ceiling.
@@ -729,109 +728,24 @@ fn printFileSizeReport(rows: []const FileSizeRow, warning: u32, hard: u32) void 
 // without ever failing the build — placement is a human judgment call, this
 // only measures the current state (cf. the Zig core team's ~4 asserts/KLOC).
 
-/// One module's assert density: its raw call and line counts (the per-KLOC rate
-/// is derived at print time from these).
-const DensityRow = struct { module: []const u8, asserts: u64, lines: u64 };
-
-/// Per-module running totals during the src/ walk.
-const Tally = struct { asserts: u64 = 0, lines: u64 = 0 };
-
-/// Walk state: the arena and the module → totals map.
-const DensityCtx = struct {
-    arena: Allocator,
-    tallies: *std.StringHashMapUnmanaged(Tally),
-};
-
-/// The top-level src/ module of `rel_path`: the first path segment under `src/`
-/// (a subdir name like `ast`, or a loose file name like `snapshot.zig`) — the
-/// same top-level structure the project's module layout is organized around.
-fn moduleOf(rel_path: []const u8) []const u8 {
-    const prefix = "src/";
-    const rest = if (std.mem.startsWith(u8, rel_path, prefix)) rel_path[prefix.len..] else rel_path;
-    const slash = std.mem.indexOfScalar(u8, rest, '/') orelse return rest;
-    return rest[0..slash];
-}
-
-/// Counts real `assert(` call sites in `content` by tokenizing: an `assert`
-/// identifier immediately followed by `(`. Tokenizing (not substring matching)
-/// means an `assert(` inside a string or comment is not miscounted as a call.
-fn countAssertCalls(arena: Allocator, content: []const u8) Allocator.Error!u64 {
-    const z = try arena.dupeSentinel(u8, content, 0);
-    var tok = std.zig.Tokenizer.init(z);
-    var count: u64 = 0;
-    var prev_is_assert = false;
-    while (true) {
-        const t = tok.next();
-        if (t.tag == .eof) break;
-        if (prev_is_assert and t.tag == .l_paren) count += 1;
-        prev_is_assert = t.tag == .identifier and std.mem.eql(u8, z[t.loc.start..t.loc.end], "assert");
-    }
-    return count;
-}
-
-/// Physical line count of `content` (newline terminators), the KLOC denominator.
-fn physicalLines(content: []const u8) u64 {
-    var n: u64 = 0;
-    for (content) |c| {
-        if (c == '\n') n += 1;
-    }
-    return n;
-}
-
-/// Assert calls per KLOC for one module (0 when it has no lines).
-fn perKloc(asserts: u64, lines: u64) u64 {
-    if (lines == 0) return 0;
-    return asserts * lines_per_kloc / lines;
-}
-
-/// Visitor: fold one src/ file's assert-call and line counts into its module.
-fn densityVisit(raw_ctx: *anyopaque, entry: walk.FileEntry) walk.VisitError!void {
-    const ctx: *DensityCtx = @ptrCast(@alignCast(raw_ctx));
-    const gop = try ctx.tallies.getOrPut(ctx.arena, moduleOf(entry.rel_path));
-    if (!gop.found_existing) gop.value_ptr.* = .{};
-    gop.value_ptr.asserts += try countAssertCalls(ctx.arena, entry.content);
-    gop.value_ptr.lines += physicalLines(entry.content);
-}
-
-/// Walks `<project_dir>/src`, tallies assert-call density per top-level module,
-/// and returns the rows sorted ascending (sparsest first).
-fn collectDensityRows(arena: Allocator, project_dir: []const u8) types.RunError![]DensityRow {
-    var tallies: std.StringHashMapUnmanaged(Tally) = .empty;
-    var ctx: DensityCtx = .{ .arena = arena, .tallies = &tallies };
-    const src_path = try std.fmt.allocPrint(arena, "{s}/src", .{project_dir});
-    try walk.walkZigFiles(arena, src_path, .{ .display_root = "src" }, .{ .ctx = &ctx, .visit = densityVisit });
-
-    var rows: std.ArrayList(DensityRow) = .empty;
-    var it = tallies.iterator();
-    while (it.next()) |e| {
-        try rows.append(arena, .{ .module = e.key_ptr.*, .asserts = e.value_ptr.asserts, .lines = e.value_ptr.lines });
-    }
-    const slice = try rows.toOwnedSlice(arena);
-    sortByDensityAsc(slice);
-    return slice;
-}
-
-/// Sorts rows ascending by assert density (sparsest module first).
-fn sortByDensityAsc(rows: []DensityRow) void {
-    std.mem.sort(DensityRow, rows, {}, densityLessThan);
-}
-
-/// Orders rows by ascending asserts/lines (cross-multiplied to stay exact and
-/// integer), breaking ties by module name for stable output.
-fn densityLessThan(_: void, a: DensityRow, b: DensityRow) bool {
-    const lhs = a.asserts * b.lines;
-    const rhs = b.asserts * a.lines;
-    if (lhs != rhs) return lhs < rhs;
-    return std.mem.order(u8, a.module, b.module) == .lt;
-}
+//
+// The measurement itself lives in the `assert-density` CHECK, not here: that
+// check ratchets these same numbers, and a report that counted differently
+// from the gate beside it would be worse than no report. Two consequences the
+// old private copy did not have — constant-foldable `assert(true)` padding is
+// excluded, and the denominator is `file_size`'s production code lines rather
+// than every physical line.
 
 /// Prints the ascending assert-density table under a clearly non-gating header.
-fn printDensityReport(rows: []const DensityRow) void {
+/// Hundredths, because whole asserts/KLOC prints `0` for almost every module in
+/// a tree that measures under 1/KLOC.
+fn printDensityReport(rows: []const assert_density.ModuleStats) void {
     if (rows.len == 0) return;
     reporter.ok("assert density — assert() calls per KLOC by src module, ascending (informational, non-gating)", .{});
     for (rows) |r| {
-        print("  {s:<24} {d:>4} /KLOC   ({d} assert(s) / {d} line(s))\n", .{
-            r.module, perKloc(r.asserts, r.lines), r.asserts, r.lines,
+        const centi = assert_density.centiPerKloc(r.asserts, r.code_lines);
+        print("  {s:<24} {d:>4}.{d:0>2} /KLOC   ({d} assert(s) / {d} code line(s))\n", .{
+            r.module, centi / 100, centi % 100, r.asserts, r.code_lines,
         });
     }
 }
@@ -1167,11 +1081,11 @@ test "assert density groups modules, counts real calls, and sorts sparsest first
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // moduleOf collapses a subdir to its name and keeps a loose file's name.
-    try testing.expectEqualStrings("ast", moduleOf("src/ast/parser.zig"));
-    try testing.expectEqualStrings("snapshot.zig", moduleOf("src/snapshot.zig"));
-    // countAssertCalls tokenizes: the two real calls count, the `assert(` inside
-    // a string literal and the one in a line comment do not.
+    // The report prints the CHECK's measurement, so the two can never disagree:
+    // module grouping, the tokenized call count and the ascending order are all
+    // exercised through the same functions the ratchet reads.
+    try testing.expectEqualStrings("ast", assert_density.moduleOf("src/ast/parser.zig"));
+    try testing.expectEqualStrings("snapshot.zig", assert_density.moduleOf("src/snapshot.zig"));
     const src =
         \\fn f(x: u32) void {
         \\    std.debug.assert(x > 0);
@@ -1180,14 +1094,14 @@ test "assert density groups modules, counts real calls, and sorts sparsest first
         \\    _ = s;
         \\}
     ;
-    try testing.expectEqual(@as(u64, 2), try countAssertCalls(a, src));
-    // perKloc is asserts per 1000 lines; ascending sort puts the sparser first.
-    try testing.expectEqual(@as(u64, 5), perKloc(2, 400));
-    var rows = [_]DensityRow{
-        .{ .module = "dense", .asserts = 8, .lines = 1000 },
-        .{ .module = "sparse", .asserts = 1, .lines = 1000 },
+    const measured = try assert_density.measureFile(a, src);
+    try testing.expectEqual(@as(u32, 2), measured.counts.asserts);
+    // Ascending sort puts the sparser module first.
+    var rows = [_]assert_density.ModuleStats{
+        .{ .module = "dense", .asserts = 8, .code_lines = 1000 },
+        .{ .module = "sparse", .asserts = 1, .code_lines = 1000 },
     };
-    sortByDensityAsc(&rows);
+    assert_density.sortByDensityAsc(&rows);
     try testing.expectEqualStrings("sparse", rows[0].module);
     try testing.expectEqualStrings("dense", rows[1].module);
 }

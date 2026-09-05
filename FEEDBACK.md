@@ -11544,3 +11544,27 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
 
 ## 2026-09-05 · codex · eda — acknowledged prototype Gerber export
 - **good:** Guardian's diff gate immediately rejected a four-boolean request condition and a seven-runtime-parameter test helper in the first prototype-export draft; simplifying both avoided adding ratchet exceptions, and the final exact commit passed all 72 whole-tree checks with zero blocking findings.
+
+## 2026-09-05 · claude · guardian-zig — 13 research-derived checks integrated
+- **good:** self-hosting caught the integration itself. Copying `import_resolution.zig`
+  in before wiring it produced `orphan-files: 1 unreachable file` AND `spec: tag in a
+  never-compiled file` ×5 — two independent checks naming the same half-done merge.
+  `twin-drift` then caught `must_return_ref.peelType`/`peelExpr` duplicating
+  `stack_escape`'s walkers, which is exactly the copy an agent makes when writing a
+  new check beside an old one.
+- **good:** `subject: .change` held under pressure. `error-path-test`/`test-erosion`
+  needed it, and the registry assertion that no UNLISTED `.change` check exists is what
+  forced the two new names into `change_subject` rather than letting them silently adopt.
+- **friction:** ten subagent worktrees all branched from a base 391 commits stale, so
+  every registry entry they wrote omitted `.subject` (added after that base) and every
+  doc edit targeted a 67/70-check CLAUDE.md. Drift was additive so the port was
+  mechanical, but nothing in the tooling surfaced the staleness — it was found only
+  because one agent reported a struct field missing that main has.
+- **good:** re-accepting `unsafe-ops-budget` after adding `@intCast`/`@truncate` also
+  dropped stale-high values (`@alignCast 74→71`, `@ptrCast 84→81`). A budget only fails
+  on growth, so that headroom had been passing silently — the accept is what surfaced it.
+- **wish:** a demoted check stops using its baseline (`usesBaselineFor` is false in
+  report mode), so moving `naming`/`doc-comments`/`module-doc-header` into the default
+  advisory tier left 95 committed eda baseline rows inert but still present and still
+  counted by `debt`. `debt` cannot currently distinguish "frozen and filtering" from
+  "frozen and ignored"; a policy-aware column would.

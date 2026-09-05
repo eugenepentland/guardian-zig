@@ -1,7 +1,9 @@
 //! `nightly` command — the scheduled/CI tier. Runs the full `all` suite, then
-//! whole-tree mutation with the score ratchet (`mutate --full`), failing if
-//! either fails. `mutate-full` on its own is a step nobody schedules; nightly
-//! gives it an obvious cron/CI home.
+//! whole-tree mutation with the score ratchet (`mutate --full`), then the
+//! safe-vs-fast `optimize-divergence` comparison, failing if any of them fails.
+//! Each on its own is a step nobody schedules; nightly gives all three an
+//! obvious cron/CI home — and both of the expensive ones (a build + test cycle
+//! per mutant, two whole suite runs) belong here rather than on `commit`.
 //!
 //! It is dispatched specially by check.zig (like `all`) rather than sitting in
 //! the registry: its run function composes `run_all.run`, and run_all imports
@@ -15,16 +17,24 @@ const types = @import("types.zig");
 const reporter = @import("../reporter.zig");
 const run_all = @import("run_all.zig");
 const mutate = @import("mutate.zig");
+const optimize_divergence = @import("optimize_divergence.zig");
 
 /// CLI name that check.zig dispatches to this command.
 pub const command_name = "nightly";
 
-/// Pure decision: a nightly run fails when the `all` suite failed or the
-/// whole-tree mutation ratchet failed. Separated from `run` so the
-/// compose-and-fail rule is unit-testable without spawning child builds.
-/// Private (two bool params) so it isn't a public boolean-param API.
-fn failed(all_failed: bool, mutate_failed: bool) bool {
-    return all_failed or mutate_failed;
+/// What each nightly stage did. A named record rather than a row of bool
+/// parameters, so adding a stage cannot silently reorder the arguments.
+const Stages = struct {
+    suite: bool = false,
+    mutation: bool = false,
+    divergence: bool = false,
+};
+
+/// Pure decision: a nightly run fails when ANY of its stages failed.
+/// Separated from `run` so the compose-and-fail rule is unit-testable without
+/// spawning child builds.
+fn failed(stages: Stages) bool {
+    return stages.suite or stages.mutation or stages.divergence;
 }
 
 /// Returns a copy of `ctx` switched to the whole-tree mutation tier (`full`),
@@ -63,21 +73,34 @@ pub fn run(ctx: *types.RunCtx) types.RunError!void {
         else => return e,
     };
 
-    if (failed(all_failed, mutate_failed)) {
-        reporter.fail("nightly FAILED: the check suite and/or the mutation ratchet did not pass", .{});
+    reporter.ok("nightly: comparing the suite under safe and fast ...", .{});
+    var divergence_failed = false;
+    optimize_divergence.run(ctx) catch |e| switch (e) {
+        error.CheckFailed => divergence_failed = true,
+        else => return e,
+    };
+
+    if (failed(.{ .suite = all_failed, .mutation = mutate_failed, .divergence = divergence_failed })) {
+        reporter.fail(
+            "nightly FAILED: the check suite, the mutation ratchet and/or the optimize-mode comparison did not pass",
+            .{},
+        );
         return error.CheckFailed;
     }
-    reporter.ok("nightly: check suite green and mutation ratchet satisfied", .{});
+    reporter.ok("nightly: check suite green, mutation ratchet satisfied, optimize modes agree", .{});
 }
 
-// spec: Nightly - Fails when either the suite or the whole-tree mutation ratchet fails
+// spec: Nightly - Fails when any of its composed stages fails
 // spec: Nightly - Runs the whole-tree mutation tier by setting the full flag
 
-test "failed is the OR of the suite and mutation outcomes" {
-    try std.testing.expect(!failed(false, false));
-    try std.testing.expect(failed(true, false));
-    try std.testing.expect(failed(false, true));
-    try std.testing.expect(failed(true, true));
+test "failed is the OR of every nightly stage outcome" {
+    try std.testing.expect(!failed(.{}));
+    try std.testing.expect(failed(.{ .suite = true }));
+    try std.testing.expect(failed(.{ .mutation = true }));
+    // The stage added last must red the tier too: a divergence between the
+    // optimize modes is a finding, not a note.
+    try std.testing.expect(failed(.{ .divergence = true }));
+    try std.testing.expect(failed(.{ .suite = true, .mutation = true, .divergence = true }));
 }
 
 test "mutateContext selects the whole-tree tier and preserves the rest" {

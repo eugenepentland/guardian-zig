@@ -109,6 +109,34 @@ fn appendMissingAssertion(ctx: *ScanCtx, line: u32) Allocator.Error!void {
     try ctx.violations.append(a, msg);
 }
 
+/// How many assertions `z` contains, by the same token rule this check gates
+/// on: a `try` (error-propagation counts) or an `expect*` / `assert*` call.
+///
+/// Shared so `test-erosion` can measure whether a rewritten test body kept as
+/// many assertions as it had, without re-deciding what an assertion is — two
+/// answers to that question would let a test lose its only real check while one
+/// of the two gates still called the body assertive.
+///
+/// Unscoped on purpose: the caller decides what `z` covers (a whole file, one
+/// body, the added lines of a diff hunk). Assertion-shaped tokens in a comment
+/// are not counted — the tokenizer skips comments — but a token inside a string
+/// literal is likewise invisible, so this counts calls, not text.
+pub fn assertionCount(z: [:0]const u8) u32 {
+    var tok = std.zig.Tokenizer.init(z);
+    var count: u32 = 0;
+    while (true) {
+        const t = tok.next();
+        switch (t.tag) {
+            .eof => return count,
+            .keyword_try => count += 1,
+            .identifier => if (isAssertionName(z[t.loc.start..t.loc.end])) {
+                count += 1;
+            },
+            else => {},
+        }
+    }
+}
+
 /// True for std.testing / std.debug assertion call names: exactly `expect` or
 /// `assert`, or those prefixes continued in camelCase (expectEqual,
 /// expectError, assertEqual). A lowercase continuation (`expected`,
@@ -212,6 +240,20 @@ test "analyzeContent allows test with expectEqual" {
         \\}
     );
     try std.testing.expectEqual(@as(usize, 0), out.len);
+}
+
+// spec: Test Hygiene - Counts the assertions in a snippet by the same rule the gate uses
+
+test "assertionCount counts try and expect/assert calls but not lookalike names" {
+    // `try` + `expectEqual` + `assert` = 3; `expected` and `assertion` are
+    // variables, and the same rule the gate uses must not count them.
+    try std.testing.expectEqual(@as(u32, 3), assertionCount(
+        \\const expected: u32 = 1;
+        \\const assertion = 2;
+        \\try std.testing.expectEqual(expected, one());
+        \\std.debug.assert(assertion == 2);
+    ));
+    try std.testing.expectEqual(@as(u32, 0), assertionCount(""));
 }
 
 test "analyzeContent allows aliased expect" {

@@ -296,7 +296,7 @@ pub fn lifecycle(
 
 /// A stored baseline with its directory-prefixed rows re-spelled to the current
 /// rendering, and how many rows moved (0 = the file was already current).
-const Rekeyed = struct { lines: []const []const u8, moved: usize };
+pub const Rekeyed = struct { lines: []const []const u8, moved: usize };
 
 /// Re-keys stored rows that differ from a live violation ONLY by a directory
 /// prefix inside a rendered path (`in ./src/x.zig` → `in src/x.zig`).

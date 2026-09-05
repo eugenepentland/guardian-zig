@@ -666,7 +666,7 @@ fn mainTerminal() void {
 
 /// Runs one test, printing a line for anything that is not a plain pass, and
 /// reports what it was.
-fn runOneTest(test_fn: std.builtin.TestFn, index: usize) timing.Status {
+fn runOneTest(test_fn: std.lang.TestFn, index: usize) timing.Status {
     @disableInstrumentation();
     var buf: [report_buffer_bytes]u8 = undefined;
     test_fn.func() catch |err| {

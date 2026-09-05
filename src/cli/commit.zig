@@ -40,6 +40,7 @@ const external_inputs = @import("../external_inputs.zig");
 const test_count = @import("../test_count.zig");
 const journal = @import("../mutation/journal.zig");
 const fs = @import("../fs.zig");
+const child_env = @import("../child_env.zig");
 const source_digest = @import("../source_digest.zig");
 const build_helper = @import("../build_helper.zig");
 const build_options = @import("build_options");
@@ -52,7 +53,9 @@ pub const command_name = "commit";
 /// Env var set on the `zig build test` child so its wired guardian gate no-ops
 /// (see check.zig) while the tests still compile and run — the commit already
 /// gated this exact tree in-process. Read by check.zig's main() short-circuit.
-pub const child_skip_env = "GUARDIAN_SKIP_CHECKS";
+/// Owned by `child_env.zig`, because `optimize-divergence` spawns child builds
+/// for the same reason and cannot import this file without an @import cycle.
+pub const child_skip_env = child_env.skip_checks;
 
 /// Output cap for the captured child test run (a full suite's log).
 const max_test_output_bytes: usize = 16 * 1024 * 1024;

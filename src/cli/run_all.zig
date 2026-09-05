@@ -45,13 +45,20 @@ const measurement_drop_warning = "guardian: dropped a measurement note: {s}";
 
 pub const command_name = "all";
 // spec-init is a generator; mutate rebuilds and re-tests the project per
-// mutant; debt is a non-gating report;
+// mutant; optimize-divergence builds and runs the whole suite twice; debt is a non-gating report;
 // nightly composes `all` + `mutate --full`; commit gates then auto-commits.
 // None is a build gate. (nightly and commit are dispatched specially and never
 // appear in the registry, so their entries here are defensive — mirroring the
 // long-standing `all` exclusion in build_helper — and guarantee they can never
 // be run as a check.)
-const non_gate_commands = [_][]const u8{ "spec-init", "mutate", "debt", "nightly", "commit" };
+const non_gate_commands = [_][]const u8{
+    "spec-init",
+    "mutate",
+    "optimize-divergence",
+    "debt",
+    "nightly",
+    "commit",
+};
 
 /// Runs every registered gate in this process (in parallel across
 /// worker threads by default; see `runChecks`). Continues past failures so the
@@ -2108,6 +2115,7 @@ test "isAllCheck accepts gates and rejects non-gates and typos" {
     try std.testing.expect(isAllCheck("spec"));
     try std.testing.expect(isAllCheck("file-size"));
     try std.testing.expect(!isAllCheck("mutate")); // non-gate step
+    try std.testing.expect(!isAllCheck("optimize-divergence")); // runs the suite twice
     try std.testing.expect(!isAllCheck("nightly")); // composed, not in registry
     try std.testing.expect(!isAllCheck("commit")); // gate+commit, not in registry
     try std.testing.expect(!isAllCheck("spec-init")); // generator
@@ -2159,13 +2167,16 @@ test "policy protection and explicit blocks bypass a global baseline" {
     };
     try std.testing.expect(!cfg.policy.usesBaselineFor("policy-drift", cfg.baseline));
     try std.testing.expect(!cfg.policy.usesBaselineFor("file-size", cfg.baseline));
-    try std.testing.expect(cfg.policy.usesBaselineFor("naming", cfg.baseline));
+    // `dead-pub`, not `naming`: naming is report-only under the default `agent`
+    // profile, which makes usesBaselineFor false for reasons unrelated to what
+    // this test is about — the assertions would pass vacuously.
+    try std.testing.expect(cfg.policy.usesBaselineFor("dead-pub", cfg.baseline));
     var ratcheted = cfg.policy;
-    ratcheted.ratchet = &.{"naming"};
-    try std.testing.expect(ratcheted.usesBaselineFor("naming", .{}));
+    ratcheted.ratchet = &.{"dead-pub"};
+    try std.testing.expect(ratcheted.usesBaselineFor("dead-pub", .{}));
     var report = cfg.policy;
-    report.report = &.{"naming"};
-    try std.testing.expect(!report.usesBaselineFor("naming", cfg.baseline));
+    report.report = &.{"dead-pub"};
+    try std.testing.expect(!report.usesBaselineFor("dead-pub", cfg.baseline));
 }
 
 // spec-case: Policy Modes - Resolves strict, agent, and safety profiles with explicit per-check overrides

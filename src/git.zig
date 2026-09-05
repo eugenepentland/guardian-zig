@@ -26,6 +26,11 @@ const worktree_cmd = "worktree";
 /// don't each repeat the literal (repeated-string-literal): raw (unquoted)
 /// paths, no colour, and paths relative to the directory the diff ran in — the
 /// same spelling a ratchet key is built from.
+///
+/// `no_repo_skip` is the one reason a diff-scoped shell-out reports as
+/// `.unavailable`: every other git failure is a hard error. Hoisted so the
+/// several diff helpers that degrade identically cannot word it differently.
+const no_repo_skip = "not a git repository — diff-scoped checks skipped";
 const quote_path_off = "core.quotepath=false";
 const no_color = "--no-color";
 const relative = "--relative";
@@ -150,9 +155,36 @@ pub fn diffAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u
         "--",
     };
     const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
-        return .{ .unavailable = "not a git repository — diff-scoped checks skipped" };
+        return .{ .unavailable = no_repo_skip };
     return .{ .ok = try parseUnifiedDiff(allocator, out) };
 }
+
+/// The RAW unified diff text against `ref`, unparsed. `.unavailable` outside a
+/// git repository (a skip); a bad ref or an unspawnable git is a hard error,
+/// exactly like `diffAgainst`.
+///
+/// `parseUnifiedDiff` keeps only the new side's added-line SPANS, which is all a
+/// check needs to ask "what did this change add?". A check asking what the
+/// change REMOVED — `test-erosion` counting deleted `test` declarations — has
+/// nothing to read there: the removed lines are exactly what the parser drops.
+/// This returns the text so such a check can read both sides, and `-U0` keeps it
+/// to changed lines with no context, so a `-` line is always a real deletion.
+pub fn diffTextAgainst(allocator: Allocator, project_dir: []const u8, ref: []const u8) GitError!TextDiffResult {
+    const argv = [_][]const u8{
+        "git",    "-c",  quote_path_off, "diff",
+        no_color, "-U0", relative,       ref,
+        "--",
+    };
+    const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
+        return .{ .unavailable = no_repo_skip };
+    return .{ .ok = out };
+}
+
+/// Result of asking git for a diff as raw text.
+pub const TextDiffResult = union(enum) {
+    ok: []const u8,
+    unavailable: []const u8,
+};
 
 /// Lists paths changed against `ref`, retaining deletions and disabling rename
 /// detection so a move exposes both its old and new path to policy checks.
@@ -167,7 +199,7 @@ pub fn diffPathNamesAgainst(
         relative, ref,           "--",
     };
     const out = (try checkedOutput(allocator, project_dir, &argv)) orelse
-        return .{ .unavailable = "not a git repository — diff-scoped checks skipped" };
+        return .{ .unavailable = no_repo_skip };
     return .{ .ok = try parseNulPaths(allocator, out) };
 }
 
@@ -846,6 +878,27 @@ test "isNotARepo matches only git's no-repository fatal" {
     // A bad ref, a spawn error name, or empty stderr are all hard failures.
     try testing.expect(!isNotARepo("fatal: bad revision 'nope'"));
     try testing.expect(!isNotARepo(""));
+}
+
+// spec: Git Diff - Returns the unified diff as raw text for a check that reads removals
+
+test "diffTextAgainst yields diff text or a documented skip, and hard-fails a bad ref" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var cap: reporter.Capture = .{ .allocator = a };
+    defer cap.deinit();
+    const prior = reporter.default.capture;
+    defer reporter.default.capture = prior;
+    reporter.default.capture = &cap;
+    // Against HEAD in this repository the answer is diff text (possibly empty
+    // on a clean tree); outside a repository it is the documented skip. Both
+    // arms are successes — neither is an error.
+    const live = try diffTextAgainst(a, ".", "HEAD");
+    try testing.expect(live == .ok or live == .unavailable);
+    // A bad ref is a command failure, not a missing repository — it must surface
+    // as a hard error rather than a silent skip, like every other diff shell.
+    try testing.expectError(error.GitCommandFailed, diffTextAgainst(a, ".", "guardian-no-such-ref-zzz"));
 }
 
 // spec: Git Diff - Hard-fails a diff-scoped git command that fails for any other reason

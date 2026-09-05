@@ -1,7 +1,32 @@
 //! unsafe-ops-budget check: track counts of the unsafe-cast builtins
-//! (@ptrCast/@alignCast/@constCast/@bitCast/…) and `undefined` re-assignments
-//! against a committed snapshot, so new unsafe surface is a deliberate, reviewed
-//! bump. Declaration-init `undefined` and test blocks are excluded.
+//! (@ptrCast/@alignCast/@constCast/@bitCast/@intCast/@truncate/…) and
+//! `undefined` re-assignments against a committed snapshot, so new unsafe
+//! surface is a deliberate, reviewed bump. Declaration-init `undefined` and test
+//! blocks are excluded.
+//!
+//! The NUMERIC casts (`@intCast`, `@truncate`) live here rather than in a
+//! `numeric-cast-budget` of their own: they are the same hazard family as the
+//! pointer casts already counted, and splitting them would either duplicate the
+//! whole mechanism or double-count `@ptrCast`/`@alignCast` across two snapshots.
+//!
+//! WHY THAT IS WORTH LITTLE. The Zig Language Reference's Illegal Behavior
+//! chapter names these hazard classes — Cast Truncates Data, Integer Overflow,
+//! Incorrect Pointer Alignment, Out of Bounds Float to Integer Cast — and has
+//! characterized `@ptrCast` across many releases as an unsafe operation Zig
+//! cannot protect you against. That establishes only that the bug classes are
+//! REAL, not that any of them is statically decidable: naming a call site is
+//! easy, judging whether THIS cast is in range needs dataflow Guardian does not
+//! have. So this is a budget, not an analysis — no false positives, only
+//! friction — and it is the fourth budget in a suite that already ships three,
+//! which is why the marginal value of the numeric additions is small.
+//!
+//! Two facts a reader is likely to have wrong. The panic text quoted in
+//! ziglang/zig#8905, "integer cast truncated bits", is 2021-era and gone;
+//! current Zig prints "integer does not fit in destination type", so never grep
+//! for the old string. And "caught at runtime by a safety panic" is only true
+//! under a checked optimize mode: replicated on the pinned toolchain, the same
+//! out-of-range `@intCast` panics with exit 134 under safety and SEGFAULTS with
+//! exit 139 under `-O ReleaseFast`, where it is unchecked illegal behavior.
 
 const std = @import("std");
 const walk = @import("../walk.zig");
@@ -23,6 +48,13 @@ const snapshot_version: u32 = 1;
 /// The unsafe-cast builtins tracked, each written as its own snapshot line so a
 /// drift diff names exactly which op grew. `undefined` re-assignment is tracked
 /// separately (it is an identifier token, not a builtin).
+///
+/// `@intCast` and `@truncate` are the numeric half of the family: `@intCast`
+/// asserts the value fits (illegal behavior when it does not, and unchecked in
+/// ReleaseFast/ReleaseSmall) while `@truncate` discards the high bits with no
+/// check at all in any mode. Adding them to an existing snapshot shows up as
+/// ordinary drift with the accept command attached, which is why the format
+/// version does not move.
 const unsafe_builtins = [_][]const u8{
     "@ptrCast",
     "@alignCast",
@@ -31,6 +63,8 @@ const unsafe_builtins = [_][]const u8{
     "@intFromPtr",
     "@constCast",
     "@volatileCast",
+    "@intCast",
+    "@truncate",
 };
 
 /// One count per tracked op. `undefined_reassign` counts `x = undefined;`
@@ -388,6 +422,30 @@ test "countFromContent counts each unsafe-cast builtin" {
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@intFromPtr")]);
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@constCast")]);
     try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@volatileCast")]);
+}
+
+// spec: Unsafe Ops Budget - Counts the numeric-cast builtins alongside the pointer and bit casts
+
+test "countFromContent counts @intCast and @truncate in the same budget" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const content =
+        \\fn a(x: u64) u32 { return @intCast(x); }
+        \\fn b(x: u64) u32 { return @truncate(x); }
+        \\test "casts in tests are the project's own probing" {
+        \\    _ = @intCast(@as(u64, 1));
+        \\}
+    ;
+    const c = try countFromContent(arena.allocator(), content);
+    // @intCast asserts the value fits — illegal behavior when it does not, and
+    // UNCHECKED in ReleaseFast/ReleaseSmall, where the pinned toolchain
+    // segfaults (exit 139) rather than panicking (exit 134).
+    try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@intCast")]);
+    // @truncate discards the high bits with no check in any optimize mode.
+    try std.testing.expectEqual(@as(u32, 1), c.builtins[builtinIndex("@truncate")]);
+    // Test-block casts are excluded here as they already were for every other
+    // tracked op, so adding tests cannot blow the budget.
+    try std.testing.expectEqual(@as(u32, 2), c.castTotal());
 }
 
 test "countFromContent skips declaration-init undefined but counts re-assignment" {

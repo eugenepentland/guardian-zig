@@ -328,7 +328,7 @@ fn reportFrozenDebt(
     frozen: []const spec_hints.FrozenTag,
     fresh: []const spec_matcher.SpecTag,
 ) Allocator.Error!void {
-    var seen: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var seen: std.array_hash_map.String(void) = .empty;
     for (fresh) |t| {
         const gop = try seen.getOrPut(allocator, t.file);
         if (gop.found_existing) continue;

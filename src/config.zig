@@ -38,6 +38,25 @@ pub const BanRule = struct {
     reason: ?[]const u8 = null,
 };
 
+/// One [[deprecated]] entry — a spelling THIS project has renamed away from,
+/// enforced by the `deprecated-alias` check beside its compiled std table.
+/// `chain` is the dotted token sequence to reject (`["std", "fifo",
+/// "LinearFifo"]` matches `std.fifo.LinearFifo`) and `replacement` names what to
+/// write instead, appended to every violation as `<chain> → use <replacement>`.
+///
+/// It exists because the compiled table can only track ONE std, on Guardian's
+/// own pinned toolchain. A consumer pinned to a different Zig, or migrating off
+/// its own deprecated API (a vendored library's old spelling, a helper it is
+/// retiring), has the same rename problem and no way to say so. `[[ban]]` is the
+/// neighbouring shape and deliberately not this one: a ban says a symbol is
+/// FORBIDDEN HERE and is scoped by `paths`/`allow`, while a deprecation says a
+/// spelling is OBSOLETE EVERYWHERE and always has a successor — which is why
+/// `replacement` is required and there is no path scoping.
+pub const DeprecatedRule = struct {
+    chain: []const []const u8,
+    replacement: []const u8,
+};
+
 /// One [[layering]] entry — a DIRECTIONAL import rule this project declares,
 /// enforced by the `import-layering` check. `name` is a kebab-case id that
 /// names the rule in every violation and leads its baseline key; `from` globs
@@ -236,6 +255,23 @@ pub const TwinReferentCfg = struct {
     ignore: []const []const u8 = &.{},
 };
 
+/// Per-check config for must-return-ref. `extra_types` ADDS to the compiled
+/// set of capacity-owning containers (it never replaces it): one entry per
+/// type, spelled either as a bare name ("RingBuffer", matched on the return
+/// type's last dotted segment) or as a two-segment tail ("ring.Buffer", which
+/// must match both). Empty by default, which is the std container set alone.
+pub const MustReturnRefCfg = struct {
+    extra_types: []const []const u8 = &.{},
+};
+
+/// Per-check config for undefined-init (an `undefined` reaching a value with no
+/// `// SAFETY:` justification). Opt-in: the volume on an existing tree is the
+/// whole classic Zig init idiom, so a project sizes the debt with `--dry-run`
+/// (which measures even while this is off) before turning the gate on.
+pub const UndefinedInitCfg = struct {
+    enabled: bool = false,
+};
+
 /// Per-check config for twin-drift, the copied-function-body drift scan.
 pub const TwinDriftCfg = struct {
     /// Normalised body lines a function needs before it is compared at all.
@@ -310,7 +346,11 @@ pub const PolicyMode = enum {
 
 /// Check severity and policy-file protection settings.
 pub const PolicyCfg = struct {
-    profile: PolicyProfile = .strict,
+    /// Default `agent`, not `strict`: style/best-practice heuristics advise and
+    /// correctness/safety checks block (see `profileMode` for the evidence).
+    /// `strict` stays fully selectable for the historical every-check-blocks
+    /// gate.
+    profile: PolicyProfile = .agent,
     /// Explicit overrides; `block` wins over `report`, which wins over
     /// `ratchet`, so a narrow project exception can tighten a broad profile.
     block: []const []const u8 = &.{},
@@ -358,13 +398,45 @@ fn containsName(names: []const []const u8, needle: []const u8) bool {
     return false;
 }
 
+/// Profile defaults: which registered checks a preset demotes to report-only.
+///
+/// The split follows the compiler-tier admission criteria in *Software
+/// Engineering at Google* ch. 20, which a check must meet to be allowed to
+/// break a build: "Actionable and easy to fix", "Produce no effective false
+/// positives (the analysis should never stop the build for correct code)", and
+/// "Report issues affecting only correctness rather than style or best
+/// practices" — the rationale being that "Breaking the build is a warning that
+/// is not possible to ignore." Sadowski et al., CACM 61(4) 2018, set the budget
+/// by SURFACE rather than per check: "Unlike compile-time checks, analysis
+/// results shown during code review are allowed to include up to 10% effective
+/// false positives." Advisory tier gets 10%; blocking tier gets zero.
+///
+/// `style_advice` is therefore the style/best-practice class, demoted by every
+/// non-`strict` profile; `maintainability_advice` is the shape/size class,
+/// demoted only by `safety`.
+///
+/// HONEST QUALIFICATION: Google tiers by *surface* (compiler vs. code review),
+/// where Guardian tiers by *mode* on a single surface. The structural argument
+/// transfers, but no source studies a report/block split of the identical
+/// check, and none of this measures gate efficacy — only which findings are
+/// worth refusing a commit over.
 fn profileMode(profile: PolicyProfile, check_name: []const u8) PolicyMode {
     const style_advice = [_][]const u8{
         "line-length",
         "repeated-string-literal",
+        "naming",
+        "doc-comments",
+        "module-doc-header",
+        // `return try f()` is a DIAGNOSTIC preference, not a correctness rule:
+        // for the common `fn g() !T { return try f(); }` over an `E!T` callee,
+        // dropping the `try` is genuinely equivalent. The value of a named local
+        // is that an errdefer, a log or an assert has somewhere to attach — which
+        // is best-practice advice, exactly the class ch. 20 keeps off the
+        // build-breaking tier. Measured 31 sites here and 184 in a consumer:
+        // retrofit cost with no defect behind it.
+        "try-in-return",
     };
     const maintainability_advice = [_][]const u8{
-        "naming",         "doc-comments",           "module-doc-header",
         "function-size",  "function-length",        "file-size",
         "nesting-depth",  "cognitive-complexity",   "type-size",
         "anytype-budget", "bool-ops-per-condition",
@@ -560,6 +632,63 @@ pub const OomDisciplineCfg = struct {
     enabled: bool = false,
 };
 
+/// Per-check config for abi-layout, whose two halves are independently
+/// controlled because they have opposite false-positive characters.
+///
+/// `require_assertions` promotes the layout INVENTORY (every `extern`/`packed
+/// struct` should carry a co-located `@sizeOf`/`@offsetOf` pin) from advice to
+/// a blocking gate. Advisory by default: a project's internal-only extern
+/// struct — an FFI shim it owns both ends of — has no external ABI contract to
+/// pin, so the finding is worth seeing but not worth refusing a commit over.
+///
+/// `alignment_hazard` controls the narrow ziglang/zig#23564 shape: an `extern
+/// struct` field whose type is a packed struct backed by more than 64 bits and
+/// carrying no explicit alignment. On by default — the width bound was measured
+/// against all of `lib/std` (see the check's module header), where it reports
+/// nothing while the looser "wider than u8" rule reported 36 correct structs.
+pub const AbiLayoutCfg = struct {
+    require_assertions: bool = false,
+    alignment_hazard: bool = true,
+};
+
+/// Default `[measure_vocabulary] kinds`: TigerBeetle's index/count/size/offset
+/// vocabulary. Each row is one family of interchangeable spellings; two names
+/// resolving to DIFFERENT families disagree about what they measure.
+const measure_kinds_default = [_][]const u8{
+    "position: index, idx, offset",
+    "cardinality: count",
+    "bytes: size",
+};
+
+/// Default `[measure_vocabulary] units`: one family whose members are mutually
+/// exclusive, so two names on DIFFERENT terms of the same family disagree.
+/// A family need not be a physical unit — any mutually exclusive set works,
+/// which is how a domain project declares `"entity: net, pad, pin"`.
+const measure_units_default = [_][]const u8{
+    "duration: ns, us, ms, s",
+};
+
+/// Default `[measure_vocabulary] banned`: TIGER_STYLE bans `length` outright as
+/// ambiguous between an item count and a byte size.
+const measure_banned_default = [_][]const u8{ "length", "len_bytes" };
+
+/// Per-check config for measure-vocabulary — the unit/quantity naming-
+/// consistency check. Opt-in AND advisory-only: the check never blocks, and
+/// `enabled` defaults false because its false-positive rate on a codebase that
+/// has not adopted the vocabulary is expected to be high. Every table is
+/// project-overridable; the defaults are TigerBeetle's TIGER_STYLE vocabulary.
+pub const MeasureVocabularyCfg = struct {
+    enabled: bool = false,
+    /// `"<family>: <term>, <term>"` rows. Cross-family = disagreement.
+    kinds: []const []const u8 = &measure_kinds_default,
+    /// `"<family>: <term>, <term>"` rows. Same family, different term =
+    /// disagreement.
+    units: []const []const u8 = &measure_units_default,
+    /// Terms banned outright as ambiguous, matched as a contiguous run of an
+    /// identifier's word segments.
+    banned: []const []const u8 = &measure_banned_default,
+};
+
 /// Per-check config for the module-doc-header check. `min_lines` is the line
 /// count above which a file must open with a `//!` module doc block; files at
 /// or below it are exempt. Default 200 — calibrated to zig-core reality, where
@@ -675,6 +804,26 @@ pub const MutationCfg = struct {
     /// campaign-local Zig cache; starting one on a nearly-full filesystem is
     /// how a run ends in `NoSpaceLeft` half way through.
     min_free_gib: u32 = 5,
+};
+
+/// Config for the `optimize-divergence` command (a nightly-tier step, never
+/// part of `all` — it builds and runs the whole suite twice; see
+/// cli/optimize_divergence.zig).
+///
+/// `exempt` is the per-test allowance list, because legitimate divergence
+/// exists: a test that asserts panic behavior cannot panic under `fast`, and a
+/// timing-sensitive test can flip on speed alone. Entries are matched against
+/// the test name the runner reports (`root.test.<name>`) with the same `*`
+/// glob syntax the rest of guardian.toml uses — no `*` is a substring match.
+pub const OptimizeDivergenceCfg = struct {
+    /// Off switches the command to a reported no-op (it still exits 0), for a
+    /// project whose suite legitimately cannot run under both modes.
+    enabled: bool = true,
+    /// The whole-suite command each mode runs; `-Doptimize=<mode>` is appended
+    /// to it. Argv-split and run with no shell, like `[gate] test_command`.
+    test_command: []const u8 = "zig build test",
+    /// Test names allowed to differ between the two optimize modes.
+    exempt: []const []const u8 = &.{},
 };
 
 /// Per-check config for the test-coverage check (per-pub-fn).
@@ -862,10 +1011,13 @@ pub const Config = struct {
     gate: GateCfg = .{},
     test_filter: TestFilterCfg = .{},
     oom_discipline: OomDisciplineCfg = .{},
+    measure_vocabulary: MeasureVocabularyCfg = .{},
     module_doc_header: ModuleDocHeaderCfg = .{},
+    abi_layout: AbiLayoutCfg = .{},
     dead_pub: DeadPubCfg = .{},
     change_classification: ChangeClassificationCfg = .{},
     mutation: MutationCfg = .{},
+    optimize_divergence: OptimizeDivergenceCfg = .{},
     benchmark: BenchmarkCfg = .{},
     completeness: CompletenessCfg = .{},
     dora: DoraCfg = .{},
@@ -876,6 +1028,8 @@ pub const Config = struct {
     divergent_const: DivergentConstCfg = .{},
     shadowed_const: ShadowedConstCfg = .{},
     twin_referent: TwinReferentCfg = .{},
+    must_return_ref: MustReturnRefCfg = .{},
+    undefined_init: UndefinedInitCfg = .{},
     twin_drift: TwinDriftCfg = .{},
     measurement: MeasurementCfg = .{},
     policy: PolicyCfg = .{},
@@ -886,6 +1040,11 @@ pub const Config = struct {
     /// [[ban]] entries: project-declared banned symbol chains (see BanRule).
     /// Empty (the default) makes the `ban` check a trivial pass.
     ban_rules: []const BanRule = &.{},
+
+    /// [[deprecated]] entries: project-declared obsolete spellings merged into
+    /// the `deprecated-alias` check's compiled std table (see DeprecatedRule).
+    /// Empty (the default) leaves that check exactly as it ships.
+    deprecated_rules: []const DeprecatedRule = &.{},
     /// [[concept]] entries: project-declared owned concepts (see ConceptRule).
     /// Empty (the default) makes the `concept` check a trivial pass.
     concept_rules: []const ConceptRule = &.{},
@@ -926,13 +1085,34 @@ pub const Config = struct {
 // spec: Policy Modes - Resolves strict, agent, and safety profiles with explicit per-check overrides
 
 test "policy profiles separate blocking checks from report-only advice" {
-    const strict: PolicyCfg = .{};
+    // The DEFAULT is `agent`: style/best-practice heuristics advise, and the
+    // correctness/safety class still blocks (SE at Google ch. 20 compiler-tier
+    // criteria — see profileMode).
+    const default_cfg: PolicyCfg = .{};
+    try std.testing.expect(default_cfg.profile == .agent);
+    try std.testing.expect(default_cfg.modeFor("line-length") == .report);
+    try std.testing.expect(default_cfg.modeFor("repeated-string-literal") == .report);
+    try std.testing.expect(default_cfg.modeFor("naming") == .report);
+    try std.testing.expect(default_cfg.modeFor("doc-comments") == .report);
+    try std.testing.expect(default_cfg.modeFor("module-doc-header") == .report);
+    try std.testing.expect(default_cfg.modeFor("try-in-return") == .report);
+    try std.testing.expect(default_cfg.modeFor("ban-secrets") == .block);
+    // `agent` still BLOCKS the shape/size caps; only `safety` demotes those.
+    try std.testing.expect(default_cfg.modeFor("function-length") == .block);
+    try std.testing.expect(default_cfg.modeFor("cognitive-complexity") == .block);
+    // `strict` restores the historical every-check-blocks gate.
+    const strict: PolicyCfg = .{ .profile = .strict };
     try std.testing.expect(strict.modeFor("line-length") == .block);
+    try std.testing.expect(strict.modeFor("naming") == .block);
+    try std.testing.expect(strict.modeFor("doc-comments") == .block);
+    try std.testing.expect(strict.modeFor("module-doc-header") == .block);
+    try std.testing.expect(strict.modeFor("try-in-return") == .block);
     const agent: PolicyCfg = .{ .profile = .agent };
     try std.testing.expect(agent.modeFor("line-length") == .report);
     try std.testing.expect(agent.modeFor("ban-secrets") == .block);
     const safety: PolicyCfg = .{ .profile = .safety };
     try std.testing.expect(safety.modeFor("function-length") == .report);
+    try std.testing.expect(safety.modeFor("naming") == .report);
     const overridden: PolicyCfg = .{
         .profile = .safety,
         .block = &.{"function-length"},

@@ -664,6 +664,7 @@ test {
     _ = @import("mutation/cache.zig");
     _ = @import("mutation/report.zig");
     _ = @import("cli/mutate.zig");
+    _ = @import("cli/optimize_divergence.zig");
     _ = @import("cli/bench.zig");
     _ = @import("benchmark.zig");
     _ = @import("cli/debt.zig");
@@ -750,6 +751,8 @@ test {
     _ = @import("checks/canonical_idiom.zig");
     _ = @import("checks/catch_discipline.zig");
     _ = @import("checks/change_classification.zig");
+    _ = @import("checks/error_path_testing.zig");
+    _ = @import("checks/test_erosion.zig");
     _ = @import("checks/cognitive_complexity.zig");
     _ = @import("checks/completeness.zig");
     _ = @import("checks/concept.zig");
@@ -786,6 +789,7 @@ test {
     _ = @import("checks/module_doc_header.zig");
     _ = @import("checks/external_gates.zig");
     _ = @import("checks/policy_drift.zig");
+    _ = @import("checks/measure_vocabulary.zig");
     _ = @import("checks/naming.zig");
     _ = @import("checks/nesting_depth.zig");
     _ = @import("checks/no_test_imports_in_prod.zig");
@@ -798,6 +802,13 @@ test {
     _ = @import("checks/spec.zig");
     _ = @import("checks/stub_body_ban.zig");
     _ = @import("checks/stack_escape.zig");
+    _ = @import("checks/must_return_ref.zig");
+    _ = @import("checks/pub_exposes_private.zig");
+    _ = @import("checks/compound_assert.zig");
+    _ = @import("checks/try_in_return.zig");
+    _ = @import("checks/abi_layout.zig");
+    _ = @import("checks/undefined_init.zig");
+    _ = @import("checks/import_resolution.zig");
     _ = @import("checks/test_coverage.zig");
     _ = @import("checks/test_has_assertion.zig");
     _ = @import("checks/test_no_conditional.zig");
@@ -805,6 +816,7 @@ test {
     _ = @import("checks/test_skip_ban.zig");
     _ = @import("checks/type_size.zig");
     _ = @import("checks/unsafe_ops_budget.zig");
+    _ = @import("checks/assert_density.zig");
     _ = @import("checks/unwrap_discipline.zig");
 }
 

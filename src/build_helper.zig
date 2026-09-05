@@ -14,10 +14,17 @@
 
 const std = @import("std");
 const registry = @import("cli/registry.zig");
+// Imported for its `command_name` rather than respelling the literal here:
+// two file-scope consts holding the same string are exactly what the
+// repeated-string-literal check flags across files.
+const optimize_divergence = @import("cli/optimize_divergence.zig");
 
 const generator_name = "spec-init"; // generator, not a gate
 const mutate_name = "mutate"; // explicit step, not a gate
 const debt_name = "debt"; // non-gating debt report, invoked directly
+/// Nightly-tier step: builds and runs the whole suite once per optimize mode,
+/// so it is never a gate and never a dependency of `zig build` / `zig build test`.
+const optimize_divergence_name = optimize_divergence.command_name;
 const doctor_name = "doctor";
 const spec_sync_name = "spec-sync";
 const accept_name = "accept";
@@ -45,7 +52,7 @@ const registry_eval_quota: u32 = 20000;
 /// Registered gates that should run on every build. Derived from
 /// `cli/registry.zig::all` at comptime — adding a new check there wires it
 /// here automatically. The generator (`spec-init`), the explicit `mutate`
-/// step, the non-gating `debt` report, and the composed
+/// and `optimize-divergence` steps, the non-gating `debt` report, and the composed
 /// `nightly`/`commit`/`all` commands are never gates and are excluded (the last three defensively —
 /// they are dispatched specially and don't appear in the registry, mirroring
 /// the existing `all` exclusion).
@@ -55,6 +62,7 @@ pub const all_check_names: []const []const u8 = blk: {
     for (registry.all) |cmd| {
         if (std.mem.eql(u8, cmd.name, generator_name)) continue;
         if (std.mem.eql(u8, cmd.name, mutate_name)) continue;
+        if (std.mem.eql(u8, cmd.name, optimize_divergence_name)) continue;
         if (std.mem.eql(u8, cmd.name, debt_name)) continue;
         if (std.mem.eql(u8, cmd.name, nightly_name)) continue;
         if (std.mem.eql(u8, cmd.name, commit_name)) continue;
@@ -80,6 +88,13 @@ pub const Options = struct {
     /// `registerMutateSteps`), so calling addAllChecks more than once (a
     /// consumer typically wires both the install and test steps) is safe.
     mutate_steps: bool = true,
+    /// When true (default), also register the top-level `optimize-divergence`
+    /// step, so consumers get the safe-vs-fast comparison the day they upgrade.
+    /// Like `mutate_steps` it is a standalone user/nightly-invoked step — never
+    /// a dependency of `zig build` or `zig build test`, because it builds and
+    /// runs the whole suite twice — and its registration is idempotent (see
+    /// `registerOptimizeDivergenceStep`).
+    optimize_divergence_step: bool = true,
     /// Register the canonical current-binary `guardian` runner plus namespaced maintenance steps (`guardian-doctor`,
     /// `guardian-debt`, `guardian-spec-sync`, `guardian-accept`, and
     /// `guardian-explain`) in the consumer build.
@@ -111,6 +126,7 @@ pub fn addAllChecks(
 ) void {
     const wiring = resolve(b, check_exe, opts);
     if (opts.mutate_steps) registerMutateSteps(wiring);
+    if (opts.optimize_divergence_step) registerOptimizeDivergenceStep(wiring);
     if (opts.maintenance_steps) registerMaintenanceSteps(wiring);
 
     const run = wiring.invoke(checkArgs(wiring, run_all_name));
@@ -372,6 +388,20 @@ fn registerMutateSteps(w: Wiring) void {
     });
 }
 
+/// Registers the `optimize-divergence` top-level step: build and run the whole
+/// suite under `-Doptimize=safe` and `-Doptimize=fast` and fail on divergence.
+/// A standalone step, never a dependency of the build — it pays for two whole
+/// suite runs, which is why it lives on the nightly tier beside mutation.
+/// Idempotent, like `registerMutateSteps`.
+fn registerOptimizeDivergenceStep(w: Wiring) void {
+    ensureToolStep(
+        w,
+        optimize_divergence_name,
+        "Run the suite under safe and fast; fail on divergence",
+        &.{ optimize_divergence_name, "." },
+    );
+}
+
 // ── The honest filtered-test loop ──────────────────────────────────────
 
 /// The counting test runner, as it is spelled from the package root.
@@ -608,6 +638,19 @@ test "compile probe step name and description stay stable" {
     // probe would answer a question nobody asked.
     try std.testing.expect(@hasField(CompileProbeOptions, "root_module"));
     try std.testing.expect(!@hasField(CompileProbeOptions, "filters"));
+}
+
+// spec: Build Helper - Keeps the twice-the-suite optimize-divergence step out of the gate list
+
+test "optimize-divergence is registered as a step but never as a gate" {
+    // Two whole suite runs must never become a dependency of `zig build`.
+    for (all_check_names) |name| {
+        try std.testing.expect(!std.mem.eql(u8, name, optimize_divergence_name));
+    }
+    // The step exists and is on by default, like the mutate steps.
+    const opts: Options = .{};
+    try std.testing.expect(opts.optimize_divergence_step);
+    try std.testing.expectEqualStrings("optimize-divergence", optimize_divergence_name);
 }
 
 // spec: Build Helper - Orders caller prerequisites before every gate invocation

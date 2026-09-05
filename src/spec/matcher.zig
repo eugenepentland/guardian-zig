@@ -272,7 +272,7 @@ fn collectDuplicateTags(
     allocator: Allocator,
     tags: []const SpecTag,
 ) Allocator.Error![]DuplicateTag {
-    var by_key: std.StringArrayHashMapUnmanaged(std.ArrayList([]const u8)) = .empty;
+    var by_key: std.array_hash_map.String(std.ArrayList([]const u8)) = .empty;
     for (tags) |t| {
         if (t.kind == .case) continue;
         const gop = try by_key.getOrPut(allocator, t.key);
@@ -299,7 +299,7 @@ fn collectDuplicateBehaviors(
     allocator: Allocator,
     behaviors: []const parser.Behavior,
 ) Allocator.Error![]DuplicateBehavior {
-    var counts: std.StringArrayHashMapUnmanaged(usize) = .empty;
+    var counts: std.array_hash_map.String(usize) = .empty;
     for (behaviors) |b| {
         const gop = try counts.getOrPut(allocator, b.key);
         if (!gop.found_existing) gop.value_ptr.* = 0;

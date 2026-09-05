@@ -37,6 +37,7 @@ const check_test_reachability = @import("../checks/test_reachability.zig");
 const check_stub_body_ban = @import("../checks/stub_body_ban.zig");
 const check_int_from_float_budget = @import("../checks/int_from_float_budget.zig");
 const check_unsafe_ops_budget = @import("../checks/unsafe_ops_budget.zig");
+const check_assert_density = @import("../checks/assert_density.zig");
 const check_type_size = @import("../checks/type_size.zig");
 const check_function_length = @import("../checks/function_length.zig");
 const check_nesting_depth = @import("../checks/nesting_depth.zig");
@@ -44,6 +45,7 @@ const check_test_coverage = @import("../checks/test_coverage.zig");
 const check_ban = @import("../checks/ban.zig");
 const check_concept = @import("../checks/concept.zig");
 const check_canonical_idiom = @import("../checks/canonical_idiom.zig");
+const check_measure_vocabulary = @import("../checks/measure_vocabulary.zig");
 const check_twin_parity = @import("../checks/twin_parity.zig");
 const check_divergent_const = @import("../checks/divergent_const.zig");
 const check_shadowed_const = @import("../checks/shadowed_const.zig");
@@ -70,6 +72,8 @@ const check_line_length = @import("../checks/line_length.zig");
 const check_repeated_string_literal = @import("../checks/repeated_string_literal.zig");
 const check_stack_escape = @import("../checks/stack_escape.zig");
 const check_change_classification = @import("../checks/change_classification.zig");
+const check_error_path_test = @import("../checks/error_path_testing.zig");
+const check_test_erosion = @import("../checks/test_erosion.zig");
 const check_assert_doc_consistency = @import("../checks/assert_doc_consistency.zig");
 const check_fatal_exit = @import("../checks/fatal_exit.zig");
 const check_fuzz_presence = @import("../checks/fuzz_presence.zig");
@@ -81,7 +85,15 @@ const check_module_doc_header = @import("../checks/module_doc_header.zig");
 const check_external_gates = @import("../checks/external_gates.zig");
 const check_policy_drift = @import("../checks/policy_drift.zig");
 const check_merge_state = @import("../checks/merge_state.zig");
+const check_must_return_ref = @import("../checks/must_return_ref.zig");
+const check_pub_exposes_private = @import("../checks/pub_exposes_private.zig");
+const check_compound_assert = @import("../checks/compound_assert.zig");
+const check_try_in_return = @import("../checks/try_in_return.zig");
+const check_abi_layout = @import("../checks/abi_layout.zig");
+const check_undefined_init = @import("../checks/undefined_init.zig");
+const check_import_resolution = @import("../checks/import_resolution.zig");
 const cmd_mutate = @import("mutate.zig");
+const cmd_optimize_divergence = @import("optimize_divergence.zig");
 const cmd_debt = @import("debt.zig");
 
 /// Spelled once: the registry entry, the whole-tree list and the change-subject
@@ -124,6 +136,13 @@ pub const all: []const Command = &.{
         .scope = .whole_tree,
         .subject = .change,
         .run = cmd_mutate.run,
+    },
+    .{
+        .name = "optimize-divergence",
+        .summary = "Run the suite under safe and fast; fail on divergence (nightly tier)",
+        .scope = .whole_tree,
+        .subject = .tree,
+        .run = cmd_optimize_divergence.run,
     },
     .{
         .name = "debt",
@@ -177,6 +196,17 @@ pub const all: []const Command = &.{
         .run = check_naming.run,
     },
     .{
+        .name = check_measure_vocabulary.check_name,
+        .summary = "Report names that disagree about a unit or quantity kind (opt-in, advisory)",
+        .needs_ast = .yes,
+        // Per-file: every pair of names it judges is found inside ONE file (a
+        // declaration, an assignment, a call whose callee that file declares),
+        // so a diff-scoped run narrows it soundly.
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_measure_vocabulary.run,
+    },
+    .{
         .name = "function-size",
         .summary = "Cap function parameter count",
         .needs_ast = .yes,
@@ -198,6 +228,18 @@ pub const all: []const Command = &.{
         .scope = .whole_tree,
         .subject = .tree,
         .run = check_imports.run,
+    },
+    .{
+        .name = "import-resolution",
+        .summary = "Require every path-shaped @import to name a file that exists",
+        // Whole-tree for the same reason as import-layering, from the other
+        // side: the TARGET of an import is a file the diff need not have
+        // touched. Deleting or renaming `src/b.zig` while leaving its importers
+        // alone is exactly the break this catches, and a narrowed run would
+        // never look at the importer.
+        .scope = .whole_tree,
+        .subject = .tree,
+        .run = check_import_resolution.run,
     },
     .{
         .name = "import-layering",
@@ -321,6 +363,13 @@ pub const all: []const Command = &.{
         .scope = .whole_tree,
         .subject = .tree,
         .run = check_unsafe_ops_budget.run,
+    },
+    .{
+        .name = check_assert_density.check_name,
+        .summary = "Ratchet per-module assertion density upward (advisory, never blocks)",
+        .scope = .whole_tree,
+        .subject = .tree,
+        .run = check_assert_density.run,
     },
     .{
         .name = "type-size",
@@ -589,6 +638,58 @@ pub const all: []const Command = &.{
         .run = check_stack_escape.run,
     },
     .{
+        .name = check_undefined_init.check_name,
+        .summary = "Require a // SAFETY: justification for an undefined value (opt-in)",
+        .needs_ast = .yes,
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_undefined_init.run,
+    },
+    .{
+        .name = check_must_return_ref.check_name,
+        .summary = "Reject returning a capacity-owning container field by value (leaks a copy)",
+        .needs_ast = .yes,
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_must_return_ref.run,
+    },
+    .{
+        .name = "pub-exposes-private",
+        .summary = "Reject a pub fn signature naming a type or error set that is not pub",
+        .needs_ast = .yes,
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_pub_exposes_private.run,
+    },
+    .{
+        .name = "compound-assert",
+        .summary = "Split a std.debug.assert conjunction into one assert per conjunct",
+        .needs_ast = .yes,
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_compound_assert.run,
+    },
+    .{
+        .name = "try-in-return",
+        .summary = "Reject `return try <expr>` — bind the tried value to a local first",
+        .needs_ast = .yes,
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_try_in_return.run,
+    },
+    // Both halves read one file at a time: the assertion must be co-located
+    // with the struct it pins, and a field's packed type is resolved only in
+    // the file that declares it. Nothing here consults another file, so a
+    // diff-scoped run may narrow it without changing a verdict.
+    .{
+        .name = check_abi_layout.check_name,
+        .summary = "Pin extern/packed struct layout and reject an unaligned wide packed field (ziglang/zig#23564)",
+        .needs_ast = .yes,
+        .scope = .per_file,
+        .subject = .tree,
+        .run = check_abi_layout.run,
+    },
+    .{
         .name = "assert-doc-consistency",
         .summary = "Require a body assert() in any fn whose doc claims an Asserts precondition",
         .needs_ast = .yes,
@@ -610,6 +711,24 @@ pub const all: []const Command = &.{
         .scope = .whole_tree,
         .subject = .change,
         .run = check_change_classification.run,
+    },
+    .{
+        .name = "error-path-test",
+        .summary = "Require a test naming each error path the change adds (vs git ref)",
+        .needs_ast = .yes,
+        .scope = .whole_tree,
+        // Judges the diff, and cross-references it against every test in the
+        // tree: neither half may be narrowed, and neither may be frozen.
+        .subject = .change,
+        .run = check_error_path_test.run,
+    },
+    .{
+        .name = "test-erosion",
+        .summary = "Report a change whose test count or assertion count went backwards (advisory)",
+        .needs_ast = .yes,
+        .scope = .whole_tree,
+        .subject = .change,
+        .run = check_test_erosion.run,
     },
     .{
         .name = "oom-discipline",
@@ -776,7 +895,8 @@ const inherently_whole_tree = [_][]const u8{
     "merge-state",               "concept",         "canonical-idiom",
     "divergent-const",           "shadowed-const",  "twin-referent",
     "import-layering",           "twin-parity",     "script-string-safety",
-    "dead-model-field",          "twin-drift",
+    "dead-model-field",          "twin-drift",      "import-resolution",
+    "error-path-test",           "test-erosion",    "assert-density",
 };
 
 /// Checks whose subject is the CHANGE UNDER REVIEW rather than the tree's
@@ -787,7 +907,12 @@ const inherently_whole_tree = [_][]const u8{
 /// registry below, exactly as `inherently_whole_tree` is, so a future edit
 /// cannot quietly reclassify one. (Exhaustiveness the other way is a
 /// compile-time property: `Command.subject` has no default.)
-const change_subject = [_][]const u8{ "mutate", change_classification_name };
+const change_subject = [_][]const u8{
+    "mutate",
+    change_classification_name,
+    "error-path-test",
+    "test-erosion",
+};
 
 /// True when every name in `change_subject` resolves to a registered check
 /// classified `.change`.

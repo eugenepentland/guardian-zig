@@ -6,10 +6,17 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
+/// Imported by leaf name (not as a `text` module alias) because `text` is
+/// already a local binding further down this file.
+const LineCursor = @import("../text.zig").LineCursor;
 
 /// One @import("...") call extracted from source. Path is the literal argument.
 pub const Import = struct {
     path: []const u8,
+    /// 1-indexed source line of the `@import` builtin token, so a finding about
+    /// one import reports as `file:line` instead of file-only. Defaults to 0
+    /// for a hand-built Import in a test that does not care where it sat.
+    line: u32 = 0,
 };
 
 /// A top-level public function discovered by pubFns().
@@ -87,6 +94,9 @@ fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
     var result: std.ArrayList(Import) = .empty;
     const z = try arena.dupeSentinel(u8, source, 0);
     var tok = std.zig.Tokenizer.init(z);
+    // Forward-only: the tokenizer yields ascending offsets, so one walk of the
+    // source lines every import instead of restarting at byte 0 per hit.
+    var cursor: LineCursor = .{};
     while (true) {
         const t = tok.next();
         if (t.tag == .eof) break;
@@ -101,7 +111,7 @@ fn importsImpl(arena: Allocator, source: []const u8) ![]const Import {
         const raw = z[str.loc.start..str.loc.end];
         if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') continue;
         const path = raw[1 .. raw.len - 1];
-        try result.append(arena, .{ .path = path });
+        try result.append(arena, .{ .path = path, .line = cursor.at(z, t.loc.start) });
     }
     return result.toOwnedSlice(arena);
 }

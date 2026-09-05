@@ -20,6 +20,7 @@ const Config = config.Config;
 const BoundaryRule = config.BoundaryRule;
 const AllowRule = config.AllowRule;
 const BanRule = config.BanRule;
+const DeprecatedRule = config.DeprecatedRule;
 const ConceptRule = config.ConceptRule;
 const IdiomRule = config.IdiomRule;
 const ShadowRule = config.ShadowRule;
@@ -71,6 +72,7 @@ pub const LoadError = ParseError || error{ConfigUnreadable};
 /// The `exempt_names` key, shared by [doc_quality] and [test_coverage]; a named
 /// const so the literal isn't repeated across the valid-key lists and appliers.
 const exempt_names_key = "exempt_names";
+const test_command_key = "test_command";
 const min_score_pct_key = "min_score_pct";
 const min_mutants_key = "min_mutants";
 const max_mutants_key = "max_mutants";
@@ -88,6 +90,8 @@ const hard_max_lines_key = "hard_max_lines";
 const max_len_key = "max_len";
 const hard_max_len_key = "hard_max_len";
 const recover_pct_key = "recover_pct";
+const require_assertions_key = "require_assertions";
+const alignment_hazard_key = "alignment_hazard";
 const required_inputs_key = "required_inputs";
 const literals_key = "literals";
 const patterns_key = "patterns";
@@ -202,10 +206,13 @@ const Section = enum {
     hysteresis,
     retired_check,
     oom_discipline,
+    measure_vocabulary,
     module_doc_header,
+    abi_layout,
     dead_pub,
     change_classification,
     mutation,
+    optimize_divergence,
     benchmark,
     completeness,
     dora,
@@ -216,6 +223,8 @@ const Section = enum {
     divergent_const,
     shadowed_const,
     twin_referent,
+    must_return_ref,
+    undefined_init,
     twin_drift,
     measurement,
     policy,
@@ -240,6 +249,7 @@ const ArrayKind = enum {
     boundary,
     allow,
     ban,
+    deprecated,
     concept,
     idiom,
     shadow,
@@ -264,6 +274,8 @@ const ParseState = struct {
     cur_ban_allow: std.ArrayList([]const u8) = .empty,
     cur_reason: ?[]const u8 = null,
     bans: std.ArrayList(BanRule) = .empty,
+    cur_replacement: ?[]const u8 = null,
+    deprecations: std.ArrayList(DeprecatedRule) = .empty,
     cur_concept_name: ?[]const u8 = null,
     cur_literals: std.ArrayList([]const u8) = .empty,
     cur_patterns: std.ArrayList([]const u8) = .empty,
@@ -375,6 +387,7 @@ const ParseState = struct {
                 });
             },
             .ban => try self.flushBan(allocator, diag),
+            .deprecated => try self.flushDeprecated(allocator, diag),
             .concept => try self.flushConcept(allocator, diag),
             .idiom => try self.flushIdiom(allocator, diag),
             .shadow => try self.flushShadow(allocator, diag),
@@ -437,6 +450,40 @@ const ParseState = struct {
             .paths = try self.cur_ban_paths.toOwnedSlice(allocator),
             .allow = try self.cur_ban_allow.toOwnedSlice(allocator),
             .reason = self.cur_reason,
+        });
+    }
+
+    /// Closes a `[[deprecated]]` entry. BOTH keys are required, for the two
+    /// different ways the entry would otherwise be useless: an empty `chain`
+    /// matches nothing while reading like an enforced rename, and a missing
+    /// `replacement` leaves a violation that says a spelling is obsolete without
+    /// saying what replaced it — the one piece of information the reader came
+    /// for. `[[ban]]` tolerates a missing `reason` because a ban can stand on
+    /// "not here"; a deprecation cannot.
+    fn flushDeprecated(self: *ParseState, allocator: Allocator, diag: *Diagnostic) ParseError!void {
+        if (self.cur_chain.items.len == 0) {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[deprecated]]: 'chain' must be a non-empty string array",
+                .{},
+            );
+            return error.IncompleteTable;
+        }
+        const replacement = self.cur_replacement orelse {
+            try setDiag(
+                allocator,
+                diag,
+                self.array_line,
+                "incomplete [[deprecated]]: missing required key 'replacement'",
+                .{},
+            );
+            return error.IncompleteTable;
+        };
+        try self.deprecations.append(allocator, .{
+            .chain = try self.cur_chain.toOwnedSlice(allocator),
+            .replacement = replacement,
         });
     }
 
@@ -814,6 +861,7 @@ const ParseState = struct {
         self.cur_ban_paths = .empty;
         self.cur_ban_allow = .empty;
         self.cur_reason = null;
+        self.cur_replacement = null;
         self.cur_concept_name = null;
         self.cur_literals = .empty;
         self.cur_patterns = .empty;
@@ -873,6 +921,7 @@ const ParseState = struct {
             .boundary => try self.setBoundaryKey(allocator, kv),
             .allow => try self.setAllowKey(allocator, kv),
             .ban => try self.setBanKey(allocator, kv),
+            .deprecated => try self.setDeprecatedKey(allocator, kv),
             .concept => try self.setConceptKey(allocator, kv),
             .idiom => try self.setIdiomKey(allocator, kv),
             .shadow => try self.setShadowKey(allocator, kv),
@@ -912,6 +961,14 @@ const ParseState = struct {
             self.cur_ban_allow = try parseStringArray(allocator, kv.val);
         } else if (std.mem.eql(u8, kv.key, "reason")) {
             self.cur_reason = try parseStringAlloc(allocator, kv.val);
+        }
+    }
+
+    fn setDeprecatedKey(self: *ParseState, allocator: Allocator, kv: KeyVal) Allocator.Error!void {
+        if (std.mem.eql(u8, kv.key, "chain")) {
+            self.cur_chain = try parseStringArray(allocator, kv.val);
+        } else if (std.mem.eql(u8, kv.key, "replacement")) {
+            self.cur_replacement = try parseStringAlloc(allocator, kv.val);
         }
     }
 
@@ -1058,6 +1115,7 @@ fn arrayKindFor(name: []const u8) ArrayKind {
     if (std.mem.eql(u8, name, "boundary")) return .boundary;
     if (std.mem.eql(u8, name, "allow")) return .allow;
     if (std.mem.eql(u8, name, "ban")) return .ban;
+    if (std.mem.eql(u8, name, "deprecated")) return .deprecated;
     if (std.mem.eql(u8, name, "concept")) return .concept;
     if (std.mem.eql(u8, name, "idiom")) return .idiom;
     if (std.mem.eql(u8, name, "shadow")) return .shadow;
@@ -1120,6 +1178,7 @@ pub fn parseInto(allocator: Allocator, content: []const u8, diag: *Diagnostic) P
     cfg.boundary_rules = try st.boundaries.toOwnedSlice(allocator);
     cfg.allow_rules = try st.allows.toOwnedSlice(allocator);
     cfg.ban_rules = try st.bans.toOwnedSlice(allocator);
+    cfg.deprecated_rules = try st.deprecations.toOwnedSlice(allocator);
     cfg.concept_rules = try st.concepts.toOwnedSlice(allocator);
     cfg.idiom_rules = try st.idioms.toOwnedSlice(allocator);
     cfg.shadow_rules = try st.shadows.toOwnedSlice(allocator);
@@ -1223,6 +1282,8 @@ fn arrayValueKind(kind: ArrayKind, key: []const u8) ValueKind {
         .allow => if (key[0] == 'c') .string else .string_array,
         // chain / paths / allow are arrays; only `reason` is prose.
         .ban => if (key[0] == 'r') .string else .string_array,
+        // `chain` is an array; `replacement` is prose.
+        .deprecated => if (key[0] == 'r') .string else .string_array,
         // Spelled out rather than branched on a first character: `require_in`
         // and `reason` share an `r`, and `literals` / `literals_from` share
         // four — the shape that made the shorthand readable is gone.
@@ -1313,6 +1374,9 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
         .test_coverage,
         .completeness,
         => if (key[1] == 'n') .boolean else .string_array,
+        // `units` also has 'n' at index 1, so this section keys off index 0:
+        // only `enabled` starts with 'e'.
+        .measure_vocabulary => if (key[0] == 'e') .boolean else .string_array,
         .function_size,
         .complexity,
         .function_length,
@@ -1334,14 +1398,20 @@ fn valueKind(st: *const ParseState, key: []const u8) ValueKind {
             'r' => .unsigned,
             else => .string_array,
         },
-        .retired_check, .oom_discipline, .dead_pub => .boolean,
+        .retired_check, .oom_discipline, .undefined_init, .dead_pub, .abi_layout => .boolean,
         .module_doc_header => .unsigned,
         .change_classification => if (key[0] == 'a') .string else .boolean,
         .mutation => if (key[0] == 's') .string else if (std.mem.eql(u8, key, on_commit_key)) .boolean else .unsigned,
+        // `enabled` is a toggle, `exempt` an array (both start with `e`),
+        // `test_command` prose.
+        .optimize_divergence => switch (key[0]) {
+            't' => .string,
+            else => if (key[1] == 'n') .boolean else .string_array,
+        },
         .benchmark => .string_array,
         .dora => if (key[0] == 'e') .boolean else .string,
         .fuzz_presence, .concurrency_presence, .script_string_safety => .string_array,
-        .int_from_float, .measurement, .twin_referent => .string_array,
+        .int_from_float, .measurement, .twin_referent, .must_return_ref => .string_array,
         // `mode` is prose; `ignore_names` is an array.
         .divergent_const => if (key[0] == 'm') .string else .string_array,
         .shadowed_const => shadowedConstValueKind(key),
@@ -1420,7 +1490,11 @@ fn validateValue(
     if (st.array_kind == .none and st.section == .twin_drift) {
         try validateTwinDrift(allocator, kv, line_no, diag);
     }
-    if (st.array_kind == .ban) try validateBanChain(allocator, kv, line_no, diag);
+    // Both shapes carry a dotted identifier `chain`, so both get the
+    // one-identifier-per-segment check rather than one of them silently
+    // accepting `chain = ["std.fifo.LinearFifo"]` and matching nothing.
+    if (st.array_kind == .ban or st.array_kind == .deprecated)
+        try validateBanChain(allocator, kv, line_no, diag);
     if (st.array_kind == .concept) {
         try validateRuleName(allocator, "concept", kv, line_no, diag);
         try validateLiteralsFrom(allocator, kv, line_no, diag);
@@ -1802,8 +1876,9 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .line_length => &.{ "enabled", max_len_key, hard_max_len_key },
         .baseline => &.{ "enabled", "deny_growth" },
         .hysteresis => &.{ "enabled", recover_pct_key, "checks" },
-        .retired_check, .oom_discipline => &.{"enabled"},
+        .retired_check, .oom_discipline, .undefined_init => &.{"enabled"},
         .module_doc_header => &.{"min_lines"},
+        .abi_layout => &.{ require_assertions_key, alignment_hazard_key },
         .dead_pub => &.{"ignore_test_refs"},
         .change_classification => &.{ "enabled", "against", "gate_last_commit" },
         .mutation => &.{
@@ -1820,8 +1895,10 @@ fn validSectionKeys(section: Section) []const []const u8 {
             on_commit_key,
             min_free_gib_key,
         },
+        .optimize_divergence => &.{ "enabled", test_command_key, "exempt" },
         .benchmark => &.{"gate"},
         .completeness => &.{ "enabled", "exempt_sections" },
+        .measure_vocabulary => &.{ "enabled", "kinds", "units", "banned" },
         .dora => &.{ "enabled", "sink_path" },
         .fuzz_presence => &.{"modules"},
         .concurrency_presence => &.{"modules"},
@@ -1830,6 +1907,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .divergent_const => &.{ ignore_names_key, mode_key },
         .shadowed_const => &.{ mode_key, ignore_values_key, min_float_digits_key, min_int_digits_key },
         .twin_referent => &.{"ignore"},
+        .must_return_ref => &.{"extra_types"},
         .twin_drift => &.{
             min_statements_key,   min_similarity_key, pair_similarity_key,
             report_identical_key, "ignore",           max_lines_key,
@@ -1837,7 +1915,7 @@ fn validSectionKeys(section: Section) []const []const u8 {
         .measurement => &.{"paths"},
         .policy => &.{ "profile", "block", "ratchet", "report", lock_enabled_key, lock_against_key, "protected_paths" },
         .doctor => &.{ "zig_cache_warn_mib", "guardian_cache_warn_mib" },
-        .gate => &.{ on_build_key, "test_command", "install_hook" },
+        .gate => &.{ on_build_key, test_command_key, "install_hook" },
         .test_filter => &.{"flag"},
         .unknown => &.{},
     };
@@ -1851,6 +1929,7 @@ fn validArrayKeys(kind: ArrayKind) []const []const u8 {
         .boundary => &.{ "module", "forbidden" },
         .allow => &.{ "check", "paths" },
         .ban => &.{ "chain", "paths", "allow", "reason" },
+        .deprecated => &.{ "chain", "replacement" },
         .idiom => &.{ "name", fragments_key, "files", "allow", "reason" },
         .shadow => &.{ shadow_const_key, "files", "ignore", "reason" },
         .layering => &.{ "name", from_key, to_key, "allow", "reason" },
@@ -1888,10 +1967,13 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .hysteresis => try applyHysteresisKey(ctx, kv),
         .retired_check => {},
         .oom_discipline => applyEnabledCfg("oom_discipline", ctx, kv),
+        .measure_vocabulary => try applyMeasureVocabularyKey(ctx, kv),
         .module_doc_header => applyModuleDocHeaderKey(ctx, kv),
+        .abi_layout => applyAbiLayoutKey(ctx, kv),
         .dead_pub => applyBoolCfg("dead_pub", "ignore_test_refs", ctx, kv),
         .change_classification => applyChangeClassificationKey(ctx, kv),
         .mutation => applyMutationKey(ctx, kv),
+        .optimize_divergence => try applyOptimizeDivergenceKey(ctx, kv),
         .benchmark => try applyBenchmarkKey(ctx, kv),
         .completeness => try applyCompletenessKey(ctx, kv),
         .dora => applyDoraKey(ctx, kv),
@@ -1902,6 +1984,8 @@ fn applySectionKey(ctx: ApplyCtx, section: Section, kv: KeyVal) Allocator.Error!
         .divergent_const => try applyDivergentConstKey(ctx, kv),
         .shadowed_const => try applyShadowedConstKey(ctx, kv),
         .twin_referent => try applyTwinReferentKey(ctx, kv),
+        .must_return_ref => try applyMustReturnRefKey(ctx, kv),
+        .undefined_init => applyEnabledCfg("undefined_init", ctx, kv),
         .twin_drift => try applyTwinDriftKey(ctx, kv),
         .measurement => try applyMeasurementKey(ctx, kv),
         .policy => try config_policy.applyPolicy(ctx.allocator, ctx.cfg, kv.key, kv.val),
@@ -1925,7 +2009,7 @@ fn applyGateKey(ctx: ApplyCtx, kv: KeyVal) void {
     const g = &ctx.cfg.gate;
     if (std.mem.eql(u8, kv.key, on_build_key)) {
         if (parseString(kv.val)) |v| g.on_build = if (std.mem.eql(u8, v, "block")) .block else .report;
-    } else if (std.mem.eql(u8, kv.key, "test_command")) {
+    } else if (std.mem.eql(u8, kv.key, test_command_key)) {
         if (parseString(kv.val)) |v| g.test_command = v;
     } else if (std.mem.eql(u8, kv.key, "install_hook")) {
         g.install_hook = parseBool(kv.val) orelse g.install_hook;
@@ -1954,10 +2038,13 @@ fn sectionFor(name: []const u8) Section {
         .{ "escape_discipline", Section.retired_check },
         .{ "magic_number", Section.retired_check },
         .{ "oom_discipline", Section.oom_discipline },
+        .{ "measure_vocabulary", Section.measure_vocabulary },
         .{ "module_doc_header", Section.module_doc_header },
+        .{ "abi_layout", Section.abi_layout },
         .{ "dead_pub", Section.dead_pub },
         .{ "change_classification", Section.change_classification },
         .{ "mutation", Section.mutation },
+        .{ "optimize_divergence", Section.optimize_divergence },
         .{ benchmark_key, Section.benchmark },
         .{ "completeness", Section.completeness },
         .{ "dora", Section.dora },
@@ -1969,6 +2056,8 @@ fn sectionFor(name: []const u8) Section {
         .{ "shadowed_const", Section.shadowed_const },
         .{ "twin_drift", Section.twin_drift },
         .{ "twin_referent", Section.twin_referent },
+        .{ "must_return_ref", Section.must_return_ref },
+        .{ "undefined_init", Section.undefined_init },
         .{ "measurement", Section.measurement },
         .{ "policy", Section.policy },
         .{ "doctor", Section.doctor },
@@ -2151,12 +2240,40 @@ fn applyBenchmarkKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     }
 }
 
+fn applyOptimizeDivergenceKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.optimize_divergence;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, test_command_key)) {
+        if (parseString(kv.val)) |v| g.test_command = v;
+    } else if (std.mem.eql(u8, kv.key, "exempt")) {
+        g.exempt = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
 fn applyCompletenessKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     const g = &ctx.cfg.completeness;
     if (std.mem.eql(u8, kv.key, "enabled")) {
         g.enabled = parseBool(kv.val) orelse g.enabled;
     } else if (std.mem.eql(u8, kv.key, "exempt_sections")) {
         g.exempt_sections = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the `[measure_vocabulary]` tables. Each of the three lists is
+/// wholly replaced when the project declares it, so a project that adds its own
+/// unit families keeps the defaults only by restating them — a vocabulary is a
+/// single coherent table, not a set of additive overlays.
+fn applyMeasureVocabularyKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    const g = &ctx.cfg.measure_vocabulary;
+    if (std.mem.eql(u8, kv.key, "enabled")) {
+        g.enabled = parseBool(kv.val) orelse g.enabled;
+    } else if (std.mem.eql(u8, kv.key, "kinds")) {
+        g.kinds = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, "units")) {
+        g.units = try toStrings(ctx.allocator, kv.val);
+    } else if (std.mem.eql(u8, kv.key, "banned")) {
+        g.banned = try toStrings(ctx.allocator, kv.val);
     }
 }
 
@@ -2261,6 +2378,27 @@ fn applyTwinDriftKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
 fn applyMeasurementKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
     if (std.mem.eql(u8, kv.key, measurement_paths_key)) {
         ctx.cfg.measurement.paths = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the `[must_return_ref] extra_types` list — project-declared
+/// capacity-owning container types ADDED to the compiled std set.
+fn applyMustReturnRefKey(ctx: ApplyCtx, kv: KeyVal) Allocator.Error!void {
+    if (std.mem.eql(u8, kv.key, "extra_types")) {
+        ctx.cfg.must_return_ref.extra_types = try toStrings(ctx.allocator, kv.val);
+    }
+}
+
+/// Applies the two independent `[abi_layout]` switches. There is no shared
+/// `enabled` key: the halves have opposite defaults (inventory advises,
+/// alignment blocks), so one toggle over both would only ever be wrong for one
+/// of them.
+fn applyAbiLayoutKey(ctx: ApplyCtx, kv: KeyVal) void {
+    const g = &ctx.cfg.abi_layout;
+    if (std.mem.eql(u8, kv.key, require_assertions_key)) {
+        g.require_assertions = parseBool(kv.val) orelse g.require_assertions;
+    } else if (std.mem.eql(u8, kv.key, alignment_hazard_key)) {
+        g.alignment_hazard = parseBool(kv.val) orelse g.alignment_hazard;
     }
 }
 
@@ -2690,6 +2828,52 @@ test "parse rejects a dotted ban chain segment" {
     try std.testing.expectError(error.InvalidValue, parseInto(arena.allocator(), content, &diag));
     try std.testing.expectEqual(@as(u32, 2), diag.line);
     try std.testing.expect(std.mem.indexOf(u8, diag.message, "one identifier per segment") != null);
+}
+
+// spec: Deprecated Alias - Parses project deprecated spellings via [[deprecated]] sections
+
+test "parse deprecated array tables and reject an incomplete one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = try parse(arena.allocator(),
+        \\[[deprecated]]
+        \\chain = ["std", "fifo", "LinearFifo"]
+        \\replacement = "std.Io.Reader over a fixed buffer"
+    );
+    try std.testing.expectEqual(@as(usize, 1), cfg.deprecated_rules.len);
+    try std.testing.expectEqual(@as(usize, 3), cfg.deprecated_rules[0].chain.len);
+    try std.testing.expectEqualStrings("LinearFifo", cfg.deprecated_rules[0].chain[2]);
+    try std.testing.expectEqualStrings(
+        "std.Io.Reader over a fixed buffer",
+        cfg.deprecated_rules[0].replacement,
+    );
+
+    // Both keys are required: a deprecation with no successor names the problem
+    // and withholds the only thing the reader needs.
+    var diag: Diagnostic = .{};
+    const no_replacement =
+        \\[[deprecated]]
+        \\chain = ["std", "RingBuffer"]
+    ;
+    try std.testing.expectError(
+        error.IncompleteTable,
+        parseInto(arena.allocator(), no_replacement, &diag),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, diag.message, "replacement") != null);
+
+    // And the dotted-chain mistake fails closed here exactly as it does for
+    // [[ban]], rather than storing a rule that matches no token sequence.
+    var dotted_diag: Diagnostic = .{};
+    const dotted =
+        \\[[deprecated]]
+        \\chain = ["std.RingBuffer"]
+        \\replacement = "std.Io.Reader"
+    ;
+    try std.testing.expectError(
+        error.InvalidValue,
+        parseInto(arena.allocator(), dotted, &dotted_diag),
+    );
+    try std.testing.expect(std.mem.indexOf(u8, dotted_diag.message, "one identifier per segment") != null);
 }
 
 // spec: Concept Ownership - Parses concept entries with name, literals, patterns, owner, files and reason keys
@@ -3178,6 +3362,32 @@ test "parse rejects a duplicate twin name" {
     try std.testing.expect(std.mem.indexOf(u8, diag.message, "duplicate") != null);
 }
 
+// spec: Optimize Divergence - Reads the per-test exemption list from guardian.toml
+
+test "parse reads the optimize divergence toggle, command and exemptions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // `enabled` and `exempt` share a first letter, which is exactly where a
+    // prefix-keyed value shape would mis-read the array as prose.
+    const cfg = try parse(arena.allocator(),
+        \\[optimize_divergence]
+        \\enabled = true
+        \\test_command = "env GUARDIAN_TEST_MAX_WALL_SECS=600 zig build test"
+        \\exempt = ["root.test.panics on overflow", "*timing*"]
+    );
+    try std.testing.expect(cfg.optimize_divergence.enabled);
+    try std.testing.expectEqualStrings(
+        "env GUARDIAN_TEST_MAX_WALL_SECS=600 zig build test",
+        cfg.optimize_divergence.test_command,
+    );
+    try std.testing.expectEqual(@as(usize, 2), cfg.optimize_divergence.exempt.len);
+    try std.testing.expectEqualStrings("*timing*", cfg.optimize_divergence.exempt[1]);
+    // Defaults stand when the section is absent.
+    const bare = try parse(arena.allocator(), "");
+    try std.testing.expect(bare.optimize_divergence.enabled);
+    try std.testing.expectEqual(@as(usize, 0), bare.optimize_divergence.exempt.len);
+}
+
 test "parse rejects unsafe mutation invariants" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -3288,6 +3498,34 @@ test "parse [completeness] defaults off and reads enabled + exempt_sections" {
     try std.testing.expect(cfg.completeness.enabled);
     try std.testing.expectEqual(@as(usize, 2), cfg.completeness.exempt_sections.len);
     try std.testing.expectEqualStrings("Overview", cfg.completeness.exempt_sections[0]);
+}
+
+// spec: Measure Vocabulary - Defaults the measure vocabulary off and parses its enabled kinds units and banned settings
+
+test "parse [measure_vocabulary] defaults off and reads all three tables" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Default: opt-in, so off, carrying the TIGER_STYLE vocabulary for the day
+    // a project turns it on.
+    const defaults = try parse(arena.allocator(), "");
+    try std.testing.expect(!defaults.measure_vocabulary.enabled);
+    try std.testing.expectEqual(@as(usize, 3), defaults.measure_vocabulary.kinds.len);
+    try std.testing.expectEqualStrings("cardinality: count", defaults.measure_vocabulary.kinds[1]);
+    try std.testing.expectEqual(@as(usize, 2), defaults.measure_vocabulary.banned.len);
+    // An eda-shaped table: a domain project replaces the unit families wholesale,
+    // and `units` is any mutually exclusive set, entities included.
+    const cfg = try parse(arena.allocator(),
+        \\[measure_vocabulary]
+        \\enabled = true
+        \\kinds = ["position: index, offset", "cardinality: count"]
+        \\units = ["distance: nm, um, mm, mil", "entity: net, pad, pin"]
+        \\banned = ["length"]
+    );
+    try std.testing.expect(cfg.measure_vocabulary.enabled);
+    try std.testing.expectEqual(@as(usize, 2), cfg.measure_vocabulary.kinds.len);
+    try std.testing.expectEqual(@as(usize, 2), cfg.measure_vocabulary.units.len);
+    try std.testing.expectEqualStrings("entity: net, pad, pin", cfg.measure_vocabulary.units[1]);
+    try std.testing.expectEqual(@as(usize, 1), cfg.measure_vocabulary.banned.len);
 }
 
 // spec: Configuration - Parses the dora sink path and enabled toggle
@@ -4165,4 +4403,30 @@ test "fuzz: guardian.toml parser tolerates arbitrary bytes" {
     // The allocator rides in as the fuzz context, so the global only appears in
     // this (exempt) test block, not the helper body.
     try std.testing.fuzz(std.testing.allocator, fuzzParseInto, .{ .corpus = &config_fuzz_corpus });
+}
+
+// spec: Configuration - Parses the two independent abi_layout half switches
+
+test "abi_layout defaults to advisory inventory plus blocking alignment and flips each half alone" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Defaults: the inventory advises, the ziglang/zig#23564 alignment blocks.
+    const default_cfg = try parse(a, "");
+    try std.testing.expect(!default_cfg.abi_layout.require_assertions);
+    try std.testing.expect(default_cfg.abi_layout.alignment_hazard);
+    // Each switch moves on its own — promoting the inventory to a gate must not
+    // silently disturb the half that already blocks, and vice versa.
+    const promoted = try parse(a,
+        \\[abi_layout]
+        \\require_assertions = true
+    );
+    try std.testing.expect(promoted.abi_layout.require_assertions);
+    try std.testing.expect(promoted.abi_layout.alignment_hazard);
+    const silenced = try parse(a,
+        \\[abi_layout]
+        \\alignment_hazard = false
+    );
+    try std.testing.expect(!silenced.abi_layout.require_assertions);
+    try std.testing.expect(!silenced.abi_layout.alignment_hazard);
 }

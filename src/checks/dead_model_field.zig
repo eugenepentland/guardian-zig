@@ -59,7 +59,7 @@ fn matchesAny(patterns: []const []const u8, rel_path: []const u8) bool {
 /// (which open with `pub`/`fn`/`const`) and nested-type identifiers never count.
 fn discoverInto(
     allocator: Allocator,
-    into: *std.StringArrayHashMapUnmanaged(Counts),
+    into: *std.array_hash_map.String(Counts),
     tree: *const Ast,
     struct_name: []const u8,
 ) Allocator.Error!void {
@@ -110,7 +110,7 @@ fn structOpenBrace(tree: *const Ast, tags: []const std.zig.Token.Tag, struct_nam
 }
 
 /// Adds every explicitly configured field name to `into` (the precise mode).
-fn seedFields(allocator: Allocator, into: *std.StringArrayHashMapUnmanaged(Counts), fields: []const []const u8) Allocator.Error!void {
+fn seedFields(allocator: Allocator, into: *std.array_hash_map.String(Counts), fields: []const []const u8) Allocator.Error!void {
     for (fields) |f| try into.put(allocator, f, .{});
 }
 
@@ -118,7 +118,7 @@ fn seedFields(allocator: Allocator, into: *std.StringArrayHashMapUnmanaged(Count
 /// identifier token immediately preceded by `.` whose text is a tracked field.
 fn tallyFieldAccess(
     tree: *const Ast,
-    counts: *std.StringArrayHashMapUnmanaged(Counts),
+    counts: *std.array_hash_map.String(Counts),
     add_out: bool,
     add_log: bool,
 ) void {
@@ -134,7 +134,7 @@ fn tallyFieldAccess(
 /// Walk context: tallies every indexed file into the field map by its output /
 /// logic glob membership.
 const TallyCtx = struct {
-    counts: *std.StringArrayHashMapUnmanaged(Counts),
+    counts: *std.array_hash_map.String(Counts),
     output: []const []const u8,
     logic: []const []const u8,
 };
@@ -179,7 +179,7 @@ fn resolveFields(
     ctx_param: *registry.RunCtx,
     allocator: Allocator,
     rule: config.DeadModelFieldRule,
-    map: *std.StringArrayHashMapUnmanaged(Counts),
+    map: *std.array_hash_map.String(Counts),
 ) registry.RunError!bool {
     if (rule.fields.len > 0) {
         try seedFields(allocator, map, rule.fields);
@@ -201,7 +201,7 @@ fn analyzeRule(
     rule: config.DeadModelFieldRule,
     found: *std.ArrayList(reporter.Violation),
 ) registry.RunError!void {
-    var map: std.StringArrayHashMapUnmanaged(Counts) = .empty;
+    var map: std.array_hash_map.String(Counts) = .empty;
     if (!try resolveFields(ctx_param, allocator, rule, &map)) return;
     var tally: TallyCtx = .{ .counts = &map, .output = rule.output, .logic = rule.logic };
     try ast_index.runSrc(ctx_param.source_index, allocator, ctx_param.project_dir, .{
@@ -262,7 +262,7 @@ test "dead-model-field: discoverInto extracts the struct's fields and skips its 
         \\pub fn helper(self: @This()) void { _ = self; }
     , 0);
     var tree = try Ast.parse(a, src, .{});
-    var map: std.StringArrayHashMapUnmanaged(Counts) = .empty;
+    var map: std.array_hash_map.String(Counts) = .empty;
     try discoverInto(a, &map, &tree, "ElectricalDecl");
     try testing.expect(map.contains("pin"));
     try testing.expect(map.contains("max_voltage"));
@@ -287,7 +287,7 @@ test "dead-model-field: tallyFieldAccess counts .field reads and ignores a match
         \\}
     , 0);
     var tree = try Ast.parse(a, src, .{});
-    var map: std.StringArrayHashMapUnmanaged(Counts) = .empty;
+    var map: std.array_hash_map.String(Counts) = .empty;
     try map.put(a, "max_voltage", .{});
     tallyFieldAccess(&tree, &map, true, false);
     try testing.expectEqual(@as(u32, 1), map.get("max_voltage").?.out);
@@ -300,7 +300,7 @@ test "dead-model-field: analyzeRule fires only for the surfaced-but-unenforced f
     defer arena.deinit();
     const a = arena.allocator();
     // Two fields, one read by logic and one not. Only the unenforced one fires.
-    var map: std.StringArrayHashMapUnmanaged(Counts) = .empty;
+    var map: std.array_hash_map.String(Counts) = .empty;
     try map.put(a, "max_voltage", .{ .out = 2, .log = 0 });
     try map.put(a, "v_ih_min", .{ .out = 2, .log = 4 });
     const rule: config.DeadModelFieldRule = .{

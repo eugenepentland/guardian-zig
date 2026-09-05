@@ -245,6 +245,16 @@ pub const Dir = struct {
         return self.inner.statFile(wiring.io(), sub_path, .{});
     }
 
+    /// Reads metadata for one child path WITHOUT following a final symlink, so
+    /// the answer describes the entry itself (`kind == .sym_link`) rather than
+    /// whatever it points at. `import-resolution` needs this distinction: a
+    /// symlinked module is a legitimate import, and following the link would
+    /// turn a dangling or directory-targeted link into a verdict about a file
+    /// this project does not own.
+    pub fn statFileNoFollow(self: Dir, sub_path: []const u8) std.Io.Dir.StatFileError!Stat {
+        return self.inner.statFile(wiring.io(), sub_path, .{ .follow_symlinks = false });
+    }
+
     /// Allocates the canonical absolute path for a child file.
     pub fn realpathAlloc(self: Dir, allocator: std.mem.Allocator, sub_path: []const u8) std.Io.Dir.RealPathFileAllocError![:0]u8 {
         return self.inner.realPathFileAlloc(wiring.io(), sub_path, allocator);
