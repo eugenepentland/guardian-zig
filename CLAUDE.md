@@ -543,8 +543,17 @@ and a `.guardian/` that diverges from the stamped state always re-runs. Disable
 with `cache_enabled = false`. Turn off individual checks with a top-level
 `disabled = ["check-name", ...]` list (not a per-check `enabled` flag).
 
-Baseline mode (`[baseline] enabled = true`) auto-prunes: when violations
-resolve, the baseline file is rewritten smaller in place (no refresh env var).
+Baseline mode (`[baseline] enabled = true`) prunes resolved violations — but
+only on a run that may WRITE metadata. `baseline.zig`'s `write_allowed` is
+`ctx.metadata_writable and partial == 0 and view == .whole_tree`, and
+`metadata_writable` is set in exactly two places: `cli/accept.zig` and
+`cli/migrate.zig`. So an ordinary `zig build` or `guardian-check all . --full`
+REPORTS `N resolved (run guardian-check accept <check> . to prune the
+baseline)` and rewrites nothing. Debt you have genuinely paid off stays frozen
+on disk until an `accept` names its check — which is how resolved rows
+accumulate unnoticed. (Measured on a consumer: six cleanup branches resolved
+140 rows across nine checks; every baseline file was byte-identical until an
+`accept` ran.)
 **A check with no baseline file adopts nothing — it fails.** Only
 `accept`/`migrate` may write metadata, so a first record on any other run wrote
 nothing and reported "N violation(s) would be recorded as the starting set",

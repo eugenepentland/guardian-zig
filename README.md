@@ -1121,7 +1121,7 @@ A row accepted from one diff describes a change that no longer exists.
 Baseline mode runs one of two lifecycles per check, chosen automatically:
 
 - **Per-item ratchets (baseline v2)** for the eight **threshold** checks — `function-length`, `nesting-depth`, `cognitive-complexity`, `function-size`, `type-size`, `file-size`, `bool-ops-per-condition`, `line-length`. Each blocking offender is stored as a `<value> <key>` line and gets a **personal, only-shrinks ceiling**. The advisory tier for file size, function length, and line length is deliberately excluded from ratchets.
-- **Identity baselines (v3)** for every other check — each violation is frozen under a **content-derived key**, not its rendered text; a new key fails, a resolved key auto-prunes.
+- **Identity baselines (v3)** for every other check — each violation is frozen under a **content-derived key**, not its rendered text; a new key fails, and a resolved key is pruned by the next `accept`/`migrate` (an ordinary run reports it as resolved but writes nothing).
 
 This split fixes the structural flaw that made consumers raise global caps: a text baseline embeds the metric in the line, so *any* metric change (including a shrink) reads as a new violation. Ratchets store the metric as a comparable number instead.
 

@@ -11674,3 +11674,36 @@ wish: a way to spec-tag a test that asserts over an `@embedFile`'d asset. Half
   .zig-cache/h/*.txt` to make the eight shards re-report (4821 passed, 8/8 green,
   +1 for the new test). The runner already owns a verdict line for "every exit
   path"; a cached exit path currently has none.
+
+## 2026-09-05 · claude · eda — six-branch frozen-baseline cleanup
+- **good:** two frozen rows led directly to real defects. An `errdefer-in-init` row
+  (itself a false positive — arena-owned) sat two lines above `nx * ny > max_nodes`,
+  where both axis counts derive from a DESIGN-SUPPLIED span: ~4e24 against a usize max
+  of 1.8e19. Safe build traps before the guard (remote abort of the serve worker on a
+  user `.sexp`); fast build wraps past it and writes out of bounds per node. Separately,
+  `bool-ops-per-condition` surfaced three copies of an owned pin-token predicate that
+  had dropped `\r` while the reader kept it — a pin ID with a CR passed validation, was
+  written, then read back truncated and became unfindable by its own name.
+- **good:** `type-size` and `pub-exposes-private` COMPOSED. Marking `router.Ctx` pub to
+  clear 26 rows immediately failed type-size with five new offenders (Ctx has 86 fields
+  against a cap of 7) — because type-size only measures pub types. Two checks together
+  said what neither says alone: those types are not fit to be public API, and the rows
+  need a refactor, not a visibility edit. The agent reverted rather than trade one row
+  class for another.
+- **bug:** CLAUDE.md and README claimed baselines auto-prune. They do not — `write_allowed`
+  requires `metadata_writable`, set only by accept/migrate. Three agents independently
+  reported resolving rows and finding the files byte-identical. 140 resolved rows sat
+  frozen until an accept ran. Fixed in this commit.
+- **friction:** `pub-api-surface` interlocks with `pub-exposes-private`, `boundaries`,
+  `imports` and cross-file literal extraction. Every remedy for those adds or removes a
+  pub symbol, so the snapshot always drifts and the fix is unreachable without accept
+  rights. Two agents hit this independently; one implemented a working
+  ban-hardcoded-paths fix and reverted it rather than leave the branch red.
+- **bug:** eda carries 14 baseline rows for RETIRED checks — `init-hygiene` (3),
+  `optional-density` (1), `repeated-switch-on-enum` (10). Nothing reads, writes or prunes
+  them, and `--list` refuses the names. A retired check should either prune its file on
+  migrate or be reported by `debt` as dead metadata.
+- **wish:** `imports` reports the FIRST cycle only, so 3 frozen rows read as three small
+  cycles. Tarjan over the tree finds one strongly-connected component of 312 files.
+  Breaking one edge surfaces the next, which is not baselined, taking the gate red. A
+  cycle count plus the SCC size would have said that in one line.
